@@ -1,5 +1,5 @@
 import { config } from "../config";
-import type { Catalog, ProjectInput, PageCapture, StateCapture } from "../types";
+import type { Catalog, ProjectInput, PageCapture, StateCapture, SocialKit } from "../types";
 import type { DeviceCaptureResult } from "./capture-device";
 import type { ThumbnailResult } from "./generate-thumbnails";
 import type { CoverResult } from "./generate-cover";
@@ -12,6 +12,7 @@ export interface CatalogExtras {
   mockups?: MockupResult[];
   pages?: PageCapture[];
   states?: StateCapture[];
+  social?: SocialKit;
 }
 
 export function buildCatalog(
@@ -26,6 +27,8 @@ export function buildCatalog(
   const mockups = extras.mockups ?? [];
   const pages = extras.pages ?? [];
   const states = extras.states ?? [];
+  const social = extras.social;
+  const hasSocial = !!social && (social.images.length > 0 || social.videos.length > 0);
   const hasVideos =
     captures.desktop.videoPublicPath !== undefined ||
     captures.mobile.videoPublicPath  !== undefined;
@@ -68,6 +71,7 @@ export function buildCatalog(
     ...(cover ? { cover: { image: cover.cover, source: cover.source } } : {}),
     ...(compositions.length ? { compositions } : {}),
     ...(mockups.length ? { mockups } : {}),
+    ...(hasSocial ? { social } : {}),
     meta: {
       captureDelayMs: config.captureDelayMs,
       navTimeoutMs:   config.navTimeoutMs,

@@ -42,6 +42,38 @@ export const config = {
     ],
   },
 
+  // ── Kit de redes sociais (v2.0) ────────────────────────────────────────────
+  // Assets prontos para postar, separados em imagens (Sharp) e vídeos (ffmpeg),
+  // na estética emoldurada da marca. Formatos-alvo: Instagram. Tudo tunável aqui.
+  social: {
+    // Estética da moldura (compartilhada por imagens e vídeos)
+    background: "#0f1014",   // fundo da marca (~ --color-base)
+    paddingRatio: 0.08,      // margem = fração da menor dimensão do canvas
+    cornerRadius: 20,        // cantos arredondados da captura
+    shadowSigma: 30,         // suavidade da sombra
+    shadowOpacity: 0.5,      // opacidade da sombra
+    shadowOffsetY: 30,       // deslocamento vertical da sombra
+
+    // Formatos de imagem (Sharp) — "source" define de qual captura partir
+    images: [
+      { name: "ig-feed-1x1",   label: "Feed 1:1",         platform: "Instagram", width: 1080, height: 1080, source: "desktop" },
+      { name: "ig-feed-4x5",   label: "Feed 4:5",         platform: "Instagram", width: 1080, height: 1350, source: "desktop" },
+      { name: "ig-story-9x16", label: "Story/Reels 9:16", platform: "Instagram", width: 1080, height: 1920, source: "mobile"  },
+    ],
+
+    // Formatos de vídeo (ffmpeg) — recorta/enquadra a gravação de scroll
+    videos: [
+      { name: "ig-reels-9x16", label: "Reels/Story 9:16", platform: "Instagram", width: 1080, height: 1920, source: "mobile"  },
+      { name: "ig-feed-1x1",   label: "Feed 1:1",         platform: "Instagram", width: 1080, height: 1080, source: "desktop" },
+    ],
+
+    // ffmpeg — caminho do binário (env sobrescreve; default assume o PATH)
+    ffmpegPath: process.env.ATLAS_FFMPEG_PATH ?? "ffmpeg",
+    videoCrf: 23,            // qualidade H.264 (menor = melhor, ~18–28)
+    videoFps: 30,            // fps de saída
+    videoMaxDurationS: 20,   // corta o clipe se passar disso (segundos)
+  },
+
   // ── Mockups com moldura (v1.4) ─────────────────────────────────────────────
   // Molduras desenhadas via SVG (sem asset externo). Fundo transparente para
   // reuso em qualquer layout de case. Tudo tunável aqui.

@@ -11,6 +11,7 @@ import { CaseDraftSection } from "@/components/case-draft-section";
 import { PortfolioExport } from "@/components/portfolio-export";
 import { DeleteProject } from "@/components/delete-project";
 import { VisualDiff } from "@/components/visual-diff";
+import { SocialKitSection } from "@/components/social-kit";
 import { ZoomImage } from "@/components/zoom-image";
 
 interface Props {
@@ -207,6 +208,11 @@ export default async function ProjectPage({ params }: Props) {
               ))}
             </div>
           </div>
+        )}
+
+        {/* ── Redes sociais (kit pronto para postar) ── */}
+        {catalog.social && (
+          <SocialKitSection slug={slug} social={catalog.social} projectName={project.name} />
         )}
 
         {/* ── Mockups ── */}

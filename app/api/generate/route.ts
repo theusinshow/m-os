@@ -12,6 +12,8 @@ import { generateCover } from "@/lib/capture/generate-cover";
 import { generateCompositions } from "@/lib/capture/generate-compositions";
 import { generateMockups } from "@/lib/capture/generate-mockups";
 import { generateMockups3D } from "@/lib/mockup/render-3d";
+import { generateSocialImages } from "@/lib/social/generate-images";
+import { generateSocialVideos } from "@/lib/social/generate-videos";
 import { captureExtraPage, resolvePageUrl } from "@/lib/capture/capture-page";
 import { captureState } from "@/lib/capture/capture-states";
 import { buildCatalog } from "@/lib/capture/build-catalog";
@@ -24,6 +26,7 @@ import type {
   ProjectInput,
   PageCapture,
   StateCapture,
+  SocialVideoAsset,
   ProgressEvent,
   ResultEvent,
 } from "@/lib/types";
@@ -158,8 +161,17 @@ export async function POST(req: NextRequest): Promise<Response> {
         ).catch(() => []);
         const mockups = [...flatMockups, ...mockups3d];
 
+        // ── Kit de redes sociais (v2.0) — imagens (Sharp) + vídeos (ffmpeg) ──────
+        emit({ step: "generating-social", message: "Preparando kit de redes sociais...", progress: 88 });
+        const socialImages = await generateSocialImages(input.slug, desktop, mobile).catch(() => []);
+        const socialVideos: SocialVideoAsset[] = await generateSocialVideos(input.slug, desktop, mobile).catch(() => []);
+        const social =
+          socialImages.length || socialVideos.length
+            ? { images: socialImages, videos: socialVideos }
+            : undefined;
+
         emit({ step: "writing-catalog", message: "Montando catálogo...", progress: 92 });
-        const catalog = buildCatalog(input, { desktop, mobile }, thumbnails, cover, { compositions, mockups, pages, states }, startedAt);
+        const catalog = buildCatalog(input, { desktop, mobile }, thumbnails, cover, { compositions, mockups, pages, states, social }, startedAt);
         await writeJson(catalogPath(input.slug), catalog);
 
         const result: ResultEvent = {

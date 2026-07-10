@@ -13,7 +13,7 @@ interface Params {
   params: Promise<{ slug: string }>;
 }
 
-export async function GET(_req: NextRequest, { params }: Params): Promise<Response> {
+export async function GET(req: NextRequest, { params }: Params): Promise<Response> {
   const { slug } = await params;
 
   if (!slug || typeof slug !== "string") {
@@ -26,8 +26,36 @@ export async function GET(_req: NextRequest, { params }: Params): Promise<Respon
     return new Response("Projeto não encontrado.", { status: 404 });
   }
 
+  // ?only=social → baixa apenas o kit de redes (imagens + vídeos).
+  const socialOnly = new URL(req.url).searchParams.get("only") === "social";
+
   const dir = projectDir(slug);
   const archive = new ZipArchive({ zlib: { level: 6 } });
+
+  if (socialOnly) {
+    const socialSrc = `${dir}/social`;
+    try {
+      await fs.access(socialSrc);
+      archive.directory(socialSrc, "social");
+    } catch {
+      return new Response("Este projeto não tem kit de redes sociais.", { status: 404 });
+    }
+    archive.finalize();
+    const readableSocial = new ReadableStream({
+      start(controller) {
+        archive.on("data", (chunk: Buffer) => controller.enqueue(chunk));
+        archive.on("end", () => controller.close());
+        archive.on("error", (err) => controller.error(err));
+      },
+    });
+    return new Response(readableSocial, {
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="coded-atlas-${slug}-redes.zip"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
 
   archive.file(catalogPath(slug), { name: "catalog.json" });
 
@@ -86,6 +114,12 @@ export async function GET(_req: NextRequest, { params }: Params): Promise<Respon
   try {
     await fs.access(mockupsDir);
     archive.directory(mockupsDir, "mockups");
+  } catch { /* opcional */ }
+
+  const socialAssetsDir = `${dir}/social`;
+  try {
+    await fs.access(socialAssetsDir);
+    archive.directory(socialAssetsDir, "social");
   } catch { /* opcional */ }
 
   const pagesDir = `${dir}/screenshots/pages`;
