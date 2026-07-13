@@ -1,0 +1,67 @@
+[package]
+name = "cronocad"
+version = "0.1.0"
+description = "CronoCAD — Rastreador de horas para desenhistas e projetistas"
+authors = ["CronoCAD"]
+edition = "2021"
+rust-version = "1.77"
+
+# Ver mais chaves e suas definicoes em https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# O nome `_lib` evita conflito de nome com o binario no Windows.
+name = "cronocad_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+tauri-plugin-notification = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-autostart = "2"
+# Geracao de PDF do relatorio (pure-Rust, sem dependencias de sistema).
+printpdf = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+# Acesso ao mesmo pool SQLite do plugin (versao unificada com tauri-plugin-sql).
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "sqlite",
+] }
+# Geracao de ids e timestamps no backend (fonte da verdade — secoes 8 e 9).
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "std",
+] }
+# Enumeracao de processos em execucao (apenas nomes — secao 6). Sem shell.
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+# Temporizacao do loop de monitoramento (versao unificada com o Tauri).
+tokio = { version = "1", features = ["time"] }
+
+# APIs do Windows para deteccao de inatividade (GetLastInputInfo) — secao 11.
+# Le apenas o tempo desde a ultima entrada, nunca teclas ou coordenadas.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_SystemInformation",
+] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[features]
+# Feature padrao usada pelo `tauri dev` com recarga.
+default = []
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
