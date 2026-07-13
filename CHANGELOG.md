@@ -5,6 +5,21 @@ versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Nao lancado]
 
+### Adicionado — Confirmacao ao encerrar o cronometro
+- Encerrar grava a sessao em `time_entries` e e **irreversivel**, mas disparava
+  com um unico clique. Agora abre uma confirmacao (`StopConfirmModal`) com o
+  tempo ao vivo, o valor que sera gravado e a saida **"Pausar em vez disso"**
+  como acao primaria — o erro mais provavel e querer pausar e encerrar por
+  engano. Com o cronometro ja pausado, essa opcao nao aparece.
+- O cronometro **continua correndo** enquanto o modal esta aberto: a decisao e
+  adiada, o tempo nao se perde.
+
+### Alterado — Hierarquia dos botoes Pausar/Encerrar
+- O app promovia o **Encerrar** (irreversivel) sobre o **Pausar** em tres
+  lugares: no painel do cronometro e nos avisos de "CAD fechado" e "sair do
+  app", onde Encerrar era ate o botao primario. Agora **Pausar e a acao
+  primaria** nos tres, e Encerrar e discreto.
+
 ### Alterado — Novo design system ("Design Language")
 - Paleta redesenhada (`src/styles/tokens.css`, mesmos nomes de token): base
   escura com temperatura verde (`#000F08`, nunca preto puro), estrutura off-white
