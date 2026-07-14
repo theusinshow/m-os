@@ -10,6 +10,7 @@ import { Panel } from "@/components/ui/Panel";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Select } from "@/components/ui/Field";
 import { TimerCard } from "./TimerCard";
+import { StopConfirmModal } from "./StopConfirmModal";
 
 /**
  * Painel interativo do cronometro. Sem cronometro ativo, exibe o formulario de
@@ -26,6 +27,7 @@ export function TimerPanel() {
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmingStop, setConfirmingStop] = useState(false);
 
   const activeProject =
     projects.find((p) => p.id === activeTimer?.projectId) ?? null;
@@ -80,7 +82,7 @@ export function TimerPanel() {
         <div className="mt-6 flex gap-2">
           {running ? (
             <Button
-              variant="secondary"
+              variant="primary"
               onClick={() => void run(pause)}
               disabled={busy}
               icon={<Pause size={16} strokeWidth={2} />}
@@ -99,7 +101,7 @@ export function TimerPanel() {
           )}
           <Button
             variant="danger"
-            onClick={() => void run(stop)}
+            onClick={() => setConfirmingStop(true)}
             disabled={busy}
             icon={<Square size={16} strokeWidth={2} />}
           >
@@ -107,6 +109,22 @@ export function TimerPanel() {
           </Button>
         </div>
         {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+
+        <StopConfirmModal
+          open={confirmingStop}
+          timer={activeTimer}
+          project={activeProject}
+          busy={busy}
+          onCancel={() => setConfirmingStop(false)}
+          onPause={() => {
+            setConfirmingStop(false);
+            void run(pause);
+          }}
+          onStop={() => {
+            setConfirmingStop(false);
+            void run(stop);
+          }}
+        />
       </Panel>
     );
   }

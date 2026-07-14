@@ -51,26 +51,22 @@ function QuitPrompt() {
           <Button variant="ghost" onClick={clearQuit} disabled={busy}>
             Cancelar
           </Button>
-          <Button
-            variant="secondary"
-            onClick={() => void act()}
-            disabled={busy}
-          >
+          <Button variant="ghost" onClick={() => void act()} disabled={busy}>
             Sair assim mesmo
           </Button>
           <Button
-            variant="secondary"
-            onClick={() => void act(pause)}
-            disabled={busy}
-          >
-            Pausar e sair
-          </Button>
-          <Button
-            variant="primary"
+            variant="danger"
             onClick={() => void act(stop)}
             disabled={busy}
           >
             Encerrar e sair
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => void act(pause)}
+            disabled={busy}
+          >
+            Pausar e sair
           </Button>
         </>
       }
@@ -185,22 +181,22 @@ function ClosePrompt() {
       onClose={clearClose}
       footer={
         <>
-          <Button
-            variant="secondary"
-            onClick={() => void act(pause)}
-            disabled={busy}
-          >
-            Pausar
-          </Button>
           <Button variant="ghost" onClick={clearClose} disabled={busy}>
             Manter ativo
           </Button>
           <Button
-            variant="primary"
+            variant="danger"
             onClick={() => void act(stop)}
             disabled={busy}
           >
             Encerrar
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => void act(pause)}
+            disabled={busy}
+          >
+            Pausar
           </Button>
         </>
       }
