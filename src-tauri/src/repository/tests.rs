@@ -7,12 +7,13 @@
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Pool, Sqlite};
 
-use crate::database::{MIGRATION_0001, MIGRATION_0002, MIGRATION_0003, MIGRATION_0004};
-use crate::models::{
-    validate_status, ClientInput, EntryUpdateInput, ManualEntryInput, ProjectInput,
-    StartTimerInput,
+use crate::database::{
+    MIGRATION_0001, MIGRATION_0002, MIGRATION_0003, MIGRATION_0004, MIGRATION_0005,
 };
-use crate::repository::{clients, new_id, now_iso, projects, time_entries, timer};
+use crate::models::{
+    validate_status, ClientInput, EntryUpdateInput, ManualEntryInput, ProjectInput, StartTimerInput,
+};
+use crate::repository::{clients, new_id, notes, now_iso, projects, time_entries, timer};
 
 async fn setup() -> Pool<Sqlite> {
     let pool = SqlitePoolOptions::new()
@@ -20,7 +21,13 @@ async fn setup() -> Pool<Sqlite> {
         .connect("sqlite::memory:")
         .await
         .expect("conectar sqlite em memoria");
-    for migration in [MIGRATION_0001, MIGRATION_0002, MIGRATION_0003, MIGRATION_0004] {
+    for migration in [
+        MIGRATION_0001,
+        MIGRATION_0002,
+        MIGRATION_0003,
+        MIGRATION_0004,
+        MIGRATION_0005,
+    ] {
         sqlx::raw_sql(migration)
             .execute(&pool)
             .await
@@ -129,7 +136,9 @@ async fn arquivar_projeto_o_oculta_e_marca_archived_at() {
     let p = projects::create(&pool, project_input("Projeto B", 10000).validate().unwrap())
         .await
         .unwrap();
-    let archived = projects::set_status(&pool, &p.id, "archived").await.unwrap();
+    let archived = projects::set_status(&pool, &p.id, "archived")
+        .await
+        .unwrap();
     assert_eq!(archived.status, "archived");
     assert!(archived.archived_at.is_some());
     assert_eq!(projects::list(&pool, false).await.unwrap().len(), 0);
@@ -142,11 +151,15 @@ async fn concluir_e_reativar_projeto_ajusta_archived_at() {
     let p = projects::create(&pool, project_input("Projeto C", 8000).validate().unwrap())
         .await
         .unwrap();
-    let completed = projects::set_status(&pool, &p.id, "completed").await.unwrap();
+    let completed = projects::set_status(&pool, &p.id, "completed")
+        .await
+        .unwrap();
     assert_eq!(completed.status, "completed");
     assert!(completed.archived_at.is_none());
 
-    let archived = projects::set_status(&pool, &p.id, "archived").await.unwrap();
+    let archived = projects::set_status(&pool, &p.id, "archived")
+        .await
+        .unwrap();
     assert!(archived.archived_at.is_some());
     let reactivated = projects::set_status(&pool, &p.id, "active").await.unwrap();
     assert!(reactivated.archived_at.is_none());
@@ -289,7 +302,13 @@ async fn descartar_remove_cronometro_sem_criar_sessao() {
         .unwrap();
     timer::discard(&pool).await.unwrap();
     assert!(timer::active(&pool).await.unwrap().is_none());
-    assert_eq!(time_entries::list_recent(&pool, 10, false).await.unwrap().len(), 0);
+    assert_eq!(
+        time_entries::list_recent(&pool, 10, false)
+            .await
+            .unwrap()
+            .len(),
+        0
+    );
 }
 
 #[tokio::test]
@@ -319,11 +338,7 @@ async fn sessao_reconstruida_usa_source_reconstructed() {
     let project = projects::create(&pool, project_input("Proj", 6000).validate().unwrap())
         .await
         .unwrap();
-    let mut input = manual_input(
-        &project.id,
-        "2026-07-11T08:00:00Z",
-        "2026-07-11T09:00:00Z",
-    );
+    let mut input = manual_input(&project.id, "2026-07-11T08:00:00Z", "2026-07-11T09:00:00Z");
     input.source = Some("reconstructed".to_string());
     let entry = time_entries::create_manual(&pool, input.validate().unwrap())
         .await
@@ -338,13 +353,9 @@ async fn sessao_manual_atravessa_meia_noite() {
         .await
         .unwrap();
     // 23:30 -> 00:30 do dia seguinte = 1h.
-    let input = manual_input(
-        &project.id,
-        "2026-07-11T23:30:00Z",
-        "2026-07-12T00:30:00Z",
-    )
-    .validate()
-    .unwrap();
+    let input = manual_input(&project.id, "2026-07-11T23:30:00Z", "2026-07-12T00:30:00Z")
+        .validate()
+        .unwrap();
     let entry = time_entries::create_manual(&pool, input).await.unwrap();
     assert_eq!(entry.duration_seconds, 3600);
     assert_eq!(entry.source, "manual");
@@ -383,7 +394,9 @@ async fn edita_sessao_recalculando_duracao() {
     }
     .validate()
     .unwrap();
-    let updated = time_entries::update(&pool, &entry.id, update).await.unwrap();
+    let updated = time_entries::update(&pool, &entry.id, update)
+        .await
+        .unwrap();
     assert_eq!(updated.duration_seconds, 7200);
     assert_eq!(updated.activity_type, "revision");
     assert!(!updated.billable);
@@ -405,12 +418,30 @@ async fn soft_delete_e_restore_de_sessao() {
     .unwrap();
 
     time_entries::soft_delete(&pool, &entry.id).await.unwrap();
-    assert_eq!(time_entries::list_recent(&pool, 10, false).await.unwrap().len(), 0);
-    assert_eq!(time_entries::list_recent(&pool, 10, true).await.unwrap().len(), 1);
+    assert_eq!(
+        time_entries::list_recent(&pool, 10, false)
+            .await
+            .unwrap()
+            .len(),
+        0
+    );
+    assert_eq!(
+        time_entries::list_recent(&pool, 10, true)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
 
     let restored = time_entries::restore(&pool, &entry.id).await.unwrap();
     assert!(restored.deleted_at.is_none());
-    assert_eq!(time_entries::list_recent(&pool, 10, false).await.unwrap().len(), 1);
+    assert_eq!(
+        time_entries::list_recent(&pool, 10, false)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 async fn insert_active_timer(
@@ -448,4 +479,97 @@ async fn banco_impede_dois_cronometros_ativos() {
         second.is_err(),
         "o banco deveria impedir um segundo cronometro ativo"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Anotacoes e pendencias por projeto
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn pendencia_criada_marcada_e_excluida() {
+    let pool = setup().await;
+    let project = projects::create(&pool, project_input("Proj", 6000).validate().unwrap())
+        .await
+        .unwrap();
+
+    let todo = notes::create_todo(&pool, &project.id, "Revisar cortes")
+        .await
+        .unwrap();
+    assert_eq!(todo.text, "Revisar cortes");
+    assert!(!todo.done);
+    assert!(todo.done_at.is_none());
+
+    let done = notes::set_todo_done(&pool, &todo.id, true).await.unwrap();
+    assert!(done.done);
+    assert!(done.done_at.is_some());
+
+    let reopened = notes::set_todo_done(&pool, &todo.id, false).await.unwrap();
+    assert!(!reopened.done);
+    assert!(reopened.done_at.is_none());
+
+    notes::delete_todo(&pool, &todo.id).await.unwrap();
+    assert!(notes::list_todos(&pool).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn pendencia_com_texto_vazio_e_rejeitada() {
+    let pool = setup().await;
+    let project = projects::create(&pool, project_input("Proj", 6000).validate().unwrap())
+        .await
+        .unwrap();
+
+    assert!(notes::create_todo(&pool, &project.id, "   ").await.is_err());
+}
+
+#[tokio::test]
+async fn anotacoes_do_projeto_persistem_e_sobrevivem_a_edicao() {
+    let pool = setup().await;
+    let project = projects::create(&pool, project_input("Proj", 6000).validate().unwrap())
+        .await
+        .unwrap();
+    assert!(project.notes.is_none());
+
+    let saved = notes::set_notes(&pool, &project.id, Some("Esperando topografia".into()))
+        .await
+        .unwrap();
+    assert_eq!(saved.notes.as_deref(), Some("Esperando topografia"));
+
+    // Editar o projeto nao pode apagar as anotacoes.
+    let edited = projects::update(
+        &pool,
+        &project.id,
+        project_input("Proj renomeado", 7000).validate().unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(edited.notes.as_deref(), Some("Esperando topografia"));
+
+    // Texto em branco limpa as anotacoes.
+    let cleared = notes::set_notes(&pool, &project.id, Some("  ".into()))
+        .await
+        .unwrap();
+    assert!(cleared.notes.is_none());
+}
+
+#[tokio::test]
+async fn excluir_projeto_leva_as_pendencias_junto() {
+    let pool = setup().await;
+    let project = projects::create(&pool, project_input("Proj", 6000).validate().unwrap())
+        .await
+        .unwrap();
+    notes::create_todo(&pool, &project.id, "Enviar PDF")
+        .await
+        .unwrap();
+
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM projects WHERE id = ?1")
+        .bind(&project.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    assert!(notes::list_todos(&pool).await.unwrap().is_empty());
 }

@@ -8,7 +8,7 @@ use crate::models::{Project, ValidProject};
 use super::{new_id, now_iso};
 
 const COLUMNS: &str = "id, client_id, name, code, description, hourly_rate_cents, \
-     budget_minutes, status, color, created_at, updated_at, archived_at";
+     budget_minutes, status, color, created_at, updated_at, archived_at, notes";
 
 /// Lista projetos ordenados por nome. Por padrao oculta os arquivados.
 pub async fn list(pool: &Pool<Sqlite>, include_archived: bool) -> Result<Vec<Project>, AppError> {
@@ -60,7 +60,11 @@ pub async fn create(pool: &Pool<Sqlite>, input: ValidProject) -> Result<Project,
 }
 
 /// Atualiza os dados de um projeto (nao altera o status).
-pub async fn update(pool: &Pool<Sqlite>, id: &str, input: ValidProject) -> Result<Project, AppError> {
+pub async fn update(
+    pool: &Pool<Sqlite>,
+    id: &str,
+    input: ValidProject,
+) -> Result<Project, AppError> {
     let now = now_iso();
     let project = sqlx::query_as::<_, Project>(&format!(
         "UPDATE projects SET \
