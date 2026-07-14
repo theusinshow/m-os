@@ -23,6 +23,7 @@ import {
   updateProject as apiUpdateProject,
   type ProjectInput,
 } from "@/services/projects";
+import { updateProjectNotes as apiUpdateProjectNotes } from "@/services/notes";
 
 interface CatalogState {
   clients: Client[];
@@ -43,6 +44,7 @@ interface CatalogState {
   createProject: (input: ProjectInput) => Promise<Project>;
   updateProject: (id: string, input: ProjectInput) => Promise<Project>;
   setProjectStatus: (id: string, status: ProjectStatus) => Promise<Project>;
+  updateProjectNotes: (projectId: string, notes: string) => Promise<Project>;
 }
 
 function messageOf(err: unknown): string {
@@ -137,6 +139,14 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
             .projects.map((p) => (p.id === id ? updated : p))
             .sort(byName);
     set({ projects: next });
+    return updated;
+  },
+
+  updateProjectNotes: async (projectId, notes) => {
+    const updated = await apiUpdateProjectNotes(projectId, notes.trim() || null);
+    set({
+      projects: get().projects.map((p) => (p.id === projectId ? updated : p)),
+    });
     return updated;
   },
 }));

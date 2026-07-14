@@ -32,6 +32,7 @@ const project: Project = {
   budgetMinutes: 0,
   status: "active",
   color: null,
+  notes: null,
   createdAt: "2026-07-11T08:00:00Z",
   updatedAt: "2026-07-11T08:00:00Z",
   archivedAt: null,
