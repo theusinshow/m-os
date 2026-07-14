@@ -44,7 +44,7 @@ describe("openTodosByProject", () => {
       null,
     );
     expect(groups).toHaveLength(1);
-    expect(groups[0].todos.map((t) => t.id)).toEqual(["t1"]);
+    expect(groups[0]?.todos.map((t) => t.id)).toEqual(["t1"]);
   });
 
   it("agrupa por projeto e ordena por nome quando nao ha cronometro", () => {
