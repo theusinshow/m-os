@@ -54,16 +54,16 @@
   --color-bg: #000f08; /* base — deep black com verde imperceptivel */
   --color-bg-subtle: #060a07;
 
-  --color-surface: #070b08; /* forest — cards/overlays */
-  --color-surface-raised: #0b0f0b;
-  --color-surface-hover: #10160f;
+  --color-surface: #0a100c; /* forest — cards/overlays */
+  --color-surface-raised: #0f1611;
+  --color-surface-hover: #161e17;
 
-  --color-border: #111511; /* borda quase invisivel, temperatura verde */
-  --color-border-strong: #1a2418; /* borda em hover/ativo */
+  --color-border: #29332a; /* borda discreta: da aresta ao card sem gritar */
+  --color-border-strong: #5b6a5d; /* borda de CAMPO — 3:1, delimita o controle */
 
   --color-text: #f5f2ed; /* estrutura — off white quente */
-  --color-text-muted: #8a8780; /* gray-400 */
-  --color-text-subtle: #4a4844; /* gray-600 */
+  --color-text-muted: #a9a59d; /* 2o nivel — legivel (>= 7:1) */
+  --color-text-subtle: #847f78; /* 3o nivel — o mais quieto que passa AA ate no surface-raised */
   --color-text-inverted: #000f08;
 
   /* Sinal — vermelho que corta. Raro por regra. */
@@ -94,25 +94,28 @@
   --color-surface-raised: #fefdfb;
   --color-surface-hover: #efeae1;
 
-  --color-border: #ded8cc;
-  --color-border-strong: #c7bfb0;
+  --color-border: #cdc5b4; /* borda discreta */
+  --color-border-strong: #8d8471; /* borda de CAMPO — 3:1 */
 
   --color-text: #1e1e1a; /* quase preto quente (nunca #000) */
   --color-text-muted: #5c584f;
-  --color-text-subtle: #8a8780;
+  --color-text-subtle: #6f6d68; /* 3o nivel — escurecido para passar AA ate no bg */
   --color-text-inverted: #f5f2ed;
 
-  --color-accent: #fb3640;
-  --color-accent-hover: #c42030;
-  --color-accent-muted: rgba(251, 54, 64, 0.1);
-  --color-accent-contrast: #000f08;
+  /* No off-white, o vermelho-sinal do escuro (#fb3640) so alcanca 3.5:1 como
+     texto. Aqui ele fecha um tom e passa a levar texto CLARO — o sinal continua
+     sendo o mesmo gesto, legivel nos dois papeis (preenchimento e texto). */
+  --color-accent: #d21f2a;
+  --color-accent-hover: #a8161f;
+  --color-accent-muted: rgba(210, 31, 42, 0.1);
+  --color-accent-contrast: #f5f2ed;
 
-  --color-state-running: #fb3640;
-  --color-state-paused: #a9781a;
-  --color-state-stopped: #8a8780;
+  --color-state-running: #d21f2a;
+  --color-state-paused: #956a17;
+  --color-state-stopped: #74716c;
 
   --color-danger: #d21f2a;
   --color-danger-muted: rgba(210, 31, 42, 0.1);
-  --color-success: #5f7d50;
-  --color-warning: #a9781a;
+  --color-success: #5c7a4e;
+  --color-warning: #956a17;
 }

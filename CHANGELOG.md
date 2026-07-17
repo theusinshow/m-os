@@ -5,6 +5,38 @@ versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Nao lancado]
 
+### Corrigido — Valores vazando por cima da borda dos cards
+- `formatCurrency` usa `Intl.NumberFormat`, que separa simbolo e numero com um
+  espaco **nao-quebravel** (U+00A0). "R$ 12.480,83" e portanto um token unico e
+  **indivisivel**: sem lugar para quebrar, o texto forcava a trilha do grid e
+  **vazava por cima da borda do card**.
+- No Painel, o bloco de estatisticas era 2x2 dentro de um painel que ocupa
+  1/2.4 da largura — na janela minima (960px) sobravam ~102px por coluna, onde
+  nenhum valor de moeda cabe, em fonte nenhuma. Agora e **coluna unica**: cada
+  valor recebe a largura toda e o vazio que sobrava embaixo some.
+- Nos Relatorios, as 4 colunas passam a valer so a partir de `xl` (em `md` cada
+  coluna ficava com ~140px, e vazava igual).
+- `Stat` ganhou `min-w-0`, para um valor largo nunca mais arrastar o layout.
+
+### Alterado — Contraste de texto (WCAG AA nos dois temas)
+- Medicao dos 19 pares texto/fundo: **6 reprovavam no tema escuro e 12 no
+  claro**. O pior era o `text-subtle` a **2,15:1** (minimo 4,5:1) — usado nos
+  rotulos miudos (`text-2xs`) de todo `Stat`, `hint` de formulario, cabecalhos
+  de tabela e rodape. Praticamente ilegivel.
+- A rampa de texto foi **reescalonada**, nao so clareada: subir apenas o
+  `subtle` o colaria no `muted` (5,47:1) e mataria os tres niveis de hierarquia.
+  Agora: principal 17,55:1 -> muted ~8:1 -> subtle ~4,7:1, mantendo a familia de
+  cor quente.
+- **Tema claro:** o vermelho-sinal `#fb3640` alcanca so 3,5:1 como texto sobre
+  off-white. Ele fecha um tom (`#d21f2a`) e passa a levar texto **claro** — o
+  mesmo gesto, legivel nos dois papeis (preenchimento e texto), sem token novo.
+  Ambar, sucesso e "parado" tambem foram fechados.
+- **Bordas:** a borda discreta dos cards e decorativa e continua discreta (e
+  intencao declarada do design). Ja a borda de **campo** e funcional — e a unica
+  coisa que identifica o controle — e agora segue o minimo de 3:1 do WCAG
+  1.4.11, via `--color-border-strong` (que estava declarado e sem uso).
+- Resultado: **0 de 19 pares reprovam**, nos dois temas.
+
 ### Corrigido — Falha ao iniciar sumia sem dizer o motivo
 - O `run()` terminava em `.expect(...)`: qualquer erro ao subir (tipicamente uma
   migration que nao aplica) virava **abort do Windows, sem janela e sem

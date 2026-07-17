@@ -6,8 +6,11 @@ import type {
 } from "react";
 import { cn } from "@/lib/cn";
 
+// `border-strong` (nao `border`): a borda e a unica coisa que identifica o
+// controle. A borda discreta dos cards e decorativa; a de um campo e funcional,
+// e por isso segue o minimo de 3:1 do WCAG 1.4.11.
 const baseControl =
-  "w-full rounded border border-border bg-bg px-3 py-2 text-sm text-text " +
+  "w-full rounded border border-border-strong bg-bg px-3 py-2 text-sm text-text " +
   "placeholder:text-text-subtle focus:border-accent focus:outline-none " +
   "focus-visible:outline-none disabled:opacity-50";
 

@@ -66,7 +66,14 @@ export function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <TimerPanel />
 
-        <Panel className="grid grid-cols-2 gap-6 p-6">
+        {/*
+          Coluna unica, nao 2x2: este painel ocupa 1/2.4 da largura, o que na
+          janela minima (960px) daria ~102px por coluna — estreito demais para
+          "R$ 12.480,83", que e indivisivel (o Intl usa espaco nao-quebravel) e
+          vazava por cima da borda. Empilhado, cada valor recebe a largura toda
+          do painel e ainda preenche o vazio que sobrava embaixo.
+        */}
+        <Panel className="grid content-start gap-5 p-6">
           <Stat label="Trabalhado hoje" value={formatDuration(todaySeconds)} />
           <Stat label="Estimado (7 dias)" value={formatCurrency(weekAmount)} />
           <Stat label="Sessoes registradas" value={String(entries.length)} />

@@ -337,7 +337,12 @@ export function ReportsPage() {
         )}
       </Panel>
 
-      <Panel className="mb-4 grid grid-cols-2 gap-6 p-6 md:grid-cols-4">
+      {/*
+        4 colunas so a partir de `xl`: em `md` (768px) cada coluna ficaria com
+        ~140px, e "R$ 12.480,83" (indivisivel — o Intl usa espaco nao-quebravel)
+        vazava por cima da borda do card.
+      */}
+      <Panel className="mb-4 grid grid-cols-2 gap-6 p-6 xl:grid-cols-4">
         <Stat label="Horas reais" value={formatDuration(totals.gross)} />
         <Stat label="Horas inativas" value={formatDuration(totals.idle)} />
         <Stat label="Horas faturaveis" value={formatDuration(totals.billable)} />
