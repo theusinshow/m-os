@@ -14,11 +14,10 @@ const COLUMNS: &str = "idle_detection_enabled, idle_threshold_minutes, \
 
 /// Le a linha unica de configuracoes.
 pub async fn get(pool: &Pool<Sqlite>) -> Result<Settings, AppError> {
-    let settings = sqlx::query_as::<_, Settings>(&format!(
-        "SELECT {COLUMNS} FROM settings WHERE id = 1"
-    ))
-    .fetch_one(pool)
-    .await?;
+    let settings =
+        sqlx::query_as::<_, Settings>(&format!("SELECT {COLUMNS} FROM settings WHERE id = 1"))
+            .fetch_one(pool)
+            .await?;
     Ok(settings)
 }
 

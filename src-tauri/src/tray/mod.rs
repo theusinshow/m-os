@@ -39,8 +39,13 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, ids::OPEN, "Abrir CronoCAD", true, None::<&str>)?;
     let start = MenuItem::with_id(app, ids::START, "Iniciar trabalho", true, None::<&str>)?;
     let pause = MenuItem::with_id(app, ids::PAUSE, "Pausar cronometro", false, None::<&str>)?;
-    let resume =
-        MenuItem::with_id(app, ids::RESUME, "Continuar cronometro", false, None::<&str>)?;
+    let resume = MenuItem::with_id(
+        app,
+        ids::RESUME,
+        "Continuar cronometro",
+        false,
+        None::<&str>,
+    )?;
     let stop = MenuItem::with_id(app, ids::STOP, "Encerrar cronometro", false, None::<&str>)?;
     let current = MenuItem::with_id(
         app,

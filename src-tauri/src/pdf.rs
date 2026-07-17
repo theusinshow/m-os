@@ -55,8 +55,7 @@ fn truncate(s: &str, max: usize) -> String {
 
 /// Gera o PDF e retorna os bytes.
 pub fn build_report(report: &ReportPdfData) -> Result<Vec<u8>, String> {
-    let (doc, page1, layer1) =
-        PdfDocument::new(&report.title, Mm(PAGE_W), Mm(PAGE_H), "Camada 1");
+    let (doc, page1, layer1) = PdfDocument::new(&report.title, Mm(PAGE_W), Mm(PAGE_H), "Camada 1");
     let font = doc
         .add_builtin_font(BuiltinFont::Helvetica)
         .map_err(|e| e.to_string())?;
@@ -100,13 +99,7 @@ pub fn build_report(report: &ReportPdfData) -> Result<Vec<u8>, String> {
             y -= ROW_H;
         }
         for (i, cell) in row.iter().enumerate() {
-            layer.use_text(
-                truncate(cell, widths[i]),
-                9.0,
-                Mm(COLS[i]),
-                Mm(y),
-                &font,
-            );
+            layer.use_text(truncate(cell, widths[i]), 9.0, Mm(COLS[i]), Mm(y), &font);
         }
         y -= ROW_H;
     }
