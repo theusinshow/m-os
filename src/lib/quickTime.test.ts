@@ -127,7 +127,10 @@ describe("resolveQuickEntryWindow", () => {
       durationSeconds: HOUR,
       day: "2026-07-14",
       dayEntries: [
-        { ...openEnded, startedAt: local("2026-07-14", "20:00:00").toISOString() },
+        {
+          ...openEnded,
+          startedAt: local("2026-07-14", "20:00:00").toISOString(),
+        },
       ],
       now: local("2026-07-16", "15:00:00"),
     });

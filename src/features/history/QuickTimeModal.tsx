@@ -55,13 +55,12 @@ export function QuickTimeModal({
   const [initializedFor, setInitializedFor] = useState<string | null>(null);
   const key = anchor?.id ?? `new-${defaultProjectId ?? ""}`;
   if (open && initializedFor !== key) {
-    const mostRecentProjectId = recentProjectIds(entries, projects, 1)[0] ?? null;
+    const mostRecentProjectId =
+      recentProjectIds(entries, projects, 1)[0] ?? null;
     setProjectId(
       anchor?.projectId ?? defaultProjectId ?? mostRecentProjectId ?? "",
     );
-    setDay(
-      isoToDateInput(anchor?.startedAt ?? new Date().toISOString()),
-    );
+    setDay(isoToDateInput(anchor?.startedAt ?? new Date().toISOString()));
     setSeconds(0);
     setNote("");
     setError(null);
@@ -102,9 +101,7 @@ export function QuickTimeModal({
       });
       onClose();
     } catch (err) {
-      setError(
-        typeof err === "string" ? err : "Falha ao adicionar o tempo.",
-      );
+      setError(typeof err === "string" ? err : "Falha ao adicionar o tempo.");
     } finally {
       setSaving(false);
     }
@@ -198,8 +195,8 @@ export function QuickTimeModal({
 
         {locked ? (
           <p className="text-xs text-text-muted">
-            O tempo entra como um registro separado, logo antes desta sessao.
-            A sessao original nao e alterada.
+            O tempo entra como um registro separado, logo antes desta sessao. A
+            sessao original nao e alterada.
           </p>
         ) : (
           <Field

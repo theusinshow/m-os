@@ -124,7 +124,8 @@ describe("QuickTimeModal", () => {
     expect(input.source).toBe("manual");
     expect(input.idleSeconds).toBe(0);
     const delta =
-      (new Date(input.endedAt).getTime() - new Date(input.startedAt).getTime()) /
+      (new Date(input.endedAt).getTime() -
+        new Date(input.startedAt).getTime()) /
       1000;
     expect(delta).toBe(2.5 * 3600);
     expect(onClose).toHaveBeenCalledOnce();

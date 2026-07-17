@@ -194,7 +194,9 @@ export function TimerPanel() {
               <Select
                 id="t-activity"
                 value={activityType}
-                onChange={(e) => setActivityType(e.target.value as ActivityType)}
+                onChange={(e) =>
+                  setActivityType(e.target.value as ActivityType)
+                }
               >
                 {ACTIVITY_TYPE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>

@@ -1,5 +1,12 @@
 # Adicionar Tempo Esquecido — Plano de Implementacao
 
+> **SUPERADO EM PARTE — registro historico.** A feature foi implementada. O
+> review final mudou a regra de ancoragem: o bloco ancorado passa **antes** da
+> sessao (termina no `startedAt` dela), nao depois. Os blocos de codigo abaixo
+> que citam `anchorEndIso` e "logo apos esta sessao" refletem o plano original,
+> nao o codigo atual. A fonte da verdade e o spec:
+> `docs/superpowers/specs/2026-07-16-tempo-esquecido-design.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Permitir registrar tempo esquecido informando a **duracao** (botoes `+15min`, `+30min`, `+1h`, `+2h`) em vez de digitar horarios de inicio e fim.

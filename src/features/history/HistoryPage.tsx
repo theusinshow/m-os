@@ -60,7 +60,8 @@ export function HistoryPage() {
       const t = new Date(e.startedAt).getTime();
       if (t < fromTime || t > toTime) return false;
       if (projectId && e.projectId !== projectId) return false;
-      if (clientId && projectOf(e.projectId)?.clientId !== clientId) return false;
+      if (clientId && projectOf(e.projectId)?.clientId !== clientId)
+        return false;
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -56,7 +56,12 @@ describe("recentProjectIds", () => {
 
   it("respeita o limite", () => {
     const entries = [entry("p1"), entry("p2"), entry("p3"), entry("p4")];
-    const projects = [project("p1"), project("p2"), project("p3"), project("p4")];
+    const projects = [
+      project("p1"),
+      project("p2"),
+      project("p3"),
+      project("p4"),
+    ];
 
     expect(recentProjectIds(entries, projects, 2)).toEqual(["p1", "p2"]);
   });
