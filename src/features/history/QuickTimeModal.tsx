@@ -7,6 +7,7 @@ import {
   QUICK_INCREMENTS,
   resolveQuickEntryWindow,
 } from "@/lib/quickTime";
+import { recentProjectIds } from "@/lib/projects";
 import { isoToDateInput } from "@/lib/datetime";
 import { formatDuration } from "@/lib/format";
 import { Modal } from "@/components/ui/Modal";
@@ -16,7 +17,7 @@ import { Field, Input, Select } from "@/components/ui/Field";
 export interface QuickTimeModalProps {
   open: boolean;
   onClose: () => void;
-  /** Sessao ancora: trava projeto e dia, e cola o ajuste no fim dela. */
+  /** Sessao ancora: trava projeto e dia, e cola o ajuste logo antes dela. */
   anchor?: TimeEntry | null;
   /** Projeto pre-selecionado quando nao ha ancora. */
   defaultProjectId?: string;
@@ -29,9 +30,9 @@ export interface QuickTimeModalProps {
  * `datetime-local`. Quem esqueceu de ligar o cronometro nao lembra do horario —
  * lembra da duracao. Este modal e o caminho curto: projeto, total, dia, nota.
  *
- * Com `anchor`, o tempo vira um registro **separado** colado no fim da sessao
- * indicada; a sessao original nunca e alterada (regra critica 5), para o
- * historico continuar distinguindo o cronometrado do estimado.
+ * Com `anchor`, o tempo vira um registro **separado** colado logo antes da
+ * sessao indicada; a sessao original nunca e alterada (regra critica 5), para
+ * o historico continuar distinguindo o cronometrado do estimado.
  */
 export function QuickTimeModal({
   open,
@@ -54,7 +55,10 @@ export function QuickTimeModal({
   const [initializedFor, setInitializedFor] = useState<string | null>(null);
   const key = anchor?.id ?? `new-${defaultProjectId ?? ""}`;
   if (open && initializedFor !== key) {
-    setProjectId(anchor?.projectId ?? defaultProjectId ?? "");
+    const mostRecentProjectId = recentProjectIds(entries, projects, 1)[0] ?? null;
+    setProjectId(
+      anchor?.projectId ?? defaultProjectId ?? mostRecentProjectId ?? "",
+    );
     setDay(
       isoToDateInput(anchor?.startedAt ?? new Date().toISOString()),
     );
@@ -78,10 +82,11 @@ export function QuickTimeModal({
     setError(null);
     try {
       if (!projectId) throw "Selecione um projeto.";
+      if (!day) throw "Escolha o dia.";
       const { startedAt, endedAt } = resolveQuickEntryWindow({
         durationSeconds: seconds,
         day,
-        anchorEndIso: anchor?.endedAt ?? null,
+        anchorAtIso: anchor?.startedAt ?? null,
         dayEntries: entries,
         now: new Date(),
       });
@@ -193,8 +198,8 @@ export function QuickTimeModal({
 
         {locked ? (
           <p className="text-xs text-text-muted">
-            O tempo entra como um registro separado, logo apos esta sessao. A
-            sessao original nao e alterada.
+            O tempo entra como um registro separado, logo antes desta sessao.
+            A sessao original nao e alterada.
           </p>
         ) : (
           <Field

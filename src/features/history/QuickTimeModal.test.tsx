@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { Project } from "@/types/domain";
+import type { Project, TimeEntry } from "@/types/domain";
 
 vi.mock("@/services/timeEntries", () => ({
   listTimeEntries: vi.fn().mockResolvedValue([]),
@@ -14,7 +14,7 @@ vi.mock("@/services/timeEntries", () => ({
 import * as entriesService from "@/services/timeEntries";
 import { useEntriesStore } from "@/stores/entriesStore";
 import { useCatalogStore } from "@/stores/catalogStore";
-import { QuickTimeModal } from "./QuickTimeModal";
+import { QuickTimeModal, type QuickTimeModalProps } from "./QuickTimeModal";
 
 const project: Project = {
   id: "p1",
@@ -32,9 +32,40 @@ const project: Project = {
   archivedAt: null,
 };
 
-function renderModal() {
+const otherProject: Project = {
+  ...project,
+  id: "p2",
+  name: "Escritorio Ipe",
+  code: "091-24",
+};
+
+const anchorEntry: TimeEntry = {
+  id: "e-anchor",
+  projectId: "p1",
+  startedAt: "2026-07-16T13:00:00.000Z",
+  endedAt: "2026-07-16T15:00:00.000Z",
+  durationSeconds: 7200,
+  idleSeconds: 0,
+  description: null,
+  activityType: "drawing",
+  billable: true,
+  hourlyRateSnapshotCents: 9000,
+  source: "timer",
+  createdAt: "2026-07-16T13:00:00.000Z",
+  updatedAt: "2026-07-16T15:00:00.000Z",
+  deletedAt: null,
+};
+
+function renderModal(overrides: Partial<QuickTimeModalProps> = {}) {
   const onClose = vi.fn();
-  render(<QuickTimeModal open onClose={onClose} defaultProjectId="p1" />);
+  render(
+    <QuickTimeModal
+      open
+      onClose={onClose}
+      defaultProjectId="p1"
+      {...overrides}
+    />,
+  );
   return { onClose };
 }
 
@@ -111,5 +142,86 @@ describe("QuickTimeModal", () => {
     expect(screen.getByText(/Falha ao adicionar o tempo/i)).toBeInTheDocument();
     expect(screen.getByTestId("quick-total")).toHaveTextContent("1h 00min");
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("sem defaultProjectId nem ancora, pre-seleciona o projeto usado mais recentemente", async () => {
+    useCatalogStore.setState({ projects: [project, otherProject] });
+    useEntriesStore.setState({
+      entries: [{ ...anchorEntry, id: "e-recent", projectId: "p2" }],
+      loaded: true,
+      error: null,
+    });
+    vi.mocked(entriesService.createTimeEntry).mockResolvedValue({
+      id: "e1",
+    } as never);
+    renderModal({ defaultProjectId: undefined });
+
+    // Caminho do botao do cabecalho: sem escolher projeto manualmente.
+    await click(/^\+2h$/);
+    await click(/^Salvar$/);
+
+    expect(entriesService.createTimeEntry).toHaveBeenCalledOnce();
+    const input = vi.mocked(entriesService.createTimeEntry).mock.calls[0]![0];
+    expect(input.projectId).toBe("p2");
+    expect(screen.queryByText(/Selecione um projeto/i)).not.toBeInTheDocument();
+  });
+
+  it("dia vazio mostra erro claro e nao tenta salvar", async () => {
+    const { onClose } = renderModal();
+    await click(/^\+1h$/);
+    await userEvent.clear(screen.getByLabelText(/^Dia$/i));
+    await click(/^Salvar$/);
+
+    expect(screen.getByText("Escolha o dia.")).toBeInTheDocument();
+    expect(entriesService.createTimeEntry).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  describe("com sessao ancora", () => {
+    it("o registro novo termina onde a sessao ancora comeca", async () => {
+      vi.mocked(entriesService.createTimeEntry).mockResolvedValue({
+        id: "e2",
+      } as never);
+      renderModal({ anchor: anchorEntry });
+
+      await click(/^\+30min$/);
+      await click(/^Salvar$/);
+
+      expect(entriesService.createTimeEntry).toHaveBeenCalledOnce();
+      const input = vi.mocked(entriesService.createTimeEntry).mock.calls[0]![0];
+      expect(input.endedAt).toBe(anchorEntry.startedAt);
+      const delta =
+        (new Date(input.endedAt).getTime() -
+          new Date(input.startedAt).getTime()) /
+        1000;
+      expect(delta).toBe(30 * 60);
+    });
+
+    it("trava o campo de projeto e nao mostra o seletor", () => {
+      renderModal({ anchor: anchorEntry });
+
+      const projectField = screen.getByLabelText(/^Projeto$/i);
+      expect(projectField).toBeDisabled();
+      expect(projectField).toHaveValue(project.name);
+      expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    });
+
+    it("nao mostra o campo Dia", () => {
+      renderModal({ anchor: anchorEntry });
+
+      expect(screen.queryByLabelText(/^Dia$/i)).not.toBeInTheDocument();
+    });
+
+    it("nunca chama updateTimeEntry (a sessao original nao e alterada)", async () => {
+      vi.mocked(entriesService.createTimeEntry).mockResolvedValue({
+        id: "e2",
+      } as never);
+      renderModal({ anchor: anchorEntry });
+
+      await click(/^\+15min$/);
+      await click(/^Salvar$/);
+
+      expect(entriesService.updateTimeEntry).not.toHaveBeenCalled();
+    });
   });
 });
