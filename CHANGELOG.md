@@ -5,6 +5,25 @@ versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Nao lancado]
 
+### Adicionado — Adicionar tempo esquecido
+- Registrar trabalho esquecido exigia o formulario de sessao manual, com
+  **inicio e fim** em campos de data-hora. Mas quem esqueceu de ligar o
+  cronometro nao lembra do horario — lembra da **duracao**. Ter que inventar um
+  horario fazia o registro ser adiado, e adiado virava esquecido.
+- Novo modal **"Adicionar tempo esquecido"** (`QuickTimeModal`): projeto, dia,
+  nota e botoes de incremento (`+15min`, `+30min`, `+1h`, `+2h`, `-15min`,
+  `Limpar`) que somam um total antes de salvar. Teto de 24h por lancamento;
+  Salvar so habilita com total maior que zero.
+- Aberto de tres lugares: o **painel do cronometro** parado ("Esqueceu de
+  registrar?"), o cabecalho do **Historico**, e uma acao por linha da tabela,
+  ancorada naquela sessao.
+- O horario e derivado da duracao (`src/lib/quickTime.ts`): o bloco termina no
+  fim da sessao ancora, ou agora (hoje), ou no fim da ultima sessao do dia, ou
+  as 18:00 num dia vazio. O inicio e sempre `fim - duracao`.
+- **A sessao original nunca e alterada.** O tempo somado a uma sessao curta
+  nasce como um registro `manual` separado, e o historico continua distinguindo
+  o que foi cronometrado do que foi estimado.
+
 ### Adicionado — Confirmacao ao encerrar o cronometro
 - Encerrar grava a sessao em `time_entries` e e **irreversivel**, mas disparava
   com um unico clique. Agora abre uma confirmacao (`StopConfirmModal`) com o
