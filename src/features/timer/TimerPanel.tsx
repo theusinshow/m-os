@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { Pause, Play, Square, Zap } from "lucide-react";
+import { Clock, Pause, Play, Square, Zap } from "lucide-react";
 import type { ActivityType } from "@/types/domain";
 import { useTimerStore } from "@/stores/timerStore";
 import { useCatalogStore } from "@/stores/catalogStore";
@@ -9,6 +9,7 @@ import { ACTIVITY_TYPE_OPTIONS } from "@/lib/labels";
 import { Panel } from "@/components/ui/Panel";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Select } from "@/components/ui/Field";
+import { QuickTimeModal } from "@/features/history/QuickTimeModal";
 import { TimerCard } from "./TimerCard";
 import { StopConfirmModal } from "./StopConfirmModal";
 
@@ -28,6 +29,7 @@ export function TimerPanel() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmingStop, setConfirmingStop] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
 
   const activeProject =
     projects.find((p) => p.id === activeTimer?.projectId) ?? null;
@@ -229,6 +231,25 @@ export function TimerPanel() {
           {error && <p className="text-sm text-danger">{error}</p>}
         </form>
       )}
+
+      {projects.length > 0 && (
+        <div className="mt-5 border-t border-border pt-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setQuickOpen(true)}
+            icon={<Clock size={14} strokeWidth={1.75} />}
+          >
+            Esqueceu de registrar? Adicionar tempo
+          </Button>
+        </div>
+      )}
+
+      <QuickTimeModal
+        open={quickOpen}
+        defaultProjectId={projectId}
+        onClose={() => setQuickOpen(false)}
+      />
     </Panel>
   );
 }
