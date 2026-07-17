@@ -33,9 +33,18 @@ export interface QuickEntryWindowInput {
   durationSeconds: number;
   /** "YYYY-MM-DD" no horario local. */
   day: string;
-  /** Fim da sessao ancora, quando o tempo e um ajuste de sessao existente. */
-  anchorEndIso?: string | null;
-  /** Sessoes ja existentes (a funcao filtra as do dia pedido). */
+  /**
+   * Ancora do bloco novo: quando presente, e o **fim** do bloco (na pratica,
+   * o `startedAt` da sessao ancora), para o ajuste entrar logo antes dela em
+   * vez de aninhado dentro do intervalo original.
+   */
+  anchorAtIso?: string | null;
+  /**
+   * Sessoes ja existentes (a funcao filtra as do dia pedido). Normalmente vem
+   * do `entriesStore`, que carrega no maximo 200 sessoes recentes — para um
+   * dia antigo fora dessa janela a lista chega vazia aqui, e a regra das
+   * 18:00 assume.
+   */
   dayEntries: TimeEntry[];
   now: Date;
 }
@@ -53,7 +62,14 @@ export function clampQuickSeconds(seconds: number): number {
   return Math.min(Math.max(0, Math.floor(seconds)), MAX_QUICK_SECONDS);
 }
 
-/** Fim da ultima sessao encerrada naquele dia local, ou null. */
+/**
+ * Fim da ultima sessao encerrada naquele dia local, ou null.
+ *
+ * Atribui a sessao ao dia em que ela **comecou** (`startedAt`), nao ao dia em
+ * que terminou. Uma sessao que comeca 23:50 de D-1 e termina 00:10 de D nao
+ * conta como "ultima sessao de D" — defensavel e de baixo impacto, mas fica
+ * documentado para nao ser re-litigado.
+ */
 function lastEndOfDay(entries: TimeEntry[], day: string): Date | null {
   let latest: Date | null = null;
   for (const e of entries) {
@@ -65,11 +81,17 @@ function lastEndOfDay(entries: TimeEntry[], day: string): Date | null {
   return latest;
 }
 
-/** Aplica a primeira regra de ancoragem que casar (a ordem importa). */
+/**
+ * Aplica a primeira regra de ancoragem que casar (a ordem importa):
+ * 1. ancorado: o bloco termina onde a sessao ancora comeca (`anchorAtIso`).
+ * 2. dia = hoje: termina agora (`now`).
+ * 3. dia passado, com sessoes: termina no fim da ultima sessao do dia.
+ * 4. dia passado, vazio: termina as 18:00 locais.
+ */
 function resolveEnd(input: QuickEntryWindowInput): Date {
-  const { day, anchorEndIso, dayEntries, now } = input;
+  const { day, anchorAtIso, dayEntries, now } = input;
 
-  if (anchorEndIso) return new Date(anchorEndIso);
+  if (anchorAtIso) return new Date(anchorAtIso);
   if (isoToDateInput(now.toISOString()) === day) return now;
 
   const last = lastEndOfDay(dayEntries, day);

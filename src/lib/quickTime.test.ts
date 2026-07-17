@@ -30,17 +30,17 @@ function local(day: string, time: string): Date {
 const HOUR = 3600;
 
 describe("resolveQuickEntryWindow", () => {
-  it("ancorado: o bloco termina no fim da sessao ancora", () => {
-    const anchorEnd = local("2026-07-16", "11:30:00").toISOString();
+  it("ancorado: o bloco termina onde a sessao ancora comeca", () => {
+    const anchorStart = local("2026-07-16", "11:30:00").toISOString();
     const w = resolveQuickEntryWindow({
       durationSeconds: HOUR,
       day: "2026-07-16",
-      anchorEndIso: anchorEnd,
+      anchorAtIso: anchorStart,
       dayEntries: [],
       now: local("2026-07-16", "20:00:00"),
     });
 
-    expect(w.endedAt).toBe(anchorEnd);
+    expect(w.endedAt).toBe(anchorStart);
     expect(w.startedAt).toBe(local("2026-07-16", "10:30:00").toISOString());
   });
 
@@ -95,11 +95,11 @@ describe("resolveQuickEntryWindow", () => {
     expect(w.startedAt).toBe(local("2026-07-14", "15:00:00").toISOString());
   });
 
-  it("atravessa a meia-noite: ancorado as 00:30, 3h comecam no dia anterior", () => {
+  it("atravessa a meia-noite: sessao ancora comeca as 00:30, 3h comecam no dia anterior", () => {
     const w = resolveQuickEntryWindow({
       durationSeconds: 3 * HOUR,
       day: "2026-07-16",
-      anchorEndIso: local("2026-07-16", "00:30:00").toISOString(),
+      anchorAtIso: local("2026-07-16", "00:30:00").toISOString(),
       dayEntries: [],
       now: local("2026-07-16", "09:00:00"),
     });

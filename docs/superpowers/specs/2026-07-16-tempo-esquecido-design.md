@@ -85,7 +85,7 @@ de conversao fica isolada numa funcao pura, `src/lib/quickTime.ts`:
 resolveQuickEntryWindow(input: {
   durationSeconds: number;
   day: string;            // "YYYY-MM-DD" local
-  anchorEndIso?: string;  // fim da sessao ancora, se houver
+  anchorAtIso?: string;   // inicio da sessao ancora, se houver (o bloco termina ali)
   dayEntries: TimeEntry[];// sessoes ja existentes naquele dia
   now: Date;              // injetado — nunca Date.now() interno, para testar
 }): { startedAt: string; endedAt: string }  // ISO UTC
@@ -96,7 +96,7 @@ sempre `fim - duracao`:
 
 | Situacao | O bloco termina em... |
 |---|---|
-| Ancorado numa sessao | o `endedAt` daquela sessao |
+| Ancorado numa sessao | o `startedAt` daquela sessao (o bloco vai **antes** dela) |
 | Dia = hoje | agora (`now`) |
 | Dia passado, com sessoes | o `endedAt` da ultima sessao do dia |
 | Dia passado, vazio | 18:00 local daquele dia |
@@ -130,11 +130,12 @@ o que e o mesmo espirito aproximado da reconstrucao do dia
 
 Cobre a tabela de ancoragem com `now` injetado:
 
-1. Ancorado: o bloco termina exatamente no `endedAt` da sessao ancora.
+1. Ancorado: o bloco termina exatamente no `startedAt` da sessao ancora (o
+   bloco entra antes dela).
 2. Hoje: termina em `now`.
 3. Dia passado com sessoes: termina no fim da ultima sessao daquele dia.
 4. Dia passado vazio: termina as 18:00 locais.
-5. Bloco que atravessa a meia-noite: ancorado numa sessao que terminou 00:30,
+5. Bloco que atravessa a meia-noite: ancorado numa sessao que comecou 00:30,
    3h produzem `startedAt` no dia anterior, sem erro.
 6. `startedAt` e sempre anterior a `endedAt`, e a diferenca e a duracao pedida.
 

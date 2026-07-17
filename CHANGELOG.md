@@ -17,9 +17,9 @@ versionamento [SemVer](https://semver.org/lang/pt-BR/).
 - Aberto de tres lugares: o **painel do cronometro** parado ("Esqueceu de
   registrar?"), o cabecalho do **Historico**, e uma acao por linha da tabela,
   ancorada naquela sessao.
-- O horario e derivado da duracao (`src/lib/quickTime.ts`): o bloco termina no
-  fim da sessao ancora, ou agora (hoje), ou no fim da ultima sessao do dia, ou
-  as 18:00 num dia vazio. O inicio e sempre `fim - duracao`.
+- O horario e derivado da duracao (`src/lib/quickTime.ts`): o bloco termina
+  onde a sessao ancora comeca, ou agora (hoje), ou no fim da ultima sessao do
+  dia, ou as 18:00 num dia vazio. O inicio e sempre `fim - duracao`.
 - **A sessao original nunca e alterada.** O tempo somado a uma sessao curta
   nasce como um registro `manual` separado, e o historico continua distinguindo
   o que foi cronometrado do que foi estimado.
