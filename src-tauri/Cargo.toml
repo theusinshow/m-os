@@ -26,6 +26,9 @@ tauri-plugin-autostart = "2"
 # novo pelo icone precisa trazer a janela existente, nunca subir um segundo
 # processo sobre o mesmo banco.
 tauri-plugin-single-instance = "2"
+# Dialogo nativo para falha de inicializacao. Precisa ser independente do app
+# (o `tauri-plugin-dialog` exige um AppHandle, que nao existe se o build falha).
+rfd = "0.16"
 # Geracao de PDF do relatorio (pure-Rust, sem dependencias de sistema).
 printpdf = "0.7"
 serde = { version = "1", features = ["derive"] }

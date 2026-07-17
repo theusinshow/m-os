@@ -5,6 +5,20 @@ versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Nao lancado]
 
+### Corrigido — Falha ao iniciar sumia sem dizer o motivo
+- O `run()` terminava em `.expect(...)`: qualquer erro ao subir (tipicamente uma
+  migration que nao aplica) virava **abort do Windows, sem janela e sem
+  mensagem**. Na pratica o app "sumia" e nao havia como o usuario saber o
+  porque — um dia inteiro de trabalho ficou sem registro por causa disso.
+- Agora um **dialogo nativo** mostra o motivo antes de encerrar. A regra
+  critica 1 (confiabilidade dos registros) inclui o usuario **saber** quando o
+  app nao esta gravando.
+- Caso real que motivou a mudanca: a migration 0005 foi aplicada num banco real
+  por um `tauri:dev` e teve o bloco de **comentarios** alterado antes do commit.
+  O `sqlx` faz checksum do arquivo inteiro, comentarios inclusive, e passou a
+  recusar o boot — embora o schema estivesse correto. Ver
+  `docs/superpowers/specs/2026-07-17-falha-ao-iniciar.md`.
+
 ### Corrigido — App nao abria quando ja estava rodando na bandeja
 - O app **fecha para a bandeja** e continua vivo, mas nao havia guarda de
   instancia unica. Abrir pelo icone com ele escondido subia um **segundo

@@ -46,7 +46,7 @@ pub fn run() {
         tray::show_main_window(app);
     }));
 
-    builder
+    match builder
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations(database::DB_URL, database::migrations())
@@ -153,13 +153,40 @@ pub fn run() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("erro ao iniciar a aplicacao CronoCAD")
-        .run(|app, event| {
+    {
+        Ok(app) => app.run(|app, event| {
             // Encerra os loops de monitoramento e inatividade de forma limpa ao
             // sair (secao 20).
             if let RunEvent::Exit = event {
                 app.state::<monitoring::MonitorShared>().stop();
                 app.state::<idle::IdleShared>().stop();
             }
-        });
+        }),
+        Err(err) => fail_visibly(&err.to_string()),
+    }
+}
+
+/// Mostra a falha de inicializacao e encerra.
+///
+/// Antes daqui havia um `.expect`: qualquer erro ao subir (tipicamente uma
+/// migration que nao aplica) virava abort do Windows, sem janela e sem
+/// mensagem. Na pratica o app "sumia", e o usuario nao tinha como saber o
+/// motivo — um dia inteiro de trabalho ficou sem registro por causa disso.
+///
+/// A confiabilidade dos registros vem antes de tudo (regra critica 1), e isso
+/// inclui o usuario **saber** quando o app nao esta gravando.
+fn fail_visibly(reason: &str) -> ! {
+    let msg = format!(
+        "O CronoCAD nao conseguiu iniciar.\n\n\
+         Motivo: {reason}\n\n\
+         Seus registros nao foram alterados. Se o problema persistir, envie \
+         esta mensagem junto com o arquivo cronocad.sqlite."
+    );
+    eprintln!("{msg}");
+    rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Error)
+        .set_title("CronoCAD — falha ao iniciar")
+        .set_description(&msg)
+        .show();
+    std::process::exit(1);
 }
