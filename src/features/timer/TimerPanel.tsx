@@ -227,6 +227,7 @@ export function TimerPanel() {
       {projects.length > 0 && (
         <div className="mt-5 border-t border-border pt-4">
           <Button
+            type="button"
             variant="ghost"
             size="sm"
             onClick={() => setQuickOpen(true)}
