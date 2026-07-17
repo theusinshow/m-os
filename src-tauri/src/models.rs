@@ -19,8 +19,14 @@ fn clean_opt(value: Option<String>) -> Option<String> {
 pub const PROJECT_STATUSES: [&str; 4] = ["active", "paused", "completed", "archived"];
 
 /// Tipos de atividade validos (secao 8).
-pub const ACTIVITY_TYPES: [&str; 6] =
-    ["drawing", "detailing", "revision", "meeting", "study", "other"];
+pub const ACTIVITY_TYPES: [&str; 6] = [
+    "drawing",
+    "detailing",
+    "revision",
+    "meeting",
+    "study",
+    "other",
+];
 
 // ---------------------------------------------------------------------------
 // Clients
@@ -63,7 +69,9 @@ impl ClientInput {
     pub fn validate(self) -> Result<ValidClient, AppError> {
         let name = self.name.trim().to_string();
         if name.is_empty() {
-            return Err(AppError::Validation("o nome do cliente e obrigatorio".into()));
+            return Err(AppError::Validation(
+                "o nome do cliente e obrigatorio".into(),
+            ));
         }
         let email = clean_opt(self.email);
         if let Some(ref e) = email {
@@ -104,6 +112,8 @@ pub struct Project {
     pub created_at: String,
     pub updated_at: String,
     pub archived_at: Option<String>,
+    /// Bloco de anotacoes livres do projeto (`NULL` quando vazio).
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,6 +126,20 @@ pub struct ProjectInput {
     pub hourly_rate_cents: i64,
     pub budget_minutes: Option<i64>,
     pub color: Option<String>,
+}
+
+/// Pendencia de um projeto (checklist). Sem data e sem notificacao: apenas fica
+/// visivel. Hard delete — nao e registro de tempo.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTodo {
+    pub id: String,
+    pub project_id: String,
+    pub text: String,
+    pub done: bool,
+    pub done_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 /// Entrada de projeto ja validada e normalizada.
@@ -133,7 +157,9 @@ impl ProjectInput {
     pub fn validate(self) -> Result<ValidProject, AppError> {
         let name = self.name.trim().to_string();
         if name.is_empty() {
-            return Err(AppError::Validation("o nome do projeto e obrigatorio".into()));
+            return Err(AppError::Validation(
+                "o nome do projeto e obrigatorio".into(),
+            ));
         }
         if self.hourly_rate_cents < 0 {
             return Err(AppError::Validation(
@@ -310,12 +336,9 @@ impl ManualEntryInput {
         let source = match self.source.as_deref() {
             None | Some("manual") => "manual".to_string(),
             Some("reconstructed") => "reconstructed".to_string(),
-            Some(other) => {
-                return Err(AppError::Validation(format!("origem invalida: {other}")))
-            }
+            Some(other) => return Err(AppError::Validation(format!("origem invalida: {other}"))),
         };
-        let (started_at, ended_at, duration_seconds) =
-            timing(&self.started_at, &self.ended_at)?;
+        let (started_at, ended_at, duration_seconds) = timing(&self.started_at, &self.ended_at)?;
         let idle_seconds = self.idle_seconds.clamp(0, duration_seconds);
         Ok(ValidManualEntry {
             project_id,
@@ -355,8 +378,7 @@ pub struct ValidEntryUpdate {
 impl EntryUpdateInput {
     pub fn validate(self) -> Result<ValidEntryUpdate, AppError> {
         validate_activity_type(&self.activity_type)?;
-        let (started_at, ended_at, duration_seconds) =
-            timing(&self.started_at, &self.ended_at)?;
+        let (started_at, ended_at, duration_seconds) = timing(&self.started_at, &self.ended_at)?;
         let idle_seconds = self.idle_seconds.clamp(0, duration_seconds);
         Ok(ValidEntryUpdate {
             started_at,
@@ -402,7 +424,9 @@ impl Settings {
     /// Valida e normaliza limites minimos antes de persistir.
     pub fn validated(mut self) -> Result<Settings, AppError> {
         if !ROUNDING_MODES.contains(&self.rounding_mode.as_str()) {
-            return Err(AppError::Validation("modo de arredondamento invalido".into()));
+            return Err(AppError::Validation(
+                "modo de arredondamento invalido".into(),
+            ));
         }
         if self.process_check_interval_seconds < 1 {
             return Err(AppError::Validation(

@@ -7,6 +7,7 @@
 pub mod activity_events;
 pub mod clients;
 pub mod monitored_apps;
+pub mod notes;
 pub mod projects;
 pub mod settings;
 pub mod time_entries;

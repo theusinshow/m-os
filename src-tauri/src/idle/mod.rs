@@ -114,11 +114,7 @@ pub async fn run(app: AppHandle) {
         if settings.idle_detection_enabled {
             let threshold = settings.idle_threshold_minutes.max(1) * 60;
             let idle = system_idle_seconds();
-            let was_idle = shared
-                .state
-                .lock()
-                .map(|s| s.is_idle)
-                .unwrap_or(false);
+            let was_idle = shared.state.lock().map(|s| s.is_idle).unwrap_or(false);
             let now_epoch = chrono::Utc::now().timestamp();
 
             match classify(was_idle, idle, threshold) {

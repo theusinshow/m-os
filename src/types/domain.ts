@@ -61,9 +61,25 @@ export interface Project {
   budgetMinutes: number;
   status: ProjectStatus;
   color: string | null;
+  /** Bloco de anotacoes livres do projeto (null quando vazio). */
+  notes: string | null;
   createdAt: IsoDateTime;
   updatedAt: IsoDateTime;
   archivedAt: IsoDateTime | null;
+}
+
+/**
+ * Pendencia de um projeto (checklist). Sem data e sem notificacao: um lembrete
+ * aqui apenas fica visivel — no modal do projeto e no Painel.
+ */
+export interface ProjectTodo {
+  id: Uuid;
+  projectId: Uuid;
+  text: string;
+  done: boolean;
+  doneAt: IsoDateTime | null;
+  createdAt: IsoDateTime;
+  updatedAt: IsoDateTime;
 }
 
 /** Total trabalhado (segundos) por projeto — acompanhamento de metas. */

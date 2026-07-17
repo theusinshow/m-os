@@ -26,10 +26,11 @@ pub async fn list(pool: &Pool<Sqlite>, include_archived: bool) -> Result<Vec<Cli
 
 /// Busca um cliente por id.
 pub async fn get(pool: &Pool<Sqlite>, id: &str) -> Result<Client, AppError> {
-    let client = sqlx::query_as::<_, Client>(&format!("SELECT {COLUMNS} FROM clients WHERE id = ?1"))
-        .bind(id)
-        .fetch_one(pool)
-        .await?;
+    let client =
+        sqlx::query_as::<_, Client>(&format!("SELECT {COLUMNS} FROM clients WHERE id = ?1"))
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
     Ok(client)
 }
 

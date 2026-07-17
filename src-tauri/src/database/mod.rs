@@ -21,10 +21,10 @@ pub const DB_URL: &str = "sqlite:cronocad.sqlite";
 
 /// SQL das migrations, tambem usados nos testes de persistencia.
 pub const MIGRATION_0001: &str = include_str!("../../migrations/0001_initial_schema.sql");
-pub const MIGRATION_0002: &str =
-    include_str!("../../migrations/0002_active_timer_idle.sql");
+pub const MIGRATION_0002: &str = include_str!("../../migrations/0002_active_timer_idle.sql");
 pub const MIGRATION_0003: &str = include_str!("../../migrations/0003_project_budget.sql");
 pub const MIGRATION_0004: &str = include_str!("../../migrations/0004_issuer_settings.sql");
+pub const MIGRATION_0005: &str = include_str!("../../migrations/0005_project_notes.sql");
 
 /// Lista ordenada de migrations. Acrescente novas entradas com versao crescente;
 /// nunca edite uma migration ja aplicada em producao.
@@ -52,6 +52,12 @@ pub fn migrations() -> Vec<Migration> {
             version: 4,
             description: "dados do emissor para faturas",
             sql: MIGRATION_0004,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 5,
+            description: "anotacoes e pendencias por projeto",
+            sql: MIGRATION_0005,
             kind: MigrationKind::Up,
         },
     ]

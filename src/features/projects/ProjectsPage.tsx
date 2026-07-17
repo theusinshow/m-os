@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { Archive, CheckCircle2, Pencil, Plus, Search, Users } from "lucide-react";
+import {
+  Archive,
+  CheckCircle2,
+  Pencil,
+  Plus,
+  Search,
+  StickyNote,
+  Users,
+} from "lucide-react";
 import type { Project } from "@/types/domain";
 import { useCatalogStore } from "@/stores/catalogStore";
+import { useNotesStore } from "@/stores/notesStore";
 import { formatCurrency, formatDuration } from "@/lib/format";
 import { PROJECT_STATUS_LABELS } from "@/lib/labels";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -10,6 +19,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Field";
 import { ProjectForm } from "./ProjectForm";
+import { ProjectNotesModal } from "./ProjectNotesModal";
 import { ClientsModal } from "@/features/clients/ClientsModal";
 
 /**
@@ -32,10 +42,17 @@ export function ProjectsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Project | null>(null);
   const [clientsOpen, setClientsOpen] = useState(false);
+  // Guarda o id (nao o objeto): assim o modal sempre le a versao mais recente
+  // do projeto na lista, mesmo depois de salvar as anotacoes.
+  const [notesForId, setNotesForId] = useState<string | null>(null);
+
+  const loadTodos = useNotesStore((s) => s.load);
+  const todosLoaded = useNotesStore((s) => s.loaded);
 
   useEffect(() => {
     if (!loaded) void loadAll();
-  }, [loaded, loadAll]);
+    if (!todosLoaded) void loadTodos();
+  }, [loaded, loadAll, todosLoaded, loadTodos]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -49,6 +66,8 @@ export function ProjectsPage() {
 
   const clientName = (id: string | null) =>
     clients.find((c) => c.id === id)?.name ?? "—";
+
+  const notesFor = projects.find((p) => p.id === notesForId) ?? null;
 
   function openNew() {
     setEditing(null);
@@ -182,6 +201,13 @@ export function ProjectsPage() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        onClick={() => setNotesForId(project.id)}
+                        aria-label={`Anotacoes de ${project.name}`}
+                        icon={<StickyNote size={15} strokeWidth={1.75} />}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => openEdit(project)}
                         aria-label={`Editar ${project.name}`}
                         icon={<Pencil size={15} strokeWidth={1.75} />}
@@ -217,6 +243,10 @@ export function ProjectsPage() {
         onClose={() => setFormOpen(false)}
       />
       <ClientsModal open={clientsOpen} onClose={() => setClientsOpen(false)} />
+      <ProjectNotesModal
+        project={notesFor}
+        onClose={() => setNotesForId(null)}
+      />
     </div>
   );
 }

@@ -15,6 +15,10 @@ vi.mock("@/services/timer", () => ({
 }));
 vi.mock("@/services/timeEntries", () => ({
   listTimeEntries: vi.fn().mockResolvedValue([]),
+  createTimeEntry: vi.fn(),
+  updateTimeEntry: vi.fn(),
+  deleteTimeEntry: vi.fn(),
+  restoreTimeEntry: vi.fn(),
 }));
 
 import * as timerService from "@/services/timer";
@@ -32,6 +36,7 @@ const project: Project = {
   budgetMinutes: 0,
   status: "active",
   color: null,
+  notes: null,
   createdAt: "2026-07-11T08:00:00Z",
   updatedAt: "2026-07-11T08:00:00Z",
   archivedAt: null,
@@ -117,5 +122,38 @@ describe("TimerPanel — encerrar com confirmacao", () => {
     expect(timerService.stopTimer).not.toHaveBeenCalled();
     expect(timerService.pauseTimer).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
+describe("TimerPanel — tempo esquecido", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useCatalogStore.setState({ projects: [project] });
+    useTimerStore.setState({
+      activeTimer: null,
+      loaded: true,
+      error: null,
+      recoveryPending: false,
+    });
+  });
+
+  it("oferece adicionar tempo esquecido quando nao ha cronometro ativo", async () => {
+    renderPanel();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Adicionar tempo/i }),
+    );
+
+    expect(
+      screen.getByRole("dialog", { name: /Adicionar tempo esquecido/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("nao oferece o atalho com um cronometro rodando", () => {
+    useTimerStore.setState({ activeTimer: timer });
+    renderPanel();
+
+    expect(
+      screen.queryByRole("button", { name: /Adicionar tempo/i }),
+    ).not.toBeInTheDocument();
   });
 });

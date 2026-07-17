@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Clock, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import type { TimeEntry } from "@/types/domain";
 import { useEntriesStore } from "@/stores/entriesStore";
 import { useCatalogStore } from "@/stores/catalogStore";
@@ -19,6 +19,7 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Field, Input, Select } from "@/components/ui/Field";
 import { EntryForm } from "./EntryForm";
+import { QuickTimeModal } from "./QuickTimeModal";
 
 export function HistoryPage() {
   const entries = useEntriesStore((s) => s.entries);
@@ -35,6 +36,8 @@ export function HistoryPage() {
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<TimeEntry | null>(null);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickAnchor, setQuickAnchor] = useState<TimeEntry | null>(null);
 
   useEffect(() => {
     if (!showDeleted) return;
@@ -57,7 +60,8 @@ export function HistoryPage() {
       const t = new Date(e.startedAt).getTime();
       if (t < fromTime || t > toTime) return false;
       if (projectId && e.projectId !== projectId) return false;
-      if (clientId && projectOf(e.projectId)?.clientId !== clientId) return false;
+      if (clientId && projectOf(e.projectId)?.clientId !== clientId)
+        return false;
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -81,16 +85,28 @@ export function HistoryPage() {
         title="Historico"
         description="Sessoes registradas: filtre, edite, adicione ou remova."
         action={
-          <Button
-            variant="primary"
-            onClick={() => {
-              setEditing(null);
-              setFormOpen(true);
-            }}
-            icon={<Plus size={16} strokeWidth={2} />}
-          >
-            Nova sessao
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setQuickAnchor(null);
+                setQuickOpen(true);
+              }}
+              icon={<Clock size={16} strokeWidth={2} />}
+            >
+              Tempo esquecido
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setEditing(null);
+                setFormOpen(true);
+              }}
+              icon={<Plus size={16} strokeWidth={2} />}
+            >
+              Nova sessao
+            </Button>
+          </div>
         }
       />
 
@@ -247,6 +263,16 @@ export function HistoryPage() {
                         variant="ghost"
                         size="sm"
                         onClick={() => {
+                          setQuickAnchor(entry);
+                          setQuickOpen(true);
+                        }}
+                        aria-label="Adicionar tempo a esta sessao"
+                        icon={<Clock size={15} strokeWidth={1.75} />}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
                           setEditing(entry);
                           setFormOpen(true);
                         }}
@@ -273,6 +299,12 @@ export function HistoryPage() {
         open={formOpen}
         entry={editing}
         onClose={() => setFormOpen(false)}
+      />
+
+      <QuickTimeModal
+        open={quickOpen}
+        anchor={quickAnchor}
+        onClose={() => setQuickOpen(false)}
       />
     </div>
   );

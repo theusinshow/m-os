@@ -6,6 +6,7 @@ import { Stat } from "@/components/ui/Stat";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { TimerPanel } from "@/features/timer/TimerPanel";
 import { RecoveryModal } from "@/features/timer/RecoveryModal";
+import { TodosPanel } from "./TodosPanel";
 import { useTimerStore } from "@/stores/timerStore";
 import { useEntriesStore } from "@/stores/entriesStore";
 import { useCatalogStore } from "@/stores/catalogStore";
@@ -73,7 +74,9 @@ export function DashboardPage() {
         </Panel>
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <TodosPanel />
+
         <Panel>
           <PanelHeader title="Sessoes recentes" />
           {recent.length === 0 ? (

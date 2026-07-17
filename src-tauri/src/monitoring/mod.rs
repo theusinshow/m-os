@@ -135,12 +135,28 @@ pub async fn run(app: AppHandle) {
 
             for proc in &opened {
                 handle_open(
-                    &app, &pool, &apps, proc, &settings, &suppressed, &mut cooldowns, now_epoch,
+                    &app,
+                    &pool,
+                    &apps,
+                    proc,
+                    &settings,
+                    &suppressed,
+                    &mut cooldowns,
+                    now_epoch,
                 )
                 .await;
             }
             for proc in &closed {
-                handle_close(&app, &pool, &apps, proc, &settings, &mut cooldowns, now_epoch).await;
+                handle_close(
+                    &app,
+                    &pool,
+                    &apps,
+                    proc,
+                    &settings,
+                    &mut cooldowns,
+                    now_epoch,
+                )
+                .await;
             }
 
             // Persiste o novo snapshot e os cooldowns atualizados.
@@ -194,8 +210,8 @@ async fn handle_open(
         json!({ "processName": proc, "displayName": display, "hasActiveTimer": has_timer }),
     );
 
-    let remind = settings.remind_when_monitored_app_opens
-        && cfg.map(|a| a.remind_on_open).unwrap_or(false);
+    let remind =
+        settings.remind_when_monitored_app_opens && cfg.map(|a| a.remind_on_open).unwrap_or(false);
     if !has_timer && remind && cooldown_ok(cooldowns, proc, now_epoch) {
         // Widget flutuante sobre o CAD + notificacao nativa como reforco.
         reminder::show(app, proc, &display);
@@ -281,7 +297,15 @@ mod tests {
         let mut cooldowns = HashMap::new();
         assert!(cooldown_ok(&cooldowns, "acad.exe", 1000));
         cooldowns.insert("acad.exe".to_string(), 1000);
-        assert!(!cooldown_ok(&cooldowns, "acad.exe", 1000 + NOTIFY_COOLDOWN_SECS - 1));
-        assert!(cooldown_ok(&cooldowns, "acad.exe", 1000 + NOTIFY_COOLDOWN_SECS));
+        assert!(!cooldown_ok(
+            &cooldowns,
+            "acad.exe",
+            1000 + NOTIFY_COOLDOWN_SECS - 1
+        ));
+        assert!(cooldown_ok(
+            &cooldowns,
+            "acad.exe",
+            1000 + NOTIFY_COOLDOWN_SECS
+        ));
     }
 }

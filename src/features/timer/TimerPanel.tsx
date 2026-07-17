@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { Pause, Play, Square, Zap } from "lucide-react";
-import type { ActivityType } from "@/types/domain";
+import { Clock, Pause, Play, Square, Zap } from "lucide-react";
+import type { ActivityType, Project } from "@/types/domain";
 import { useTimerStore } from "@/stores/timerStore";
 import { useCatalogStore } from "@/stores/catalogStore";
 import { useEntriesStore } from "@/stores/entriesStore";
 import { ACTIVITY_TYPE_OPTIONS } from "@/lib/labels";
+import { recentProjectIds } from "@/lib/projects";
 import { Panel } from "@/components/ui/Panel";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Select } from "@/components/ui/Field";
+import { QuickTimeModal } from "@/features/history/QuickTimeModal";
 import { TimerCard } from "./TimerCard";
 import { StopConfirmModal } from "./StopConfirmModal";
 
@@ -28,24 +30,16 @@ export function TimerPanel() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmingStop, setConfirmingStop] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
 
   const activeProject =
     projects.find((p) => p.id === activeTimer?.projectId) ?? null;
 
   // Projetos usados mais recentemente (para inicio em 1 clique).
-  const recentProjects = useMemo(() => {
-    const seen = new Set<string>();
-    const result: typeof projects = [];
-    for (const e of entries) {
-      if (seen.has(e.projectId)) continue;
-      const p = projects.find((pr) => pr.id === e.projectId);
-      if (p) {
-        seen.add(e.projectId);
-        result.push(p);
-      }
-      if (result.length >= 3) break;
-    }
-    return result;
+  const recentProjects = useMemo<Project[]>(() => {
+    return recentProjectIds(entries, projects)
+      .map((id) => projects.find((p) => p.id === id))
+      .filter((p): p is Project => p !== undefined);
   }, [entries, projects]);
 
   // Pre-seleciona o projeto mais recente (ou o primeiro) no formulario.
@@ -200,7 +194,9 @@ export function TimerPanel() {
               <Select
                 id="t-activity"
                 value={activityType}
-                onChange={(e) => setActivityType(e.target.value as ActivityType)}
+                onChange={(e) =>
+                  setActivityType(e.target.value as ActivityType)
+                }
               >
                 {ACTIVITY_TYPE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -229,6 +225,26 @@ export function TimerPanel() {
           {error && <p className="text-sm text-danger">{error}</p>}
         </form>
       )}
+
+      {projects.length > 0 && (
+        <div className="mt-5 border-t border-border pt-4">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setQuickOpen(true)}
+            icon={<Clock size={14} strokeWidth={1.75} />}
+          >
+            Esqueceu de registrar? Adicionar tempo
+          </Button>
+        </div>
+      )}
+
+      <QuickTimeModal
+        open={quickOpen}
+        defaultProjectId={projectId}
+        onClose={() => setQuickOpen(false)}
+      />
     </Panel>
   );
 }
