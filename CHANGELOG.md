@@ -5,6 +5,15 @@ versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Nao lancado]
 
+### Corrigido — App nao abria quando ja estava rodando na bandeja
+- O app **fecha para a bandeja** e continua vivo, mas nao havia guarda de
+  instancia unica. Abrir pelo icone com ele escondido subia um **segundo
+  processo** sobre o mesmo SQLite: a janela nao aparecia e os dois processos
+  disputavam o banco — o cenario que a regra critica de integridade dos
+  registros existe para evitar.
+- Agora, com `tauri-plugin-single-instance`, a tentativa de abrir de novo apenas
+  **traz a janela existente de volta** (reusa `tray::show_main_window`).
+
 ### Adicionado — Adicionar tempo esquecido
 - Registrar trabalho esquecido exigia o formulario de sessao manual, com
   **inicio e fim** em campos de data-hora. Mas quem esqueceu de ligar o

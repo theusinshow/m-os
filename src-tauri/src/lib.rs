@@ -1,6 +1,7 @@
 //! Ponto de composicao do backend Tauri do CronoCAD.
 //!
 //! Responsabilidades desta fundacao:
+//!  * garantir instancia unica, trazendo a janela existente de volta;
 //!  * registrar o plugin SQL com as migrations versionadas;
 //!  * registrar o plugin de notificacao;
 //!  * construir a bandeja do sistema;
@@ -31,7 +32,21 @@ use tauri::{Manager, RunEvent, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // Instancia unica. Precisa ser o PRIMEIRO plugin registrado.
+    //
+    // O app fecha para a bandeja e continua vivo (ver `on_window_event` abaixo).
+    // Sem esta guarda, abrir o app pelo icone com ele ja rodando escondido subia
+    // um segundo processo sobre o mesmo SQLite: a janela nao aparecia e os dois
+    // processos disputavam o banco. Agora a tentativa de abrir de novo apenas
+    // traz a janela existente de volta.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        tray::show_main_window(app);
+    }));
+
+    builder
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations(database::DB_URL, database::migrations())
