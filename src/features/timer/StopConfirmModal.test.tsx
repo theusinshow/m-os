@@ -55,9 +55,18 @@ function setup(timer: ActiveTimer) {
 
 describe("StopConfirmModal", () => {
   it("mostra o projeto e o tempo que sera gravado", () => {
-    setup(running);
-    expect(screen.getByText(/Residencial Aurora/)).toBeInTheDocument();
-    expect(screen.getByText(/^\d{2}:\d{2}:\d{2}$/)).toBeInTheDocument();
+    // Relogio congelado: o tempo exibido e calculado contra `Date.now()` e
+    // cresceria a cada dia real que passa desde `lastResumedAt`. Escopo local
+    // porque os demais testes usam userEvent, que nao convive com fake timers.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T09:30:15Z"));
+    try {
+      setup(running);
+      expect(screen.getByText(/Residencial Aurora/)).toBeInTheDocument();
+      expect(screen.getByText("01:30:15")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("oferece pausar quando o cronometro esta rodando", async () => {

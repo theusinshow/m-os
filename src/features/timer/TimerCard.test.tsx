@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { TimerCard } from "./TimerCard";
 import type { ActiveTimer, Project } from "@/types/domain";
@@ -33,10 +33,22 @@ const timer: ActiveTimer = {
 };
 
 describe("TimerCard", () => {
+  // O card calcula o decorrido contra o relogio real. Sem congelar o tempo o
+  // valor exibido cresce a cada dia que passa desde `lastResumedAt` e o teste
+  // quebra sozinho — foi o que aconteceu.
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T09:30:15Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("exibe o nome do projeto e o cronometro quando ha timer ativo", () => {
     render(<TimerCard timer={timer} project={project} />);
     expect(screen.getByText(project.name)).toBeInTheDocument();
-    expect(screen.getByText(/^\d{2}:\d{2}:\d{2}$/)).toBeInTheDocument();
+    // 1h30min15s desde `lastResumedAt`.
+    expect(screen.getByText("01:30:15")).toBeInTheDocument();
   });
 
   it("mostra estado vazio quando nao ha timer", () => {
