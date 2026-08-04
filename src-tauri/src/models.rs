@@ -6,6 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::domain::billing::Rounding;
+use crate::domain::timer::RoundingMode;
 use crate::error::AppError;
 
 /// Normaliza um campo de texto opcional: `None` quando vazio/em branco.
@@ -219,12 +221,31 @@ pub struct ActiveTimer {
     pub updated_at: String,
 }
 
-/// Total trabalhado (segundos) por projeto — para acompanhamento de metas.
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectTotal {
+/// Campos de uma sessao necessarios para o calculo de cobranca. Struct enxuta
+/// de proposito: a agregacao le TODO o historico, entao vale trazer so o que o
+/// calculo usa.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct BillingRow {
     pub project_id: String,
-    pub seconds: i64,
+    pub duration_seconds: i64,
+    pub idle_seconds: i64,
+    pub billable: bool,
+    pub hourly_rate_snapshot_cents: i64,
+}
+
+/// Horas e valor acumulados de um projeto ao longo de toda a sua vida.
+///
+/// `billable_seconds` e `amount_cents` ja consideram desconto de inatividade,
+/// sessoes nao-faturaveis e o arredondamento configurado — sempre aplicado na
+/// visualizacao/cobranca, nunca no banco (regra critica 5).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectBilling {
+    pub project_id: String,
+    pub gross_seconds: i64,
+    pub idle_seconds: i64,
+    pub billable_seconds: i64,
+    pub amount_cents: i64,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
@@ -442,6 +463,22 @@ impl Settings {
             self.rounding_interval_minutes = 1;
         }
         Ok(self)
+    }
+
+    /// Configuracao de arredondamento no formato do dominio. Modo desconhecido
+    /// cai em `Nearest` — a leitura de um total nunca deve falhar por causa de
+    /// uma preferencia invalida.
+    pub fn rounding(&self) -> Rounding {
+        let mode = match self.rounding_mode.as_str() {
+            "up" => RoundingMode::Up,
+            "down" => RoundingMode::Down,
+            _ => RoundingMode::Nearest,
+        };
+        Rounding {
+            enabled: self.rounding_enabled,
+            interval_minutes: self.rounding_interval_minutes,
+            mode,
+        }
     }
 }
 

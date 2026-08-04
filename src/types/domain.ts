@@ -82,10 +82,20 @@ export interface ProjectTodo {
   updatedAt: IsoDateTime;
 }
 
-/** Total trabalhado (segundos) por projeto — acompanhamento de metas. */
-export interface ProjectTotal {
+/**
+ * Horas e valor acumulados de um projeto ao longo de toda a sua vida.
+ *
+ * Calculado no backend sobre TODO o historico (nao sobre a lista carregada na
+ * tela). `billableSeconds` e `amountCents` ja descontam inatividade, zeram
+ * sessoes nao-faturaveis e aplicam o arredondamento das Configuracoes — sempre
+ * na visualizacao/cobranca, nunca no banco.
+ */
+export interface ProjectBilling {
   projectId: Uuid;
-  seconds: Seconds;
+  grossSeconds: Seconds;
+  idleSeconds: Seconds;
+  billableSeconds: Seconds;
+  amountCents: Cents;
 }
 
 export interface TimeEntry {

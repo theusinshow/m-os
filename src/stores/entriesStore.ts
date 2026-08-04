@@ -45,7 +45,8 @@ export const useEntriesStore = create<EntriesState>((set, get) => ({
   load: async () => {
     set({ loading: true, error: null });
     try {
-      const entries = await listTimeEntries(200, false);
+      // Sem limite: Painel e Relatorio somam este array para calcular valores.
+      const entries = await listTimeEntries(undefined, false);
       set({ entries, loading: false, loaded: true });
     } catch (err) {
       set({ loading: false, loaded: true, error: messageOf(err) });

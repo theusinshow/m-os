@@ -10,10 +10,18 @@ use sqlx::{Pool, Sqlite};
 use crate::database::{
     MIGRATION_0001, MIGRATION_0002, MIGRATION_0003, MIGRATION_0004, MIGRATION_0005,
 };
+use crate::domain::billing;
+use crate::domain::timer::RoundingMode;
 use crate::models::{
     validate_status, ClientInput, EntryUpdateInput, ManualEntryInput, ProjectInput, StartTimerInput,
 };
 use crate::repository::{clients, new_id, notes, now_iso, projects, time_entries, timer};
+
+const NO_ROUNDING: billing::Rounding = billing::Rounding {
+    enabled: false,
+    interval_minutes: 15,
+    mode: RoundingMode::Nearest,
+};
 
 async fn setup() -> Pool<Sqlite> {
     let pool = SqlitePoolOptions::new()
@@ -72,9 +80,98 @@ async fn totais_por_projeto_somam_sessoes() {
     )
     .await
     .unwrap();
-    let totals = time_entries::totals_by_project(&pool).await.unwrap();
-    let total = totals.iter().find(|t| t.project_id == project.id).unwrap();
-    assert_eq!(total.seconds, 3600);
+    let sessions = billing_sessions(&pool).await;
+    let totals = billing::aggregate_by_project(&sessions, NO_ROUNDING);
+    assert_eq!(totals[&project.id].gross_seconds, 3600);
+    // 1h a R$ 60,00/h.
+    assert_eq!(totals[&project.id].amount_cents, 6000);
+}
+
+/// Le as sessoes do banco no formato do dominio de cobranca.
+async fn billing_sessions(pool: &Pool<Sqlite>) -> Vec<billing::Session> {
+    time_entries::billing_rows(pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| billing::Session {
+            project_id: r.project_id,
+            duration_seconds: r.duration_seconds,
+            idle_seconds: r.idle_seconds,
+            billable: r.billable,
+            hourly_rate_snapshot_cents: r.hourly_rate_snapshot_cents,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn billing_rows_ignora_sessoes_excluidas() {
+    let pool = setup().await;
+    let project = projects::create(&pool, project_input("Proj", 6000).validate().unwrap())
+        .await
+        .unwrap();
+    for (start, end) in [
+        ("2026-07-11T08:00:00Z", "2026-07-11T09:00:00Z"),
+        ("2026-07-12T08:00:00Z", "2026-07-12T09:00:00Z"),
+    ] {
+        time_entries::create_manual(
+            &pool,
+            manual_input(&project.id, start, end).validate().unwrap(),
+        )
+        .await
+        .unwrap();
+    }
+
+    let all = time_entries::billing_rows(&pool).await.unwrap();
+    assert_eq!(all.len(), 2);
+    assert_eq!(all[0].hourly_rate_snapshot_cents, 6000);
+
+    // Uma sessao excluida (soft delete) nao pode continuar sendo cobrada.
+    let entries = time_entries::list_recent(&pool, Some(10), false)
+        .await
+        .unwrap();
+    time_entries::soft_delete(&pool, &entries[0].id)
+        .await
+        .unwrap();
+
+    let remaining = time_entries::billing_rows(&pool).await.unwrap();
+    assert_eq!(remaining.len(), 1);
+}
+
+#[tokio::test]
+async fn list_recent_sem_limite_traz_o_historico_inteiro() {
+    let pool = setup().await;
+    let project = projects::create(&pool, project_input("Proj", 6000).validate().unwrap())
+        .await
+        .unwrap();
+    for day in 10..=14 {
+        time_entries::create_manual(
+            &pool,
+            manual_input(
+                &project.id,
+                &format!("2026-07-{day}T08:00:00Z"),
+                &format!("2026-07-{day}T09:00:00Z"),
+            )
+            .validate()
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    }
+
+    assert_eq!(
+        time_entries::list_recent(&pool, Some(2), false)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        time_entries::list_recent(&pool, None, false)
+            .await
+            .unwrap()
+            .len(),
+        5
+    );
 }
 
 #[tokio::test]
@@ -254,7 +351,9 @@ async fn stop_congela_snapshot_do_valor_hora() {
     .unwrap();
 
     // A sessao ja gravada permanece com o snapshot antigo.
-    let recent = time_entries::list_recent(&pool, 10, false).await.unwrap();
+    let recent = time_entries::list_recent(&pool, Some(10), false)
+        .await
+        .unwrap();
     assert_eq!(recent.len(), 1);
     assert_eq!(recent[0].hourly_rate_snapshot_cents, 9000);
 }
@@ -303,7 +402,7 @@ async fn descartar_remove_cronometro_sem_criar_sessao() {
     timer::discard(&pool).await.unwrap();
     assert!(timer::active(&pool).await.unwrap().is_none());
     assert_eq!(
-        time_entries::list_recent(&pool, 10, false)
+        time_entries::list_recent(&pool, Some(10), false)
             .await
             .unwrap()
             .len(),
@@ -419,14 +518,14 @@ async fn soft_delete_e_restore_de_sessao() {
 
     time_entries::soft_delete(&pool, &entry.id).await.unwrap();
     assert_eq!(
-        time_entries::list_recent(&pool, 10, false)
+        time_entries::list_recent(&pool, Some(10), false)
             .await
             .unwrap()
             .len(),
         0
     );
     assert_eq!(
-        time_entries::list_recent(&pool, 10, true)
+        time_entries::list_recent(&pool, Some(10), true)
             .await
             .unwrap()
             .len(),
@@ -436,7 +535,7 @@ async fn soft_delete_e_restore_de_sessao() {
     let restored = time_entries::restore(&pool, &entry.id).await.unwrap();
     assert!(restored.deleted_at.is_none());
     assert_eq!(
-        time_entries::list_recent(&pool, 10, false)
+        time_entries::list_recent(&pool, Some(10), false)
             .await
             .unwrap()
             .len(),

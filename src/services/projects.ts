@@ -2,7 +2,7 @@
  * Servico de projetos: wrappers tipados sobre os comandos Tauri.
  */
 
-import type { Project, ProjectStatus, ProjectTotal } from "@/types/domain";
+import type { Project, ProjectBilling, ProjectStatus } from "@/types/domain";
 import { invokeCommand } from "./tauri";
 
 export interface ProjectInput {
@@ -15,8 +15,13 @@ export interface ProjectInput {
   color?: string | null;
 }
 
-export function listProjectTotals(): Promise<ProjectTotal[]> {
-  return invokeCommand<ProjectTotal[]>("list_project_totals");
+/**
+ * Horas e valor acumulados por projeto, sobre todo o historico. O
+ * arredondamento vem das Configuracoes lidas no proprio backend — nao ha
+ * parametro aqui de proposito, para as duas telas nao poderem divergir.
+ */
+export function listProjectBilling(): Promise<ProjectBilling[]> {
+  return invokeCommand<ProjectBilling[]>("list_project_billing");
 }
 
 export function listProjects(includeArchived = false): Promise<Project[]> {
