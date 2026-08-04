@@ -3,7 +3,7 @@
 use sqlx::{Pool, Sqlite};
 
 use crate::error::AppError;
-use crate::models::{ProjectTotal, TimeEntry, ValidEntryUpdate, ValidManualEntry};
+use crate::models::{BillingRow, TimeEntry, ValidEntryUpdate, ValidManualEntry};
 
 use super::{new_id, now_iso};
 
@@ -14,9 +14,13 @@ pub const COLUMNS: &str = "id, project_id, started_at, ended_at, duration_second
 /// Lista as sessoes mais recentes, da mais nova para a antiga. Por padrao
 /// oculta as excluidas (soft delete); `include_deleted` as inclui (para
 /// restauracao no historico).
+///
+/// `limit = None` traz o historico inteiro. Telas que somam valores (Painel e
+/// Relatorio) precisam disso: com um teto, o total exibido fica silenciosamente
+/// menor que a realidade assim que o historico o ultrapassa.
 pub async fn list_recent(
     pool: &Pool<Sqlite>,
-    limit: i64,
+    limit: Option<i64>,
     include_deleted: bool,
 ) -> Result<Vec<TimeEntry>, AppError> {
     let filter = if include_deleted {
@@ -24,21 +28,25 @@ pub async fn list_recent(
     } else {
         "WHERE deleted_at IS NULL"
     };
+    // No SQLite, LIMIT negativo equivale a "sem limite".
+    let effective_limit = limit.filter(|n| *n >= 0).unwrap_or(-1);
     let rows = sqlx::query_as::<_, TimeEntry>(&format!(
         "SELECT {COLUMNS} FROM time_entries {filter} ORDER BY started_at DESC LIMIT ?1"
     ))
-    .bind(limit)
+    .bind(effective_limit)
     .fetch_all(pool)
     .await?;
     Ok(rows)
 }
 
-/// Total trabalhado (segundos) por projeto, considerando apenas sessoes nao
-/// excluidas. Base para o acompanhamento de metas por projeto.
-pub async fn totals_by_project(pool: &Pool<Sqlite>) -> Result<Vec<ProjectTotal>, AppError> {
-    let rows = sqlx::query_as::<_, ProjectTotal>(
-        "SELECT project_id, COALESCE(SUM(duration_seconds), 0) AS seconds \
-         FROM time_entries WHERE deleted_at IS NULL GROUP BY project_id",
+/// Todas as sessoes nao excluidas, reduzidas aos campos usados no calculo de
+/// cobranca. Base do total acumulado por projeto: le o historico inteiro, sem
+/// o teto de paginacao das listagens de tela.
+pub async fn billing_rows(pool: &Pool<Sqlite>) -> Result<Vec<BillingRow>, AppError> {
+    let rows = sqlx::query_as::<_, BillingRow>(
+        "SELECT project_id, duration_seconds, idle_seconds, billable, \
+                hourly_rate_snapshot_cents \
+         FROM time_entries WHERE deleted_at IS NULL",
     )
     .fetch_all(pool)
     .await?;

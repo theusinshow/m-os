@@ -9,7 +9,7 @@ import {
   Users,
 } from "lucide-react";
 import type { Project } from "@/types/domain";
-import { useCatalogStore } from "@/stores/catalogStore";
+import { EMPTY_BILLING, useCatalogStore } from "@/stores/catalogStore";
 import { useNotesStore } from "@/stores/notesStore";
 import { formatCurrency, formatDuration } from "@/lib/format";
 import { PROJECT_STATUS_LABELS } from "@/lib/labels";
@@ -30,11 +30,12 @@ export function ProjectsPage() {
   const {
     clients,
     projects,
-    projectTotals,
+    projectBilling,
     loading,
     loaded,
     error,
     loadAll,
+    loadTotals,
     setProjectStatus,
   } = useCatalogStore();
 
@@ -50,9 +51,14 @@ export function ProjectsPage() {
   const todosLoaded = useNotesStore((s) => s.loaded);
 
   useEffect(() => {
-    if (!loaded) void loadAll();
+    // Os acumulados sao recarregados a cada visita (nao so na primeira): o
+    // valor muda ao encerrar sessoes, editar o historico ou alterar o
+    // arredondamento, e um total desatualizado aqui e um total errado.
+    if (loaded) void loadTotals();
+    else void loadAll();
     if (!todosLoaded) void loadTodos();
-  }, [loaded, loadAll, todosLoaded, loadTodos]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -65,7 +71,22 @@ export function ProjectsPage() {
   }, [projects, query]);
 
   const clientName = (id: string | null) =>
-    clients.find((c) => c.id === id)?.name ?? "—";
+    clients.find((c) => c.id === id)?.name ?? "Sem cliente";
+
+  /** Soma dos projetos visiveis — o "valor completo do trabalho". */
+  const grandTotal = useMemo(
+    () =>
+      filtered.reduce(
+        (acc, p) => {
+          const b = projectBilling[p.id] ?? EMPTY_BILLING;
+          acc.billableSeconds += b.billableSeconds;
+          acc.amountCents += b.amountCents;
+          return acc;
+        },
+        { billableSeconds: 0, amountCents: 0 },
+      ),
+    [filtered, projectBilling],
+  );
 
   const notesFor = projects.find((p) => p.id === notesForId) ?? null;
 
@@ -152,88 +173,150 @@ export function ProjectsPage() {
         />
       ) : (
         <Panel>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-2xs uppercase tracking-wide text-text-subtle">
-                <th className="px-4 py-2 font-medium">Projeto</th>
-                <th className="px-4 py-2 font-medium">Cliente</th>
-                <th className="px-4 py-2 font-medium">Status</th>
-                <th className="px-4 py-2 font-medium">Progresso</th>
-                <th className="px-4 py-2 text-right font-medium">Valor/hora</th>
-                <th className="px-4 py-2 text-right font-medium">Acoes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {filtered.map((project) => (
-                <tr key={project.id} className="hover:bg-surface-hover">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ background: project.color ?? "var(--color-accent)" }}
-                        aria-hidden
-                      />
-                      <div>
-                        <p className="text-text">{project.name}</p>
-                        {project.code && (
-                          <p className="text-xs text-text-muted">{project.code}</p>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-text-muted">
-                    {clientName(project.clientId)}
-                  </td>
-                  <td className="px-4 py-3 text-text-muted">
-                    {PROJECT_STATUS_LABELS[project.status]}
-                  </td>
-                  <td className="px-4 py-3">
-                    <BudgetProgress
-                      workedSeconds={projectTotals[project.id] ?? 0}
-                      budgetMinutes={project.budgetMinutes}
-                    />
-                  </td>
-                  <td className="tabular px-4 py-3 text-right text-text">
-                    {formatCurrency(project.hourlyRateCents)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setNotesForId(project.id)}
-                        aria-label={`Anotacoes de ${project.name}`}
-                        icon={<StickyNote size={15} strokeWidth={1.75} />}
-                      />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openEdit(project)}
-                        aria-label={`Editar ${project.name}`}
-                        icon={<Pencil size={15} strokeWidth={1.75} />}
-                      />
-                      {project.status !== "completed" && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void setProjectStatus(project.id, "completed")}
-                          aria-label={`Concluir ${project.name}`}
-                          icon={<CheckCircle2 size={15} strokeWidth={1.75} />}
-                        />
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => void setProjectStatus(project.id, "archived")}
-                        aria-label={`Arquivar ${project.name}`}
-                        icon={<Archive size={15} strokeWidth={1.75} />}
-                      />
-                    </div>
-                  </td>
+          {/*
+            Duas concessoes para o acumulado caber na janela minima (960px, que
+            deixa 680px para a tabela) sem virar rolagem horizontal:
+
+            - o cliente vive na celula do projeto, nao em coluna propria;
+            - "Valor/hora" so aparece a partir de `xl` — e dado secundario e
+              esta no formulario de edicao, enquanto o acumulado e o motivo de
+              se abrir esta tela.
+          */}
+          {/*
+            `table-fixed` com larguras declaradas nos cabecalhos: em tabela de
+            layout automatico o `truncate` da celula do projeto nao tem efeito
+            (a celula cresce ate caber o texto) e empurrava a coluna de
+            acumulado para fora da tela. Fixando as demais, sobra o resto para
+            o nome do projeto, que ai sim trunca.
+          */}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[810px] table-fixed text-sm xl:min-w-[920px]">
+              <thead>
+                <tr className="border-b border-border text-left text-2xs uppercase tracking-wide text-text-subtle">
+                  <th className="px-4 py-2 font-medium">Projeto</th>
+                  <th className="w-[80px] px-4 py-2 font-medium">Status</th>
+                  <th className="w-[160px] px-4 py-2 font-medium">Progresso</th>
+                  <th className="hidden w-[110px] px-4 py-2 text-right font-medium xl:table-cell">
+                    Valor/hora
+                  </th>
+                  <th className="w-[150px] px-4 py-2 text-right font-medium">
+                    Acumulado
+                  </th>
+                  {/* 4 botoes de 39px (h-8 px-3 + icone) + gaps + padding. */}
+                  <th className="w-[200px] px-4 py-2 text-right font-medium">Acoes</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filtered.map((project) => {
+                  const billing = projectBilling[project.id] ?? EMPTY_BILLING;
+                  return (
+                    <tr key={project.id} className="hover:bg-surface-hover">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ background: project.color ?? "var(--color-accent)" }}
+                            aria-hidden
+                          />
+                          <div className="min-w-0">
+                            <p className="truncate text-text">{project.name}</p>
+                            <p className="truncate text-xs text-text-muted">
+                              {[project.code, clientName(project.clientId)]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-text-muted">
+                        {PROJECT_STATUS_LABELS[project.status]}
+                      </td>
+                      <td className="px-4 py-3">
+                        <BudgetProgress
+                          workedSeconds={billing.grossSeconds}
+                          budgetMinutes={project.budgetMinutes}
+                        />
+                      </td>
+                      <td className="tabular hidden whitespace-nowrap px-4 py-3 text-right text-text-muted xl:table-cell">
+                        {formatCurrency(project.hourlyRateCents)}
+                      </td>
+                      <td
+                        className="whitespace-nowrap px-4 py-3 text-right"
+                        title={`${formatDuration(billing.billableSeconds)} faturaveis de ${formatDuration(billing.grossSeconds)} registrados`}
+                      >
+                        <p className="tabular font-medium text-text">
+                          {formatCurrency(billing.amountCents)}
+                        </p>
+                        <p className="tabular text-2xs text-text-muted">
+                          {formatDuration(billing.billableSeconds)}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setNotesForId(project.id)}
+                            aria-label={`Anotacoes de ${project.name}`}
+                            icon={<StickyNote size={15} strokeWidth={1.75} />}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openEdit(project)}
+                            aria-label={`Editar ${project.name}`}
+                            icon={<Pencil size={15} strokeWidth={1.75} />}
+                          />
+                          {project.status !== "completed" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => void setProjectStatus(project.id, "completed")}
+                              aria-label={`Concluir ${project.name}`}
+                              icon={<CheckCircle2 size={15} strokeWidth={1.75} />}
+                            />
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void setProjectStatus(project.id, "archived")}
+                            aria-label={`Arquivar ${project.name}`}
+                            icon={<Archive size={15} strokeWidth={1.75} />}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              {/*
+                O rodape repete a estrutura de celulas das linhas em vez de usar
+                colSpan: com "Valor/hora" oculto por breakpoint, um colSpan fixo
+                desalinharia o total da sua coluna.
+              */}
+              <tfoot>
+                <tr className="border-t border-border">
+                  <td className="px-4 py-3 text-2xs uppercase tracking-wide text-text-subtle">
+                    {filtered.length === projects.length
+                      ? "Total de todos os projetos"
+                      : `Total dos ${filtered.length} projetos filtrados`}
+                  </td>
+                  <td />
+                  <td />
+                  <td className="hidden xl:table-cell" />
+                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                    <p className="tabular text-sm font-semibold text-text">
+                      {formatCurrency(grandTotal.amountCents)}
+                    </p>
+                    <p className="tabular text-2xs text-text-muted">
+                      {formatDuration(grandTotal.billableSeconds)} faturaveis
+                    </p>
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </Panel>
       )}
 
@@ -266,8 +349,8 @@ function BudgetProgress({
   const pct = Math.min(100, (workedSeconds / budgetSeconds) * 100);
   const over = workedSeconds > budgetSeconds;
   return (
-    <div className="w-32">
-      <div className="tabular flex justify-between text-2xs text-text-muted">
+    <div>
+      <div className="tabular flex justify-between gap-2 whitespace-nowrap text-2xs text-text-muted">
         <span className={over ? "text-danger" : ""}>{worked}</span>
         <span>{formatDuration(budgetSeconds)}</span>
       </div>

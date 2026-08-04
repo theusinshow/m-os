@@ -9,3 +9,5 @@
 // caminho de producao — o `allow` documenta essa intencao sem mascarar erros.
 #[allow(dead_code)]
 pub mod timer;
+
+pub mod billing;

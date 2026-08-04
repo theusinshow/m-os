@@ -5,6 +5,53 @@ versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Nao lancado]
 
+### Adicionado — Total acumulado por projeto
+- Tela **Projetos**: coluna **Acumulado** com o valor e as horas faturaveis de
+  toda a vida de cada projeto, e um rodape com o **total de todos os projetos**
+  (respeita a pesquisa ativa).
+- Tela **Relatorios**: painel **Por projeto**, ordenado do maior valor para o
+  menor, respeitando periodo/cliente/projeto e o ajuste percentual. Tambem entra
+  no PDF (quando ha de 2 a 12 projetos no periodo), para uma fatura com varios
+  projetos mostrar quanto cabe a cada um.
+- O valor segue a mesma regra do Relatorio: desconta inatividade, ignora sessoes
+  nao-faturaveis, aplica o arredondamento configurado **por sessao** e usa o
+  `hourly_rate_snapshot_cents` de cada sessao. O banco continua guardando o
+  tempo real.
+- Backend: `domain::billing` (puro, compondo `domain::timer`) e o comando
+  `list_project_billing`, que agrega **todo o historico** no SQLite e le o
+  arredondamento da propria tabela `settings` — assim as duas telas nao podem
+  divergir. Sem migration: nenhum dado existente e alterado.
+- `list_project_totals` foi removido: virou subconjunto exato do novo comando.
+
+### Corrigido — Totais silenciosamente menores que a realidade
+- `entriesStore` carregava so as **200 sessoes mais recentes**, e Painel e
+  Relatorio somam esse array. Passando de 200 sessoes, o "Valor total" com
+  filtro "Tudo" ficava menor que o real **sem nenhum aviso**. `limit` agora e
+  opcional e, omitido, traz o historico inteiro.
+- Os acumulados da tela Projetos eram carregados uma unica vez (`loadTotals` nao
+  tinha chamador) e ficavam velhos ate reiniciar o app. Agora recarregam a cada
+  visita a tela.
+
+### Corrigido — Conteudo cortado em janelas estreitas
+- **Historico:** a tabela de 7 colunas nao tinha rolagem horizontal. Na janela
+  minima (960px, que deixa 680px de conteudo) a coluna de acoes ficava **fora da
+  area visivel** — editar e excluir eram literalmente inalcancaveis.
+- **Relatorios:** item de grid tem `min-width: auto`, entao a tabela de sessoes
+  impedia a coluna de encolher e o painel vazava para fora da janela por volta
+  de 1120px. O `overflow-x-auto` interno so age depois que o painel pode, de
+  fato, ficar mais estreito.
+- **Projetos:** `truncate` em celula de tabela com layout automatico nao tem
+  efeito (a celula cresce ate caber o texto). Com `table-fixed` e larguras
+  declaradas, o nome longo trunca e a coluna de acumulado para de ser empurrada
+  para fora da tela.
+- Telas largas: o limite de 1024px deixava ~600px de margem morta de cada lado
+  em 1920px enquanto as tabelas apertavam. Sobe para 1280px a partir de `2xl`.
+
+### Corrigido — Testes que quebravam com a passagem do tempo
+- `TimerCard` e `StopConfirmModal` comparavam o tempo decorrido contra o relogio
+  real a partir de uma data fixa, entao o valor exibido crescia a cada dia e
+  deixava de casar com o formato esperado. O relogio agora e congelado no teste.
+
 ### Corrigido — Valores vazando por cima da borda dos cards
 - `formatCurrency` usa `Intl.NumberFormat`, que separa simbolo e numero com um
   espaco **nao-quebravel** (U+00A0). "R$ 12.480,83" e portanto um token unico e

@@ -69,7 +69,7 @@ pub fn run() {
             commands::get_project,
             commands::create_project,
             commands::update_project,
-            commands::list_project_totals,
+            commands::list_project_billing,
             commands::set_project_status,
             commands::update_project_notes,
             commands::list_todos,

@@ -17,6 +17,7 @@ import { netDuration } from "@/lib/duration";
 import { roundDuration, type RoundingConfig } from "@/lib/rounding";
 import { ACTIVITY_TYPE_LABELS } from "@/lib/labels";
 import { buildCsv } from "@/lib/csv";
+import { groupBy } from "@/lib/reportTotals";
 import { exportReportPdf } from "@/services/app";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
@@ -105,18 +106,10 @@ export function ReportsPage() {
   const selectedClientName =
     clients.find((c) => c.id === clientId)?.name ?? null;
 
-  // Separacao por tipo de atividade.
-  const byActivity = useMemo(() => {
-    const map = new Map<string, { seconds: number; amount: number }>();
-    for (const r of rows) {
-      const key = r.entry.activityType;
-      const cur = map.get(key) ?? { seconds: 0, amount: 0 };
-      cur.seconds += r.roundedBillable;
-      cur.amount += r.amount;
-      map.set(key, cur);
-    }
-    return [...map.entries()];
-  }, [rows]);
+  // Quebras do periodo. Ambas somam as mesmas linhas que produzem o "Valor
+  // total" acima — nao ha um segundo caminho de calculo que possa divergir.
+  const byActivity = useMemo(() => groupBy(rows, (r) => r.entry.activityType), [rows]);
+  const byProject = useMemo(() => groupBy(rows, (r) => r.entry.projectId), [rows]);
 
   async function exportCsv() {
     const headers = [
@@ -167,6 +160,17 @@ export function ReportsPage() {
       ["Horas inativas", formatDuration(totals.idle)],
       ["Horas faturaveis", formatDuration(totals.billable)],
     ];
+    // Quebra por projeto: sem isso, uma fatura com varios projetos nao mostra
+    // quanto cabe a cada um. Omitida quando ha um projeto so (seria repetir o
+    // total) e quando ha muitos (viraria uma parede de linhas no cabecalho).
+    if (byProject.length > 1 && byProject.length <= 12) {
+      for (const g of byProject) {
+        base.push([
+          `  ${projectName(g.key)}`,
+          `${formatDuration(g.seconds)} · ${formatCurrency(g.amount)}`,
+        ]);
+      }
+    }
     if (pct !== 0) {
       base.push(["Subtotal", formatCurrency(totals.amount)]);
       base.push([`Ajuste (${pct}%)`, formatCurrency(finalAmount - totals.amount)]);
@@ -353,28 +357,75 @@ export function ReportsPage() {
         />
       </Panel>
 
+      {/*
+        `min-w-0` nos filhos: item de grid tem `min-width: auto`, entao a tabela
+        de sessoes impedia a coluna de encolher e o painel vazava para fora da
+        janela em larguras intermediarias (~1120px). O `overflow-x-auto` interno
+        so funciona depois que o painel pode, de fato, ficar mais estreito.
+      */}
       <div className="grid gap-4 lg:grid-cols-[1fr_1.6fr]">
-        <Panel>
-          <PanelHeader title="Por tipo de atividade" />
-          {byActivity.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-text-muted">Sem dados no periodo.</p>
-          ) : (
-            <ul className="divide-y divide-border">
-              {byActivity.map(([type, v]) => (
-                <li key={type} className="flex items-center justify-between px-4 py-2.5">
-                  <span className="text-sm text-text">
-                    {ACTIVITY_TYPE_LABELS[type as keyof typeof ACTIVITY_TYPE_LABELS]}
-                  </span>
-                  <span className="tabular text-sm text-text-muted">
-                    {formatDuration(v.seconds)} · {formatCurrency(v.amount)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
+        <div className="grid min-w-0 content-start gap-4">
+          {/* `min-w-0` tambem aqui: sem isso o painel nao encolhe e o nome
+              longo do projeto vaza por baixo do painel vizinho em vez de
+              truncar. A cadeia inteira precisa poder encolher. */}
+          <Panel className="min-w-0">
+            <PanelHeader title="Por projeto" />
+            {byProject.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-text-muted">Sem dados no periodo.</p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {byProject.map((g) => (
+                  <li
+                    key={g.key}
+                    className="flex items-center justify-between gap-3 px-4 py-2.5"
+                  >
+                    <span className="min-w-0 truncate text-sm text-text">
+                      {projectName(g.key)}
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="tabular block text-sm text-text">
+                        {formatCurrency(g.amount)}
+                      </span>
+                      <span className="tabular block text-2xs text-text-muted">
+                        {formatDuration(g.seconds)}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
 
-        <Panel>
+          <Panel className="min-w-0">
+            <PanelHeader title="Por tipo de atividade" />
+            {byActivity.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-text-muted">Sem dados no periodo.</p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {byActivity.map((g) => (
+                  <li
+                    key={g.key}
+                    className="flex items-center justify-between gap-3 px-4 py-2.5"
+                  >
+                    <span className="min-w-0 truncate text-sm text-text">
+                      {ACTIVITY_TYPE_LABELS[g.key as keyof typeof ACTIVITY_TYPE_LABELS]}
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="tabular block text-sm text-text">
+                        {formatCurrency(g.amount)}
+                      </span>
+                      <span className="tabular block text-2xs text-text-muted">
+                        {formatDuration(g.seconds)}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+        </div>
+
+        <Panel className="min-w-0">
           <PanelHeader title="Sessoes detalhadas" />
           {rows.length === 0 ? (
             <p className="px-4 py-6 text-sm text-text-muted">
@@ -394,16 +445,16 @@ export function ReportsPage() {
                 <tbody className="divide-y divide-border">
                   {rows.map((r) => (
                     <tr key={r.entry.id}>
-                      <td className="tabular px-4 py-2.5 text-text-muted">
+                      <td className="tabular whitespace-nowrap px-4 py-2.5 text-text-muted">
                         {formatDate(r.entry.startedAt)}
                       </td>
                       <td className="px-4 py-2.5 text-text">
                         {projectName(r.entry.projectId)}
                       </td>
-                      <td className="tabular px-4 py-2.5 text-right text-text">
+                      <td className="tabular whitespace-nowrap px-4 py-2.5 text-right text-text">
                         {formatDuration(r.roundedBillable)}
                       </td>
-                      <td className="tabular px-4 py-2.5 text-right text-text">
+                      <td className="tabular whitespace-nowrap px-4 py-2.5 text-right text-text">
                         {formatCurrency(r.amount)}
                       </td>
                     </tr>

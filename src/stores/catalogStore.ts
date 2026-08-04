@@ -7,7 +7,12 @@
  */
 
 import { create } from "zustand";
-import type { Client, Project, ProjectStatus } from "@/types/domain";
+import type {
+  Client,
+  Project,
+  ProjectBilling,
+  ProjectStatus,
+} from "@/types/domain";
 import {
   archiveClient as apiArchiveClient,
   createClient as apiCreateClient,
@@ -17,8 +22,8 @@ import {
 } from "@/services/clients";
 import {
   createProject as apiCreateProject,
+  listProjectBilling,
   listProjects,
-  listProjectTotals,
   setProjectStatus as apiSetProjectStatus,
   updateProject as apiUpdateProject,
   type ProjectInput,
@@ -28,13 +33,17 @@ import { updateProjectNotes as apiUpdateProjectNotes } from "@/services/notes";
 interface CatalogState {
   clients: Client[];
   projects: Project[];
-  /** Segundos trabalhados por projeto (id -> segundos). */
-  projectTotals: Record<string, number>;
+  /**
+   * Horas e valor acumulados por projeto (id -> totais). Projeto sem nenhuma
+   * sessao nao aparece aqui — use `EMPTY_BILLING` como padrao.
+   */
+  projectBilling: Record<string, ProjectBilling>;
   loading: boolean;
   loaded: boolean;
   error: string | null;
 
   loadAll: () => Promise<void>;
+  /** Recarrega so os acumulados (apos encerrar sessao, editar ou mudar o arredondamento). */
   loadTotals: () => Promise<void>;
 
   createClient: (input: ClientInput) => Promise<Client>;
@@ -54,10 +63,23 @@ function messageOf(err: unknown): string {
 const byName = <T extends { name: string }>(a: T, b: T) =>
   a.name.localeCompare(b.name, "pt-BR");
 
+/** Indexa os acumulados vindos do backend pelo id do projeto. */
+function byProjectId(items: ProjectBilling[]): Record<string, ProjectBilling> {
+  return Object.fromEntries(items.map((item) => [item.projectId, item]));
+}
+
+/** Acumulado de um projeto que ainda nao tem nenhuma sessao registrada. */
+export const EMPTY_BILLING: Omit<ProjectBilling, "projectId"> = {
+  grossSeconds: 0,
+  idleSeconds: 0,
+  billableSeconds: 0,
+  amountCents: 0,
+};
+
 export const useCatalogStore = create<CatalogState>((set, get) => ({
   clients: [],
   projects: [],
-  projectTotals: {},
+  projectBilling: {},
   loading: false,
   loaded: false,
   error: null,
@@ -65,15 +87,18 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   loadAll: async () => {
     set({ loading: true, error: null });
     try {
-      const [clients, projects, totals] = await Promise.all([
+      const [clients, projects, billing] = await Promise.all([
         listClients(),
         listProjects(),
-        listProjectTotals(),
+        listProjectBilling(),
       ]);
-      const projectTotals = Object.fromEntries(
-        totals.map((t) => [t.projectId, t.seconds]),
-      );
-      set({ clients, projects, projectTotals, loading: false, loaded: true });
+      set({
+        clients,
+        projects,
+        projectBilling: byProjectId(billing),
+        loading: false,
+        loaded: true,
+      });
     } catch (err) {
       set({ loading: false, loaded: true, error: messageOf(err) });
     }
@@ -81,12 +106,7 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
 
   loadTotals: async () => {
     try {
-      const totals = await listProjectTotals();
-      set({
-        projectTotals: Object.fromEntries(
-          totals.map((t) => [t.projectId, t.seconds]),
-        ),
-      });
+      set({ projectBilling: byProjectId(await listProjectBilling()) });
     } catch {
       // Mantem os totais anteriores em caso de erro pontual.
     }

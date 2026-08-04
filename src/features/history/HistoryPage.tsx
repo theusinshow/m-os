@@ -42,7 +42,7 @@ export function HistoryPage() {
   useEffect(() => {
     if (!showDeleted) return;
     let active = true;
-    void listTimeEntries(200, true).then((all) => {
+    void listTimeEntries(undefined, true).then((all) => {
       if (active) setDeleted(all.filter((e) => e.deletedAt !== null));
     });
     return () => {
@@ -213,7 +213,13 @@ export function HistoryPage() {
         />
       ) : (
         <Panel>
-          <table className="w-full text-sm">
+          {/*
+            Sao 7 colunas. Na janela minima (960px) sobram 680px para a tabela,
+            e sem esta rolagem a coluna de acoes ficava FORA da area visivel —
+            os botoes de editar e excluir simplesmente nao eram alcancaveis.
+          */}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-2xs uppercase tracking-wide text-text-subtle">
                 <th className="px-4 py-2 font-medium">Data</th>
@@ -228,7 +234,7 @@ export function HistoryPage() {
             <tbody className="divide-y divide-border">
               {filtered.map((entry) => (
                 <tr key={entry.id} className="hover:bg-surface-hover">
-                  <td className="tabular px-4 py-3 text-text-muted">
+                  <td className="tabular whitespace-nowrap px-4 py-3 text-text-muted">
                     {formatDate(entry.startedAt)}
                   </td>
                   <td className="px-4 py-3 text-text">
@@ -242,14 +248,14 @@ export function HistoryPage() {
                   <td className="px-4 py-3 text-text-muted">
                     {ACTIVITY_TYPE_LABELS[entry.activityType]}
                   </td>
-                  <td className="tabular px-4 py-3 text-text-muted">
+                  <td className="tabular whitespace-nowrap px-4 py-3 text-text-muted">
                     {formatTime(entry.startedAt)}
                     {entry.endedAt ? `–${formatTime(entry.endedAt)}` : ""}
                   </td>
-                  <td className="tabular px-4 py-3 text-right text-text">
+                  <td className="tabular whitespace-nowrap px-4 py-3 text-right text-text">
                     {formatDuration(entry.durationSeconds)}
                   </td>
-                  <td className="tabular px-4 py-3 text-right text-text">
+                  <td className="tabular whitespace-nowrap px-4 py-3 text-right text-text">
                     {formatCurrency(
                       amountForDuration(
                         entry.durationSeconds - entry.idleSeconds,
@@ -291,7 +297,8 @@ export function HistoryPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
         </Panel>
       )}
 

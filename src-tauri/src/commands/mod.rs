@@ -9,11 +9,12 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_sql::DbInstances;
 
 use crate::database;
+use crate::domain::billing;
 use crate::error::AppError;
 use crate::models::{
     validate_status, ActiveTimer, ActivityEvent, Client, ClientInput, EntryUpdateInput,
-    ManualEntryInput, MonitoredApp, MonitoredAppInput, Project, ProjectInput, ProjectTodo,
-    ProjectTotal, Settings, StartTimerInput, TimeEntry,
+    ManualEntryInput, MonitoredApp, MonitoredAppInput, Project, ProjectBilling, ProjectInput,
+    ProjectTodo, Settings, StartTimerInput, TimeEntry,
 };
 use crate::monitoring::MonitorShared;
 use crate::repository::{
@@ -114,12 +115,40 @@ pub async fn update_project(
     projects::update(&pool, &id, valid).await
 }
 
+/// Horas e valor acumulados por projeto, sobre TODO o historico.
+///
+/// O arredondamento vem da propria tabela `settings`, nao de um parametro do
+/// frontend: assim o total desta tela e o do Relatorio usam necessariamente a
+/// mesma configuracao, sem poderem divergir.
 #[tauri::command]
-pub async fn list_project_totals(
+pub async fn list_project_billing(
     db: State<'_, DbInstances>,
-) -> Result<Vec<ProjectTotal>, AppError> {
+) -> Result<Vec<ProjectBilling>, AppError> {
     let pool = database::pool(&db).await?;
-    time_entries::totals_by_project(&pool).await
+    let rounding = settings::get(&pool).await?.rounding();
+    let rows = time_entries::billing_rows(&pool).await?;
+
+    let sessions: Vec<billing::Session> = rows
+        .into_iter()
+        .map(|r| billing::Session {
+            project_id: r.project_id,
+            duration_seconds: r.duration_seconds,
+            idle_seconds: r.idle_seconds,
+            billable: r.billable,
+            hourly_rate_snapshot_cents: r.hourly_rate_snapshot_cents,
+        })
+        .collect();
+
+    Ok(billing::aggregate_by_project(&sessions, rounding)
+        .into_iter()
+        .map(|(project_id, t)| ProjectBilling {
+            project_id,
+            gross_seconds: t.gross_seconds,
+            idle_seconds: t.idle_seconds,
+            billable_seconds: t.billable_seconds,
+            amount_cents: t.amount_cents,
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -246,12 +275,8 @@ pub async fn list_time_entries(
     include_deleted: Option<bool>,
 ) -> Result<Vec<TimeEntry>, AppError> {
     let pool = database::pool(&db).await?;
-    time_entries::list_recent(
-        &pool,
-        limit.unwrap_or(200),
-        include_deleted.unwrap_or(false),
-    )
-    .await
+    // Sem `limit` = historico inteiro (ver `time_entries::list_recent`).
+    time_entries::list_recent(&pool, limit, include_deleted.unwrap_or(false)).await
 }
 
 #[tauri::command]

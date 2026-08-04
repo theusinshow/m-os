@@ -11,7 +11,13 @@ export function AppLayout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
         <main className="app-main flex-1 overflow-y-auto px-6 py-6">
-          <div className="mx-auto max-w-5xl">
+          {/*
+            O teto sobe em telas grandes: em 1920px o limite fixo de 1024px
+            deixava ~600px de margem morta dos dois lados enquanto as tabelas
+            apertavam. Continua havendo teto — texto corrido em 1600px de
+            largura fica ruim de ler.
+          */}
+          <div className="mx-auto max-w-5xl 2xl:max-w-7xl">
             <Outlet />
           </div>
         </main>

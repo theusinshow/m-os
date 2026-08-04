@@ -27,8 +27,13 @@ export interface EntryUpdateInput {
   idleSeconds: number;
 }
 
+/**
+ * Sessoes da mais nova para a antiga. `limit` omitido = historico inteiro:
+ * telas que somam valores (Painel, Relatorio, Historico) nao podem ter teto,
+ * senao o total exibido fica menor que a realidade sem nenhum aviso.
+ */
 export function listTimeEntries(
-  limit = 200,
+  limit?: number,
   includeDeleted = false,
 ): Promise<TimeEntry[]> {
   return invokeCommand<TimeEntry[]>("list_time_entries", {
