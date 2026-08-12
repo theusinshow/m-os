@@ -8,6 +8,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { DeleteEntryModal } from "./DeleteEntryModal";
 
 export interface EntryPrefill {
   startedAt: string;
@@ -37,6 +38,7 @@ export function EntryForm({ open, entry, onClose, prefill }: EntryFormProps) {
   const projects = useCatalogStore((s) => s.projects);
   const create = useEntriesStore((s) => s.create);
   const update = useEntriesStore((s) => s.update);
+  const remove = useEntriesStore((s) => s.remove);
 
   const [projectId, setProjectId] = useState("");
   const [startedAt, setStartedAt] = useState(defaultStart());
@@ -47,6 +49,7 @@ export function EntryForm({ open, entry, onClose, prefill }: EntryFormProps) {
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const [initializedFor, setInitializedFor] = useState<string | null>(null);
   const key = entry?.id ?? (prefill ? `gap-${prefill.startedAt}` : "new");
@@ -103,111 +106,164 @@ export function EntryForm({ open, entry, onClose, prefill }: EntryFormProps) {
     }
   }
 
+  async function handleDelete() {
+    if (!entry) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await remove(entry.id);
+      setConfirmingDelete(false);
+      onClose();
+    } catch (err) {
+      setConfirmingDelete(false);
+      setError(typeof err === "string" ? err : "Falha ao excluir a sessao.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const projectName =
     projects.find((p) => p.id === entry?.projectId)?.name ?? "Projeto";
 
   return (
-    <Modal
-      open={open}
-      title={entry ? "Editar sessao" : "Nova sessao manual"}
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} type="button">
-            Cancelar
-          </Button>
-          <Button
-            variant="primary"
-            type="submit"
-            form="entry-form"
-            disabled={saving}
-          >
-            {saving ? "Salvando…" : "Salvar"}
-          </Button>
-        </>
-      }
-    >
-      <form id="entry-form" onSubmit={handleSubmit} className="space-y-4">
-        {entry ? (
-          <Field label="Projeto" htmlFor="e-project">
-            <Input id="e-project" value={projectName} disabled />
-          </Field>
-        ) : (
-          <Field label="Projeto" htmlFor="e-project" required>
-            <Select
-              id="e-project"
-              value={projectId}
-              onChange={(ev) => setProjectId(ev.target.value)}
-              required
-            >
-              <option value="">Selecione…</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.code ? `${p.code} · ${p.name}` : p.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        )}
+    <>
+      <Modal
+        open={open}
+        title={entry ? "Editar sessao" : "Nova sessao manual"}
+        onClose={onClose}
+        footer={
+          <>
+            {entry && (
+              <Button
+                variant="danger"
+                onClick={() => setConfirmingDelete(true)}
+                type="button"
+                disabled={saving}
+                className="mr-auto"
+              >
+                Excluir sessao
+              </Button>
+            )}
+            {/*
+            Enquanto a confirmacao esta aberta, o rodape do formulario some:
+            nao se edita e exclui ao mesmo tempo — e evita dois botoes
+            "Cancelar" na tela ao mesmo tempo.
+          */}
+            {!confirmingDelete && (
+              <>
+                <Button variant="ghost" onClick={onClose} type="button">
+                  Cancelar
+                </Button>
+                <Button
+                  variant="primary"
+                  type="submit"
+                  form="entry-form"
+                  disabled={saving}
+                >
+                  {saving ? "Salvando…" : "Salvar"}
+                </Button>
+              </>
+            )}
+          </>
+        }
+      >
+        <form id="entry-form" onSubmit={handleSubmit} className="space-y-4">
+          {entry ? (
+            <Field label="Projeto" htmlFor="e-project">
+              <Input id="e-project" value={projectName} disabled />
+            </Field>
+          ) : (
+            <Field label="Projeto" htmlFor="e-project" required>
+              <Select
+                id="e-project"
+                value={projectId}
+                onChange={(ev) => setProjectId(ev.target.value)}
+                required
+              >
+                <option value="">Selecione…</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.code ? `${p.code} · ${p.name}` : p.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Inicio" htmlFor="e-start" required>
-            <Input
-              id="e-start"
-              type="datetime-local"
-              value={startedAt}
-              onChange={(ev) => setStartedAt(ev.target.value)}
-              required
-            />
-          </Field>
-          <Field label="Fim" htmlFor="e-end" required>
-            <Input
-              id="e-end"
-              type="datetime-local"
-              value={endedAt}
-              onChange={(ev) => setEndedAt(ev.target.value)}
-              required
-            />
-          </Field>
-        </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Inicio" htmlFor="e-start" required>
+              <Input
+                id="e-start"
+                type="datetime-local"
+                value={startedAt}
+                onChange={(ev) => setStartedAt(ev.target.value)}
+                required
+              />
+            </Field>
+            <Field label="Fim" htmlFor="e-end" required>
+              <Input
+                id="e-end"
+                type="datetime-local"
+                value={endedAt}
+                onChange={(ev) => setEndedAt(ev.target.value)}
+                required
+              />
+            </Field>
+          </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Atividade" htmlFor="e-activity">
-            <Select
-              id="e-activity"
-              value={activityType}
-              onChange={(ev) => setActivityType(ev.target.value as ActivityType)}
-            >
-              {ACTIVITY_TYPE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Minutos inativos" htmlFor="e-idle">
-            <Input
-              id="e-idle"
-              inputMode="numeric"
-              value={idleMinutes}
-              onChange={(ev) => setIdleMinutes(ev.target.value)}
-            />
-          </Field>
-        </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Atividade" htmlFor="e-activity">
+              <Select
+                id="e-activity"
+                value={activityType}
+                onChange={(ev) =>
+                  setActivityType(ev.target.value as ActivityType)
+                }
+              >
+                {ACTIVITY_TYPE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Minutos inativos" htmlFor="e-idle">
+              <Input
+                id="e-idle"
+                inputMode="numeric"
+                value={idleMinutes}
+                onChange={(ev) => setIdleMinutes(ev.target.value)}
+              />
+            </Field>
+          </div>
 
-        <Checkbox label="Faturavel" checked={billable} onChange={setBillable} />
-
-        <Field label="Descricao" htmlFor="e-desc">
-          <Textarea
-            id="e-desc"
-            rows={2}
-            value={description}
-            onChange={(ev) => setDescription(ev.target.value)}
+          <Checkbox
+            label="Faturavel"
+            checked={billable}
+            onChange={setBillable}
           />
-        </Field>
 
-        {error && <p className="text-sm text-danger">{error}</p>}
-      </form>
-    </Modal>
+          <Field label="Descricao" htmlFor="e-desc">
+            <Textarea
+              id="e-desc"
+              rows={2}
+              value={description}
+              onChange={(ev) => setDescription(ev.target.value)}
+            />
+          </Field>
+
+          {error && <p className="text-sm text-danger">{error}</p>}
+        </form>
+      </Modal>
+
+      <DeleteEntryModal
+        open={confirmingDelete}
+        entry={entry}
+        projectName={projectName}
+        busy={saving}
+        onCancel={() => setConfirmingDelete(false)}
+        onConfirm={() => void handleDelete()}
+      />
+    </>
   );
 }
