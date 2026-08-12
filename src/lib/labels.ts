@@ -8,6 +8,10 @@ import type {
   ProjectStatus,
   TimerStatus,
 } from "@/types/domain";
+import {
+  LONG_SESSION_HOURS,
+  type SuspicionReason,
+} from "@/lib/suspiciousEntry";
 
 export const ACTIVITY_TYPE_LABELS: Record<ActivityType, string> = {
   drawing: "Desenho",
@@ -35,3 +39,8 @@ export const ACTIVITY_TYPE_OPTIONS: { value: ActivityType; label: string }[] =
     value: value as ActivityType,
     label,
   }));
+
+export const SUSPICION_REASON_LABELS: Record<SuspicionReason, string> = {
+  "muito-longa": `Mais de ${LONG_SESSION_HOURS}h em uma unica sessao`,
+  madrugada: "Atravessa a madrugada",
+};
