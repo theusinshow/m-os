@@ -12,6 +12,8 @@ import {
 } from "@/lib/format";
 import { amountForDuration } from "@/lib/money";
 import { ACTIVITY_TYPE_LABELS } from "@/lib/labels";
+import { inspectEntry } from "@/lib/suspiciousEntry";
+import { SuspicionBadge } from "@/components/ui/SuspicionBadge";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { Button } from "@/components/ui/Button";
@@ -219,88 +221,104 @@ export function HistoryPage() {
         <Panel>
           {/*
             Sao 7 colunas. Na janela minima (960px) sobram 680px para a tabela,
-            e sem esta rolagem a coluna de acoes ficava FORA da area visivel —
-            os botoes de editar e excluir simplesmente nao eram alcancaveis.
+            entao ela rola na horizontal. A coluna de acoes e `sticky right-0`
+            (ver abaixo) justamente porque, so com a rolagem, os botoes de
+            editar e excluir ficavam fora da area visivel.
           */}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[980px] text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-2xs uppercase tracking-wide text-text-subtle">
-                <th className="px-4 py-2 font-medium">Data</th>
-                <th className="px-4 py-2 font-medium">Projeto</th>
-                <th className="px-4 py-2 font-medium">Atividade</th>
-                <th className="px-4 py-2 font-medium">Periodo</th>
-                <th className="px-4 py-2 text-right font-medium">Duracao</th>
-                <th className="px-4 py-2 text-right font-medium">Valor</th>
-                <th className="px-4 py-2 text-right font-medium">Acoes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {filtered.map((entry) => (
-                <tr key={entry.id} className="hover:bg-surface-hover">
-                  <td className="tabular whitespace-nowrap px-4 py-3 text-text-muted">
-                    {formatDate(entry.startedAt)}
-                  </td>
-                  <td className="px-4 py-3 text-text">
-                    {projectName(entry.projectId)}
-                    {!entry.billable && (
-                      <span className="ml-2 text-2xs text-text-subtle">
-                        (nao faturavel)
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-text-muted">
-                    {ACTIVITY_TYPE_LABELS[entry.activityType]}
-                  </td>
-                  <td className="tabular whitespace-nowrap px-4 py-3 text-text-muted">
-                    {formatTime(entry.startedAt)}
-                    {entry.endedAt ? `–${formatTime(entry.endedAt)}` : ""}
-                  </td>
-                  <td className="tabular whitespace-nowrap px-4 py-3 text-right text-text">
-                    {formatDuration(entry.durationSeconds)}
-                  </td>
-                  <td className="tabular whitespace-nowrap px-4 py-3 text-right text-text">
-                    {formatCurrency(
-                      amountForDuration(
-                        entry.durationSeconds - entry.idleSeconds,
-                        entry.hourlyRateSnapshotCents,
-                      ),
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setQuickAnchor(entry);
-                          setQuickOpen(true);
-                        }}
-                        aria-label="Adicionar tempo a esta sessao"
-                        icon={<Clock size={15} strokeWidth={1.75} />}
-                      />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setEditing(entry);
-                          setFormOpen(true);
-                        }}
-                        aria-label="Editar sessao"
-                        icon={<Pencil size={15} strokeWidth={1.75} />}
-                      />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDeleting(entry)}
-                        aria-label="Excluir sessao"
-                        icon={<Trash2 size={15} strokeWidth={1.75} />}
-                      />
-                    </div>
-                  </td>
+              <thead>
+                <tr className="border-b border-border text-left text-2xs uppercase tracking-wide text-text-subtle">
+                  <th className="px-4 py-2 font-medium">Data</th>
+                  <th className="px-4 py-2 font-medium">Projeto</th>
+                  <th className="px-4 py-2 font-medium">Atividade</th>
+                  <th className="px-4 py-2 font-medium">Periodo</th>
+                  <th className="px-4 py-2 text-right font-medium">Duracao</th>
+                  <th className="px-4 py-2 text-right font-medium">Valor</th>
+                  <th className="sticky right-0 border-l border-border bg-surface px-4 py-2 text-right font-medium">
+                    Acoes
+                  </th>
                 </tr>
-              ))}
-            </tbody>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filtered.map((entry) => (
+                  <tr key={entry.id} className="group hover:bg-surface-hover">
+                    <td className="tabular whitespace-nowrap px-4 py-3 text-text-muted">
+                      {formatDate(entry.startedAt)}
+                    </td>
+                    <td className="px-4 py-3 text-text">
+                      {projectName(entry.projectId)}
+                      {!entry.billable && (
+                        <span className="ml-2 text-2xs text-text-subtle">
+                          (nao faturavel)
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-text-muted">
+                      {ACTIVITY_TYPE_LABELS[entry.activityType]}
+                    </td>
+                    <td className="tabular whitespace-nowrap px-4 py-3 text-text-muted">
+                      {formatTime(entry.startedAt)}
+                      {entry.endedAt ? `–${formatTime(entry.endedAt)}` : ""}
+                    </td>
+                    <td className="tabular whitespace-nowrap px-4 py-3 text-right text-text">
+                      <span className="inline-flex items-center gap-2">
+                        <SuspicionBadge reasons={inspectEntry(entry).reasons} />
+                        {formatDuration(entry.durationSeconds)}
+                      </span>
+                    </td>
+                    <td className="tabular whitespace-nowrap px-4 py-3 text-right text-text">
+                      {formatCurrency(
+                        amountForDuration(
+                          entry.durationSeconds - entry.idleSeconds,
+                          entry.hourlyRateSnapshotCents,
+                        ),
+                      )}
+                    </td>
+                    {/*
+                    Fixa a direita: a tabela tem largura minima maior que a
+                    janela e, sem isto, a coluna de acoes ficava FORA da area
+                    visivel — os botoes simplesmente nao eram alcancaveis.
+                    O fundo precisa ser opaco (senao o conteudo passa por
+                    baixo), e por isso o hover da linha vem via `group`.
+                  */}
+                    <td className="sticky right-0 border-l border-border bg-surface px-4 py-3 group-hover:bg-surface-hover">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setQuickAnchor(entry);
+                            setQuickOpen(true);
+                          }}
+                          aria-label="Adicionar tempo a esta sessao"
+                          title="Adicionar tempo a esta sessao"
+                          icon={<Clock size={15} strokeWidth={1.75} />}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setEditing(entry);
+                            setFormOpen(true);
+                          }}
+                          icon={<Pencil size={15} strokeWidth={1.75} />}
+                        >
+                          Editar
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => setDeleting(entry)}
+                          icon={<Trash2 size={15} strokeWidth={1.75} />}
+                        >
+                          Excluir
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
         </Panel>
