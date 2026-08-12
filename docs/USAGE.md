@@ -66,7 +66,9 @@ sintoma classico de cronometro esquecido ligado durante a noite. O selo nao
 altera nada — so chama atencao para voce corrigir o inicio/fim antes de cobrar.
 
 Sessoes manuais e reconstruidas nunca sao marcadas: elas foram criadas por
-decisao explicita sua.
+decisao explicita sua. Cronometro **pausado** e retomado horas ou dias depois
+tambem nao e marcado — ele estava parado nesse meio tempo, entao atravessar a
+madrugada nao significa nada.
 
 ## Historico
 

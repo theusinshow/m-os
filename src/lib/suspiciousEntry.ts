@@ -19,6 +19,19 @@ export const LONG_SESSION_HOURS = 8;
 /** Hora local em que praticamente ninguem esta desenhando. */
 const DEAD_HOUR = 4;
 
+/**
+ * Folga maxima entre a duracao gravada e o intervalo de relogio para a sessao
+ * ainda contar como continua.
+ *
+ * Sem isto, um cronometro PAUSADO e retomado dias depois (25 min gravados num
+ * intervalo de 3 dias) seria marcado como "madrugada" so porque o intervalo
+ * inicio->fim passa por cima das 04:00 — sendo que o cronometro estava parado
+ * naquelas horas. Casos reais desses aparecem no historico; a folga separa os
+ * dois: cronometro esquecido ligado tem folga zero, o pausado tem dezenas de
+ * horas.
+ */
+const CONTINUOUS_SLACK_SECONDS = 2 * 3600;
+
 const NOT_SUSPICIOUS: Suspicion = { suspicious: false, reasons: [] };
 
 /**
@@ -43,12 +56,22 @@ export function inspectEntry(entry: TimeEntry): Suspicion {
   // Cronometro em andamento nao e erro — ainda da tempo de encerrar.
   if (entry.endedAt === null) return NOT_SUSPICIOUS;
 
+  const start = new Date(entry.startedAt);
+  const end = new Date(entry.endedAt);
+
   const reasons: SuspicionReason[] = [];
   if (entry.durationSeconds > LONG_SESSION_HOURS * 3600) {
     reasons.push("muito-longa");
   }
-  if (crossesDeadHour(new Date(entry.startedAt), new Date(entry.endedAt))) {
+
+  // A hora de parede so diz algo sobre a madrugada se o cronometro esteve
+  // rodando: num cronometro pausado, o intervalo nao representa trabalho.
+  const spanSeconds = (end.getTime() - start.getTime()) / 1000;
+  const continuous =
+    spanSeconds - entry.durationSeconds <= CONTINUOUS_SLACK_SECONDS;
+  if (continuous && crossesDeadHour(start, end)) {
     reasons.push("madrugada");
   }
+
   return { suspicious: reasons.length > 0, reasons };
 }

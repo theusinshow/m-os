@@ -100,6 +100,34 @@ describe("inspectEntry", () => {
     expect(result.reasons).toEqual(["madrugada"]);
   });
 
+  it("nao marca cronometro pausado e retomado dias depois", () => {
+    // Caso real do historico: 25 min gravados num intervalo de 3 dias. O
+    // cronometro estava PARADO nas 04:00 — o intervalo de relogio nao e
+    // evidencia de trabalho de madrugada.
+    const result = inspectEntry(
+      entry({
+        startedAt: localIso(2026, 7, 14, 13, 57),
+        endedAt: localIso(2026, 7, 17, 0, 34),
+        durationSeconds: 1500,
+      }),
+    );
+
+    expect(result.suspicious).toBe(false);
+  });
+
+  it("marca sessao noturna com uma pausa curta no meio", () => {
+    // 22:00 -> 06:00 com 1h de pausa: continua sendo trabalho pela madrugada.
+    const result = inspectEntry(
+      entry({
+        startedAt: localIso(2026, 8, 10, 22),
+        endedAt: localIso(2026, 8, 11, 6),
+        durationSeconds: 7 * 3600,
+      }),
+    );
+
+    expect(result.reasons).toEqual(["madrugada"]);
+  });
+
   it("nao marca uma sessao curta em horario comercial", () => {
     const result = inspectEntry(
       entry({
