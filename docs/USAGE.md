@@ -47,6 +47,27 @@ Se o app for fechado com um cronometro em andamento, na proxima abertura ele
 oferece **manter em execucao**, **encerrar registro** ou **descartar** — nunca
 apaga tempo sozinho.
 
+## Corrigir uma sessao
+
+Toda sessao pode ser corrigida ou removida em dois lugares:
+
+- No **Painel**, em *Sessoes recentes*, clique em *Editar* na linha da sessao.
+- No **Historico**, use *Editar* ou *Excluir* na coluna Acoes.
+
+A confirmacao de exclusao mostra projeto, data, periodo, duracao e o valor que
+sai da conta. Nada e apagado de verdade: sessoes excluidas voltam marcando
+*Mostrar excluidas* no Historico e clicando em *Restaurar*.
+
+## Sessoes marcadas com "Conferir?"
+
+Um selo ambar **Conferir?** aparece em sessoes de cronometro com duracao
+implausivel: mais de **8 horas** seguidas, ou atravessando as **04:00**. E o
+sintoma classico de cronometro esquecido ligado durante a noite. O selo nao
+altera nada — so chama atencao para voce corrigir o inicio/fim antes de cobrar.
+
+Sessoes manuais e reconstruidas nunca sao marcadas: elas foram criadas por
+decisao explicita sua.
+
 ## Historico
 
 Em *Historico* voce filtra por periodo, cliente e projeto; edita inicio/fim,

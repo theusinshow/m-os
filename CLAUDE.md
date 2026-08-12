@@ -146,5 +146,7 @@ soft delete/restore, filtros, arredondamento na visualizacao, CSV via dialogo
 nativo, impressao); e **reconstrucao do dia** (linha do tempo real +
 `source = reconstructed`). Sem mocks. Alem do MVP: metas de horas por projeto,
 inicio em 1 clique, fatura por cliente em PDF, ajuste percentual, emissor nas
-configuracoes, modo claro persistente e onboarding. Migrations atuais: 0001 a
-0004. Guia do usuario em `docs/USAGE.md`. Ver `docs/ROADMAP.md`.
+configuracoes, modo claro persistente, onboarding, **edicao/exclusao de sessao
+direto do Painel** e **aviso "Conferir?"** em sessoes de cronometro acima de 8h
+ou que atravessam a madrugada (`src/lib/suspiciousEntry.ts`). Migrations
+atuais: 0001 a 0005. Guia do usuario em `docs/USAGE.md`. Ver `docs/ROADMAP.md`.
