@@ -1,9 +1,14 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { CalendarClock } from "lucide-react";
+import { CalendarClock, Pencil } from "lucide-react";
+import type { TimeEntry } from "@/types/domain";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { Stat } from "@/components/ui/Stat";
+import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SuspicionBadge } from "@/components/ui/SuspicionBadge";
+import { EntryForm } from "@/features/history/EntryForm";
 import { TimerPanel } from "@/features/timer/TimerPanel";
 import { RecoveryModal } from "@/features/timer/RecoveryModal";
 import { TodosPanel } from "./TodosPanel";
@@ -11,6 +16,7 @@ import { useTimerStore } from "@/stores/timerStore";
 import { useEntriesStore } from "@/stores/entriesStore";
 import { useCatalogStore } from "@/stores/catalogStore";
 import { elapsedSeconds } from "@/lib/duration";
+import { inspectEntry } from "@/lib/suspiciousEntry";
 import { formatCurrency, formatDuration } from "@/lib/format";
 import { amountForDuration } from "@/lib/money";
 import { ACTIVITY_TYPE_LABELS } from "@/lib/labels";
@@ -35,6 +41,9 @@ export function DashboardPage() {
   const catalogLoaded = useCatalogStore((s) => s.loaded);
   const now = useNow(1000);
   const today = new Date(now);
+
+  const [editing, setEditing] = useState<TimeEntry | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
 
   const activeElapsed = activeTimer ? elapsedSeconds(activeTimer, now) : 0;
   const todaySeconds =
@@ -85,7 +94,17 @@ export function DashboardPage() {
         <TodosPanel />
 
         <Panel>
-          <PanelHeader title="Sessoes recentes" />
+          <PanelHeader
+            title="Sessoes recentes"
+            action={
+              <Link
+                to={ROUTES.history}
+                className="text-xs text-accent hover:underline"
+              >
+                Ver todo o historico →
+              </Link>
+            }
+          />
           {recent.length === 0 ? (
             <div className="p-4">
               <EmptyState
@@ -98,7 +117,7 @@ export function DashboardPage() {
               {recent.map((entry) => (
                 <li
                   key={entry.id}
-                  className="flex items-center justify-between px-4 py-3"
+                  className="flex items-center justify-between gap-3 px-4 py-3"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm text-text">
@@ -108,10 +127,31 @@ export function DashboardPage() {
                       {ACTIVITY_TYPE_LABELS[entry.activityType]}
                       {entry.description ? ` · ${entry.description}` : ""}
                     </p>
+                    <div className="mt-1 empty:mt-0">
+                      <SuspicionBadge reasons={inspectEntry(entry).reasons} />
+                    </div>
                   </div>
-                  <span className="tabular ml-3 shrink-0 text-sm text-text-muted">
-                    {formatDuration(entry.durationSeconds)}
-                  </span>
+                  {/*
+                    Texto sempre visivel, nunca so no hover: acao escondida
+                    aqui foi exatamente o que fez o usuario nao achar como
+                    corrigir uma sessao.
+                  */}
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="tabular text-sm text-text-muted">
+                      {formatDuration(entry.durationSeconds)}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setEditing(entry);
+                        setFormOpen(true);
+                      }}
+                      icon={<Pencil size={14} strokeWidth={1.75} />}
+                    >
+                      Editar
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -142,6 +182,12 @@ export function DashboardPage() {
         </Panel>
       </div>
 
+      <EntryForm
+        open={formOpen}
+        entry={editing}
+        onClose={() => setFormOpen(false)}
+      />
+
       <RecoveryModal />
     </div>
   );
@@ -155,7 +201,9 @@ function WelcomeOnboarding() {
   ];
   return (
     <Panel className="mb-4 border-accent/40 p-6">
-      <p className="text-sm font-semibold text-text">Bem-vindo ao CronoCAD 👋</p>
+      <p className="text-sm font-semibold text-text">
+        Bem-vindo ao CronoCAD 👋
+      </p>
       <p className="mt-1 text-sm text-text-muted">
         Vamos configurar em 3 passos rapidos:
       </p>
