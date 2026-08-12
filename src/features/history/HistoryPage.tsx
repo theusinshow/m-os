@@ -20,6 +20,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Field, Input, Select } from "@/components/ui/Field";
 import { EntryForm } from "./EntryForm";
 import { QuickTimeModal } from "./QuickTimeModal";
+import { DeleteEntryModal } from "./DeleteEntryModal";
 
 export function HistoryPage() {
   const entries = useEntriesStore((s) => s.entries);
@@ -38,6 +39,8 @@ export function HistoryPage() {
   const [editing, setEditing] = useState<TimeEntry | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
   const [quickAnchor, setQuickAnchor] = useState<TimeEntry | null>(null);
+  const [deleting, setDeleting] = useState<TimeEntry | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     if (!showDeleted) return;
@@ -69,13 +72,14 @@ export function HistoryPage() {
 
   const totalSeconds = filtered.reduce((s, e) => s + e.durationSeconds, 0);
 
-  async function handleDelete(entry: TimeEntry) {
-    if (
-      window.confirm(
-        `Excluir a sessao de ${projectName(entry.projectId)} em ${formatDate(entry.startedAt)}? Voce pode restaura-la depois.`,
-      )
-    ) {
-      await remove(entry.id);
+  async function confirmDelete() {
+    if (!deleting) return;
+    setDeleteBusy(true);
+    try {
+      await remove(deleting.id);
+      setDeleting(null);
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -288,7 +292,7 @@ export function HistoryPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => void handleDelete(entry)}
+                        onClick={() => setDeleting(entry)}
                         aria-label="Excluir sessao"
                         icon={<Trash2 size={15} strokeWidth={1.75} />}
                       />
@@ -306,6 +310,15 @@ export function HistoryPage() {
         open={formOpen}
         entry={editing}
         onClose={() => setFormOpen(false)}
+      />
+
+      <DeleteEntryModal
+        open={deleting !== null}
+        entry={deleting}
+        projectName={deleting ? projectName(deleting.projectId) : ""}
+        busy={deleteBusy}
+        onCancel={() => setDeleting(null)}
+        onConfirm={() => void confirmDelete()}
       />
 
       <QuickTimeModal
