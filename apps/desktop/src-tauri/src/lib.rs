@@ -703,6 +703,7 @@ fn open_target_with_os(_target: &str) -> Result<(), CoreError> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             reveal_window(app, "main");
         }))
@@ -717,6 +718,8 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
             let data_directory = app.path().app_data_dir()?;
             fs::create_dir_all(&data_directory)?;
             let settings_path = data_directory.join("settings.json");

@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, Project, RegisteredApp, SearchItem, Task, TaskState } from "./types";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import type { AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, Project, RegisteredApp, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress } from "./types";
+
+let pendingUpdate: Update | null = null;
 
 export const api = {
   createCapture(content: string, source: CaptureSource) {
@@ -109,6 +113,33 @@ export const api = {
   },
   exportJson(path: string) {
     return invoke<BackupReceipt>("export_json", { path });
+  },
+  async checkForUpdate() {
+    const update = await check({ timeout: 30_000 });
+    pendingUpdate = update;
+    if (!update) return null;
+    return {
+      currentVersion: update.currentVersion,
+      version: update.version,
+      date: update.date ?? null,
+      body: update.body ?? "",
+    } satisfies UpdateInfo;
+  },
+  async installUpdate(onProgress: (progress: UpdateProgress) => void) {
+    if (!pendingUpdate) throw new Error("Nenhuma atualizacao pendente.");
+    let downloaded = 0;
+    let total: number | null = null;
+    await pendingUpdate.downloadAndInstall((event) => {
+      if (event.event === "Started") {
+        downloaded = 0;
+        total = event.data.contentLength ?? null;
+      }
+      if (event.event === "Progress") downloaded += event.data.chunkLength;
+      if (event.event === "Finished") downloaded = total ?? downloaded;
+      onProgress({ downloaded, total });
+    });
+    pendingUpdate = null;
+    await relaunch();
   },
 };
 

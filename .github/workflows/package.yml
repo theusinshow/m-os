@@ -7,7 +7,7 @@ on:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   package:
@@ -33,7 +33,49 @@ jobs:
 
       - name: Build no-admin Windows package
         working-directory: apps/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri -- build --ci --bundles nsis
+
+      - name: Prepare updater metadata
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          $bundleDir = "target/release/bundle/nsis"
+          $setup = Get-ChildItem -LiteralPath $bundleDir -Filter "*-setup.exe" | Select-Object -First 1
+          if (-not $setup) {
+            throw "NSIS setup executable not found."
+          }
+
+          $signature = Get-ChildItem -LiteralPath $bundleDir -Filter "$($setup.Name).sig" | Select-Object -First 1
+          if (-not $signature) {
+            throw "Updater signature not found for $($setup.Name)."
+          }
+
+          $version = $env:GITHUB_REF_NAME.TrimStart("v")
+          $config = Get-Content -Raw -LiteralPath "apps/desktop/src-tauri/tauri.conf.json" | ConvertFrom-Json
+          if ($config.version -ne $version) {
+            throw "Tag $env:GITHUB_REF_NAME does not match tauri.conf.json version $($config.version)."
+          }
+
+          $releaseUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GITHUB_REF_NAME/$($setup.Name)"
+          $latest = [ordered]@{
+            version = $version
+            notes = "M/OS $env:GITHUB_REF_NAME"
+            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = [ordered]@{
+              "windows-x86_64" = [ordered]@{
+                signature = (Get-Content -Raw -LiteralPath $signature.FullName).Trim()
+                url = $releaseUrl
+              }
+            }
+          }
+
+          $latest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $bundleDir "latest.json") -Encoding UTF8
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
@@ -41,6 +83,33 @@ jobs:
           name: m-os-windows-${{ github.ref_name }}
           path: |
             target/release/bundle/nsis/*.exe
+            target/release/bundle/nsis/*.sig
+            target/release/bundle/nsis/latest.json
             target/release/*.exe
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          $bundleDir = "target/release/bundle/nsis"
+          $files = @(
+            (Get-ChildItem -LiteralPath $bundleDir -Filter "*-setup.exe" | Select-Object -First 1).FullName,
+            (Get-ChildItem -LiteralPath $bundleDir -Filter "*-setup.exe.sig" | Select-Object -First 1).FullName,
+            (Join-Path $bundleDir "latest.json"),
+            (Get-ChildItem -LiteralPath "target/release" -Filter "mos-desktop.exe" | Select-Object -First 1).FullName
+          )
+
+          gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            $arguments = @("release", "upload", $env:GITHUB_REF_NAME, "--repo", $env:GITHUB_REPOSITORY, "--clobber") + $files
+            & gh @arguments
+          } else {
+            $arguments = @("release", "create", $env:GITHUB_REF_NAME, "--repo", $env:GITHUB_REPOSITORY, "--title", "M/OS $env:GITHUB_REF_NAME", "--generate-notes") + $files
+            & gh @arguments
+          }

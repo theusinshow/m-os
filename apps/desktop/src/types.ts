@@ -88,3 +88,15 @@ export type BackupInspection = BackupReceipt & {
   schemaVersion: number;
   captureCount: number;
 };
+
+export type UpdateInfo = {
+  currentVersion: string;
+  version: string;
+  date: string | null;
+  body: string;
+};
+
+export type UpdateProgress = {
+  downloaded: number;
+  total: number | null;
+};
