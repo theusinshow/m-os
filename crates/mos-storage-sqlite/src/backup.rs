@@ -13,7 +13,11 @@ use time::{format_description::well_known::Rfc3339, macros::format_description, 
 use zip::{write::SimpleFileOptions, ZipArchive, ZipWriter};
 
 use crate::{
-    configure_connection, map_io_error, map_lock_error, map_sql_error, verify_integrity,
+    configure_connection, ensure_search_projection, map_io_error, map_lock_error, map_sql_error,
+    migrate, verify_integrity,
+    work_repository::{
+        query_captures_all, query_projects, query_tasks, PROJECT_COLUMNS, TASK_COLUMNS,
+    },
     SqliteStorage, SCHEMA_VERSION,
 };
 
@@ -70,6 +74,8 @@ impl DataMaintenance for SqliteStorage {
             .map_err(map_sql_error)?;
         configure_connection(&connection)?;
         verify_integrity(&connection)?;
+        migrate(&connection, &self.backup_directory)?;
+        ensure_search_projection(&connection)?;
 
         Ok(safety_receipt)
     }
@@ -89,6 +95,10 @@ impl DataMaintenance for SqliteStorage {
         let receipt = self.backup_to(&destination)?;
         prune_daily_backups(&self.backup_directory, 7)?;
         Ok(Some(receipt))
+    }
+
+    fn export_json(&self, destination: &Path) -> Result<BackupReceipt, CoreError> {
+        self.export_to_json(destination)
     }
 }
 
@@ -139,6 +149,58 @@ impl SqliteStorage {
             created_at,
         })
     }
+
+    fn export_to_json(&self, destination: &Path) -> Result<BackupReceipt, CoreError> {
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(map_io_error)?;
+        }
+        let created_at = OffsetDateTime::now_utc();
+        let dataset = {
+            let connection = self.connection.lock().map_err(map_lock_error)?;
+            ExportDataset {
+                format: "m-os-export".into(),
+                format_version: 1,
+                schema_version: SCHEMA_VERSION,
+                exported_at: created_at.format(&Rfc3339).map_err(format_error)?,
+                captures: query_captures_all(&connection)?,
+                projects: query_projects(
+                    &connection,
+                    &format!("SELECT {PROJECT_COLUMNS} FROM projects ORDER BY created_at ASC"),
+                )?,
+                tasks: query_tasks(
+                    &connection,
+                    &format!("SELECT {TASK_COLUMNS} FROM tasks ORDER BY created_at ASC"),
+                )?,
+            }
+        };
+        let bytes = serde_json::to_vec_pretty(&dataset)
+            .map_err(|error| backup_invalid(error.to_string()))?;
+        let temporary = destination.with_extension("json.tmp");
+        let mut file = File::create(&temporary).map_err(map_io_error)?;
+        file.write_all(&bytes).map_err(map_io_error)?;
+        file.sync_all().map_err(map_io_error)?;
+        if destination.exists() {
+            fs::remove_file(destination).map_err(map_io_error)?;
+        }
+        fs::rename(&temporary, destination).map_err(map_io_error)?;
+        Ok(BackupReceipt {
+            path: destination.display().to_string(),
+            bytes: bytes.len() as u64,
+            created_at,
+        })
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportDataset {
+    format: String,
+    format_version: u32,
+    schema_version: u32,
+    exported_at: String,
+    captures: Vec<mos_core::Capture>,
+    projects: Vec<mos_core::Project>,
+    tasks: Vec<mos_core::Task>,
 }
 
 struct ExtractedBackup {
@@ -347,5 +409,26 @@ mod tests {
             storage.inspect_backup(&backup_path).unwrap_err().code,
             ErrorCode::BackupInvalid
         );
+    }
+
+    #[test]
+    fn json_export_is_versioned_and_readable() {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = SqliteStorage::open(
+            directory.path().join("mos.db"),
+            directory.path().join("internal"),
+        )
+        .unwrap();
+        storage
+            .create(NewCapture::create("Exportada", CaptureSource::Home).unwrap())
+            .unwrap();
+        let destination = directory.path().join("m-os-export.json");
+        storage.export_json(&destination).unwrap();
+        let export: serde_json::Value =
+            serde_json::from_slice(&fs::read(destination).unwrap()).unwrap();
+
+        assert_eq!(export["format"], "m-os-export");
+        assert_eq!(export["formatVersion"], 1);
+        assert_eq!(export["captures"].as_array().unwrap().len(), 1);
     }
 }

@@ -7,7 +7,7 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use crate::{map_lock_error, map_sql_error, rebuild_search_projection, SqliteStorage};
 
-struct RawCapture {
+pub(crate) struct RawCapture {
     id: String,
     content: String,
     source: String,
@@ -18,7 +18,7 @@ struct RawCapture {
 }
 
 impl RawCapture {
-    fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
+    pub(crate) fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
             id: row.get(0)?,
             content: row.get(1)?,
@@ -30,7 +30,7 @@ impl RawCapture {
         })
     }
 
-    fn into_capture(self) -> Result<Capture, CoreError> {
+    pub(crate) fn into_capture(self) -> Result<Capture, CoreError> {
         Ok(Capture {
             id: CaptureId::parse(&self.id)?,
             content: self.content,
@@ -43,7 +43,7 @@ impl RawCapture {
     }
 }
 
-const CAPTURE_COLUMNS: &str =
+pub(crate) const CAPTURE_COLUMNS: &str =
     "id, content, source_kind, processing_state, lifecycle_state, captured_at, updated_at";
 
 impl CaptureRepository for SqliteStorage {
@@ -216,7 +216,10 @@ impl CaptureRepository for SqliteStorage {
     }
 }
 
-fn query_capture(connection: &rusqlite::Connection, id: CaptureId) -> Result<Capture, CoreError> {
+pub(crate) fn query_capture(
+    connection: &rusqlite::Connection,
+    id: CaptureId,
+) -> Result<Capture, CoreError> {
     let raw = connection
         .query_row(
             &format!("SELECT {CAPTURE_COLUMNS} FROM captures WHERE id = ?1"),
@@ -250,7 +253,7 @@ fn collect_rows(
         .collect()
 }
 
-fn ensure_changed(changed: usize) -> Result<(), CoreError> {
+pub(crate) fn ensure_changed(changed: usize) -> Result<(), CoreError> {
     if changed == 0 {
         Err(CoreError::new(
             ErrorCode::NotFound,
@@ -262,7 +265,7 @@ fn ensure_changed(changed: usize) -> Result<(), CoreError> {
     }
 }
 
-fn format_time(value: OffsetDateTime) -> Result<String, CoreError> {
+pub(crate) fn format_time(value: OffsetDateTime) -> Result<String, CoreError> {
     value.format(&Rfc3339).map_err(|error| {
         CoreError::new(
             ErrorCode::DataIntegrity,
@@ -272,7 +275,7 @@ fn format_time(value: OffsetDateTime) -> Result<String, CoreError> {
     })
 }
 
-fn parse_time(value: &str) -> Result<OffsetDateTime, CoreError> {
+pub(crate) fn parse_time(value: &str) -> Result<OffsetDateTime, CoreError> {
     OffsetDateTime::parse(value, &Rfc3339).map_err(|error| {
         CoreError::new(
             ErrorCode::DataIntegrity,
@@ -282,7 +285,7 @@ fn parse_time(value: &str) -> Result<OffsetDateTime, CoreError> {
     })
 }
 
-fn to_fts_query(query: &str) -> String {
+pub(crate) fn to_fts_query(query: &str) -> String {
     query
         .split_whitespace()
         .filter_map(|token| {

@@ -1,19 +1,24 @@
 # M/OS
 
 M/OS e um sistema pessoal desktop-first para capturar, organizar e reencontrar
-contexto com baixa friccao. A implementacao atual e a fundacao `v0.1a` para
-Windows, deliberadamente limitada a Capture, Inbox e Search locais.
+contexto com baixa friccao. A implementacao atual e o corte local `v0.1` para
+Windows, do pensamento capturado ate a acao organizada.
 
 ## Estado atual
 
 - aplicativo nativo Tauri para Windows;
 - Quick Capture global, janela principal, single instance e tray;
 - SQLite local com WAL, `synchronous=FULL` e FTS5;
-- Inbox, Search, Archive e Trash de Captures;
+- Inbox, Archive e Trash recuperaveis;
+- Projects e Tasks com proveniencia explicita de Capture;
+- Kanban simples com Backlog, Doing e Done;
+- Search unificada e agrupada para Captures, Tasks e Projects;
 - backup `.mos-backup`, restore validado e safety backup;
+- export JSON legivel e versionado;
+- design system proprio com temas dark e light;
 - nenhuma rede no caminho de captura ou consulta.
 
-Tasks, Projects, Kanban, cloud e iOS nao fazem parte deste marco.
+Cloud, sincronizacao e iOS nao fazem parte deste marco.
 
 ## Executar
 
@@ -22,7 +27,7 @@ Windows.
 
 ```powershell
 cd apps\desktop
-npm install
+npm ci
 npm run tauri dev
 ```
 
@@ -32,7 +37,11 @@ npm run tauri dev
 cargo test --workspace
 cd apps\desktop
 npm run build
+npm run tauri build
 ```
+
+Os instaladores locais sao gerados em `target\release\bundle`. O workflow
+`Package Windows` tambem produz MSI e NSIS por acionamento manual ou tag `v*`.
 
 As decisoes de produto e arquitetura ficam em [`docs`](docs). Leia
 `AGENTS.md` e a documentacao de produto antes de ampliar o escopo.

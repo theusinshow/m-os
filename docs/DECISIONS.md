@@ -398,3 +398,47 @@ SQLite utiliza `journal_mode=WAL` e `synchronous=FULL` como baseline. A aplicaç
 - performance deve ser medida no spike;
 - mudar para `NORMAL` exige nova ADR;
 - fault injection, backup consistente e detecção de corrupção são obrigatórios.
+
+## ADR-018 — Proveniência explícita de Capture para Task
+
+**Estado:** Accepted
+
+**Aceita em:** 2026-08-13, como requisito de produto confirmado pelo usuário.
+
+### Contexto
+
+Transformar uma Capture não pode apagar nem reescrever o pensamento original.
+Search também não deve apresentar Capture e Task derivada como resultados sem
+relação aparente.
+
+### Decisão
+
+Task possui uma relação opcional e explícita `source_capture_id`. Na v0.1b ela é
+única, permitindo no máximo uma Task derivada por Capture. A conversão cria a
+Task e marca a Capture como processada na mesma transação.
+
+### Consequências
+
+- a origem continua consultável e imutável;
+- Search pode agrupar origem, derivação e Project;
+- falha na conversão não deixa estado parcial;
+- múltiplas derivações exigirão nova decisão e migration.
+
+## ADR-019 — Design system versionado como contrato do renderer
+
+**Estado:** Accepted
+
+**Aceita em:** 2026-08-13, após handoff do design system pelo usuário.
+
+### Decisão
+
+`Design System/handoff/mos-tokens.css` é a fonte única de tokens do cliente
+desktop. Componentes usam primitivas próprias, SVGs próprios e fontes locais.
+Bibliotecas genéricas de UI ou ícones não entram sem uma necessidade concreta.
+
+### Consequências
+
+- dark, light e forced colors compartilham o mesmo contrato semântico;
+- valores visuais deixam de ser espalhados pelos componentes;
+- Capture e Command preservam as geometrias normativas do produto;
+- extensões de token devem ser explícitas e documentadas.

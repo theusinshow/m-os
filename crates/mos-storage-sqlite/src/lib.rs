@@ -1,5 +1,6 @@
 mod backup;
 mod repository;
+mod work_repository;
 
 use std::{
     fs,
@@ -9,11 +10,12 @@ use std::{
 };
 
 use mos_core::{CoreError, ErrorCode};
-use rusqlite::Connection;
+use rusqlite::{Connection, MAIN_DB};
 use serde::Serialize;
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
+const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -47,7 +49,7 @@ impl SqliteStorage {
         let connection = Connection::open(&database_path).map_err(map_sql_error)?;
         configure_connection(&connection)?;
         verify_integrity(&connection)?;
-        migrate(&connection)?;
+        migrate(&connection, &backup_directory)?;
         ensure_search_projection(&connection)?;
 
         Ok(Self {
@@ -130,7 +132,7 @@ fn verify_integrity(connection: &Connection) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn migrate(connection: &Connection) -> Result<(), CoreError> {
+fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreError> {
     let current: u32 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(map_sql_error)?;
@@ -141,23 +143,62 @@ fn migrate(connection: &Connection) -> Result<(), CoreError> {
             false,
         ));
     }
+    if current > 0 && current < SCHEMA_VERSION {
+        create_pre_migration_snapshot(connection, backup_directory, current)?;
+    }
     if current == 0 {
         connection
             .execute_batch(MIGRATION_001)
             .map_err(map_sql_error)?;
     }
+    if current <= 1 {
+        connection
+            .execute_batch(MIGRATION_002)
+            .map_err(map_sql_error)?;
+    }
     Ok(())
 }
 
+fn create_pre_migration_snapshot(
+    connection: &Connection,
+    backup_directory: &Path,
+    version: u32,
+) -> Result<(), CoreError> {
+    let destination = backup_directory.join(format!(
+        "pre-migration-v{version}-{}.db",
+        time::OffsetDateTime::now_utc().unix_timestamp()
+    ));
+    connection
+        .backup(MAIN_DB, &destination, None)
+        .map_err(map_sql_error)?;
+    let snapshot = Connection::open(&destination).map_err(map_sql_error)?;
+    verify_integrity(&snapshot)
+}
+
 fn ensure_search_projection(connection: &Connection) -> Result<(), CoreError> {
-    let capture_count: i64 = connection
-        .query_row("SELECT count(*) FROM captures", [], |row| row.get(0))
-        .map_err(map_sql_error)?;
-    let search_count: i64 = connection
-        .query_row("SELECT count(*) FROM capture_search", [], |row| row.get(0))
-        .map_err(map_sql_error)?;
-    if capture_count != search_count {
-        rebuild_search_projection(connection)?;
+    for (source, projection) in [
+        ("captures", "capture_search"),
+        ("projects", "project_search"),
+        ("tasks", "task_search"),
+    ] {
+        let source_count: i64 = connection
+            .query_row(&format!("SELECT count(*) FROM {source}"), [], |row| {
+                row.get(0)
+            })
+            .map_err(map_sql_error)?;
+        let search_count: i64 = connection
+            .query_row(&format!("SELECT count(*) FROM {projection}"), [], |row| {
+                row.get(0)
+            })
+            .map_err(map_sql_error)?;
+        if source_count != search_count {
+            connection
+                .execute(
+                    &format!("INSERT INTO {projection}({projection}) VALUES('rebuild')"),
+                    [],
+                )
+                .map_err(map_sql_error)?;
+        }
     }
     Ok(())
 }
@@ -243,6 +284,7 @@ fn map_lock_error<T>(error: std::sync::PoisonError<T>) -> CoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mos_core::CaptureRepository;
 
     #[test]
     fn opens_with_required_pragmas_and_schema() {
@@ -256,7 +298,47 @@ mod tests {
 
         assert_eq!(health.journal_mode.to_lowercase(), "wal");
         assert_eq!(health.synchronous, "FULL");
-        assert_eq!(health.schema_version, 1);
+        assert_eq!(health.schema_version, 2);
         assert_eq!(health.integrity, "ok");
+    }
+
+    #[test]
+    fn upgrades_v1_after_creating_a_consistent_snapshot() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("mos.db");
+        let backups = directory.path().join("backups");
+        fs::create_dir_all(&backups).unwrap();
+        let connection = Connection::open(&database).unwrap();
+        configure_connection(&connection).unwrap();
+        connection.execute_batch(MIGRATION_001).unwrap();
+        connection
+            .execute(
+                "INSERT INTO captures (
+                    id, content, source_kind, processing_state, lifecycle_state,
+                    captured_at, created_at, updated_at
+                 ) VALUES (
+                    '0198a7d5-a64e-7000-8000-000000000001', 'Preservada', 'home',
+                    'inbox', 'active', '2026-08-13T00:00:00Z',
+                    '2026-08-13T00:00:00Z', '2026-08-13T00:00:00Z'
+                 )",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+
+        let storage = SqliteStorage::open(&database, &backups).unwrap();
+        assert_eq!(storage.health().unwrap().schema_version, 2);
+        assert_eq!(CaptureRepository::recent(&storage, 10).unwrap().len(), 1);
+        assert_eq!(
+            fs::read_dir(&backups)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("pre-migration-v1-"))
+                .count(),
+            1
+        );
     }
 }

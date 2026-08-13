@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     BackupInspection, BackupReceipt, Capture, CaptureId, CaptureRepository, CaptureSource,
-    CoreError, DataMaintenance, LifecycleState, NewCapture, ProcessingState, SearchRequest,
+    CoreError, DataMaintenance, LifecycleState, NewCapture, NewProject, NewTask, ProcessingState,
+    Project, ProjectId, SearchItem, SearchRequest, Task, TaskId, TaskState, WorkRepository,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -118,5 +119,159 @@ impl DataService {
 
     pub fn ensure_daily_snapshot(&self) -> Result<Option<BackupReceipt>, CoreError> {
         self.maintenance.ensure_daily_snapshot()
+    }
+
+    pub fn export_json(&self, destination: &Path) -> Result<BackupReceipt, CoreError> {
+        self.maintenance.export_json(destination)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProjectInput {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProjectInput {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTaskInput {
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    pub project_id: Option<String>,
+    pub source_capture_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTaskInput {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    pub project_id: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct WorkService {
+    repository: Arc<dyn WorkRepository>,
+}
+
+impl WorkService {
+    pub fn new(repository: Arc<dyn WorkRepository>) -> Self {
+        Self { repository }
+    }
+
+    pub fn create_project(&self, input: CreateProjectInput) -> Result<Project, CoreError> {
+        self.repository
+            .create_project(NewProject::create(&input.name, &input.description)?)
+    }
+
+    pub fn update_project(&self, input: UpdateProjectInput) -> Result<Project, CoreError> {
+        let validated = NewProject::create(&input.name, &input.description)?;
+        self.repository.update_project(
+            ProjectId::parse(&input.id)?,
+            &validated.name,
+            &validated.description,
+        )
+    }
+
+    pub fn project(&self, id: &str) -> Result<Project, CoreError> {
+        self.repository.get_project(ProjectId::parse(id)?)
+    }
+
+    pub fn projects(&self, include_archived: bool) -> Result<Vec<Project>, CoreError> {
+        self.repository.projects(include_archived)
+    }
+
+    pub fn set_project_archived(&self, id: &str, archived: bool) -> Result<Project, CoreError> {
+        self.repository.set_project_lifecycle(
+            ProjectId::parse(id)?,
+            if archived {
+                LifecycleState::Archived
+            } else {
+                LifecycleState::Active
+            },
+        )
+    }
+
+    pub fn create_task(&self, input: CreateTaskInput) -> Result<Task, CoreError> {
+        let project_id = input
+            .project_id
+            .as_deref()
+            .map(ProjectId::parse)
+            .transpose()?;
+        let task = NewTask::create(&input.title, &input.description, project_id)?;
+        match input.source_capture_id {
+            Some(capture_id) => self
+                .repository
+                .create_task_from_capture(CaptureId::parse(&capture_id)?, task),
+            None => self.repository.create_task(task),
+        }
+    }
+
+    pub fn update_task(&self, input: UpdateTaskInput) -> Result<Task, CoreError> {
+        let project_id = input
+            .project_id
+            .as_deref()
+            .map(ProjectId::parse)
+            .transpose()?;
+        let validated = NewTask::create(&input.title, &input.description, project_id)?;
+        self.repository.update_task(
+            TaskId::parse(&input.id)?,
+            &validated.title,
+            &validated.description,
+            project_id,
+        )
+    }
+
+    pub fn task(&self, id: &str) -> Result<Task, CoreError> {
+        self.repository.get_task(TaskId::parse(id)?)
+    }
+
+    pub fn tasks(&self, include_archived: bool) -> Result<Vec<Task>, CoreError> {
+        self.repository.tasks(include_archived)
+    }
+
+    pub fn set_task_state(&self, id: &str, state: TaskState) -> Result<Task, CoreError> {
+        self.repository.set_task_state(TaskId::parse(id)?, state)
+    }
+
+    pub fn set_task_archived(&self, id: &str, archived: bool) -> Result<Task, CoreError> {
+        self.repository.set_task_lifecycle(
+            TaskId::parse(id)?,
+            if archived {
+                LifecycleState::Archived
+            } else {
+                LifecycleState::Active
+            },
+        )
+    }
+
+    pub fn search(
+        &self,
+        query: &str,
+        include_archived: bool,
+    ) -> Result<Vec<SearchItem>, CoreError> {
+        self.repository.search_all(SearchRequest {
+            query: query.trim().to_owned(),
+            include_archived,
+            limit: 100,
+        })
+    }
+
+    pub fn rebuild_search(&self) -> Result<usize, CoreError> {
+        self.repository.rebuild_all_search()
     }
 }

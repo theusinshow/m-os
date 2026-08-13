@@ -6,7 +6,8 @@ use std::{
 
 use mos_core::{
     BackupInspection, BackupReceipt, Capture, CaptureService, CoreError, CreateCaptureInput,
-    DataService,
+    CreateProjectInput, CreateTaskInput, DataService, Project, SearchItem, Task, TaskState,
+    UpdateProjectInput, UpdateTaskInput, WorkService,
 };
 use mos_storage_sqlite::{SqliteStorage, StorageHealth};
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,7 @@ const DEFAULT_CAPTURE_SHORTCUT: &str = "Ctrl+Shift+Space";
 
 struct AppState {
     captures: CaptureService,
+    work: WorkService,
     data: DataService,
     storage: Arc<SqliteStorage>,
     shortcut_status: Mutex<String>,
@@ -38,6 +40,8 @@ struct UserSettings {
 #[serde(rename_all = "camelCase")]
 struct AppStatus {
     inbox_count: usize,
+    project_count: usize,
+    task_count: usize,
     shortcut: String,
     storage: StorageHealth,
 }
@@ -89,6 +93,15 @@ fn search_captures(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Capture>, CoreError> {
     state.captures.search(query, include_archived, 50)
+}
+
+#[tauri::command]
+fn search_all(
+    query: &str,
+    include_archived: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<SearchItem>, CoreError> {
+    state.work.search(query, include_archived)
 }
 
 #[tauri::command]
@@ -148,7 +161,120 @@ fn restore_capture(
 
 #[tauri::command]
 fn rebuild_search(state: tauri::State<'_, AppState>) -> Result<usize, CoreError> {
-    state.captures.rebuild_search()
+    state.work.rebuild_search()
+}
+
+#[tauri::command]
+fn create_project(
+    input: CreateProjectInput,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Project, CoreError> {
+    let project = state.work.create_project(input)?;
+    notify_data_changed(&app, "project-created");
+    schedule_snapshot(&state.data);
+    Ok(project)
+}
+
+#[tauri::command]
+fn update_project(
+    input: UpdateProjectInput,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Project, CoreError> {
+    let project = state.work.update_project(input)?;
+    notify_data_changed(&app, "project-updated");
+    schedule_snapshot(&state.data);
+    Ok(project)
+}
+
+#[tauri::command]
+fn get_project(id: &str, state: tauri::State<'_, AppState>) -> Result<Project, CoreError> {
+    state.work.project(id)
+}
+
+#[tauri::command]
+fn list_projects(
+    include_archived: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Project>, CoreError> {
+    state.work.projects(include_archived)
+}
+
+#[tauri::command]
+fn set_project_archived(
+    id: &str,
+    archived: bool,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Project, CoreError> {
+    let project = state.work.set_project_archived(id, archived)?;
+    notify_data_changed(&app, "project-lifecycle");
+    schedule_snapshot(&state.data);
+    Ok(project)
+}
+
+#[tauri::command]
+fn create_task(
+    input: CreateTaskInput,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Task, CoreError> {
+    let task = state.work.create_task(input)?;
+    notify_data_changed(&app, "task-created");
+    schedule_snapshot(&state.data);
+    Ok(task)
+}
+
+#[tauri::command]
+fn update_task(
+    input: UpdateTaskInput,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Task, CoreError> {
+    let task = state.work.update_task(input)?;
+    notify_data_changed(&app, "task-updated");
+    schedule_snapshot(&state.data);
+    Ok(task)
+}
+
+#[tauri::command]
+fn get_task(id: &str, state: tauri::State<'_, AppState>) -> Result<Task, CoreError> {
+    state.work.task(id)
+}
+
+#[tauri::command]
+fn list_tasks(
+    include_archived: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Task>, CoreError> {
+    state.work.tasks(include_archived)
+}
+
+#[tauri::command]
+fn set_task_state(
+    id: &str,
+    task_state: TaskState,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Task, CoreError> {
+    let task = state.work.set_task_state(id, task_state)?;
+    notify_data_changed(&app, "task-state");
+    schedule_snapshot(&state.data);
+    Ok(task)
+}
+
+#[tauri::command]
+fn set_task_archived(
+    id: &str,
+    archived: bool,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Task, CoreError> {
+    let task = state.work.set_task_archived(id, archived)?;
+    notify_data_changed(&app, "task-lifecycle");
+    schedule_snapshot(&state.data);
+    Ok(task)
 }
 
 #[tauri::command]
@@ -179,9 +305,16 @@ fn restore_backup(
 }
 
 #[tauri::command]
+fn export_json(path: &str, state: tauri::State<'_, AppState>) -> Result<BackupReceipt, CoreError> {
+    state.data.export_json(PathBuf::from(path).as_path())
+}
+
+#[tauri::command]
 fn get_app_status(state: tauri::State<'_, AppState>) -> Result<AppStatus, CoreError> {
     Ok(AppStatus {
         inbox_count: state.captures.inbox(200)?.len(),
+        project_count: state.work.projects(false)?.len(),
+        task_count: state.work.tasks(false)?.len(),
         shortcut: state
             .shortcut_status
             .lock()
@@ -278,8 +411,30 @@ fn notify_capture_changed(app: &AppHandle, id: &str) {
     let _ = app.emit_to("main", "capture-changed", id);
 }
 
+fn notify_data_changed(app: &AppHandle, reason: &str) {
+    let _ = app.emit_to("main", "data-changed", reason);
+}
+
+fn schedule_snapshot(data: &DataService) {
+    let data = data.clone();
+    std::thread::spawn(move || {
+        let _ = data.ensure_daily_snapshot();
+    });
+}
+
 fn reveal_window<R: Runtime>(app: &AppHandle<R>, label: &str) {
     if let Some(window) = app.get_webview_window(label) {
+        if label == "quick-capture" {
+            if let (Ok(Some(monitor)), Ok(size)) = (window.current_monitor(), window.outer_size()) {
+                let monitor_size = monitor.size();
+                let monitor_position = monitor.position();
+                let x =
+                    monitor_position.x + (monitor_size.width.saturating_sub(size.width) / 2) as i32;
+                let y = monitor_position.y
+                    + ((monitor_size.height as f64 * 0.34) as i32 - size.height as i32 / 2);
+                let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+            }
+        }
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -383,6 +538,7 @@ pub fn run() {
             );
             app.manage(AppState {
                 captures: CaptureService::new(storage.clone()),
+                work: WorkService::new(storage.clone()),
                 data: DataService::new(storage.clone()),
                 storage,
                 shortcut_status: Mutex::new("Registrando...".into()),
@@ -423,15 +579,28 @@ pub fn run() {
             list_archived,
             list_trashed,
             search_captures,
+            search_all,
             mark_capture_processed,
             move_capture_to_inbox,
             archive_capture,
             trash_capture,
             restore_capture,
             rebuild_search,
+            create_project,
+            update_project,
+            get_project,
+            list_projects,
+            set_project_archived,
+            create_task,
+            update_task,
+            get_task,
+            list_tasks,
+            set_task_state,
+            set_task_archived,
             create_backup,
             inspect_backup,
             restore_backup,
+            export_json,
             get_app_status,
             set_capture_shortcut,
             show_quick_capture,

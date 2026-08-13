@@ -5,7 +5,7 @@
    Dark é o padrão. Light é paridade, não inversão.
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
+/* Font files are bundled by each client. The desktop imports them through Fontsource. */
 
 :root {
   /* ---------- Tipografia ---------- */
@@ -21,12 +21,12 @@
   --text-meta: 400 11px/1.4 var(--font-system);
   --text-micro: 400 9px/1.4 var(--font-system);
 
-  --tracking-display: -0.034em;
-  --tracking-title: -0.024em;
-  --tracking-capture: -0.022em;
-  --tracking-body: -0.008em;
-  --tracking-meta: 0.05em;
-  --tracking-micro: 0.14em;
+  --tracking-display: 0;
+  --tracking-title: 0;
+  --tracking-capture: 0;
+  --tracking-body: 0;
+  --tracking-meta: 0;
+  --tracking-micro: 0;
 
   /* ---------- Spacing (base 4) ---------- */
   --space-1: 4px;
@@ -38,6 +38,7 @@
   --space-7: 84px;
 
   /* ---------- Geometria ---------- */
+  --radius-none: 0;
   --radius-sm: 2px;   /* elementos de 14-20px */
   --radius: 3px;      /* padrão de todo o sistema */
   --radius-lg: 8px;   /* somente app icon e overlay grande */
@@ -65,6 +66,20 @@
   --height-control-lg: 44px;
   --height-input: 38px;
   --height-menu-item: 30px;
+
+  /* ---------- Layout e linhas adicionados na implementação ---------- */
+  --line: 1px;
+  --marker: 2px;
+  --focus-ring: 3px;
+  --target-min: 24px;
+  --content-max: 1100px;
+  --column-min: 260px;
+  --list-pane-width: 400px;
+  --z-rail: 10;
+  --z-drawer: 20;
+  --z-backdrop: 30;
+  --z-overlay: 40;
+  --z-receipt: 50;
 
   /* ---------- Motion ---------- */
   --dur-instant: 75ms;    /* hover, press */
@@ -107,6 +122,7 @@
   /* warning não tem cor: use --text + ícone + --text-system na borda */
 
   --shadow-overlay: 0 20px 48px rgba(0, 0, 0, 0.5);
+  --overlay-backdrop: rgba(10, 12, 14, 0.72);
 }
 
 [data-theme='light'] {
@@ -136,6 +152,7 @@
   --danger: #B33A2C;
 
   --shadow-overlay: 0 20px 48px rgba(20, 24, 26, 0.14);
+  --overlay-backdrop: rgba(20, 24, 26, 0.28);
 }
 
 /* ---------- Resets mínimos ---------- */
@@ -169,4 +186,33 @@ body {
   }
   /* Nenhum transform animado. Só opacidade. */
   * { animation: none !important; }
+}
+
+@media (forced-colors: active) {
+  :root,
+  [data-theme='light'] {
+    --canvas: Canvas;
+    --surface: Canvas;
+    --surface-raised: Canvas;
+    --surface-hover: Canvas;
+    --surface-active: Highlight;
+    --border: ButtonBorder;
+    --border-strong: ButtonText;
+    --text: CanvasText;
+    --text-secondary: CanvasText;
+    --text-system: GrayText;
+    --text-disabled: GrayText;
+    --text-placeholder: GrayText;
+    --signal-fill: Highlight;
+    --signal-ink: Highlight;
+    --signal-wash: Highlight;
+    --signal-ring: Highlight;
+    --signal-hover: Highlight;
+    --signal-press: Highlight;
+    --on-signal: HighlightText;
+    --success: CanvasText;
+    --danger: Mark;
+    --shadow-overlay: none;
+    --overlay-backdrop: Canvas;
+  }
 }
