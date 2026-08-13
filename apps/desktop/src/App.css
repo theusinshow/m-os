@@ -1034,6 +1034,51 @@ select {
   flex: 1 1 var(--overlay-menu);
 }
 
+.function-registry {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.function-registry section {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.function-row {
+  display: grid;
+  min-height: var(--height-row-touch);
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: var(--line) solid var(--border);
+}
+
+.function-row strong {
+  display: block;
+  font-weight: 500;
+}
+
+.function-row code {
+  display: inline-block;
+  margin-top: var(--marker);
+  color: var(--text-system);
+  font: var(--text-meta);
+}
+
+.function-row p {
+  margin: var(--marker) 0 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.function-row small {
+  color: var(--text-system);
+  font: var(--text-meta);
+  text-align: right;
+  white-space: nowrap;
+}
+
 .disclosure {
   border-bottom: var(--line) solid var(--border);
 }

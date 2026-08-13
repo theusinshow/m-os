@@ -1,6 +1,7 @@
 mod app;
 mod capture;
 mod error;
+mod functions;
 mod ports;
 mod service;
 mod work;
@@ -8,6 +9,10 @@ mod work;
 pub use app::{validate_launch_target, AppId, AppLaunchKind, NewRegisteredApp, RegisteredApp};
 pub use capture::{Capture, CaptureId, CaptureSource, LifecycleState, NewCapture, ProcessingState};
 pub use error::{CoreError, ErrorCode};
+pub use functions::{
+    function_registry, search_functions, FunctionCategory, FunctionConfirmation,
+    FunctionDefinition, FunctionRisk,
+};
 pub use ports::{
     AppRepository, BackupInspection, BackupReceipt, CaptureRepository, DataMaintenance,
     SearchRequest, WorkRepository,

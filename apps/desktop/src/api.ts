@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, Project, RegisteredApp, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, Project, RegisteredApp, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -26,6 +26,12 @@ export const api = {
   },
   search(query: string, includeArchived: boolean) {
     return invoke<SearchItem[]>("search_all", { query, includeArchived });
+  },
+  functions() {
+    return invoke<FunctionDefinition[]>("list_functions");
+  },
+  searchFunctions(query: string) {
+    return invoke<FunctionDefinition[]>("search_functions", { query });
   },
   markProcessed(id: string) {
     return invoke<Capture>("mark_capture_processed", { id });

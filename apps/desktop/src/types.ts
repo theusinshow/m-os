@@ -66,6 +66,19 @@ export type SearchItem =
   | { kind: "workspace"; workspace: Workspace }
   | { kind: "app"; app: RegisteredApp };
 
+export type FunctionCategory = "capture" | "work" | "app" | "data" | "system";
+export type FunctionRisk = "low" | "medium" | "high";
+export type FunctionConfirmation = "none" | "explicit";
+
+export type FunctionDefinition = {
+  id: string;
+  name: string;
+  description: string;
+  category: FunctionCategory;
+  risk: FunctionRisk;
+  confirmation: FunctionConfirmation;
+};
+
 export type AppError = {
   code: string;
   message: string;

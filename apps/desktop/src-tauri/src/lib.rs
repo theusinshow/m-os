@@ -7,8 +7,9 @@ use std::{
 use mos_core::{
     AppLaunchKind, AppService, BackupInspection, BackupReceipt, Capture, CaptureService, CoreError,
     CreateAppInput, CreateCaptureInput, CreateProjectInput, CreateTaskInput, CreateWorkspaceInput,
-    DataService, Project, RegisteredApp, SearchItem, Task, TaskState, UpdateAppInput,
-    UpdateProjectInput, UpdateTaskInput, UpdateWorkspaceInput, WorkService, Workspace,
+    DataService, FunctionDefinition, Project, RegisteredApp, SearchItem, Task, TaskState,
+    UpdateAppInput, UpdateProjectInput, UpdateTaskInput, UpdateWorkspaceInput, WorkService,
+    Workspace,
 };
 use mos_storage_sqlite::{SqliteStorage, StorageHealth};
 use serde::{Deserialize, Serialize};
@@ -114,6 +115,16 @@ fn search_all(
     );
     items.truncate(100);
     Ok(items)
+}
+
+#[tauri::command]
+fn list_functions() -> Vec<FunctionDefinition> {
+    mos_core::function_registry()
+}
+
+#[tauri::command]
+fn search_functions(query: &str) -> Vec<FunctionDefinition> {
+    mos_core::search_functions(query, 50)
 }
 
 #[tauri::command]
@@ -893,6 +904,8 @@ pub fn run() {
             list_trashed,
             search_captures,
             search_all,
+            list_functions,
+            search_functions,
             mark_capture_processed,
             move_capture_to_inbox,
             archive_capture,
