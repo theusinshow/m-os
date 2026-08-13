@@ -1,0 +1,24 @@
+# JavaScript
+node_modules/
+dist/
+*.log
+.env
+.env.*
+!.env.example
+
+# Rust and Tauri
+target/
+**/src-tauri/gen/schemas/
+
+# Local runtime data
+*.db
+*.db-shm
+*.db-wal
+*.mos-backup
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.suo

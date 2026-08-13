@@ -1,0 +1,37 @@
+name: Product proposal
+description: Propose a change grounded in the product documents.
+title: "proposal: "
+labels: [proposal]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the real recurring need, not only the desired UI.
+    validations:
+      required: true
+  - type: textarea
+    id: value
+    attributes:
+      label: Product value
+      description: Explain how this reduces memory, retrieval, context switching, or repeated work.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Proposed scope
+      description: Include what should explicitly remain out of scope.
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints reviewed
+      options:
+        - label: I reviewed VISION.md and PRODUCT.md.
+          required: true
+        - label: I reviewed UX-PRINCIPLES.md.
+          required: true
+        - label: This proposal does not silently promote an item from IDEAS.md.
+          required: true

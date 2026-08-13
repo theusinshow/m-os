@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/desktop/src-tauri",
+    "crates/mos-core",
+    "crates/mos-storage-sqlite",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Coded by M"]
+license = "UNLICENSED"
+rust-version = "1.85"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+time = { version = "0.3", features = ["formatting", "parsing", "serde", "macros"] }
+uuid = { version = "1", features = ["serde", "v7"] }

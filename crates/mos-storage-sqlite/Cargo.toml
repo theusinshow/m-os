@@ -1,0 +1,22 @@
+[package]
+name = "mos-storage-sqlite"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+mos-core = { path = "../mos-core" }
+hex = "0.4"
+rusqlite = { version = "0.40", features = ["backup", "bundled-full"] }
+serde.workspace = true
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
+time.workspace = true
+uuid.workspace = true
+zip = { version = "4", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = "3"
