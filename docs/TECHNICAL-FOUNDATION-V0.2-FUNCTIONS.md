@@ -21,6 +21,8 @@ It can be listed and searched by the desktop shell through Tauri commands.
 
 The Settings screen exposes the registry so the product can inspect its current operational surface without introducing a heavy Functions UI.
 
+The Command surface can discover Functions by text search. Selecting a Function opens the registry view instead of executing behavior automatically.
+
 ## Included Function Families
 
 - Capture
@@ -55,4 +57,4 @@ Backups still cover local user data. Function definitions are restored by the in
 
 ## Next Step
 
-The next safe increment is to connect this registry to the command surface as discoverable commands, while still routing execution through existing UI flows and confirmation boundaries.
+The next safe increment is to add explicit intent routing for low-risk Functions, still using existing UI flows and confirmation boundaries.
