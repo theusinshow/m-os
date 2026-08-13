@@ -36,10 +36,25 @@ export type Task = {
   completedAt: string | null;
 };
 
+export type AppLaunchKind = "url" | "path";
+
+export type RegisteredApp = {
+  id: string;
+  name: string;
+  description: string;
+  launchKind: AppLaunchKind | null;
+  launchTarget: string | null;
+  lifecycleState: LifecycleState;
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt: string | null;
+};
+
 export type SearchItem =
   | { kind: "capture"; capture: Capture; derivedTask: Task | null; project: Project | null }
   | { kind: "task"; task: Task; project: Project | null }
-  | { kind: "project"; project: Project };
+  | { kind: "project"; project: Project }
+  | { kind: "app"; app: RegisteredApp };
 
 export type AppError = {
   code: string;
@@ -51,6 +66,7 @@ export type AppStatus = {
   inboxCount: number;
   projectCount: number;
   taskCount: number;
+  appCount: number;
   shortcut: string;
   snapshot: string;
   storage: {

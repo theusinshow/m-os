@@ -320,6 +320,7 @@ textarea::placeholder {
 .form-actions,
 .button-line,
 .inline-form,
+.target-picker,
 .detail-actions,
 .board-heading {
   display: flex;
@@ -605,6 +606,33 @@ select {
 
 .projects-page .panel {
   margin-top: var(--space-6);
+}
+
+.apps-page .app-facts {
+  display: grid;
+  gap: 0;
+  margin: var(--space-5) 0 0;
+}
+
+.apps-page .app-facts div {
+  display: grid;
+  min-height: var(--height-row);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  align-items: center;
+  border-bottom: var(--line) solid var(--border);
+}
+
+.apps-page .app-facts dt {
+  color: var(--text-system);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+}
+
+.apps-page .app-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
 }
 
 .board-heading {
@@ -907,6 +935,15 @@ select {
 
 .button-line {
   flex-wrap: wrap;
+}
+
+.target-picker {
+  flex-wrap: wrap;
+}
+
+.target-picker input {
+  min-width: min(100%, var(--sidebar-width));
+  flex: 1 1 var(--overlay-menu);
 }
 
 .disclosure {

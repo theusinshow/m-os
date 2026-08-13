@@ -3,9 +3,10 @@ use std::{path::Path, sync::Arc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BackupInspection, BackupReceipt, Capture, CaptureId, CaptureRepository, CaptureSource,
-    CoreError, DataMaintenance, LifecycleState, NewCapture, NewProject, NewTask, ProcessingState,
-    Project, ProjectId, SearchItem, SearchRequest, Task, TaskId, TaskState, WorkRepository,
+    AppId, AppLaunchKind, AppRepository, BackupInspection, BackupReceipt, Capture, CaptureId,
+    CaptureRepository, CaptureSource, CoreError, DataMaintenance, LifecycleState, NewCapture,
+    NewProject, NewRegisteredApp, NewTask, ProcessingState, Project, ProjectId, RegisteredApp,
+    SearchItem, SearchRequest, Task, TaskId, TaskState, WorkRepository,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -161,6 +162,103 @@ pub struct UpdateTaskInput {
     #[serde(default)]
     pub description: String,
     pub project_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateAppInput {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub launch_kind: Option<AppLaunchKind>,
+    pub launch_target: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAppInput {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub launch_kind: Option<AppLaunchKind>,
+    pub launch_target: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct AppService {
+    repository: Arc<dyn AppRepository>,
+}
+
+impl AppService {
+    pub fn new(repository: Arc<dyn AppRepository>) -> Self {
+        Self { repository }
+    }
+
+    pub fn create_app(&self, input: CreateAppInput) -> Result<RegisteredApp, CoreError> {
+        self.repository.create_app(NewRegisteredApp::create(
+            &input.name,
+            &input.description,
+            input.launch_kind,
+            input.launch_target.as_deref(),
+        )?)
+    }
+
+    pub fn update_app(&self, input: UpdateAppInput) -> Result<RegisteredApp, CoreError> {
+        let validated = NewRegisteredApp::create(
+            &input.name,
+            &input.description,
+            input.launch_kind,
+            input.launch_target.as_deref(),
+        )?;
+        self.repository.update_app(
+            AppId::parse(&input.id)?,
+            &validated.name,
+            &validated.description,
+            validated.launch_kind,
+            validated.launch_target.as_deref(),
+        )
+    }
+
+    pub fn app(&self, id: &str) -> Result<RegisteredApp, CoreError> {
+        self.repository.get_app(AppId::parse(id)?)
+    }
+
+    pub fn apps(&self, include_archived: bool) -> Result<Vec<RegisteredApp>, CoreError> {
+        self.repository.apps(include_archived)
+    }
+
+    pub fn set_app_archived(&self, id: &str, archived: bool) -> Result<RegisteredApp, CoreError> {
+        self.repository.set_app_lifecycle(
+            AppId::parse(id)?,
+            if archived {
+                LifecycleState::Archived
+            } else {
+                LifecycleState::Active
+            },
+        )
+    }
+
+    pub fn mark_app_opened(&self, id: &str) -> Result<RegisteredApp, CoreError> {
+        self.repository.mark_app_opened(AppId::parse(id)?)
+    }
+
+    pub fn search(
+        &self,
+        query: &str,
+        include_archived: bool,
+        limit: usize,
+    ) -> Result<Vec<RegisteredApp>, CoreError> {
+        self.repository.search_apps(SearchRequest {
+            query: query.trim().to_owned(),
+            include_archived,
+            limit: limit.min(100),
+        })
+    }
+
+    pub fn rebuild_search(&self) -> Result<usize, CoreError> {
+        self.repository.rebuild_app_search()
+    }
 }
 
 #[derive(Clone)]

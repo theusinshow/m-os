@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::{
-    Capture, CaptureId, CoreError, LifecycleState, NewCapture, NewProject, NewTask,
-    ProcessingState, Project, ProjectId, SearchItem, Task, TaskId, TaskState,
+    AppId, Capture, CaptureId, CoreError, LifecycleState, NewCapture, NewProject, NewRegisteredApp,
+    NewTask, ProcessingState, Project, ProjectId, RegisteredApp, SearchItem, Task, TaskId,
+    TaskState,
 };
 
 #[derive(Clone, Debug)]
@@ -73,6 +74,28 @@ pub trait WorkRepository: Send + Sync {
     fn set_task_lifecycle(&self, id: TaskId, lifecycle: LifecycleState) -> Result<Task, CoreError>;
     fn search_all(&self, request: SearchRequest) -> Result<Vec<SearchItem>, CoreError>;
     fn rebuild_all_search(&self) -> Result<usize, CoreError>;
+}
+
+pub trait AppRepository: Send + Sync {
+    fn create_app(&self, app: NewRegisteredApp) -> Result<RegisteredApp, CoreError>;
+    fn update_app(
+        &self,
+        id: AppId,
+        name: &str,
+        description: &str,
+        launch_kind: Option<crate::AppLaunchKind>,
+        launch_target: Option<&str>,
+    ) -> Result<RegisteredApp, CoreError>;
+    fn get_app(&self, id: AppId) -> Result<RegisteredApp, CoreError>;
+    fn apps(&self, include_archived: bool) -> Result<Vec<RegisteredApp>, CoreError>;
+    fn set_app_lifecycle(
+        &self,
+        id: AppId,
+        lifecycle: LifecycleState,
+    ) -> Result<RegisteredApp, CoreError>;
+    fn mark_app_opened(&self, id: AppId) -> Result<RegisteredApp, CoreError>;
+    fn search_apps(&self, request: SearchRequest) -> Result<Vec<RegisteredApp>, CoreError>;
+    fn rebuild_app_search(&self) -> Result<usize, CoreError>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

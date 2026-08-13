@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, Project, SearchItem, Task, TaskState } from "./types";
+import type { AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, Project, RegisteredApp, SearchItem, Task, TaskState } from "./types";
 
 export const api = {
   createCapture(content: string, source: CaptureSource) {
@@ -64,6 +64,24 @@ export const api = {
   },
   setTaskArchived(id: string, archived: boolean) {
     return invoke<Task>("set_task_archived", { id, archived });
+  },
+  registeredApps(includeArchived = false) {
+    return invoke<RegisteredApp[]>("list_registered_apps", { includeArchived });
+  },
+  createRegisteredApp(name: string, description: string, launchKind: AppLaunchKind | null, launchTarget: string | null) {
+    return invoke<RegisteredApp>("create_registered_app", { input: { name, description, launchKind, launchTarget } });
+  },
+  updateRegisteredApp(id: string, name: string, description: string, launchKind: AppLaunchKind | null, launchTarget: string | null) {
+    return invoke<RegisteredApp>("update_registered_app", { input: { id, name, description, launchKind, launchTarget } });
+  },
+  setRegisteredAppArchived(id: string, archived: boolean) {
+    return invoke<RegisteredApp>("set_registered_app_archived", { id, archived });
+  },
+  markRegisteredAppOpened(id: string) {
+    return invoke<RegisteredApp>("mark_registered_app_opened", { id });
+  },
+  openRegisteredApp(id: string) {
+    return invoke<RegisteredApp>("open_registered_app", { id });
   },
   rebuildSearch() {
     return invoke<number>("rebuild_search");

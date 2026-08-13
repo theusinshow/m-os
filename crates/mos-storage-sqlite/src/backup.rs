@@ -13,6 +13,7 @@ use time::{format_description::well_known::Rfc3339, macros::format_description, 
 use zip::{write::SimpleFileOptions, ZipArchive, ZipWriter};
 
 use crate::{
+    app_repository::query_apps_all,
     configure_connection, ensure_search_projection, map_io_error, map_lock_error, map_sql_error,
     migrate, verify_integrity,
     work_repository::{
@@ -171,6 +172,7 @@ impl SqliteStorage {
                     &connection,
                     &format!("SELECT {TASK_COLUMNS} FROM tasks ORDER BY created_at ASC"),
                 )?,
+                apps: query_apps_all(&connection)?,
             }
         };
         let bytes = serde_json::to_vec_pretty(&dataset)
@@ -201,6 +203,7 @@ struct ExportDataset {
     captures: Vec<mos_core::Capture>,
     projects: Vec<mos_core::Project>,
     tasks: Vec<mos_core::Task>,
+    apps: Vec<mos_core::RegisteredApp>,
 }
 
 struct ExtractedBackup {
@@ -363,7 +366,7 @@ fn backup_invalid(message: impl Into<String>) -> CoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mos_core::{CaptureRepository, CaptureSource, NewCapture};
+    use mos_core::{AppRepository, CaptureRepository, CaptureSource, NewCapture, NewRegisteredApp};
 
     #[test]
     fn backup_restore_round_trip_and_safety_backup() {
@@ -422,6 +425,9 @@ mod tests {
         storage
             .create(NewCapture::create("Exportada", CaptureSource::Home).unwrap())
             .unwrap();
+        storage
+            .create_app(NewRegisteredApp::create("M-Finance", "Cockpit", None, None).unwrap())
+            .unwrap();
         let destination = directory.path().join("m-os-export.json");
         storage.export_json(&destination).unwrap();
         let export: serde_json::Value =
@@ -430,5 +436,6 @@ mod tests {
         assert_eq!(export["format"], "m-os-export");
         assert_eq!(export["formatVersion"], 1);
         assert_eq!(export["captures"].as_array().unwrap().len(), 1);
+        assert_eq!(export["apps"].as_array().unwrap().len(), 1);
     }
 }

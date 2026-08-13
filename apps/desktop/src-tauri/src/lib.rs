@@ -5,9 +5,10 @@ use std::{
 };
 
 use mos_core::{
-    BackupInspection, BackupReceipt, Capture, CaptureService, CoreError, CreateCaptureInput,
-    CreateProjectInput, CreateTaskInput, DataService, Project, SearchItem, Task, TaskState,
-    UpdateProjectInput, UpdateTaskInput, WorkService,
+    AppLaunchKind, AppService, BackupInspection, BackupReceipt, Capture, CaptureService, CoreError,
+    CreateAppInput, CreateCaptureInput, CreateProjectInput, CreateTaskInput, DataService, Project,
+    RegisteredApp, SearchItem, Task, TaskState, UpdateAppInput, UpdateProjectInput,
+    UpdateTaskInput, WorkService,
 };
 use mos_storage_sqlite::{SqliteStorage, StorageHealth};
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,7 @@ const DEFAULT_CAPTURE_SHORTCUT: &str = "Ctrl+Shift+Space";
 struct AppState {
     captures: CaptureService,
     work: WorkService,
+    apps: AppService,
     data: DataService,
     storage: Arc<SqliteStorage>,
     shortcut_status: Mutex<String>,
@@ -43,6 +45,7 @@ struct AppStatus {
     inbox_count: usize,
     project_count: usize,
     task_count: usize,
+    app_count: usize,
     shortcut: String,
     snapshot: String,
     storage: StorageHealth,
@@ -100,7 +103,16 @@ fn search_all(
     include_archived: bool,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<SearchItem>, CoreError> {
-    state.work.search(query, include_archived)
+    let mut items = state.work.search(query, include_archived)?;
+    items.extend(
+        state
+            .apps
+            .search(query, include_archived, 100)?
+            .into_iter()
+            .map(|app| SearchItem::App { app }),
+    );
+    items.truncate(100);
+    Ok(items)
 }
 
 #[tauri::command]
@@ -160,7 +172,7 @@ fn restore_capture(
 
 #[tauri::command]
 fn rebuild_search(state: tauri::State<'_, AppState>) -> Result<usize, CoreError> {
-    state.work.rebuild_search()
+    Ok(state.work.rebuild_search()? + state.apps.rebuild_search()?)
 }
 
 #[tauri::command]
@@ -277,6 +289,105 @@ fn set_task_archived(
 }
 
 #[tauri::command]
+fn create_registered_app(
+    input: CreateAppInput,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<RegisteredApp, CoreError> {
+    let registered_app = state.apps.create_app(input)?;
+    notify_data_changed(&app, "app-created");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(registered_app)
+}
+
+#[tauri::command]
+fn update_registered_app(
+    input: UpdateAppInput,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<RegisteredApp, CoreError> {
+    let registered_app = state.apps.update_app(input)?;
+    notify_data_changed(&app, "app-updated");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(registered_app)
+}
+
+#[tauri::command]
+fn get_registered_app(
+    id: &str,
+    state: tauri::State<'_, AppState>,
+) -> Result<RegisteredApp, CoreError> {
+    state.apps.app(id)
+}
+
+#[tauri::command]
+fn list_registered_apps(
+    include_archived: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<RegisteredApp>, CoreError> {
+    state.apps.apps(include_archived)
+}
+
+#[tauri::command]
+fn set_registered_app_archived(
+    id: &str,
+    archived: bool,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<RegisteredApp, CoreError> {
+    let registered_app = state.apps.set_app_archived(id, archived)?;
+    notify_data_changed(&app, "app-lifecycle");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(registered_app)
+}
+
+#[tauri::command]
+fn mark_registered_app_opened(
+    id: &str,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<RegisteredApp, CoreError> {
+    let registered_app = state.apps.mark_app_opened(id)?;
+    notify_data_changed(&app, "app-opened");
+    Ok(registered_app)
+}
+
+#[tauri::command]
+fn open_registered_app(
+    id: &str,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<RegisteredApp, CoreError> {
+    let registered_app = state.apps.app(id)?;
+    if registered_app.lifecycle_state != mos_core::LifecycleState::Active {
+        return Err(CoreError::new(
+            mos_core::ErrorCode::InvalidTransition,
+            "App arquivado nao pode ser aberto.",
+            false,
+        ));
+    }
+    let launch_kind = registered_app.launch_kind.ok_or_else(|| {
+        CoreError::new(
+            mos_core::ErrorCode::InvalidInput,
+            "Este App nao possui alvo de abertura.",
+            false,
+        )
+    })?;
+    let launch_target = registered_app.launch_target.as_deref().ok_or_else(|| {
+        CoreError::new(
+            mos_core::ErrorCode::InvalidInput,
+            "Este App nao possui alvo de abertura.",
+            false,
+        )
+    })?;
+    open_external_target(launch_kind, launch_target)?;
+    let opened = state.apps.mark_app_opened(id)?;
+    notify_data_changed(&app, "app-opened");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(opened)
+}
+
+#[tauri::command]
 fn create_backup(
     path: &str,
     state: tauri::State<'_, AppState>,
@@ -314,6 +425,7 @@ fn get_app_status(state: tauri::State<'_, AppState>) -> Result<AppStatus, CoreEr
         inbox_count: state.captures.inbox(200)?.len(),
         project_count: state.work.projects(false)?.len(),
         task_count: state.work.tasks(false)?.len(),
+        app_count: state.apps.apps(false)?.len(),
         shortcut: state
             .shortcut_status
             .lock()
@@ -522,6 +634,72 @@ fn persist_shortcut(path: &std::path::Path, shortcut: &str) -> Result<(), CoreEr
     })
 }
 
+fn open_external_target(kind: AppLaunchKind, target: &str) -> Result<(), CoreError> {
+    match kind {
+        AppLaunchKind::Url => {
+            if !(target.starts_with("https://") || target.starts_with("http://")) {
+                return Err(CoreError::new(
+                    mos_core::ErrorCode::InvalidInput,
+                    "URL de App deve comecar com http:// ou https://.",
+                    false,
+                ));
+            }
+        }
+        AppLaunchKind::Path => {
+            if !std::path::Path::new(target).exists() {
+                return Err(CoreError::new(
+                    mos_core::ErrorCode::InvalidInput,
+                    "Alvo local do App nao foi encontrado.",
+                    false,
+                ));
+            }
+        }
+    }
+    open_target_with_os(target)
+}
+
+#[cfg(windows)]
+fn open_target_with_os(target: &str) -> Result<(), CoreError> {
+    use std::ptr;
+    use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
+
+    let operation = wide_null("open");
+    let target = wide_null(target);
+    let result = unsafe {
+        ShellExecuteW(
+            ptr::null_mut(),
+            operation.as_ptr(),
+            target.as_ptr(),
+            ptr::null(),
+            ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    } as isize;
+    if result <= 32 {
+        return Err(CoreError::new(
+            mos_core::ErrorCode::Io,
+            "O Windows nao aceitou abrir este App.",
+            true,
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn wide_null(value: &str) -> Vec<u16> {
+    use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
+    OsStr::new(value).encode_wide().chain(Some(0)).collect()
+}
+
+#[cfg(not(windows))]
+fn open_target_with_os(_target: &str) -> Result<(), CoreError> {
+    Err(CoreError::new(
+        mos_core::ErrorCode::InvalidTransition,
+        "Abertura de Apps esta disponivel apenas no Windows nesta versao.",
+        false,
+    ))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -553,6 +731,7 @@ pub fn run() {
             app.manage(AppState {
                 captures: CaptureService::new(storage.clone()),
                 work: WorkService::new(storage.clone()),
+                apps: AppService::new(storage.clone()),
                 data: DataService::new(storage.clone()),
                 storage,
                 shortcut_status: Mutex::new("Registrando...".into()),
@@ -612,6 +791,13 @@ pub fn run() {
             list_tasks,
             set_task_state,
             set_task_archived,
+            create_registered_app,
+            update_registered_app,
+            get_registered_app,
+            list_registered_apps,
+            set_registered_app_archived,
+            mark_registered_app_opened,
+            open_registered_app,
             create_backup,
             inspect_backup,
             restore_backup,

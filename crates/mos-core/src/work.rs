@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::{Capture, CaptureId, CoreError, ErrorCode, LifecycleState};
+use crate::{Capture, CaptureId, CoreError, ErrorCode, LifecycleState, RegisteredApp};
 
 macro_rules! entity_id {
     ($name:ident, $label:literal) => {
@@ -164,6 +164,9 @@ pub enum SearchItem {
     },
     Project {
         project: Project,
+    },
+    App {
+        app: RegisteredApp,
     },
 }
 
