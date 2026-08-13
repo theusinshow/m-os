@@ -13,6 +13,7 @@ target/
 # Local portable toolchains
 $tools/
 tools/
+artifacts/
 
 # Local runtime data
 *.db

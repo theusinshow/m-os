@@ -622,6 +622,12 @@ select {
 .kanban-column {
   min-width: 0;
   border-top: var(--line) solid var(--border-strong);
+  transition: background var(--dur-instant) linear, border-color var(--dur-instant) linear;
+}
+
+.kanban-column[data-drop-target] {
+  background: var(--signal-wash);
+  border-color: var(--signal-fill);
 }
 
 .kanban-column > header {

@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -78,8 +78,8 @@ function CaptureComposer({ onSaved }: { onSaved: (capture: Capture) => void }) {
   </form>;
 }
 
-function DataRow({ primary, meta, secondary, selected = false, completed = false, onClick, onKeyDown, draggable, onDragStart }: { primary: string; meta?: string; secondary?: string; selected?: boolean; completed?: boolean; onClick?: () => void; onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void; draggable?: boolean; onDragStart?: React.DragEventHandler<HTMLButtonElement> }) {
-  return <button className="data-row" data-selected={selected || undefined} data-completed={completed || undefined} onClick={onClick} onKeyDown={onKeyDown} draggable={draggable} onDragStart={onDragStart}><span className="row-copy"><strong>{primary}</strong>{secondary ? <small>{secondary}</small> : null}</span>{meta ? <span className="row-meta">{meta}</span> : null}</button>;
+function DataRow({ primary, meta, secondary, selected = false, completed = false, onClick, onKeyDown, onPointerDown, draggable, onDragStart, onDragEnd }: { primary: string; meta?: string; secondary?: string; selected?: boolean; completed?: boolean; onClick?: () => void; onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void; onPointerDown?: React.PointerEventHandler<HTMLButtonElement>; draggable?: boolean; onDragStart?: React.DragEventHandler<HTMLButtonElement>; onDragEnd?: React.DragEventHandler<HTMLButtonElement> }) {
+  return <button className="data-row" type="button" data-selected={selected || undefined} data-completed={completed || undefined} onClick={onClick} onKeyDown={onKeyDown} onPointerDown={onPointerDown} draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd}><span className="row-copy"><strong>{primary}</strong>{secondary ? <small>{secondary}</small> : null}</span>{meta ? <span className="row-meta">{meta}</span> : null}</button>;
 }
 
 function HomePage({ recent, projects, tasks, refresh, openCapture, openProject, openTask }: { recent: Capture[]; projects: Project[]; tasks: Task[]; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openTask: (task: Task) => void }) {
@@ -208,7 +208,19 @@ function ProjectsPage({ projects, tasks, initialProjectId, refresh, openTask }: 
 
 function BoardPage({ tasks, projects, refresh, openTask }: { tasks: Task[]; projects: Project[]; refresh: () => Promise<void>; openTask: (task: Task) => void }) {
   const [creating, setCreating] = useState(false);
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  const [dragOverState, setDragOverState] = useState<TaskState | null>(null);
+  const pointerDrag = useRef<{ taskId: string; x: number; y: number; active: boolean } | null>(null);
+  const suppressClickTaskId = useRef<string | null>(null);
   async function move(task: Task, state: TaskState) { if (task.state !== state) await api.setTaskState(task.id, state).then(refresh); }
+  function draggedTask(event: DragEvent<HTMLElement>) {
+    const id = event.dataTransfer.getData("text/task-id") || event.dataTransfer.getData("text/plain") || draggingTaskId;
+    return tasks.find((item) => item.id === id);
+  }
+  function finishDrag() {
+    setDraggingTaskId(null);
+    setDragOverState(null);
+  }
   function keyboardMove(event: KeyboardEvent<HTMLButtonElement>, task: Task) {
     if (!event.altKey || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
     event.preventDefault();
@@ -216,7 +228,42 @@ function BoardPage({ tasks, projects, refresh, openTask }: { tasks: Task[]; proj
     const next = stateOrder[Math.max(0, Math.min(stateOrder.length - 1, index + (event.key === "ArrowRight" ? 1 : -1)))];
     void move(task, next);
   }
-  return <div className="page board-page"><div className="board-heading"><ContextPath segments={["M/OS", "TASKS"]} />{!creating ? <Button variant="primary" onClick={() => setCreating(true)}>Criar Task</Button> : null}</div>{creating ? <DirectTaskForm projects={projects} cancel={() => setCreating(false)} saved={() => { setCreating(false); void refresh(); }} /> : null}<div className="kanban">{stateOrder.map((state) => { const column = tasks.filter((task) => task.lifecycleState === "active" && task.state === state); const visible = column.slice(0, 20); return <section key={state} className="kanban-column" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { const task = tasks.find((item) => item.id === event.dataTransfer.getData("text/task-id")); if (task) void move(task, state); }}><header><h2>{stateLabels[state]}</h2><span>{column.length}</span></header><div>{visible.map((task) => <DataRow key={task.id} primary={task.title} secondary={projects.find((project) => project.id === task.projectId)?.name} completed={task.state === "done"} onClick={() => openTask(task)} onKeyDown={(event) => keyboardMove(event, task)} draggable onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); }} />)}{!column.length ? <EmptyState>Nenhuma Task.</EmptyState> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</div></section>; })}</div></div>;
+  useEffect(() => {
+    function columnFromPoint(x: number, y: number) {
+      const column = document.elementFromPoint(x, y)?.closest<HTMLElement>(".kanban-column");
+      const state = column?.dataset.kanbanState;
+      return stateOrder.includes(state as TaskState) ? state as TaskState : null;
+    }
+    function handlePointerMove(event: PointerEvent) {
+      const drag = pointerDrag.current;
+      if (!drag) return;
+      if (!drag.active && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return;
+      drag.active = true;
+      suppressClickTaskId.current = drag.taskId;
+      setDraggingTaskId(drag.taskId);
+      setDragOverState(columnFromPoint(event.clientX, event.clientY));
+    }
+    function handlePointerUp(event: PointerEvent) {
+      const drag = pointerDrag.current;
+      if (!drag) return;
+      pointerDrag.current = null;
+      if (!drag.active) return;
+      const targetState = columnFromPoint(event.clientX, event.clientY);
+      const task = tasks.find((item) => item.id === drag.taskId);
+      finishDrag();
+      if (task && targetState) void move(task, targetState);
+      window.setTimeout(() => { if (suppressClickTaskId.current === drag.taskId) suppressClickTaskId.current = null; }, 0);
+    }
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", finishDrag);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", finishDrag);
+    };
+  }, [tasks, refresh]);
+  return <div className="page board-page"><div className="board-heading"><ContextPath segments={["M/OS", "TASKS"]} />{!creating ? <Button variant="primary" onClick={() => setCreating(true)}>Criar Task</Button> : null}</div>{creating ? <DirectTaskForm projects={projects} cancel={() => setCreating(false)} saved={() => { setCreating(false); void refresh(); }} /> : null}<div className="kanban">{stateOrder.map((state) => { const column = tasks.filter((task) => task.lifecycleState === "active" && task.state === state); const visible = column.slice(0, 20); return <section key={state} className="kanban-column" data-kanban-state={state} data-drop-target={dragOverState === state || undefined} onDragEnter={(event) => { event.preventDefault(); setDragOverState(state); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverState(state); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverState(null); }} onDrop={(event) => { event.preventDefault(); const task = draggedTask(event); finishDrag(); if (task) void move(task, state); }}><header><h2>{stateLabels[state]}</h2><span>{column.length}</span></header><div>{visible.map((task) => <DataRow key={task.id} primary={task.title} secondary={projects.find((project) => project.id === task.projectId)?.name} completed={task.state === "done"} onClick={() => { if (suppressClickTaskId.current === task.id) { suppressClickTaskId.current = null; return; } openTask(task); }} onKeyDown={(event) => keyboardMove(event, task)} onPointerDown={(event) => { if (event.button !== 0) return; pointerDrag.current = { taskId: task.id, x: event.clientX, y: event.clientY, active: false }; }} draggable onDragStart={(event) => { setDraggingTaskId(task.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={finishDrag} />)}{!column.length ? <EmptyState>Nenhuma Task.</EmptyState> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</div></section>; })}</div></div>;
 }
 
 function TaskDrawer({ task, projects, close, refresh, openCapture }: { task: Task; projects: Project[]; close: () => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void }) {
