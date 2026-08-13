@@ -40,8 +40,12 @@ npm run build
 npm run tauri build
 ```
 
-Os instaladores locais sao gerados em `target\release\bundle`. O workflow
-`Package Windows` tambem produz MSI e NSIS por acionamento manual ou tag `v*`.
+O pacote Windows local gera um instalador NSIS por usuario, sem admin por
+padrao, em `target\release\bundle\nsis`. O binario em `target\release` tambem
+pode ser usado como artefato portatil em maquinas que ja tenham WebView2.
+
+O workflow `Package Windows` publica o instalador NSIS e o executavel portatil
+por acionamento manual ou tag `v*`.
 
 As decisoes de produto e arquitetura ficam em [`docs`](docs). Leia
 `AGENTS.md` e a documentacao de produto antes de ampliar o escopo.

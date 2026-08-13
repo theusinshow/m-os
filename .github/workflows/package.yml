@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   package:
-    name: Windows installer
+    name: Windows package
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -31,16 +31,16 @@ jobs:
         working-directory: apps/desktop
         run: npm ci
 
-      - name: Build installers
+      - name: Build no-admin Windows package
         working-directory: apps/desktop
-        run: npm run tauri -- build --ci
+        run: npm run tauri -- build --ci --bundles nsis
 
-      - name: Upload Windows bundles
+      - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
           name: m-os-windows-${{ github.ref_name }}
           path: |
-            target/release/bundle/msi/*.msi
             target/release/bundle/nsis/*.exe
+            target/release/*.exe
           if-no-files-found: error
           retention-days: 14

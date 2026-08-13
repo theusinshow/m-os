@@ -95,7 +95,8 @@ npm run tauri build
 ```
 
 O workflow `Package Windows` executa o mesmo build em `windows-latest` e publica
-os bundles MSI e NSIS como artifacts. Ele roda manualmente ou em tags `v*`.
+um instalador NSIS por usuario (`installMode: currentUser`) e o executavel
+portatil como artifacts. Ele roda manualmente ou em tags `v*`.
 
 ## 9. Validacao automatizada
 
@@ -105,7 +106,7 @@ os bundles MSI e NSIS como artifacts. Ele roda manualmente ou em tags `v*`.
 - manutencao: backup/restore, adulteracao, rebuild e export JSON;
 - renderer: TypeScript e bundle Vite;
 - workspace: formatacao, Clippy e testes no CI.
-- release local: executavel, MSI e NSIS gerados com sucesso.
+- release local: executavel e NSIS por usuario gerados com sucesso.
 
 ## 10. Limites conscientes
 
