@@ -78,7 +78,7 @@ jobs:
           $latest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $bundleDir "latest.json") -Encoding UTF8
 
       - name: Upload Windows package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: m-os-windows-${{ github.ref_name }}
           path: |
