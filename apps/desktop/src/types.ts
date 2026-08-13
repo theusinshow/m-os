@@ -21,6 +21,15 @@ export type Project = {
   updatedAt: string;
 };
 
+export type Workspace = {
+  id: string;
+  name: string;
+  description: string;
+  lifecycleState: LifecycleState;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type TaskState = "backlog" | "doing" | "done";
 
 export type Task = {
@@ -54,6 +63,7 @@ export type SearchItem =
   | { kind: "capture"; capture: Capture; derivedTask: Task | null; project: Project | null }
   | { kind: "task"; task: Task; project: Project | null }
   | { kind: "project"; project: Project }
+  | { kind: "workspace"; workspace: Workspace }
   | { kind: "app"; app: RegisteredApp };
 
 export type AppError = {
@@ -67,6 +77,7 @@ export type AppStatus = {
   projectCount: number;
   taskCount: number;
   appCount: number;
+  workspaceCount: number;
   shortcut: string;
   snapshot: string;
   storage: {

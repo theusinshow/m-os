@@ -42,6 +42,7 @@ macro_rules! entity_id {
 
 entity_id!(ProjectId, "Project");
 entity_id!(TaskId, "Task");
+entity_id!(WorkspaceId, "Workspace");
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -85,6 +86,39 @@ pub struct Project {
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Workspace {
+    pub id: WorkspaceId,
+    pub name: String,
+    pub description: String,
+    pub lifecycle_state: LifecycleState,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
+}
+
+#[derive(Clone, Debug)]
+pub struct NewWorkspace {
+    pub id: WorkspaceId,
+    pub name: String,
+    pub description: String,
+    pub created_at: OffsetDateTime,
+}
+
+impl NewWorkspace {
+    pub fn create(name: &str, description: &str) -> Result<Self, CoreError> {
+        let name = required(name, "O nome do Workspace nao pode estar vazio.")?;
+        Ok(Self {
+            id: WorkspaceId::new(),
+            name,
+            description: description.trim().to_owned(),
+            created_at: OffsetDateTime::now_utc(),
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -165,6 +199,9 @@ pub enum SearchItem {
     Project {
         project: Project,
     },
+    Workspace {
+        workspace: Workspace,
+    },
     App {
         app: RegisteredApp,
     },
@@ -187,6 +224,7 @@ mod tests {
     fn project_and_task_require_names() {
         assert!(NewProject::create(" ", "").is_err());
         assert!(NewTask::create("", "", None).is_err());
+        assert!(NewWorkspace::create("", "").is_err());
     }
 
     #[test]

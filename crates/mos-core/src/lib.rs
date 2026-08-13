@@ -14,6 +14,10 @@ pub use ports::{
 };
 pub use service::{
     AppService, CaptureService, CreateAppInput, CreateCaptureInput, CreateProjectInput,
-    CreateTaskInput, DataService, UpdateAppInput, UpdateProjectInput, UpdateTaskInput, WorkService,
+    CreateTaskInput, CreateWorkspaceInput, DataService, UpdateAppInput, UpdateProjectInput,
+    UpdateTaskInput, UpdateWorkspaceInput, WorkService,
 };
-pub use work::{NewProject, NewTask, Project, ProjectId, SearchItem, Task, TaskId, TaskState};
+pub use work::{
+    NewProject, NewTask, NewWorkspace, Project, ProjectId, SearchItem, Task, TaskId, TaskState,
+    Workspace, WorkspaceId,
+};

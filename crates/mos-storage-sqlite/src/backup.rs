@@ -17,7 +17,8 @@ use crate::{
     configure_connection, ensure_search_projection, map_io_error, map_lock_error, map_sql_error,
     migrate, verify_integrity,
     work_repository::{
-        query_captures_all, query_projects, query_tasks, PROJECT_COLUMNS, TASK_COLUMNS,
+        query_app_workspace_links, query_captures_all, query_project_workspace_links,
+        query_projects, query_tasks, query_workspaces_all, PROJECT_COLUMNS, TASK_COLUMNS,
     },
     SqliteStorage, SCHEMA_VERSION,
 };
@@ -173,6 +174,21 @@ impl SqliteStorage {
                     &format!("SELECT {TASK_COLUMNS} FROM tasks ORDER BY created_at ASC"),
                 )?,
                 apps: query_apps_all(&connection)?,
+                workspaces: query_workspaces_all(&connection)?,
+                project_workspaces: query_project_workspace_links(&connection)?
+                    .into_iter()
+                    .map(|(project_id, workspace_id)| WorkspaceProjectLink {
+                        project_id: project_id.to_string(),
+                        workspace_id: workspace_id.to_string(),
+                    })
+                    .collect(),
+                app_workspaces: query_app_workspace_links(&connection)?
+                    .into_iter()
+                    .map(|(app_id, workspace_id)| WorkspaceAppLink {
+                        app_id: app_id.to_string(),
+                        workspace_id: workspace_id.to_string(),
+                    })
+                    .collect(),
             }
         };
         let bytes = serde_json::to_vec_pretty(&dataset)
@@ -204,6 +220,23 @@ struct ExportDataset {
     projects: Vec<mos_core::Project>,
     tasks: Vec<mos_core::Task>,
     apps: Vec<mos_core::RegisteredApp>,
+    workspaces: Vec<mos_core::Workspace>,
+    project_workspaces: Vec<WorkspaceProjectLink>,
+    app_workspaces: Vec<WorkspaceAppLink>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceProjectLink {
+    project_id: String,
+    workspace_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceAppLink {
+    app_id: String,
+    workspace_id: String,
 }
 
 struct ExtractedBackup {

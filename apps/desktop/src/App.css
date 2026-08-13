@@ -376,6 +376,56 @@ textarea::placeholder {
   display: grid;
 }
 
+.workspace-grid {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.relation-row,
+.relation-row label {
+  display: flex;
+  align-items: center;
+}
+
+.relation-row {
+  min-height: var(--height-row-two-line);
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 0 var(--space-2);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.relation-row label {
+  min-width: 0;
+  flex: 1;
+  gap: var(--space-3);
+}
+
+.relation-row label > span {
+  display: grid;
+  min-width: 0;
+}
+
+.relation-row small {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relation-row button {
+  min-height: var(--height-control-sm);
+  padding: 0 var(--space-2);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+}
+
+.relation-row button:hover {
+  color: var(--text);
+}
+
 .data-row {
   position: relative;
   display: grid;

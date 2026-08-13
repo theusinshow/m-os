@@ -6,9 +6,9 @@ use std::{
 
 use mos_core::{
     AppLaunchKind, AppService, BackupInspection, BackupReceipt, Capture, CaptureService, CoreError,
-    CreateAppInput, CreateCaptureInput, CreateProjectInput, CreateTaskInput, DataService, Project,
-    RegisteredApp, SearchItem, Task, TaskState, UpdateAppInput, UpdateProjectInput,
-    UpdateTaskInput, WorkService,
+    CreateAppInput, CreateCaptureInput, CreateProjectInput, CreateTaskInput, CreateWorkspaceInput,
+    DataService, Project, RegisteredApp, SearchItem, Task, TaskState, UpdateAppInput,
+    UpdateProjectInput, UpdateTaskInput, UpdateWorkspaceInput, WorkService, Workspace,
 };
 use mos_storage_sqlite::{SqliteStorage, StorageHealth};
 use serde::{Deserialize, Serialize};
@@ -46,6 +46,7 @@ struct AppStatus {
     project_count: usize,
     task_count: usize,
     app_count: usize,
+    workspace_count: usize,
     shortcut: String,
     snapshot: String,
     storage: StorageHealth,
@@ -173,6 +174,120 @@ fn restore_capture(
 #[tauri::command]
 fn rebuild_search(state: tauri::State<'_, AppState>) -> Result<usize, CoreError> {
     Ok(state.work.rebuild_search()? + state.apps.rebuild_search()?)
+}
+
+#[tauri::command]
+fn create_workspace(
+    input: CreateWorkspaceInput,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Workspace, CoreError> {
+    let workspace = state.work.create_workspace(input)?;
+    notify_data_changed(&app, "workspace-created");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(workspace)
+}
+
+#[tauri::command]
+fn update_workspace(
+    input: UpdateWorkspaceInput,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Workspace, CoreError> {
+    let workspace = state.work.update_workspace(input)?;
+    notify_data_changed(&app, "workspace-updated");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(workspace)
+}
+
+#[tauri::command]
+fn get_workspace(id: &str, state: tauri::State<'_, AppState>) -> Result<Workspace, CoreError> {
+    state.work.workspace(id)
+}
+
+#[tauri::command]
+fn list_workspaces(
+    include_archived: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Workspace>, CoreError> {
+    state.work.workspaces(include_archived)
+}
+
+#[tauri::command]
+fn set_workspace_archived(
+    id: &str,
+    archived: bool,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Workspace, CoreError> {
+    let workspace = state.work.set_workspace_archived(id, archived)?;
+    notify_data_changed(&app, "workspace-lifecycle");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(workspace)
+}
+
+#[tauri::command]
+fn list_workspace_projects(
+    id: &str,
+    include_archived: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Project>, CoreError> {
+    state.work.workspace_projects(id, include_archived)
+}
+
+#[tauri::command]
+fn list_workspace_apps(
+    id: &str,
+    include_archived: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<RegisteredApp>, CoreError> {
+    state.work.workspace_apps(id, include_archived)
+}
+
+#[tauri::command]
+fn list_project_workspaces(
+    id: &str,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Workspace>, CoreError> {
+    state.work.project_workspaces(id)
+}
+
+#[tauri::command]
+fn list_app_workspaces(
+    id: &str,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Workspace>, CoreError> {
+    state.work.app_workspaces(id)
+}
+
+#[tauri::command]
+fn set_project_workspace(
+    project_id: &str,
+    workspace_id: &str,
+    linked: bool,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CoreError> {
+    state
+        .work
+        .set_project_workspace(project_id, workspace_id, linked)?;
+    notify_data_changed(&app, "project-workspace");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(())
+}
+
+#[tauri::command]
+fn set_app_workspace(
+    app_id: &str,
+    workspace_id: &str,
+    linked: bool,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CoreError> {
+    state.work.set_app_workspace(app_id, workspace_id, linked)?;
+    notify_data_changed(&app, "app-workspace");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -426,6 +541,7 @@ fn get_app_status(state: tauri::State<'_, AppState>) -> Result<AppStatus, CoreEr
         project_count: state.work.projects(false)?.len(),
         task_count: state.work.tasks(false)?.len(),
         app_count: state.apps.apps(false)?.len(),
+        workspace_count: state.work.workspaces(false)?.len(),
         shortcut: state
             .shortcut_status
             .lock()
@@ -783,6 +899,17 @@ pub fn run() {
             trash_capture,
             restore_capture,
             rebuild_search,
+            create_workspace,
+            update_workspace,
+            get_workspace,
+            list_workspaces,
+            set_workspace_archived,
+            list_workspace_projects,
+            list_workspace_apps,
+            list_project_workspaces,
+            list_app_workspaces,
+            set_project_workspace,
+            set_app_workspace,
             create_project,
             update_project,
             get_project,

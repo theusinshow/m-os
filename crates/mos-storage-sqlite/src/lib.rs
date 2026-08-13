@@ -14,10 +14,11 @@ use mos_core::{CoreError, ErrorCode};
 use rusqlite::{Connection, MAIN_DB};
 use serde::Serialize;
 
-const SCHEMA_VERSION: u32 = 3;
+const SCHEMA_VERSION: u32 = 4;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
+const MIGRATION_004: &str = include_str!("../migrations/0004_workspaces.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -163,6 +164,11 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
             .execute_batch(MIGRATION_003)
             .map_err(map_sql_error)?;
     }
+    if current <= 3 {
+        connection
+            .execute_batch(MIGRATION_004)
+            .map_err(map_sql_error)?;
+    }
     Ok(())
 }
 
@@ -188,6 +194,7 @@ fn ensure_search_projection(connection: &Connection) -> Result<(), CoreError> {
         ("projects", "project_search"),
         ("tasks", "task_search"),
         ("apps", "app_search"),
+        ("workspaces", "workspace_search"),
     ] {
         let source_count: i64 = connection
             .query_row(&format!("SELECT count(*) FROM {source}"), [], |row| {
@@ -306,7 +313,7 @@ mod tests {
 
         assert_eq!(health.journal_mode.to_lowercase(), "wal");
         assert_eq!(health.synchronous, "FULL");
-        assert_eq!(health.schema_version, 3);
+        assert_eq!(health.schema_version, 4);
         assert_eq!(health.integrity, "ok");
     }
 
@@ -335,7 +342,7 @@ mod tests {
         drop(connection);
 
         let storage = SqliteStorage::open(&database, &backups).unwrap();
-        assert_eq!(storage.health().unwrap().schema_version, 3);
+        assert_eq!(storage.health().unwrap().schema_version, 4);
         assert_eq!(CaptureRepository::recent(&storage, 10).unwrap().len(), 1);
         assert_eq!(
             fs::read_dir(&backups)

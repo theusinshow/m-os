@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, Project, RegisteredApp, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress } from "./types";
+import type { AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, Project, RegisteredApp, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -80,6 +80,36 @@ export const api = {
   },
   setRegisteredAppArchived(id: string, archived: boolean) {
     return invoke<RegisteredApp>("set_registered_app_archived", { id, archived });
+  },
+  workspaces(includeArchived = false) {
+    return invoke<Workspace[]>("list_workspaces", { includeArchived });
+  },
+  createWorkspace(name: string, description: string) {
+    return invoke<Workspace>("create_workspace", { input: { name, description } });
+  },
+  updateWorkspace(id: string, name: string, description: string) {
+    return invoke<Workspace>("update_workspace", { input: { id, name, description } });
+  },
+  setWorkspaceArchived(id: string, archived: boolean) {
+    return invoke<Workspace>("set_workspace_archived", { id, archived });
+  },
+  workspaceProjects(id: string, includeArchived = false) {
+    return invoke<Project[]>("list_workspace_projects", { id, includeArchived });
+  },
+  workspaceApps(id: string, includeArchived = false) {
+    return invoke<RegisteredApp[]>("list_workspace_apps", { id, includeArchived });
+  },
+  projectWorkspaces(id: string) {
+    return invoke<Workspace[]>("list_project_workspaces", { id });
+  },
+  appWorkspaces(id: string) {
+    return invoke<Workspace[]>("list_app_workspaces", { id });
+  },
+  setProjectWorkspace(projectId: string, workspaceId: string, linked: boolean) {
+    return invoke<void>("set_project_workspace", { projectId, workspaceId, linked });
+  },
+  setAppWorkspace(appId: string, workspaceId: string, linked: boolean) {
+    return invoke<void>("set_app_workspace", { appId, workspaceId, linked });
   },
   markRegisteredAppOpened(id: string) {
     return invoke<RegisteredApp>("mark_registered_app_opened", { id });

@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 use crate::{
     AppId, AppLaunchKind, AppRepository, BackupInspection, BackupReceipt, Capture, CaptureId,
     CaptureRepository, CaptureSource, CoreError, DataMaintenance, LifecycleState, NewCapture,
-    NewProject, NewRegisteredApp, NewTask, ProcessingState, Project, ProjectId, RegisteredApp,
-    SearchItem, SearchRequest, Task, TaskId, TaskState, WorkRepository,
+    NewProject, NewRegisteredApp, NewTask, NewWorkspace, ProcessingState, Project, ProjectId,
+    RegisteredApp, SearchItem, SearchRequest, Task, TaskId, TaskState, WorkRepository, Workspace,
+    WorkspaceId,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -166,6 +167,23 @@ pub struct UpdateTaskInput {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CreateWorkspaceInput {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateWorkspaceInput {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateAppInput {
     pub name: String,
     #[serde(default)]
@@ -269,6 +287,91 @@ pub struct WorkService {
 impl WorkService {
     pub fn new(repository: Arc<dyn WorkRepository>) -> Self {
         Self { repository }
+    }
+
+    pub fn create_workspace(&self, input: CreateWorkspaceInput) -> Result<Workspace, CoreError> {
+        self.repository
+            .create_workspace(NewWorkspace::create(&input.name, &input.description)?)
+    }
+
+    pub fn update_workspace(&self, input: UpdateWorkspaceInput) -> Result<Workspace, CoreError> {
+        let validated = NewWorkspace::create(&input.name, &input.description)?;
+        self.repository.update_workspace(
+            WorkspaceId::parse(&input.id)?,
+            &validated.name,
+            &validated.description,
+        )
+    }
+
+    pub fn workspace(&self, id: &str) -> Result<Workspace, CoreError> {
+        self.repository.get_workspace(WorkspaceId::parse(id)?)
+    }
+
+    pub fn workspaces(&self, include_archived: bool) -> Result<Vec<Workspace>, CoreError> {
+        self.repository.workspaces(include_archived)
+    }
+
+    pub fn set_workspace_archived(&self, id: &str, archived: bool) -> Result<Workspace, CoreError> {
+        self.repository.set_workspace_lifecycle(
+            WorkspaceId::parse(id)?,
+            if archived {
+                LifecycleState::Archived
+            } else {
+                LifecycleState::Active
+            },
+        )
+    }
+
+    pub fn workspace_projects(
+        &self,
+        id: &str,
+        include_archived: bool,
+    ) -> Result<Vec<Project>, CoreError> {
+        self.repository
+            .workspace_projects(WorkspaceId::parse(id)?, include_archived)
+    }
+
+    pub fn workspace_apps(
+        &self,
+        id: &str,
+        include_archived: bool,
+    ) -> Result<Vec<RegisteredApp>, CoreError> {
+        self.repository
+            .workspace_apps(WorkspaceId::parse(id)?, include_archived)
+    }
+
+    pub fn project_workspaces(&self, id: &str) -> Result<Vec<Workspace>, CoreError> {
+        self.repository.project_workspaces(ProjectId::parse(id)?)
+    }
+
+    pub fn app_workspaces(&self, id: &str) -> Result<Vec<Workspace>, CoreError> {
+        self.repository.app_workspaces(AppId::parse(id)?)
+    }
+
+    pub fn set_project_workspace(
+        &self,
+        project_id: &str,
+        workspace_id: &str,
+        linked: bool,
+    ) -> Result<(), CoreError> {
+        self.repository.set_project_workspace(
+            ProjectId::parse(project_id)?,
+            WorkspaceId::parse(workspace_id)?,
+            linked,
+        )
+    }
+
+    pub fn set_app_workspace(
+        &self,
+        app_id: &str,
+        workspace_id: &str,
+        linked: bool,
+    ) -> Result<(), CoreError> {
+        self.repository.set_app_workspace(
+            AppId::parse(app_id)?,
+            WorkspaceId::parse(workspace_id)?,
+            linked,
+        )
     }
 
     pub fn create_project(&self, input: CreateProjectInput) -> Result<Project, CoreError> {

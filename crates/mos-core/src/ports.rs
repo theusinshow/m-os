@@ -5,8 +5,8 @@ use time::OffsetDateTime;
 
 use crate::{
     AppId, Capture, CaptureId, CoreError, LifecycleState, NewCapture, NewProject, NewRegisteredApp,
-    NewTask, ProcessingState, Project, ProjectId, RegisteredApp, SearchItem, Task, TaskId,
-    TaskState,
+    NewTask, NewWorkspace, ProcessingState, Project, ProjectId, RegisteredApp, SearchItem, Task,
+    TaskId, TaskState, Workspace, WorkspaceId,
 };
 
 #[derive(Clone, Debug)]
@@ -41,6 +41,44 @@ pub trait CaptureRepository: Send + Sync {
 }
 
 pub trait WorkRepository: Send + Sync {
+    fn create_workspace(&self, workspace: NewWorkspace) -> Result<Workspace, CoreError>;
+    fn update_workspace(
+        &self,
+        id: WorkspaceId,
+        name: &str,
+        description: &str,
+    ) -> Result<Workspace, CoreError>;
+    fn get_workspace(&self, id: WorkspaceId) -> Result<Workspace, CoreError>;
+    fn workspaces(&self, include_archived: bool) -> Result<Vec<Workspace>, CoreError>;
+    fn set_workspace_lifecycle(
+        &self,
+        id: WorkspaceId,
+        lifecycle: LifecycleState,
+    ) -> Result<Workspace, CoreError>;
+    fn workspace_projects(
+        &self,
+        id: WorkspaceId,
+        include_archived: bool,
+    ) -> Result<Vec<Project>, CoreError>;
+    fn workspace_apps(
+        &self,
+        id: WorkspaceId,
+        include_archived: bool,
+    ) -> Result<Vec<RegisteredApp>, CoreError>;
+    fn project_workspaces(&self, id: ProjectId) -> Result<Vec<Workspace>, CoreError>;
+    fn app_workspaces(&self, id: AppId) -> Result<Vec<Workspace>, CoreError>;
+    fn set_project_workspace(
+        &self,
+        project_id: ProjectId,
+        workspace_id: WorkspaceId,
+        linked: bool,
+    ) -> Result<(), CoreError>;
+    fn set_app_workspace(
+        &self,
+        app_id: AppId,
+        workspace_id: WorkspaceId,
+        linked: bool,
+    ) -> Result<(), CoreError>;
     fn create_project(&self, project: NewProject) -> Result<Project, CoreError>;
     fn update_project(
         &self,

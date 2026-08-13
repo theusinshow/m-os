@@ -1,14 +1,15 @@
 use std::collections::{HashMap, HashSet};
 
 use mos_core::{
-    Capture, CaptureId, CaptureRepository, CoreError, ErrorCode, LifecycleState, NewProject,
-    NewTask, Project, ProjectId, SearchItem, SearchRequest, Task, TaskId, TaskState,
-    WorkRepository,
+    AppId, Capture, CaptureId, CaptureRepository, CoreError, ErrorCode, LifecycleState, NewProject,
+    NewTask, NewWorkspace, Project, ProjectId, RegisteredApp, SearchItem, SearchRequest, Task,
+    TaskId, TaskState, WorkRepository, Workspace, WorkspaceId,
 };
 use rusqlite::{params, OptionalExtension, Row, Transaction};
 use time::OffsetDateTime;
 
 use crate::{
+    app_repository::{query_apps, APP_COLUMNS},
     map_lock_error, map_sql_error,
     repository::{
         ensure_changed, format_time, parse_time, query_capture, to_fts_query, RawCapture,
@@ -18,6 +19,8 @@ use crate::{
 };
 
 pub(crate) const PROJECT_COLUMNS: &str =
+    "id, name, description, lifecycle_state, created_at, updated_at";
+pub(crate) const WORKSPACE_COLUMNS: &str =
     "id, name, description, lifecycle_state, created_at, updated_at";
 pub(crate) const TASK_COLUMNS: &str = "id, title, description, project_id, source_capture_id, work_state, lifecycle_state, created_at, updated_at, completed_at";
 
@@ -45,6 +48,39 @@ impl RawProject {
     fn into_project(self) -> Result<Project, CoreError> {
         Ok(Project {
             id: ProjectId::parse(&self.id)?,
+            name: self.name,
+            description: self.description,
+            lifecycle_state: LifecycleState::parse(&self.lifecycle_state)?,
+            created_at: parse_time(&self.created_at)?,
+            updated_at: parse_time(&self.updated_at)?,
+        })
+    }
+}
+
+struct RawWorkspace {
+    id: String,
+    name: String,
+    description: String,
+    lifecycle_state: String,
+    created_at: String,
+    updated_at: String,
+}
+
+impl RawWorkspace {
+    fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            description: row.get(2)?,
+            lifecycle_state: row.get(3)?,
+            created_at: row.get(4)?,
+            updated_at: row.get(5)?,
+        })
+    }
+
+    fn into_workspace(self) -> Result<Workspace, CoreError> {
+        Ok(Workspace {
+            id: WorkspaceId::parse(&self.id)?,
             name: self.name,
             description: self.description,
             lifecycle_state: LifecycleState::parse(&self.lifecycle_state)?,
@@ -108,6 +144,232 @@ impl RawTask {
 }
 
 impl WorkRepository for SqliteStorage {
+    fn create_workspace(&self, workspace: NewWorkspace) -> Result<Workspace, CoreError> {
+        let now = format_time(workspace.created_at)?;
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        transaction
+            .execute(
+                "INSERT INTO workspaces (id, name, description, lifecycle_state, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, 'active', ?4, ?4)",
+                params![
+                    workspace.id.to_string(),
+                    workspace.name,
+                    workspace.description,
+                    now
+                ],
+            )
+            .map_err(map_sql_error)?;
+        let rowid = transaction.last_insert_rowid();
+        insert_workspace_search(&transaction, rowid)?;
+        transaction.commit().map_err(map_sql_error)?;
+        query_workspace(&connection, workspace.id)
+    }
+
+    fn update_workspace(
+        &self,
+        id: WorkspaceId,
+        name: &str,
+        description: &str,
+    ) -> Result<Workspace, CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        delete_workspace_search(&transaction, id)?;
+        let changed = transaction
+            .execute(
+                "UPDATE workspaces SET name = ?1, description = ?2, updated_at = ?3 WHERE id = ?4",
+                params![name, description, now, id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        ensure_changed(changed)?;
+        let rowid: i64 = transaction
+            .query_row(
+                "SELECT rowid FROM workspaces WHERE id = ?1",
+                [id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(map_sql_error)?;
+        insert_workspace_search(&transaction, rowid)?;
+        transaction.commit().map_err(map_sql_error)?;
+        query_workspace(&connection, id)
+    }
+
+    fn get_workspace(&self, id: WorkspaceId) -> Result<Workspace, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        query_workspace(&connection, id)
+    }
+
+    fn workspaces(&self, include_archived: bool) -> Result<Vec<Workspace>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let lifecycle = if include_archived {
+            "lifecycle_state IN ('active', 'archived')"
+        } else {
+            "lifecycle_state = 'active'"
+        };
+        query_workspaces(
+            &connection,
+            &format!(
+                "SELECT {WORKSPACE_COLUMNS} FROM workspaces WHERE {lifecycle} ORDER BY updated_at DESC"
+            ),
+        )
+    }
+
+    fn set_workspace_lifecycle(
+        &self,
+        id: WorkspaceId,
+        lifecycle: LifecycleState,
+    ) -> Result<Workspace, CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let archived_at = (lifecycle == LifecycleState::Archived).then_some(now.as_str());
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let changed = connection
+            .execute(
+                "UPDATE workspaces SET lifecycle_state = ?1, updated_at = ?2, archived_at = ?3
+                 WHERE id = ?4",
+                params![lifecycle.as_str(), now, archived_at, id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        ensure_changed(changed)?;
+        query_workspace(&connection, id)
+    }
+
+    fn workspace_projects(
+        &self,
+        id: WorkspaceId,
+        include_archived: bool,
+    ) -> Result<Vec<Project>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let lifecycle = if include_archived {
+            "p.lifecycle_state IN ('active', 'archived')"
+        } else {
+            "p.lifecycle_state = 'active'"
+        };
+        query_projects(
+            &connection,
+            &format!(
+                "SELECT p.{columns}
+                 FROM project_workspaces pw
+                 JOIN projects p ON p.id = pw.project_id
+                 WHERE pw.workspace_id = {workspace_id} AND {lifecycle}
+                 ORDER BY p.updated_at DESC",
+                columns = PROJECT_COLUMNS.replace(", ", ", p."),
+                workspace_id = quote_sql(&id.to_string()),
+            ),
+        )
+    }
+
+    fn workspace_apps(
+        &self,
+        id: WorkspaceId,
+        include_archived: bool,
+    ) -> Result<Vec<RegisteredApp>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let lifecycle = if include_archived {
+            "a.lifecycle_state IN ('active', 'archived')"
+        } else {
+            "a.lifecycle_state = 'active'"
+        };
+        query_apps(
+            &connection,
+            &format!(
+                "SELECT a.{columns}
+                 FROM app_workspaces aw
+                 JOIN apps a ON a.id = aw.app_id
+                 WHERE aw.workspace_id = {workspace_id} AND {lifecycle}
+                 ORDER BY COALESCE(a.last_opened_at, a.updated_at) DESC",
+                columns = APP_COLUMNS.replace(", ", ", a."),
+                workspace_id = quote_sql(&id.to_string()),
+            ),
+        )
+    }
+
+    fn project_workspaces(&self, id: ProjectId) -> Result<Vec<Workspace>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        query_workspaces(
+            &connection,
+            &format!(
+                "SELECT w.{columns}
+                 FROM project_workspaces pw
+                 JOIN workspaces w ON w.id = pw.workspace_id
+                 WHERE pw.project_id = {project_id} AND w.lifecycle_state = 'active'
+                 ORDER BY w.updated_at DESC",
+                columns = WORKSPACE_COLUMNS.replace(", ", ", w."),
+                project_id = quote_sql(&id.to_string()),
+            ),
+        )
+    }
+
+    fn app_workspaces(&self, id: AppId) -> Result<Vec<Workspace>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        query_workspaces(
+            &connection,
+            &format!(
+                "SELECT w.{columns}
+                 FROM app_workspaces aw
+                 JOIN workspaces w ON w.id = aw.workspace_id
+                 WHERE aw.app_id = {app_id} AND w.lifecycle_state = 'active'
+                 ORDER BY w.updated_at DESC",
+                columns = WORKSPACE_COLUMNS.replace(", ", ", w."),
+                app_id = quote_sql(&id.to_string()),
+            ),
+        )
+    }
+
+    fn set_project_workspace(
+        &self,
+        project_id: ProjectId,
+        workspace_id: WorkspaceId,
+        linked: bool,
+    ) -> Result<(), CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        if linked {
+            let now = format_time(OffsetDateTime::now_utc())?;
+            connection
+                .execute(
+                    "INSERT OR IGNORE INTO project_workspaces (project_id, workspace_id, created_at)
+                     VALUES (?1, ?2, ?3)",
+                    params![project_id.to_string(), workspace_id.to_string(), now],
+                )
+                .map_err(map_sql_error)?;
+        } else {
+            connection
+                .execute(
+                    "DELETE FROM project_workspaces WHERE project_id = ?1 AND workspace_id = ?2",
+                    params![project_id.to_string(), workspace_id.to_string()],
+                )
+                .map_err(map_sql_error)?;
+        }
+        Ok(())
+    }
+
+    fn set_app_workspace(
+        &self,
+        app_id: AppId,
+        workspace_id: WorkspaceId,
+        linked: bool,
+    ) -> Result<(), CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        if linked {
+            let now = format_time(OffsetDateTime::now_utc())?;
+            connection
+                .execute(
+                    "INSERT OR IGNORE INTO app_workspaces (app_id, workspace_id, created_at)
+                     VALUES (?1, ?2, ?3)",
+                    params![app_id.to_string(), workspace_id.to_string(), now],
+                )
+                .map_err(map_sql_error)?;
+        } else {
+            connection
+                .execute(
+                    "DELETE FROM app_workspaces WHERE app_id = ?1 AND workspace_id = ?2",
+                    params![app_id.to_string(), workspace_id.to_string()],
+                )
+                .map_err(map_sql_error)?;
+        }
+        Ok(())
+    }
+
     fn create_project(&self, project: NewProject) -> Result<Project, CoreError> {
         let now = format_time(project.created_at)?;
         let connection = self.connection.lock().map_err(map_lock_error)?;
@@ -366,6 +628,17 @@ impl WorkRepository for SqliteStorage {
                 limit = request.limit,
             ),
         )?;
+        let workspace_hits = query_workspaces(
+            &connection,
+            &format!(
+                "SELECT w.{columns} FROM workspace_search s JOIN workspaces w ON w.rowid = s.rowid
+                 WHERE workspace_search MATCH {query} AND w.lifecycle_state {lifecycle}
+                 ORDER BY bm25(workspace_search), w.updated_at DESC LIMIT {limit}",
+                columns = WORKSPACE_COLUMNS.replace(", ", ", w."),
+                query = quote_sql(&fts_query),
+                limit = request.limit,
+            ),
+        )?;
 
         let mut capture_map = capture_hits
             .into_iter()
@@ -415,6 +688,11 @@ impl WorkRepository for SqliteStorage {
                 .into_iter()
                 .map(|project| SearchItem::Project { project }),
         );
+        items.extend(
+            workspace_hits
+                .into_iter()
+                .map(|workspace| SearchItem::Workspace { workspace }),
+        );
         items.truncate(request.limit);
         Ok(items)
     }
@@ -422,7 +700,12 @@ impl WorkRepository for SqliteStorage {
     fn rebuild_all_search(&self) -> Result<usize, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
-        for table in ["capture_search", "project_search", "task_search"] {
+        for table in [
+            "capture_search",
+            "project_search",
+            "task_search",
+            "workspace_search",
+        ] {
             transaction
                 .execute(
                     &format!("INSERT INTO {table}({table}) VALUES('rebuild')"),
@@ -430,16 +713,21 @@ impl WorkRepository for SqliteStorage {
                 )
                 .map_err(map_sql_error)?;
         }
-        let count = ["capture_search", "project_search", "task_search"]
-            .into_iter()
-            .try_fold(0_usize, |total, table| {
-                transaction
-                    .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
-                        row.get::<_, i64>(0)
-                    })
-                    .map(|count| total + count as usize)
-                    .map_err(map_sql_error)
-            })?;
+        let count = [
+            "capture_search",
+            "project_search",
+            "task_search",
+            "workspace_search",
+        ]
+        .into_iter()
+        .try_fold(0_usize, |total, table| {
+            transaction
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .map(|count| total + count as usize)
+                .map_err(map_sql_error)
+        })?;
         transaction.commit().map_err(map_sql_error)?;
         Ok(count)
     }
@@ -481,6 +769,17 @@ fn insert_project_search(transaction: &Transaction<'_>, rowid: i64) -> Result<()
     Ok(())
 }
 
+fn insert_workspace_search(transaction: &Transaction<'_>, rowid: i64) -> Result<(), CoreError> {
+    transaction
+        .execute(
+            "INSERT INTO workspace_search (rowid, name, description)
+             SELECT rowid, name, description FROM workspaces WHERE rowid = ?1",
+            [rowid],
+        )
+        .map_err(map_sql_error)?;
+    Ok(())
+}
+
 fn insert_task_search(transaction: &Transaction<'_>, rowid: i64) -> Result<(), CoreError> {
     transaction
         .execute(
@@ -514,6 +813,20 @@ fn delete_task_search(transaction: &Transaction<'_>, id: TaskId) -> Result<(), C
     Ok(())
 }
 
+fn delete_workspace_search(
+    transaction: &Transaction<'_>,
+    id: WorkspaceId,
+) -> Result<(), CoreError> {
+    transaction
+        .execute(
+            "INSERT INTO workspace_search(workspace_search, rowid, name, description)
+             SELECT 'delete', rowid, name, description FROM workspaces WHERE id = ?1",
+            [id.to_string()],
+        )
+        .map_err(map_sql_error)?;
+    Ok(())
+}
+
 pub(crate) fn query_project(
     connection: &rusqlite::Connection,
     id: ProjectId,
@@ -528,6 +841,22 @@ pub(crate) fn query_project(
         .map_err(map_sql_error)?
         .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "Project nao encontrado.", false))?
         .into_project()
+}
+
+pub(crate) fn query_workspace(
+    connection: &rusqlite::Connection,
+    id: WorkspaceId,
+) -> Result<Workspace, CoreError> {
+    connection
+        .query_row(
+            &format!("SELECT {WORKSPACE_COLUMNS} FROM workspaces WHERE id = ?1"),
+            [id.to_string()],
+            RawWorkspace::from_row,
+        )
+        .optional()
+        .map_err(map_sql_error)?
+        .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "Workspace nao encontrado.", false))?
+        .into_workspace()
 }
 
 pub(crate) fn query_task(connection: &rusqlite::Connection, id: TaskId) -> Result<Task, CoreError> {
@@ -565,6 +894,69 @@ fn query_task_for_capture(
         .map_err(map_sql_error)?
         .map(RawTask::into_task)
         .transpose()
+}
+
+pub(crate) fn query_workspaces(
+    connection: &rusqlite::Connection,
+    sql: &str,
+) -> Result<Vec<Workspace>, CoreError> {
+    let mut statement = connection.prepare(sql).map_err(map_sql_error)?;
+    let workspaces = statement
+        .query_map([], RawWorkspace::from_row)
+        .map_err(map_sql_error)?
+        .map(|row| row.map_err(map_sql_error)?.into_workspace())
+        .collect();
+    workspaces
+}
+
+pub(crate) fn query_workspaces_all(
+    connection: &rusqlite::Connection,
+) -> Result<Vec<Workspace>, CoreError> {
+    query_workspaces(
+        connection,
+        &format!("SELECT {WORKSPACE_COLUMNS} FROM workspaces ORDER BY created_at ASC"),
+    )
+}
+
+pub(crate) fn query_project_workspace_links(
+    connection: &rusqlite::Connection,
+) -> Result<Vec<(ProjectId, WorkspaceId)>, CoreError> {
+    let mut statement = connection
+        .prepare("SELECT project_id, workspace_id FROM project_workspaces ORDER BY created_at ASC")
+        .map_err(map_sql_error)?;
+    let links = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(map_sql_error)?
+        .map(|row| {
+            let (project_id, workspace_id) = row.map_err(map_sql_error)?;
+            Ok((
+                ProjectId::parse(&project_id)?,
+                WorkspaceId::parse(&workspace_id)?,
+            ))
+        })
+        .collect();
+    links
+}
+
+pub(crate) fn query_app_workspace_links(
+    connection: &rusqlite::Connection,
+) -> Result<Vec<(AppId, WorkspaceId)>, CoreError> {
+    let mut statement = connection
+        .prepare("SELECT app_id, workspace_id FROM app_workspaces ORDER BY created_at ASC")
+        .map_err(map_sql_error)?;
+    let links = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(map_sql_error)?
+        .map(|row| {
+            let (app_id, workspace_id) = row.map_err(map_sql_error)?;
+            Ok((AppId::parse(&app_id)?, WorkspaceId::parse(&workspace_id)?))
+        })
+        .collect();
+    links
 }
 
 pub(crate) fn query_projects(
@@ -616,7 +1008,7 @@ fn quote_sql(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mos_core::{CaptureSource, NewCapture};
+    use mos_core::{AppLaunchKind, AppRepository, CaptureSource, NewCapture, NewRegisteredApp};
 
     fn storage() -> (tempfile::TempDir, SqliteStorage) {
         let directory = tempfile::tempdir().unwrap();
@@ -695,5 +1087,56 @@ mod tests {
         assert!(done.completed_at.is_some());
         let reopened = storage.set_task_state(task.id, TaskState::Backlog).unwrap();
         assert!(reopened.completed_at.is_none());
+    }
+
+    #[test]
+    fn workspace_links_projects_and_apps_without_hiding_global_lists() {
+        let (_directory, storage) = storage();
+        let workspace = storage
+            .create_workspace(NewWorkspace::create("Engineering", "").unwrap())
+            .unwrap();
+        let project = storage
+            .create_project(NewProject::create("NexoDoc", "").unwrap())
+            .unwrap();
+        let app = storage
+            .create_app(
+                NewRegisteredApp::create(
+                    "GitHub",
+                    "",
+                    Some(AppLaunchKind::Url),
+                    Some("https://github.com"),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        storage
+            .set_project_workspace(project.id, workspace.id, true)
+            .unwrap();
+        storage
+            .set_app_workspace(app.id, workspace.id, true)
+            .unwrap();
+
+        assert_eq!(
+            storage
+                .workspace_projects(workspace.id, false)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            storage.workspace_apps(workspace.id, false).unwrap().len(),
+            1
+        );
+        assert_eq!(storage.projects(false).unwrap().len(), 1);
+        assert_eq!(storage.apps(false).unwrap().len(), 1);
+
+        storage
+            .set_project_workspace(project.id, workspace.id, false)
+            .unwrap();
+        assert!(storage
+            .workspace_projects(workspace.id, false)
+            .unwrap()
+            .is_empty());
     }
 }
