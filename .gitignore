@@ -10,6 +10,10 @@ dist/
 target/
 **/src-tauri/gen/schemas/
 
+# Local portable toolchains
+$tools/
+tools/
+
 # Local runtime data
 *.db
 *.db-shm

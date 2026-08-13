@@ -27,6 +27,7 @@ struct AppState {
     storage: Arc<SqliteStorage>,
     shortcut_status: Mutex<String>,
     active_shortcut: Mutex<Option<String>>,
+    snapshot_status: Arc<Mutex<String>>,
     settings_path: PathBuf,
 }
 
@@ -43,6 +44,7 @@ struct AppStatus {
     project_count: usize,
     task_count: usize,
     shortcut: String,
+    snapshot: String,
     storage: StorageHealth,
 }
 
@@ -54,10 +56,7 @@ fn create_capture(
 ) -> Result<Capture, CoreError> {
     let capture = state.captures.create(input)?;
     let _ = app.emit_to("main", "capture-changed", capture.id.to_string());
-    let data = state.data.clone();
-    std::thread::spawn(move || {
-        let _ = data.ensure_daily_snapshot();
-    });
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
     Ok(capture)
 }
 
@@ -172,7 +171,7 @@ fn create_project(
 ) -> Result<Project, CoreError> {
     let project = state.work.create_project(input)?;
     notify_data_changed(&app, "project-created");
-    schedule_snapshot(&state.data);
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
     Ok(project)
 }
 
@@ -184,7 +183,7 @@ fn update_project(
 ) -> Result<Project, CoreError> {
     let project = state.work.update_project(input)?;
     notify_data_changed(&app, "project-updated");
-    schedule_snapshot(&state.data);
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
     Ok(project)
 }
 
@@ -210,7 +209,7 @@ fn set_project_archived(
 ) -> Result<Project, CoreError> {
     let project = state.work.set_project_archived(id, archived)?;
     notify_data_changed(&app, "project-lifecycle");
-    schedule_snapshot(&state.data);
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
     Ok(project)
 }
 
@@ -222,7 +221,7 @@ fn create_task(
 ) -> Result<Task, CoreError> {
     let task = state.work.create_task(input)?;
     notify_data_changed(&app, "task-created");
-    schedule_snapshot(&state.data);
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
     Ok(task)
 }
 
@@ -234,7 +233,7 @@ fn update_task(
 ) -> Result<Task, CoreError> {
     let task = state.work.update_task(input)?;
     notify_data_changed(&app, "task-updated");
-    schedule_snapshot(&state.data);
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
     Ok(task)
 }
 
@@ -260,7 +259,7 @@ fn set_task_state(
 ) -> Result<Task, CoreError> {
     let task = state.work.set_task_state(id, task_state)?;
     notify_data_changed(&app, "task-state");
-    schedule_snapshot(&state.data);
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
     Ok(task)
 }
 
@@ -273,7 +272,7 @@ fn set_task_archived(
 ) -> Result<Task, CoreError> {
     let task = state.work.set_task_archived(id, archived)?;
     notify_data_changed(&app, "task-lifecycle");
-    schedule_snapshot(&state.data);
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
     Ok(task)
 }
 
@@ -317,6 +316,11 @@ fn get_app_status(state: tauri::State<'_, AppState>) -> Result<AppStatus, CoreEr
         task_count: state.work.tasks(false)?.len(),
         shortcut: state
             .shortcut_status
+            .lock()
+            .map_err(|error| lock_error(error.to_string()))?
+            .clone(),
+        snapshot: state
+            .snapshot_status
             .lock()
             .map_err(|error| lock_error(error.to_string()))?
             .clone(),
@@ -415,10 +419,20 @@ fn notify_data_changed(app: &AppHandle, reason: &str) {
     let _ = app.emit_to("main", "data-changed", reason);
 }
 
-fn schedule_snapshot(data: &DataService) {
+fn schedule_snapshot(data: &DataService, snapshot_status: &Arc<Mutex<String>>, app: &AppHandle) {
     let data = data.clone();
+    let snapshot_status = snapshot_status.clone();
+    let app = app.clone();
     std::thread::spawn(move || {
-        let _ = data.ensure_daily_snapshot();
+        let message = match data.ensure_daily_snapshot() {
+            Ok(Some(_)) => "Snapshot diario criado.".to_owned(),
+            Ok(None) => "Snapshot diario ja existe.".to_owned(),
+            Err(error) => format!("Falha no snapshot diario: {}", error.message),
+        };
+        if let Ok(mut status) = snapshot_status.lock() {
+            *status = message.clone();
+        }
+        let _ = app.emit_to("main", "snapshot-status-changed", message);
     });
 }
 
@@ -543,6 +557,7 @@ pub fn run() {
                 storage,
                 shortcut_status: Mutex::new("Registrando...".into()),
                 active_shortcut: Mutex::new(None),
+                snapshot_status: Arc::new(Mutex::new("Snapshot ainda nao verificado.".into())),
                 settings_path,
             });
 

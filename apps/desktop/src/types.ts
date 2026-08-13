@@ -52,6 +52,7 @@ export type AppStatus = {
   projectCount: number;
   taskCount: number;
   shortcut: string;
+  snapshot: string;
   storage: {
     databasePath: string;
     schemaVersion: number;

@@ -33,7 +33,7 @@ jobs:
 
       - name: Build installers
         working-directory: apps/desktop
-        run: npm run tauri build
+        run: npm run tauri -- build --ci
 
       - name: Upload Windows bundles
         uses: actions/upload-artifact@v4
