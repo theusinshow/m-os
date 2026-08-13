@@ -1,0 +1,172 @@
+/* ============================================================
+   M/OS — Foundation tokens v0.5
+   Fonte única de verdade. Nenhum valor de cor, tamanho, spacing,
+   radius ou duração deve aparecer hardcoded em componente.
+   Dark é o padrão. Light é paridade, não inversão.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  /* ---------- Tipografia ---------- */
+  --font-product: 'Schibsted Grotesk', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-system: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --text-display: 700 48px/1.05 var(--font-product);
+  --text-title: 700 28px/1.15 var(--font-product);
+  --text-capture: 400 21px/1.3 var(--font-product);
+  --text-body: 400 15px/1.55 var(--font-product);
+  --text-ui: 400 14px/1.4 var(--font-product);
+  --text-small: 400 13px/1.45 var(--font-product);
+  --text-meta: 400 11px/1.4 var(--font-system);
+  --text-micro: 400 9px/1.4 var(--font-system);
+
+  --tracking-display: -0.034em;
+  --tracking-title: -0.024em;
+  --tracking-capture: -0.022em;
+  --tracking-body: -0.008em;
+  --tracking-meta: 0.05em;
+  --tracking-micro: 0.14em;
+
+  /* ---------- Spacing (base 4) ---------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 20px;
+  --space-5: 32px;
+  --space-6: 52px;
+  --space-7: 84px;
+
+  /* ---------- Geometria ---------- */
+  --radius-sm: 2px;   /* elementos de 14-20px */
+  --radius: 3px;      /* padrão de todo o sistema */
+  --radius-lg: 8px;   /* somente app icon e overlay grande */
+
+  --stroke-24: 1.5px;
+  --stroke-20: 1.25px;
+  --stroke-16: 1px;
+
+  --rail-width: 52px;
+  --sidebar-width: 232px;
+  --drawer-width: 400px;
+  --overlay-capture: 640px;
+  --overlay-command: 720px;
+  --overlay-dialog: 440px;
+  --overlay-menu: 216px;
+  --content-margin: 56px;
+  --overlay-top: 34%;
+
+  --height-row: 34px;
+  --height-row-dense: 30px;
+  --height-row-two-line: 56px;
+  --height-row-touch: 44px;
+  --height-control-sm: 28px;
+  --height-control: 36px;
+  --height-control-lg: 44px;
+  --height-input: 38px;
+  --height-menu-item: 30px;
+
+  /* ---------- Motion ---------- */
+  --dur-instant: 75ms;    /* hover, press */
+  --dur-state: 140ms;     /* check, select */
+  --dur-enter: 160ms;     /* overlay entra */
+  --dur-exit: 90ms;       /* overlay sai */
+  --dur-move: 180ms;      /* FLIP */
+  --dur-context: 220ms;   /* troca de workspace */
+  --dur-first: 400ms;     /* primeira abertura, 1x por sessão */
+
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-state: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ---------- Cor · DARK (padrão) ---------- */
+  --canvas: #0A0C0E;
+  --surface: #101316;
+  --surface-raised: #171B1F;
+  --surface-hover: #1E2429;
+  --surface-active: #252C31;
+  --border: #1E2429;
+  --border-strong: #2A3136;
+
+  --text: #E7EAEC;
+  --text-secondary: #8C949A;
+  --text-system: #626A70;
+  --text-disabled: #565E63;
+  --text-placeholder: #4E565B;
+
+  --signal-fill: #E7C24E;   /* preenchimento: igual nos dois modos */
+  --signal-ink: #E7C24E;    /* tinta: muda no light */
+  --signal-wash: rgba(231, 194, 78, 0.16);
+  --signal-ring: rgba(231, 194, 78, 0.22);
+  --signal-hover: #EDCB63;
+  --signal-press: #D0AC3C;
+  --on-signal: #0A0C0E;     /* texto sobre o sódio */
+
+  --success: #5FA37E;
+  --danger: #D95546;
+  /* warning não tem cor: use --text + ícone + --text-system na borda */
+
+  --shadow-overlay: 0 20px 48px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme='light'] {
+  --canvas: #F4F6F7;
+  --surface: #FFFFFF;
+  --surface-raised: #FFFFFF;
+  --surface-hover: #EAEDEF;
+  --surface-active: #E4E8EA;
+  --border: #D6DBDE;
+  --border-strong: #C9CFD2;
+
+  --text: #14181A;
+  --text-secondary: #596166;
+  --text-system: #868E93;
+  --text-disabled: #A2A9AD;
+  --text-placeholder: #A2A9AD;
+
+  --signal-fill: #E7C24E;
+  --signal-ink: #8A6A12;    /* âmbar puro é ilegível como texto no claro */
+  --signal-wash: rgba(231, 194, 78, 0.18);
+  --signal-ring: rgba(138, 106, 18, 0.22);
+  --signal-hover: #EDCB63;
+  --signal-press: #D0AC3C;
+  --on-signal: #14181A;
+
+  --success: #2F6B4C;
+  --danger: #B33A2C;
+
+  --shadow-overlay: 0 20px 48px rgba(20, 24, 26, 0.14);
+}
+
+/* ---------- Resets mínimos ---------- */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--text);
+  font: var(--text-ui);
+  letter-spacing: var(--tracking-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus: idêntico em todos os componentes do sistema */
+:focus-visible {
+  outline: none;
+  border-color: var(--signal-ink);
+  box-shadow: 0 0 0 3px var(--signal-ring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-instant: 0ms;
+    --dur-state: 60ms;
+    --dur-enter: 80ms;
+    --dur-exit: 60ms;
+    --dur-move: 0ms;
+    --dur-context: 80ms;
+    --dur-first: 80ms;
+  }
+  /* Nenhum transform animado. Só opacidade. */
+  * { animation: none !important; }
+}
