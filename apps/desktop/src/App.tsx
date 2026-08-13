@@ -89,9 +89,35 @@ function DataRow({ primary, meta, secondary, selected = false, completed = false
   return <button className="data-row" type="button" data-selected={selected || undefined} data-completed={completed || undefined} onClick={onClick} onKeyDown={onKeyDown} onPointerDown={onPointerDown} draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd}><span className="row-copy"><strong>{primary}</strong>{secondary ? <small>{secondary}</small> : null}</span>{meta ? <span className="row-meta">{meta}</span> : null}</button>;
 }
 
-function HomePage({ recent, projects, tasks, apps, refresh, openCapture, openProject, openTask, openApp }: { recent: Capture[]; projects: Project[]; tasks: Task[]; apps: RegisteredApp[]; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void }) {
-  const doing = tasks.filter((task) => task.state === "doing" && task.lifecycleState === "active").slice(0, 5);
-  const activeApps = apps
+function HomePage({ recent, projects, tasks, workspaces, apps, refresh, openCapture, openProject, openWorkspace, openTask, openApp }: { recent: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void }) {
+  const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState(() => localStorage.getItem("m-os-current-workspace") ?? "");
+  const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
+  const [workspaceApps, setWorkspaceApps] = useState<RegisteredApp[]>([]);
+  const currentWorkspace = activeWorkspaces.find((workspace) => workspace.id === currentWorkspaceId) ?? null;
+  useEffect(() => {
+    if (!currentWorkspaceId || !activeWorkspaces.some((workspace) => workspace.id === currentWorkspaceId)) {
+      setWorkspaceProjects([]);
+      setWorkspaceApps([]);
+      localStorage.removeItem("m-os-current-workspace");
+      return;
+    }
+    localStorage.setItem("m-os-current-workspace", currentWorkspaceId);
+    void Promise.all([api.workspaceProjects(currentWorkspaceId), api.workspaceApps(currentWorkspaceId)])
+      .then(([nextProjects, nextApps]) => {
+        setWorkspaceProjects(nextProjects);
+        setWorkspaceApps(nextApps);
+      })
+      .catch(() => {
+        setWorkspaceProjects([]);
+        setWorkspaceApps([]);
+      });
+  }, [currentWorkspaceId, workspaces]);
+  const scopedProjectIds = new Set(workspaceProjects.map((project) => project.id));
+  const scopedProjects = currentWorkspace ? workspaceProjects : projects.filter((project) => project.lifecycleState === "active");
+  const scopedApps = currentWorkspace ? workspaceApps : apps.filter((app) => app.lifecycleState === "active");
+  const doing = tasks.filter((task) => task.state === "doing" && task.lifecycleState === "active" && (!currentWorkspace || (task.projectId && scopedProjectIds.has(task.projectId)))).slice(0, 5);
+  const activeApps = scopedApps
     .filter((app) => app.lifecycleState === "active")
     .sort((left, right) => {
       const leftDate = left.lastOpenedAt ?? left.updatedAt;
@@ -102,10 +128,11 @@ function HomePage({ recent, projects, tasks, apps, refresh, openCapture, openPro
   return <div className="page home-page">
     <ContextPath segments={["M/OS", "HOME"]} />
     <CaptureComposer onSaved={() => void refresh()} />
+    <Panel label="CONTEXTO" action={currentWorkspace ? <Button variant="ghost" onClick={() => setCurrentWorkspaceId("")}>Todos</Button> : undefined}><div className="context-switcher">{activeWorkspaces.map((workspace) => <button key={workspace.id} type="button" data-selected={workspace.id === currentWorkspaceId || undefined} onClick={() => setCurrentWorkspaceId(workspace.id)} onDoubleClick={() => openWorkspace(workspace)}><strong>{workspace.name}</strong><small>{workspace.description || "Workspace"}</small></button>)}{!activeWorkspaces.length ? <EmptyState>Workspaces ativos aparecerão aqui.</EmptyState> : null}</div></Panel>
     <div className="home-sections">
       <Panel label="EM ANDAMENTO">{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={stateLabels[task.state]} onClick={() => openTask(task)} />) : <EmptyState>Nenhuma Task em andamento.</EmptyState>}</Panel>
       <Panel label="RECENTES">{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} onClick={() => openCapture(capture)} />) : <EmptyState>Suas Captures recentes aparecerão aqui.</EmptyState>}</Panel>
-      <Panel label="PROJECTS">{projects.filter((project) => project.lifecycleState === "active").slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} secondary={project.description || undefined} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!projects.length ? <EmptyState>Projects criados aparecerão aqui.</EmptyState> : null}</Panel>
+      <Panel label="PROJECTS">{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} secondary={project.description || undefined} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <EmptyState>Projects criados aparecerão aqui.</EmptyState> : null}</Panel>
       <Panel label="APPS">{activeApps.map((app) => <DataRow key={app.id} primary={app.name} secondary={app.description || app.launchTarget || undefined} meta={app.lastOpenedAt ? relativeTime(app.lastOpenedAt) : launchKindLabel(app.launchKind)} onClick={() => openApp(app)} />)}{!activeApps.length ? <EmptyState>Apps cadastrados aparecerão aqui.</EmptyState> : null}</Panel>
     </div>
   </div>;
@@ -562,7 +589,7 @@ function DesktopApp() {
   function openRegisteredApp(app: RegisteredApp) { setSelectedAppId(app.id); setPage("apps"); }
   const nav: { page: Page; label: string; icon: IconName; count?: number }[] = [{ page: "home", label: "Home", icon: "home" }, { page: "inbox", label: "Inbox", icon: "inbox", count: inbox.length }, { page: "projects", label: "Projects", icon: "projects" }, { page: "workspaces", label: "Workspaces", icon: "workspaces" }, { page: "apps", label: "Apps", icon: "apps" }, { page: "tasks", label: "Tasks", icon: "board" }, { page: "settings", label: "Settings", icon: "settings" }];
   const content = useMemo(() => {
-    if (page === "home") return <HomePage recent={recent} projects={projects} tasks={tasks} apps={apps} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openTask={setDrawerTask} openApp={openRegisteredApp} />;
+    if (page === "home") return <HomePage recent={recent} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} />;
     if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} />;
     if (page === "projects") return <ProjectsPage projects={projects} tasks={tasks} initialProjectId={selectedProjectId} refresh={refresh} openTask={setDrawerTask} />;
     if (page === "workspaces") return <WorkspacesPage workspaces={workspaces} projects={projects} apps={apps} initialWorkspaceId={selectedWorkspaceId} refresh={refresh} openProject={openProject} openApp={openRegisteredApp} />;
