@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #0A0C0E; color: #E7EAEC; -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+  a { color: #E7C24E; text-decoration: none; }
+  a:hover { color: #EDCB63; }
+  /* a barra é simétrica em 180°: meia-volta cai exatamente sobre ela mesma */
+  @keyframes barHalf {
+    0%, 22%   { transform: rotate(0deg); }
+    62%, 100% { transform: rotate(180deg); }
+  }
+  @keyframes barCursor {
+    0%, 14%   { transform: rotate(-22deg); }   /* cursor vertical */
+    40%, 74%  { transform: rotate(0deg); }     /* a marca */
+    100%      { transform: rotate(158deg); }   /* cursor de novo, idêntico */
+  }
+  @keyframes barSpin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(180deg); }
+  }
+</style>
+</helmet>
+
+<div style="width: 1280px; background: #0A0C0E; padding: 56px 56px 84px; font-family: 'Schibsted Grotesk', Helvetica, Arial, sans-serif; letter-spacing: -0.008em;">
+
+  <div style="display: flex; align-items: baseline; gap: 20px; border-bottom: 1px solid #2A3136; padding-bottom: 20px;">
+    <div style="font: 700 48px/1.05 'Schibsted Grotesk'; letter-spacing: -0.034em;">A barra em campo sódio</div>
+    <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; text-transform: uppercase; color: #626A70;">símbolo · ícone · capa · motion · v0.1</div>
+    <div style="flex: 1;"></div>
+    <div onClick="{{ replay }}" style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #0A0C0E; background: #E7C24E; padding: 6px 10px; border-radius: 3px; cursor: pointer; user-select: none;" style-hover="background: #EDCB63;">REPLAY ⟲</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 52px; margin-top: 32px;">
+    <div style="font: 400 15px/1.55 'Schibsted Grotesk'; color: #8C949A; text-wrap: pretty;">A geometria é a mesma de v0.3 — três desenhos com ângulo corrigido por escala (22° / 18° / 14°), nunca um SVG escalado. O que muda aqui é a inversão: o campo passa a ser o sódio e a barra passa a ser tinta <span style="color: #E7EAEC;">#0A0C0E</span>.</div>
+    <div style="font: 400 15px/1.55 'Schibsted Grotesk'; color: #8C949A; text-wrap: pretty;">Consequência a decidir: na taskbar o M/OS deixa de ser massa de sódio sobre escuro e passa a ser um bloco de sódio. Ganha reconhecimento a 16px, perde a discrição do campo escuro. As duas versões estão lado a lado abaixo.</div>
+  </div>
+
+  <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-top: 84px; margin-bottom: 20px;">CAPA DO APLICATIVO · 960 × 540 · A BARRA DÁ MEIA-VOLTA</div>
+  {{ hero }}
+
+  <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-top: 52px; margin-bottom: 20px;">ÍCONE · ESCALA REAL · CAMPO SÓDIO</div>
+  <div style="display: flex; align-items: flex-end; gap: 32px;">
+    <div>
+      <div style="width: 112px; height: 112px; background: #E7C24E; border-radius: 20px; display: grid; place-items: center;">
+        <svg viewBox="0 0 64 64" width="68" height="68"><polygon points="38,8 53,8 26,56 11,56" fill="#0A0C0E"></polygon></svg>
+      </div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.08em; color: #626A70; margin-top: 12px;">1024 → 112 · 22°</div>
+    </div>
+    <div>
+      <div style="width: 64px; height: 64px; background: #E7C24E; border-radius: 11px; display: grid; place-items: center;">
+        <svg viewBox="0 0 64 64" width="40" height="40"><polygon points="40,10 54,10 24,54 10,54" fill="#0A0C0E"></polygon></svg>
+      </div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.08em; color: #626A70; margin-top: 12px;">64 · 18°</div>
+    </div>
+    <div>
+      <div style="width: 32px; height: 32px; background: #E7C24E; border-radius: 6px; display: grid; place-items: center;">
+        <svg viewBox="0 0 64 64" width="20" height="20"><polygon points="42,12 56,12 22,52 8,52" fill="#0A0C0E"></polygon></svg>
+      </div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.08em; color: #626A70; margin-top: 12px;">32 · 14°</div>
+    </div>
+    <div>
+      <div style="width: 16px; height: 16px; background: #E7C24E; border-radius: 3px; display: grid; place-items: center;">
+        <svg viewBox="0 0 64 64" width="11" height="11"><polygon points="42,12 56,12 22,52 8,52" fill="#0A0C0E"></polygon></svg>
+      </div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.08em; color: #626A70; margin-top: 12px;">16</div>
+    </div>
+
+    <div style="width: 1px; height: 112px; background: #1E2429; margin: 0 8px;"></div>
+
+    <div>
+      <div style="width: 112px; height: 112px; background: #171B1F; border: 1px solid #2A3136; border-radius: 20px; display: grid; place-items: center;">
+        <svg viewBox="0 0 64 64" width="68" height="68"><polygon points="38,8 53,8 26,56 11,56" fill="#E7C24E"></polygon></svg>
+      </div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.08em; color: #626A70; margin-top: 12px;">v0.3 · campo escuro</div>
+    </div>
+    <div>
+      <div style="width: 32px; height: 32px; background: #171B1F; border-radius: 6px; display: grid; place-items: center;">
+        <svg viewBox="0 0 64 64" width="20" height="20"><polygon points="42,12 56,12 22,52 8,52" fill="#E7C24E"></polygon></svg>
+      </div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.08em; color: #626A70; margin-top: 12px;">32</div>
+    </div>
+
+    <div style="flex: 1;"></div>
+
+    <div style="display: flex; align-items: center; gap: 20px; padding: 20px; background: #F4F6F7; border: 1px solid #D6DBDE; border-radius: 3px;">
+      <div style="width: 44px; height: 44px; background: #E7C24E; border-radius: 8px; display: grid; place-items: center;">
+        <svg viewBox="0 0 64 64" width="27" height="27"><polygon points="40,10 54,10 24,54 10,54" fill="#14181A"></polygon></svg>
+      </div>
+      <div style="width: 24px; height: 24px; background: #E7C24E; border-radius: 4px; display: grid; place-items: center;">
+        <svg viewBox="0 0 64 64" width="15" height="15"><polygon points="42,12 56,12 22,52 8,52" fill="#14181A"></polygon></svg>
+      </div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.08em; color: #868E93;">EM LIGHT · TINTA #14181A</div>
+    </div>
+  </div>
+
+  <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-top: 52px; margin-bottom: 20px;">MOTION · A BARRA GIRA · NADA ENTRA E NADA SAI</div>
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px;">
+    <div>
+      {{ studyA }}
+      <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 16px;"><div style="font: 500 15px/1.3 'Schibsted Grotesk';">01 · Meia-volta</div><div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #0A0C0E; background: #E7C24E; padding: 2px 5px;">APROVADO</div></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">A barra gira 180° e cai exatamente sobre si mesma — ela é simétrica no ponto central. Nada entra, nada sai: o ícone permanece o ícone o tempo inteiro, só passou por uma volta.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.05em; color: #626A70; margin-top: 8px;">180° · 2.8s · ease-enter · pausa longa</div>
+    </div>
+    <div>
+      {{ studyB }}
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk'; margin-top: 16px;">02 · Cursor → marca</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Começa vertical, como o cursor do Capture, gira 22° até virar a marca, espera, e segue girando até voltar a ser cursor. Um giro só, sempre no mesmo sentido: a barra que você digita é a barra da marca.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.05em; color: #626A70; margin-top: 8px;">-22° → 0° → 158° · 3.4s · ease-enter</div>
+    </div>
+    <div>
+      {{ studyC }}
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk'; margin-top: 16px;">03 · Trabalhando</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Giro contínuo e linear, sem pausa. Não é abertura: é o estado de sistema ocupado. A mesma marca vira indicador de progresso indeterminado sem virar spinner de outro produto.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.05em; color: #626A70; margin-top: 8px;">180° · 900ms · linear · infinito</div>
+    </div>
+  </div>
+
+  <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-top: 52px; margin-bottom: 20px;">ONDE ELE APARECE</div>
+  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 32px;">
+    <div style="background: #101316; border: 1px solid #1E2429; border-radius: 3px; padding: 20px;">
+      <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-bottom: 16px;">TASKBAR · 100%</div>
+      <div style="display: flex; align-items: center; gap: 12px; background: #08090B; border: 1px solid #1E2429; border-radius: 3px; padding: 8px 12px;">
+        <div style="width: 24px; height: 24px; background: #E7C24E; border-radius: 4px; display: grid; place-items: center;">
+          <svg viewBox="0 0 64 64" width="15" height="15"><polygon points="42,12 56,12 22,52 8,52" fill="#0A0C0E"></polygon></svg>
+        </div>
+        <div style="width: 24px; height: 24px; background: #171B1F; border: 1px solid #2A3136; border-radius: 4px; display: grid; place-items: center; font: 700 11px 'Schibsted Grotesk'; color: #8C949A;">C</div>
+        <div style="width: 24px; height: 24px; background: #171B1F; border: 1px solid #2A3136; border-radius: 4px; display: grid; place-items: center; font: 700 11px 'Schibsted Grotesk'; color: #8C949A;">N</div>
+        <div style="width: 24px; height: 24px; background: #171B1F; border: 1px solid #2A3136; border-radius: 4px; display: grid; place-items: center; font: 700 11px 'Schibsted Grotesk'; color: #8C949A;">S</div>
+      </div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 12px; text-wrap: pretty;">É o único bloco de cor entre ícones de contorno. Encontrar o M/OS deixa de exigir leitura.</div>
+    </div>
+
+    <div style="background: #101316; border: 1px solid #1E2429; border-radius: 3px; padding: 20px;">
+      <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-bottom: 16px;">RAIL · SÍMBOLO NO TOPO</div>
+      <div style="display: flex; gap: 12px;">
+        <div style="width: 52px; background: #08090B; border: 1px solid #1E2429; border-radius: 3px; padding: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 20px;">
+          <div style="width: 24px; height: 24px; background: #E7C24E; border-radius: 4px; display: grid; place-items: center;">
+            <svg viewBox="0 0 64 64" width="15" height="15"><polygon points="42,12 56,12 22,52 8,52" fill="#0A0C0E"></polygon></svg>
+          </div>
+          <div style="width: 20px; height: 2px; background: #1E2429;"></div>
+          <div style="width: 16px; height: 16px; border: 1px solid #626A70;"></div>
+          <div style="width: 16px; height: 16px; border: 1px solid #626A70;"></div>
+          <div style="width: 16px; height: 16px; border: 1px solid #626A70;"></div>
+        </div>
+        <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 8px;">
+          <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; text-wrap: pretty;">No rail o símbolo não é clicável: é assinatura, não destino. O sódio dele nunca compete com o marcador de seleção porque um é bloco e o outro é filete.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="background: #101316; border: 1px solid #1E2429; border-radius: 3px; padding: 20px;">
+      <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-bottom: 16px;">FAMÍLIA M/ · O SISTEMA E OS APPS</div>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="width: 40px; height: 40px; background: #E7C24E; border-radius: 8px; display: grid; place-items: center;">
+          <svg viewBox="0 0 64 64" width="25" height="25"><polygon points="40,10 54,10 24,54 10,54" fill="#0A0C0E"></polygon></svg>
+        </div>
+        <div style="width: 36px; height: 36px; background: #171B1F; border: 1px solid #2A3136; border-radius: 8px; display: grid; place-items: center;">
+          <svg viewBox="0 0 64 64" width="22" height="22"><rect x="8" y="8" width="48" height="48" fill="none" stroke="#8C949A" stroke-width="5"></rect><rect x="32" y="32" width="24" height="24" fill="#E7EAEC"></rect></svg>
+        </div>
+        <div style="width: 36px; height: 36px; background: #171B1F; border: 1px solid #2A3136; border-radius: 8px; display: grid; place-items: center;">
+          <svg viewBox="0 0 64 64" width="22" height="22"><rect x="8" y="8" width="48" height="48" fill="none" stroke="#8C949A" stroke-width="5"></rect><rect x="8" y="8" width="24" height="24" fill="#E7EAEC"></rect></svg>
+        </div>
+        <div style="width: 36px; height: 36px; background: #171B1F; border: 1px solid #2A3136; border-radius: 8px; display: grid; place-items: center;">
+          <svg viewBox="0 0 64 64" width="22" height="22"><rect x="8" y="8" width="48" height="48" fill="none" stroke="#8C949A" stroke-width="5"></rect><rect x="8" y="32" width="48" height="24" fill="#E7EAEC"></rect></svg>
+        </div>
+      </div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 12px; text-wrap: pretty;">A regra de v0.3 sobrevive à inversão e fica mais forte: só o sistema usa sódio e massa sólida. Os apps continuam brancos, moldurados e um degrau menores.</div>
+    </div>
+  </div>
+
+  <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-top: 52px; margin-bottom: 20px;">FONTE PARA EXPORTAÇÃO</div>
+  <div style="background: #101316; border: 1px solid #1E2429; border-radius: 3px; padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 32px;">
+    <div style="font: 400 13px/1.9 'JetBrains Mono', monospace; color: #8C949A; letter-spacing: 0.02em;">
+      <div style="color: #626A70;">/* 1024 · 512 · 256 · 128 — 22° */</div>
+      <div>polygon points="38,8 53,8 26,56 11,56"</div>
+      <div style="color: #626A70; margin-top: 12px;">/* 64 · 48 — 18° */</div>
+      <div>polygon points="40,10 54,10 24,54 10,54"</div>
+      <div style="color: #626A70; margin-top: 12px;">/* 32 · 24 · 16 — 14° */</div>
+      <div>polygon points="42,12 56,12 22,52 8,52"</div>
+    </div>
+    <div style="font: 400 13px/1.9 'JetBrains Mono', monospace; color: #8C949A; letter-spacing: 0.02em;">
+      <div style="color: #626A70;">/* campo e tinta */</div>
+      <div>field&nbsp;&nbsp;#E7C24E &nbsp;signal-fill</div>
+      <div>ink&nbsp;&nbsp;&nbsp;&nbsp;#0A0C0E &nbsp;canvas · dark</div>
+      <div>ink&nbsp;&nbsp;&nbsp;&nbsp;#14181A &nbsp;text · light</div>
+      <div style="color: #626A70; margin-top: 12px;">/* raio por tamanho */</div>
+      <div>1024→20% · 64→11 · 32→6 · 16→3</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 84px; border-top: 1px solid #2A3136; padding-top: 20px; display: flex; gap: 52px;">
+    <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70;">FECHADO</div>
+    <div style="font: 400 15px/1.55 'Schibsted Grotesk'; color: #8C949A; max-width: 760px; text-wrap: pretty;">Geometria dos três desenhos e <span style="color: #E7EAEC;">Meia-volta</span> como motion oficial da marca — 180°, ease-enter, pausa longa. Aberto: campo sódio ou campo escuro como ícone do sistema. Não posso gerar PNG nem ICO aqui; quando o campo for decidido, exporto os SVGs e o Codex rasteriza.</div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280}}">
+class Component extends DCLogic {
+  state = { k: 0 };
+
+  bar(points, fill, extra) {
+    return React.createElement('polygon', Object.assign({ points: points, fill: fill }, extra || {}));
+  }
+
+  square(size, radius, points, svgSize, anim) {
+    return React.createElement('div', {
+      style: {
+        width: size, height: size, background: '#E7C24E', borderRadius: radius,
+        display: 'grid', placeItems: 'center', overflow: 'hidden'
+      }
+    }, React.createElement('svg', {
+      viewBox: '0 0 64 64', width: svgSize, height: svgSize,
+      style: anim ? { animation: anim } : null
+    }, this.bar(points, '#0A0C0E')));
+  }
+
+  renderVals() {
+    const k = this.state.k;
+    const P22 = '38,8 53,8 26,56 11,56';
+    const P18 = '40,10 54,10 24,54 10,54';
+
+    const hero = React.createElement('div', {
+      key: 'hero' + k,
+      style: {
+        width: 960, height: 540, background: '#E7C24E', borderRadius: 3,
+        position: 'relative', overflow: 'hidden'
+      }
+    }, [
+      React.createElement('svg', {
+        key: 'b', viewBox: '0 0 64 64', width: 620, height: 620,
+        style: {
+          position: 'absolute', left: 170, top: -40, transformOrigin: 'center',
+          animation: 'barHalf 5.2s cubic-bezier(0.16,1,0.3,1) infinite'
+        }
+      }, this.bar(P22, '#0A0C0E')),
+      React.createElement('div', {
+        key: 't',
+        style: {
+          position: 'absolute', left: 32, bottom: 28,
+          font: "700 21px 'Schibsted Grotesk'", letterSpacing: '-0.024em', color: '#0A0C0E'
+        }
+      }, 'M/OS'),
+      React.createElement('div', {
+        key: 'm',
+        style: {
+          position: 'absolute', right: 32, bottom: 30,
+          font: "400 11px 'JetBrains Mono', monospace", letterSpacing: '0.14em', color: 'rgba(10,12,14,0.55)'
+        }
+      }, 'CÉREBRO DIGITAL')
+    ]);
+
+    const frame = (child) => React.createElement('div', {
+      style: {
+        background: '#101316', border: '1px solid #1E2429', borderRadius: 3,
+        height: 260, display: 'grid', placeItems: 'center'
+      }
+    }, child);
+
+    const icon = (anim, id) => frame(React.createElement('div', {
+      key: id + k,
+      style: { width: 148, height: 148, background: '#E7C24E', borderRadius: 26, display: 'grid', placeItems: 'center', overflow: 'hidden' }
+    }, React.createElement('svg', {
+      viewBox: '0 0 64 64', width: 92, height: 92,
+      style: { transformOrigin: 'center', animation: anim }
+    }, this.bar(P22, '#0A0C0E'))));
+
+    const studyA = icon('barHalf 2.8s cubic-bezier(0.16,1,0.3,1) infinite', 'a');
+    const studyB = icon('barCursor 3.4s cubic-bezier(0.16,1,0.3,1) infinite', 'b');
+    const studyC = icon('barSpin 900ms linear infinite', 'c');
+
+    return {
+      hero: hero,
+      studyA: studyA,
+      studyB: studyB,
+      studyC: studyC,
+      replay: () => this.setState(s => ({ k: s.k + 1 }))
+    };
+  }
+}
+</script>
+</body>
+</html>

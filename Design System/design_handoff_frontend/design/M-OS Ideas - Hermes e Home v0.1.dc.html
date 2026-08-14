@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #0A0C0E; color: #E7EAEC; -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+  a { color: #E7C24E; text-decoration: none; }
+  a:hover { color: #EDCB63; }
+</style>
+</helmet>
+
+<div style="width: 1440px; background: #0A0C0E; padding: 56px 56px 84px; font-family: 'Schibsted Grotesk', Helvetica, Arial, sans-serif; letter-spacing: -0.008em;">
+
+  <div style="display: flex; align-items: baseline; gap: 20px; border-bottom: 1px solid #2A3136; padding-bottom: 20px;">
+    <div style="font: 700 48px/1.05 'Schibsted Grotesk'; letter-spacing: -0.034em;">Hermes &amp; Home</div>
+    <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; text-transform: uppercase; color: #626A70;">banco de ideias · v0.1 · não é roadmap</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 52px; margin-top: 32px;">
+    <div style="font: 400 15px/1.55 'Schibsted Grotesk'; color: #8C949A; text-wrap: pretty;">Duas superfícies, dois problemas diferentes. O chat existe para as vezes em que descrever é mais rápido que navegar. A Home existe para responder <span style="color: #E7EAEC;">o que está acontecendo e o que preciso fazer</span> — nada além disso.</div>
+    <div style="font: 400 15px/1.55 'Schibsted Grotesk'; color: #8C949A; text-wrap: pretty;">Tudo aqui é derivado de PRODUCT.md, IDEAS.md e UX-PRINCIPLES.md do repositório. Ideias marcadas com <span style="color: #E7C24E;">◆</span> são as que eu levaria para v0.1; o resto fica registrado.</div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 12px; margin-top: 84px;">
+    <div style="width: 4px; height: 28px; background: #E7C24E;"></div>
+    <div style="font: 700 28px/1.15 'Schibsted Grotesk'; letter-spacing: -0.024em;">Chat com o Hermes</div>
+    <div style="flex: 1; height: 1px; background: #1E2429;"></div>
+    <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70;">14 IDEIAS</div>
+  </div>
+
+  <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-top: 52px; margin-bottom: 20px;">FORMA DA CONVERSA</div>
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="display: flex; gap: 8px; align-items: baseline;"><span style="font: 400 11px/1.4 'JetBrains Mono', monospace; color: #E7C24E;">01</span><span style="font: 500 15px/1.3 'Schibsted Grotesk'; letter-spacing: -0.008em;">Transcrição, não bolhas <span style="color:#E7C24E;">◆</span></span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Sem bolhas, sem avatar, sem “Hermes” escrito em cada turno. O que você diz aparece em Grotesk 21px; o que ele responde aparece em corpo 15px com um filete âmbar de 2px na margem. A autoria vem da forma, não de um rótulo.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="display: flex; gap: 8px; align-items: baseline;"><span style="font: 400 11px/1.4 'JetBrains Mono', monospace; color: #E7C24E;">02</span><span style="font: 500 15px/1.3 'Schibsted Grotesk'; letter-spacing: -0.008em;">Thread efêmera por padrão</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Conversa não é acervo. A thread vive na sessão e desaparece; o que fica são as Tasks, Resources e notas criadas. Existe <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">Pin thread</span> para o caso raro em que a conversa em si virou material.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="display: flex; gap: 8px; align-items: baseline;"><span style="font: 400 11px/1.4 'JetBrains Mono', monospace; color: #E7C24E;">03</span><span style="font: 500 15px/1.3 'Schibsted Grotesk'; letter-spacing: -0.008em;">Uma superfície só: Ctrl+K → thread <span style="color:#E7C24E;">◆</span></span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Command, Search, Capture e Hermes são o mesmo campo. Palavra curta → resultados. Frase → Hermes assume. Enter resolve; <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">⇧Enter</span> abre a thread e ela cresce a partir do mesmo input, sem trocar de tela.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="display: flex; gap: 8px; align-items: baseline;"><span style="font: 400 11px/1.4 'JetBrains Mono', monospace; color: #E7C24E;">04</span><span style="font: 500 15px/1.3 'Schibsted Grotesk'; letter-spacing: -0.008em;">Sem teatro de digitação</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Nada de “Hermes está pensando”, spinner ou partícula. Um cursor de bloco mono piscando onde o texto vai nascer, e uma régua de 1px que preenche enquanto uma ação roda. Silêncio é a marca.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="display: flex; gap: 8px; align-items: baseline;"><span style="font: 400 11px/1.4 'JetBrains Mono', monospace; color: #E7C24E;">05</span><span style="font: 500 15px/1.3 'Schibsted Grotesk'; letter-spacing: -0.008em;">Referência com @, não com formulário <span style="color:#E7C24E;">◆</span></span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Digitar <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">@minarum</span> resolve para um chip do Project — mata a ambiguidade antes dela existir e ensina os aliases. Vale para Apps, Resources e Tasks.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="display: flex; gap: 8px; align-items: baseline;"><span style="font: 400 11px/1.4 'JetBrains Mono', monospace; color: #E7C24E;">06</span><span style="font: 500 15px/1.3 'Schibsted Grotesk'; letter-spacing: -0.008em;">Voz como linha, não como orbe</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Gravando, o input vira uma única linha de amplitude em âmbar sobre a régua do campo. Ao soltar, a transcrição aparece editável — corrigir palavra é mais rápido que regravar.</div>
+    </div>
+  </div>
+
+  <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-top: 52px; margin-bottom: 20px;">ENTENDIMENTO, CONTROLE E AUDITORIA</div>
+  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;">
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="display: flex; gap: 8px; align-items: baseline;"><span style="font: 400 11px/1.4 'JetBrains Mono', monospace; color: #E7C24E;">07</span><span style="font: 500 15px/1.3 'Schibsted Grotesk'; letter-spacing: -0.008em;">Intent strip editável <span style="color:#E7C24E;">◆</span></span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Antes de agir, uma linha mono mostra a leitura: <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">TASK · @Escadas Minarum · amanhã 09:00</span>. Cada token é clicável e corrigível ali mesmo. Corrigir custa um clique; reexplicar custa uma frase.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="display: flex; gap: 8px; align-items: baseline;"><span style="font: 400 11px/1.4 'JetBrains Mono', monospace; color: #E7C24E;">08</span><span style="font: 500 15px/1.3 'Schibsted Grotesk'; letter-spacing: -0.008em;">Escopo visível no topo</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Uma faixa fina declara o que ele está olhando: <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">Web Design · 7 Projects · Hoje</span>, com ✕ para remover escopo. Contexto explícito mata a sensação de comportamento misterioso.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="display: flex; gap: 8px; align-items: baseline;"><span style="font: 400 11px/1.4 'JetBrains Mono', monospace; color: #E7C24E;">09</span><span style="font: 500 15px/1.3 'Schibsted Grotesk'; letter-spacing: -0.008em;">Fontes como chips <span style="color:#E7C24E;">◆</span></span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Toda afirmação sobre o estado do sistema carrega de onde veio: <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">Task #42</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">Inbox · 3d</span>. Clicar abre o item no drawer sem sair da conversa. O bibliotecário sempre mostra a estante.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="display: flex; gap: 8px; align-items: baseline;"><span style="font: 400 11px/1.4 'JetBrains Mono', monospace; color: #E7C24E;">10</span><span style="font: 500 15px/1.3 'Schibsted Grotesk'; letter-spacing: -0.008em;">Incerteza numerada</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Quando há dúvida real, ele não adivinha em silêncio: “Dois projetos batem” + duas opções com atalho <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">1</span>/<span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">2</span>. Desambiguar pelo teclado, sem mouse.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="display: flex; gap: 8px; align-items: baseline;"><span style="font: 400 11px/1.4 'JetBrains Mono', monospace; color: #E7C24E;">11</span><span style="font: 500 15px/1.3 'Schibsted Grotesk'; letter-spacing: -0.008em;">Ask · Act · Organize <span style="color:#E7C24E;">◆</span></span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Três modos no mesmo campo, trocáveis por <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">Tab</span>. Ask nunca escreve. Act escreve com preview. Organize processa a Inbox em lote e devolve um diff — aceitar tudo, ou item por item.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="display: flex; gap: 8px; align-items: baseline;"><span style="font: 400 11px/1.4 'JetBrains Mono', monospace; color: #E7C24E;">12</span><span style="font: 500 15px/1.3 'Schibsted Grotesk'; letter-spacing: -0.008em;">Ação executada é recibo, não card de IA</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Ação reversível acontece e depois se anuncia numa linha com <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">Undo</span> quente por alguns segundos. Só ação externa (Issue no GitHub, apagar) pede confirmação explícita.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="display: flex; gap: 8px; align-items: baseline;"><span style="font: 400 11px/1.4 'JetBrains Mono', monospace; color: #E7C24E;">13</span><span style="font: 500 15px/1.3 'Schibsted Grotesk'; letter-spacing: -0.008em;">Encadeamento com checklist</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Uma frase com quatro intenções vira quatro linhas com checkbox — desmarcar uma antes de confirmar é o controle mais barato possível sobre um comando longo.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="display: flex; gap: 8px; align-items: baseline;"><span style="font: 400 11px/1.4 'JetBrains Mono', monospace; color: #E7C24E;">14</span><span style="font: 500 15px/1.3 'Schibsted Grotesk'; letter-spacing: -0.008em;">Empty state com o estado real</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 8px; text-wrap: pretty;">Thread vazia não pede “escreva algo”. Ela mostra três perguntas construídas sobre o que existe hoje: “12 itens na Inbox — organizar?”, “M-Finance parado há 3 semanas”.</div>
+    </div>
+  </div>
+
+  <sc-if value="{{ showWireframes }}" hint-placeholder-val="{{ true }}">
+  <div id="1a" style="margin-top: 52px; display: grid; grid-template-columns: 780px 1fr; gap: 32px; align-items: start;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+        <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #0A0C0E; background: #E7C24E; padding: 2px 6px;">1A</div>
+        <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70;">A THREAD, COM AS IDEIAS ◆ APLICADAS</div>
+      </div>
+      <div style="background: #101316; border: 1px solid #1E2429; border-radius: 3px; overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 0 20px; height: 34px; border-bottom: 1px solid #1E2429; font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.05em; color: #626A70;">
+          <span style="color: #8C949A;">SEEING</span>
+          <span style="color: #E7EAEC;">Web Design</span><span>·</span><span style="color: #E7EAEC;">@Escadas Minarum</span><span style="color: #626A70;">✕</span><span>·</span><span style="color: #E7EAEC;">Hoje</span>
+          <span style="flex: 1;"></span>
+          <span style="color: #626A70;">ASK</span><span style="color: #0A0C0E; background: #E7C24E; padding: 1px 5px;">ACT</span><span style="color: #626A70;">ORGANIZE</span>
+        </div>
+        <div style="padding: 32px 20px 20px;">
+          <div style="font: 400 21px/1.3 'Schibsted Grotesk'; letter-spacing: -0.022em; color: #E7EAEC; max-width: 620px;">coloca na agenda e no kanban que tenho que refatorar a navbar da <span style="color: #E7C24E;">@Escadas Minarum</span>, deixa pra amanhã e cria a issue também</div>
+
+          <div style="border-left: 2px solid #E7C24E; padding-left: 20px; margin-top: 32px;">
+            <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.05em; color: #8C949A; display: flex; gap: 12px; flex-wrap: wrap;">
+              <span style="color: #E7EAEC; border-bottom: 1px dashed #2A3136;">TASK</span>
+              <span>·</span><span style="color: #E7EAEC; border-bottom: 1px dashed #2A3136;">Refatorar navbar</span>
+              <span>·</span><span style="color: #E7EAEC; border-bottom: 1px dashed #2A3136;">@Escadas Minarum</span>
+              <span>·</span><span style="color: #E7EAEC; border-bottom: 1px dashed #2A3136;">amanhã · 09:00</span>
+              <span>·</span><span style="color: #E7EAEC; border-bottom: 1px dashed #2A3136;">repo escadas-minarum</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 20px;">
+              <div style="display: flex; align-items: center; gap: 12px; height: 30px;">
+                <div style="width: 14px; height: 14px; border-radius: 2px; background: #E7C24E; display: grid; place-items: center; font: 400 9px 'JetBrains Mono', monospace; color: #0A0C0E;">✓</div>
+                <div style="font: 400 15px/1.55 'Schibsted Grotesk'; color: #E7EAEC;">Criar Task <span style="color: #8C949A;">em Backlog</span></div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; height: 30px;">
+                <div style="width: 14px; height: 14px; border-radius: 2px; background: #E7C24E; display: grid; place-items: center; font: 400 9px 'JetBrains Mono', monospace; color: #0A0C0E;">✓</div>
+                <div style="font: 400 15px/1.55 'Schibsted Grotesk'; color: #E7EAEC;">Agendar <span style="color: #8C949A;">qui 14 ago · 09:00</span></div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; height: 30px;">
+                <div style="width: 14px; height: 14px; border-radius: 2px; border: 1.25px solid #2A3136;"></div>
+                <div style="font: 400 15px/1.55 'Schibsted Grotesk'; color: #8C949A;">Criar Issue no GitHub <span style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70; border: 1px solid #2A3136; padding: 1px 5px; margin-left: 4px;">EXTERNO</span></div>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; margin-top: 20px;">
+              <div style="height: 28px; padding: 0 12px; background: #E7C24E; color: #0A0C0E; border-radius: 3px; display: grid; place-items: center; font: 500 14px/1 'Schibsted Grotesk';">Confirmar <span style="font: 400 11px 'JetBrains Mono', monospace; opacity: .6; margin-left: 6px;">↵</span></div>
+              <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #626A70;">2 de 3 · Esc descarta</div>
+            </div>
+          </div>
+
+          <div style="height: 1px; background: #1E2429; margin: 32px 0;"></div>
+
+          <div style="font: 400 21px/1.3 'Schibsted Grotesk'; letter-spacing: -0.022em; color: #E7EAEC;">qual era a biblioteca de scroll que salvei?</div>
+          <div style="border-left: 2px solid #E7C24E; padding-left: 20px; margin-top: 20px;">
+            <div style="font: 400 15px/1.55 'Schibsted Grotesk'; color: #E7EAEC; max-width: 560px;">Lenis. Você salvou em 2 de julho com a nota <span style="color: #8C949A;">“scroll suave sem quebrar o anchor”</span>, no Workspace Web Design.</div>
+            <div style="display: flex; gap: 8px; margin-top: 12px;">
+              <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.05em; color: #8C949A; border: 1px solid #2A3136; border-radius: 2px; padding: 3px 6px;">RESOURCE · Lenis</div>
+              <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.05em; color: #8C949A; border: 1px solid #2A3136; border-radius: 2px; padding: 3px 6px;">NOTE · 02 jul</div>
+              <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.05em; color: #8C949A; border: 1px solid #2A3136; border-radius: 2px; padding: 3px 6px;">2 refs relacionadas</div>
+            </div>
+            <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #626A70; margin-top: 12px;">Task criada · <span style="color: #E7C24E;">Undo</span></div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 12px; margin-top: 32px; border: 1px solid #2A3136; border-radius: 3px; height: 38px; padding: 0 12px;">
+            <span style="width: 7px; height: 15px; background: #E7C24E;"></span>
+            <span style="font: 400 15px/1.55 'Schibsted Grotesk'; color: #4E565B;">Continuar…</span>
+            <span style="flex: 1;"></span>
+            <span style="font: 400 11px/1.4 'JetBrains Mono', monospace; color: #626A70;">TAB modo · @ referência · ⌘⏎ voz</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding-top: 32px;">
+      <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-bottom: 20px;">O QUE ISSO EVITA</div>
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Bolha de assistente colada num canto da tela.</div>
+        <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Resposta longa e explicativa quando bastava uma linha.</div>
+        <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Confirmação para tudo — ou autonomia sem recibo.</div>
+        <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Chat como destino: navegar até <span style="font-family:'JetBrains Mono',monospace; font-size:11px;">Menu → AI</span> para pedir algo.</div>
+        <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Histórico infinito de conversas que ninguém relê.</div>
+      </div>
+      <div style="height: 1px; background: #1E2429; margin: 32px 0;"></div>
+      <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-bottom: 20px;">ABERTO</div>
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">A thread mora num drawer à direita, ou ocupa o canvas inteiro?</div>
+        <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Action log é uma tela ou uma aba do drawer?</div>
+        <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Modo padrão ao abrir: Ask ou Act?</div>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <div style="display: flex; align-items: center; gap: 12px; margin-top: 84px;">
+    <div style="width: 4px; height: 28px; background: #E7C24E;"></div>
+    <div style="font: 700 28px/1.15 'Schibsted Grotesk'; letter-spacing: -0.024em;">Home &amp; widgets</div>
+    <div style="flex: 1; height: 1px; background: #1E2429;"></div>
+    <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70;">CATÁLOGO + 3 LAYOUTS</div>
+  </div>
+
+  <sc-if value="{{ showCatalog }}" hint-placeholder-val="{{ true }}">
+  <div style="margin-top: 52px;">
+    <div style="display: grid; grid-template-columns: 200px 1fr 100px 130px; gap: 20px; font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; padding-bottom: 8px; border-bottom: 1px solid #2A3136;">
+      <div>WIDGET</div><div>QUE PERGUNTA RESPONDE</div><div>TAMANHO</div><div>FONTE</div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 200px 1fr 100px 130px; gap: 20px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid #1E2429;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Capture <span style="color:#E7C24E;">◆</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Tenho algo na cabeça. Campo em foco ao abrir, Enter salva e limpa sem sair da Home. Link colado vira Resource, arquivo arrastado vira anexo.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">largura total</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">core</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 200px 1fr 100px 130px; gap: 20px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid #1E2429;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Now <span style="color:#E7C24E;">◆</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">No que estou trabalhando agora, e há quanto tempo. Project + Task + cronômetro vivo. Único lugar da Home onde algo se move.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">2 × 1</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">ChronoCAD</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 200px 1fr 100px 130px; gap: 20px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid #1E2429;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Today <span style="color:#E7C24E;">◆</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">O que preciso fazer hoje. Tasks com data e eventos na <span style="color:#E7EAEC;">mesma lista</span>, ordenados por hora — sem coluna separada de agenda.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">2 × 2</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">core + calendário</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 200px 1fr 100px 130px; gap: 20px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid #1E2429;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Calendar <span style="color:#E7C24E;">◆</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Onde tenho espaço. Três recortes desenhados abaixo: restante do dia, próximos 3 dias, mês por densidade.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">1 × 2 / 2 × 2</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">calendário</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 200px 1fr 100px 130px; gap: 20px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid #1E2429;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Shortcuts <span style="color:#E7C24E;">◆</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Abrir o que eu uso. Apps fixados com atalho <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">⌘1…9</span>; a linha muda conforme o Workspace ativo.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">2 × 1</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">App Registry</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 200px 1fr 100px 130px; gap: 20px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid #1E2429;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Inbox <span style="color:#E7C24E;">◆</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Quanto ficou por processar. Contagem grande, os 2 mais antigos citados, e <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">Organizar com Hermes</span> como ação única.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">1 × 1</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">core</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 200px 1fr 100px 130px; gap: 20px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid #1E2429;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Projects</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Onde eu estava. Recentes com uma linha de pulso: tasks abertas e última atividade. Retomar em um clique.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">2 × 2</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">core</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 200px 1fr 100px 130px; gap: 20px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid #1E2429;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Reminders</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">O que pedi para lembrar. Separado das Tasks porque a intenção é outra: não é trabalho, é memória com hora.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">1 × 1</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">core</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 200px 1fr 100px 130px; gap: 20px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid #1E2429;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Repo activity</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">O que andou no código. PRs abertos e último commit dos Projects com repo. Nunca um cliente de GitHub — três linhas no máximo.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">1 × 2</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">GitHub</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 200px 1fr 100px 130px; gap: 20px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid #1E2429;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Library recent</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">O que salvei e não olhei mais. Faixa visual de screenshots — o único widget onde imagem manda.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">largura total</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">Library</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 200px 1fr 100px 130px; gap: 20px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid #1E2429;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Nudge</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">O que está apodrecendo. Um item por vez, nunca lista: Project parado, Task travada, Capture de 3 semanas. Dispensável com ✕.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">1 × 1</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">derivado</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 200px 1fr 100px 130px; gap: 20px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid #1E2429;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Finance sliver</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Três números, no máximo: a receber, mês corrente, próximo vencimento. Não é o dashboard do M-Finance dentro da Home.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">1 × 1</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">M-Finance</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 200px 1fr 100px 130px; gap: 20px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid #1E2429;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Hours today</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Quanto trabalhei e em quê. Uma barra segmentada por Project com os totais em mono ao lado. Sem gráfico.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">2 × 1</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">ChronoCAD</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 200px 1fr 100px 130px; gap: 20px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid #1E2429;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Scratchpad</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Texto solto que não precisa virar nada. Persiste, não notifica, não entra na Inbox.</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">1 × 2</div>
+      <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">core</div>
+    </div>
+  </div>
+  </sc-if>
+
+  <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-top: 52px; margin-bottom: 20px;">TRÊS ARRANJOS POSSÍVEIS · escolha um para eu desenhar em alta</div>
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px;">
+
+    <div id="1b">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+        <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #0A0C0E; background: #E7C24E; padding: 2px 6px;">1B</div>
+        <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Capture-led</div>
+      </div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-bottom: 12px; min-height: 76px; text-wrap: pretty;">O campo domina o topo em altura de display. Abaixo, uma coluna densa de Today e uma coluna estreita de estado. A Home é uma folha em branco com a informação na periferia.</div>
+      <div style="background: #101316; border: 1px solid #1E2429; border-radius: 3px; padding: 12px; display: flex; flex-direction: column; gap: 8px; height: 300px;">
+        <div style="border: 1px dashed #2A3136; border-radius: 2px; height: 76px; display: flex; align-items: center; padding: 0 12px; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #E7C24E;">CAPTURE</div>
+        <div style="display: grid; grid-template-columns: 1.6fr 1fr; gap: 8px; flex: 1;">
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="border: 1px solid #1E2429; border-radius: 2px; flex: 2; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">TODAY</div>
+            <div style="border: 1px solid #1E2429; border-radius: 2px; flex: 1; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">SHORTCUTS</div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="border: 1px solid #1E2429; border-radius: 2px; flex: 1; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">NOW</div>
+            <div style="border: 1px solid #1E2429; border-radius: 2px; flex: 1; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">INBOX</div>
+            <div style="border: 1px solid #1E2429; border-radius: 2px; flex: 1.4; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">CALENDAR</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="1c">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+        <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #0A0C0E; background: #E7C24E; padding: 2px 6px;">1C</div>
+        <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Temporal spine</div>
+      </div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-bottom: 12px; min-height: 76px; text-wrap: pretty;">Uma coluna de horas atravessa a tela do topo ao pé, com a hora atual em âmbar. Tasks sem hora ficam num cais à esquerda; arrastar para a coluna agenda. Widgets ocupam a direita.</div>
+      <div style="background: #101316; border: 1px solid #1E2429; border-radius: 3px; padding: 12px; display: flex; flex-direction: column; gap: 8px; height: 300px;">
+        <div style="border: 1px dashed #2A3136; border-radius: 2px; height: 40px; display: flex; align-items: center; padding: 0 12px; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #E7C24E;">CAPTURE</div>
+        <div style="display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 8px; flex: 1;">
+          <div style="border: 1px solid #1E2429; border-radius: 2px; display: grid; place-items: center; text-align: center; font: 400 11px/1.6 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">UNSCHEDULED<br><span style="color:#626A70;">cais</span></div>
+          <div style="border: 1px solid #2A3136; border-radius: 2px; position: relative; display: flex; flex-direction: column; justify-content: space-between; padding: 8px 0;">
+            <div style="height: 1px; background: #1E2429;"></div>
+            <div style="height: 1px; background: #1E2429;"></div>
+            <div style="height: 2px; background: #E7C24E;"></div>
+            <div style="height: 1px; background: #1E2429;"></div>
+            <div style="height: 1px; background: #1E2429;"></div>
+            <div style="position: absolute; inset: 0; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">DAY SPINE</div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="border: 1px solid #1E2429; border-radius: 2px; flex: 1; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">NOW</div>
+            <div style="border: 1px solid #1E2429; border-radius: 2px; flex: 1; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">INBOX</div>
+            <div style="border: 1px solid #1E2429; border-radius: 2px; flex: 1; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">SHORTCUTS</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="1d">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+        <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #0A0C0E; background: #E7C24E; padding: 2px 6px;">1D</div>
+        <div style="font: 500 15px/1.3 'Schibsted Grotesk';">Grade editável</div>
+      </div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-bottom: 12px; min-height: 76px; text-wrap: pretty;">Grade de 12 colunas com widgets em 1×1, 2×1 e 2×2 e um modo de edição para arrastar. Cada Workspace guarda seu próprio arranjo — entrar em Web Design troca a Home inteira.</div>
+      <div style="background: #101316; border: 1px solid #1E2429; border-radius: 3px; padding: 12px; height: 300px; display: flex; flex-direction: column; gap: 8px;">
+        <div style="border: 1px dashed #2A3136; border-radius: 2px; height: 40px; display: flex; align-items: center; padding: 0 12px; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #E7C24E;">CAPTURE</div>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 1fr; gap: 8px; flex: 1;">
+          <div style="border: 1px solid #1E2429; border-radius: 2px; grid-column: span 2; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">NOW</div>
+          <div style="border: 1px solid #1E2429; border-radius: 2px; grid-column: span 2; grid-row: span 2; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">TODAY</div>
+          <div style="border: 1px solid #1E2429; border-radius: 2px; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">INBOX</div>
+          <div style="border: 1px solid #1E2429; border-radius: 2px; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">NUDGE</div>
+          <div style="border: 1px solid #1E2429; border-radius: 2px; grid-column: span 2; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">SHORTCUTS</div>
+          <div style="border: 1px solid #1E2429; border-radius: 2px; grid-column: span 2; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A;">CALENDAR</div>
+          <div style="border: 1px dashed #1E2429; border-radius: 2px; grid-column: span 4; display: grid; place-items: center; font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70;">LIBRARY RECENT</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <sc-if value="{{ showWireframes }}" hint-placeholder-val="{{ true }}">
+  <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-top: 52px; margin-bottom: 20px;">CALENDÁRIO NA HOME · três recortes</div>
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px;">
+    <div id="1e">
+      <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px;"><span style="font: 400 11px 'JetBrains Mono', monospace; color: #E7C24E;">1E</span><span style="font: 500 15px/1.3 'Schibsted Grotesk';">Restante do dia</span></div>
+      <div style="background: #101316; border: 1px solid #1E2429; border-radius: 3px; padding: 20px;">
+        <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px;"><div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70;">QUA 13 AGO</div><div style="flex:1; height:1px; background:#1E2429;"></div><div style="font: 400 11px 'JetBrains Mono', monospace; color: #E7C24E;">14:22</div></div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="display: grid; grid-template-columns: 44px 1fr; gap: 12px; height: 34px; align-items: center; opacity: .45;"><div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">13:00</div><div style="font: 400 14px 'Schibsted Grotesk'; color: #8C949A; text-decoration: line-through;">Call Minarum</div></div>
+          <div style="display: grid; grid-template-columns: 44px 1fr; gap: 12px; align-items: center; height: 2px;"><div></div><div style="height: 2px; background: #E7C24E;"></div></div>
+          <div style="display: grid; grid-template-columns: 44px 1fr; gap: 12px; height: 34px; align-items: center;"><div style="font: 400 11px 'JetBrains Mono', monospace; color: #E7EAEC;">15:00</div><div style="font: 400 14px 'Schibsted Grotesk'; color: #E7EAEC;">Refatorar navbar</div></div>
+          <div style="display: grid; grid-template-columns: 44px 1fr; gap: 12px; height: 34px; align-items: center;"><div style="font: 400 11px 'JetBrains Mono', monospace; color: #8C949A;">18:30</div><div style="font: 400 14px 'Schibsted Grotesk'; color: #E7EAEC;">Enviar orçamento <span style="color:#8C949A;">· lembrete</span></div></div>
+          <div style="display: grid; grid-template-columns: 44px 1fr; gap: 12px; height: 34px; align-items: center;"><div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">—</div><div style="font: 400 14px 'Schibsted Grotesk'; color: #8C949A;">3 sem hora</div></div>
+        </div>
+      </div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 12px; text-wrap: pretty;">Só daqui pra frente. O passado do dia colapsa em uma linha. Barato de ler, resolve a maioria dos casos.</div>
+    </div>
+    <div id="1f">
+      <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px;"><span style="font: 400 11px 'JetBrains Mono', monospace; color: #E7C24E;">1F</span><span style="font: 500 15px/1.3 'Schibsted Grotesk';">Próximos 3 dias</span></div>
+      <div style="background: #101316; border: 1px solid #1E2429; border-radius: 3px; padding: 20px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+        <div>
+          <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #E7C24E; padding-bottom: 8px; border-bottom: 1px solid #2A3136;">HOJE</div>
+          <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px;">
+            <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #E7EAEC;">Refatorar navbar</div>
+            <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #E7EAEC;">Orçamento</div>
+            <div style="font: 400 11px 'JetBrains Mono', monospace; color: #626A70;">+2</div>
+          </div>
+        </div>
+        <div>
+          <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A; padding-bottom: 8px; border-bottom: 1px solid #1E2429;">QUI 14</div>
+          <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px;">
+            <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #E7EAEC;">Deploy Minarum</div>
+          </div>
+        </div>
+        <div>
+          <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #8C949A; padding-bottom: 8px; border-bottom: 1px solid #1E2429;">SEX 15</div>
+          <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px;">
+            <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #E7EAEC;">Revisar ChronoCAD</div>
+            <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A;">Pagar domínio</div>
+          </div>
+        </div>
+      </div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 12px; text-wrap: pretty;">Horizonte curto sem virar semana. Bom para “dá pra encaixar isso quinta?”.</div>
+    </div>
+    <div id="1g">
+      <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px;"><span style="font: 400 11px 'JetBrains Mono', monospace; color: #E7C24E;">1G</span><span style="font: 500 15px/1.3 'Schibsted Grotesk';">Mês por densidade</span></div>
+      <div style="background: #101316; border: 1px solid #1E2429; border-radius: 3px; padding: 20px;">
+        <div style="font: 400 11px 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-bottom: 12px;">AGOSTO</div>
+        <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;">
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px;"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px; background: rgba(231,194,78,0.16);"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px;"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px; background: rgba(231,194,78,0.16);"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px; background: rgba(231,194,78,0.45);"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px;"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px;"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px; background: rgba(231,194,78,0.16);"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px;"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px; background: rgba(231,194,78,0.45);"></div>
+          <div style="aspect-ratio: 1; border: 1.25px solid #E7C24E; border-radius: 2px; background: #E7C24E;"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px; background: rgba(231,194,78,0.16);"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px;"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px;"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px; background: rgba(231,194,78,0.16);"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px;"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px;"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px; background: rgba(231,194,78,0.16);"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px;"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px;"></div>
+          <div style="aspect-ratio: 1; border: 1px solid #1E2429; border-radius: 2px;"></div>
+        </div>
+      </div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; margin-top: 12px; text-wrap: pretty;">Sem texto: só carga por dia em três níveis de âmbar. Ocupa 1×1 e responde “quando estou livre?”.</div>
+    </div>
+  </div>
+  </sc-if>
+
+  <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70; margin-top: 52px; margin-bottom: 20px;">COMPORTAMENTOS DA HOME · valem para qualquer arranjo</div>
+  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;">
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk'; margin-bottom: 8px;">A Home muda de turno <span style="color:#E7C24E;">◆</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; text-wrap: pretty;">Manhã: Today e agenda no alto. Tarde: Now e o restante do dia. Fim do dia: o que fechou, o que ficou, Inbox pendente. Mesmos widgets, ordem diferente — nada aparece ou desaparece sem aviso.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk'; margin-bottom: 8px;">Workspace troca a Home <span style="color:#E7C24E;">◆</span></div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; text-wrap: pretty;">Web Design mostra Library e Screenshot Tool; Engenharia mostra ChronoCAD e documentos. O arranjo é por Workspace, e a transição usa os 220ms de troca de contexto.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk'; margin-bottom: 8px;">Todo widget tem uma ação só</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; text-wrap: pretty;">Um verbo por widget, revelado no hover: Inbox → Organizar. Now → Parar. Today → Adicionar. Widget não é mini-app.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk'; margin-bottom: 8px;">Zero widget vazio</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; text-wrap: pretty;">Sem dado, o widget sai da grade em vez de mostrar “nada aqui”. A Home encolhe nos dias calmos — isso é a recompensa, não um bug.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk'; margin-bottom: 8px;">Números só quando decidem algo</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; text-wrap: pretty;">Contagem de Inbox muda comportamento; “14 Resources salvos” não. Métrica sem consequência não entra.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk'; margin-bottom: 8px;">Teclado atravessa a Home</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; text-wrap: pretty;">Foco no Capture ao abrir. <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">⌘1…9</span> abre app fixado, <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">J/K</span> percorre Today, <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#E7EAEC;">Espaço</span> conclui.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk'; margin-bottom: 8px;">Hermes na Home é uma linha</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; text-wrap: pretty;">Não há widget de chat. O Capture já é a entrada dele; a única presença extra é uma sugestão no pé da Inbox quando há trabalho acumulado.</div>
+    </div>
+    <div style="border-top: 1px solid #2A3136; padding-top: 12px;">
+      <div style="font: 500 15px/1.3 'Schibsted Grotesk'; margin-bottom: 8px;">Arrastar é agendar</div>
+      <div style="font: 400 13px/1.45 'Schibsted Grotesk'; color: #8C949A; text-wrap: pretty;">Task solta arrastada para o calendário ganha hora. É o gesto que justifica calendário e tarefas na mesma tela.</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 84px; border-top: 1px solid #2A3136; padding-top: 20px; display: flex; gap: 52px;">
+    <div style="font: 400 11px/1.4 'JetBrains Mono', monospace; letter-spacing: 0.14em; color: #626A70;">PRÓXIMO PASSO</div>
+    <div style="font: 400 15px/1.55 'Schibsted Grotesk'; color: #8C949A; max-width: 720px; text-wrap: pretty;">Escolha um arranjo de Home (<a href="#1b">1B</a>, <a href="#1c">1C</a>, <a href="#1d">1D</a>) e um recorte de calendário (<a href="#1e">1E</a>, <a href="#1f">1F</a>, <a href="#1g">1G</a>). Desenho a Home em alta com os widgets ◆ e a thread <a href="#1a">1A</a> como tela completa, com estados.</div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showWireframes&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Conteúdo&quot;},&quot;showCatalog&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Conteúdo&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      showWireframes: this.props.showWireframes ?? true,
+      showCatalog: this.props.showCatalog ?? true,
+    };
+  }
+}
+</script>
+</body>
+</html>

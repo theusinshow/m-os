@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: #08090B; -webkit-font-smoothing: antialiased; }
+  a { color: #E7EAEC; text-decoration: none; }
+  a:hover { color: #E7C24E; }
+  ::selection { background: rgba(231,194,78,0.26); }
+</style>
+</helmet>
+
+<div style="background:#08090B;color:#E7EAEC;font-family:'Schibsted Grotesk','Helvetica Neue',Helvetica,sans-serif;min-height:100vh;display:grid;grid-template-columns:212px 1fr">
+
+  <nav style="border-right:1px solid rgba(200,220,255,0.09);padding:44px 0 60px 0;position:sticky;top:0;height:100vh;overflow:auto">
+    <div style="padding:0 24px 32px 24px">
+      <div style="font-size:19px;letter-spacing:-0.02em;font-weight:700">M<span style="font-family:'JetBrains Mono',monospace;color:#E7C24E;font-weight:400">/</span><span style="font-weight:400;color:#8C949A">OS</span></div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.16em;text-transform:uppercase;color:#626A70;margin-top:8px">v0.4<br>Aberturas fechadas</div>
+    </div>
+    <div style="display:flex;flex-direction:column">
+      <a href="#a01" style="display:flex;gap:10px;padding:6px 24px;font-size:12.5px;color:#8C949A"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#626A70;padding-top:2px">01</span>Voz</a>
+      <a href="#a02" style="display:flex;gap:10px;padding:6px 24px;font-size:12.5px;color:#8C949A"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#626A70;padding-top:2px">02</span>Library</a>
+      <a href="#a03" style="display:flex;gap:10px;padding:6px 24px;font-size:12.5px;color:#8C949A"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#626A70;padding-top:2px">03</span>Kanban denso</a>
+      <a href="#a04" style="display:flex;gap:10px;padding:6px 24px;font-size:12.5px;color:#8C949A"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#626A70;padding-top:2px">04</span>Estado final</a>
+    </div>
+    <div style="padding:32px 24px 0 24px;font-family:'JetBrains Mono',monospace;font-size:9.5px;line-height:1.7;letter-spacing:0.06em;color:#565E63;text-transform:uppercase">Fundação v0.3<br>permanece válida</div>
+  </nav>
+
+  <main style="padding:96px 72px 160px 72px;max-width:1240px">
+
+    <header style="padding-bottom:88px;border-bottom:1px solid rgba(200,220,255,0.09);margin-bottom:88px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:#E7C24E;margin-bottom:36px">Rodada 04 · Fechando as três aberturas</div>
+      <h1 style="font-size:72px;line-height:1;letter-spacing:-0.035em;font-weight:700;margin:0 0 32px 0;max-width:22ch">Voz, Library e densidade real.</h1>
+      <p style="font-size:19px;line-height:1.6;color:#A3AAAE;max-width:64ch;margin:0;text-wrap:pretty">Eram os três itens sem linguagem definida. Nenhum deles pede token novo, cor nova ou fonte nova — e é isso que os fecha: se a fundação precisasse crescer para acomodá-los, ela estaria errada.</p>
+    </header>
+
+    <section id="a01" data-screen-label="01 Voz" style="padding-bottom:112px">
+      <div style="display:flex;gap:16px;align-items:baseline;margin-bottom:20px">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.14em;color:#E7C24E">01</span>
+        <h2 style="font-size:38px;line-height:1.05;letter-spacing:-0.028em;font-weight:700;margin:0">Voz</h2>
+      </div>
+      <p style="font-size:16.5px;line-height:1.65;color:#A3AAAE;max-width:68ch;margin:0 0 20px 0;text-wrap:pretty">A decisão que organiza tudo: <strong style="color:#E7EAEC">voz não é um modo, é uma forma de digitar</strong>. Nenhuma tela própria, nenhum estado de conversa. O ditado escreve dentro do mesmo campo do Capture, e o texto aparece antes de qualquer coisa ser salva.</p>
+      <p style="font-size:14px;line-height:1.6;color:#8C949A;max-width:68ch;margin:0 0 44px 0;text-wrap:pretty">Consequência direta: nunca salvar áudio como resultado. O que fica guardado é sempre texto, porque é texto que se encontra depois. O áudio é meio, não conteúdo.</p>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-bottom:20px">
+        <div>
+          <div style="background:#101316;border:1px solid rgba(200,220,255,0.12);margin-bottom:14px">
+            <div style="padding:16px 18px;display:flex;gap:12px;align-items:center">
+              <span style="font-family:'JetBrains Mono',monospace;color:#E7C24E;font-size:17px;line-height:1">/</span>
+              <span style="font-size:15px;color:#4E565B;letter-spacing:-0.02em">O que está na sua cabeça?</span>
+              <div style="margin-left:auto;display:flex;gap:2px;align-items:flex-end;height:12px">
+                <div style="width:2px;height:3px;background:#454D52"></div>
+                <div style="width:2px;height:3px;background:#454D52"></div>
+                <div style="width:2px;height:3px;background:#454D52"></div>
+              </div>
+            </div>
+            <div style="border-top:1px solid rgba(200,220,255,0.08);padding:10px 18px;display:flex;align-items:center;gap:9px">
+              <div style="width:2px;height:11px;background:#1E2429"></div>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#626A70;letter-spacing:0.08em">SEGURE ⌥ PARA FALAR</span>
+            </div>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.12em;color:#E7C24E;margin-bottom:7px">01 · REPOUSO</div>
+          <p style="font-size:13px;line-height:1.6;color:#8C949A;margin:0;text-wrap:pretty">Três traços apagados à direita — a única presença da voz no estado normal. Sem botão de microfone, sem ícone redondo.</p>
+        </div>
+        <div>
+          <div style="background:#101316;border:1px solid rgba(200,220,255,0.16);margin-bottom:14px">
+            <div style="padding:16px 18px;display:flex;gap:12px;align-items:center">
+              <span style="font-family:'JetBrains Mono',monospace;color:#E7C24E;font-size:17px;line-height:1">/</span>
+              <span style="font-size:15px;color:#4E565B;letter-spacing:-0.02em">Ouvindo…</span>
+              <div style="margin-left:auto;display:flex;gap:2px;align-items:flex-end;height:14px">
+                <div style="width:2px;height:5px;background:#E7C24E"></div>
+                <div style="width:2px;height:12px;background:#E7C24E"></div>
+                <div style="width:2px;height:8px;background:#E7C24E"></div>
+                <div style="width:2px;height:14px;background:#E7C24E"></div>
+                <div style="width:2px;height:6px;background:#E7C24E"></div>
+                <div style="width:2px;height:10px;background:#E7C24E"></div>
+              </div>
+            </div>
+            <div style="border-top:1px solid rgba(200,220,255,0.08);padding:10px 18px;display:flex;align-items:center;gap:9px">
+              <div style="width:2px;height:11px;background:#E7C24E"></div>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#8C949A;letter-spacing:0.08em">OUVINDO · 00:04</span>
+              <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:9px;color:#626A70;letter-spacing:0.08em">ESC CANCELA</span>
+            </div>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.12em;color:#E7C24E;margin-bottom:7px">02 · OUVINDO</div>
+          <p style="font-size:13px;line-height:1.6;color:#8C949A;margin:0;text-wrap:pretty">Os traços reagem à amplitude real, em sódio. É o feedback mais barato e mais confiável: prova que o microfone está captando, sem animação decorativa.</p>
+        </div>
+        <div>
+          <div style="background:#101316;border:1px solid rgba(200,220,255,0.16);margin-bottom:14px">
+            <div style="padding:16px 18px;display:flex;gap:12px;align-items:baseline">
+              <span style="font-family:'JetBrains Mono',monospace;color:#E7C24E;font-size:17px;line-height:1">/</span>
+              <span style="font-size:15px;letter-spacing:-0.02em;line-height:1.4"><span style="color:#E7EAEC">amanhã revisar a navbar da Minarum</span> <span style="color:#565E63">com o pedro</span></span>
+            </div>
+            <div style="border-top:1px solid rgba(200,220,255,0.08);padding:10px 18px;display:flex;align-items:center;gap:9px">
+              <div style="width:2px;height:11px;background:#E7C24E"></div>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#8C949A;letter-spacing:0.08em">TRANSCREVENDO</span>
+            </div>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.12em;color:#E7C24E;margin-bottom:7px">03 · TRANSCREVENDO</div>
+          <p style="font-size:13px;line-height:1.6;color:#8C949A;margin:0;text-wrap:pretty">Palavras provisórias em text-system, confirmadas em text. O usuário vê a certeza do sistema sem precisar de percentual — e pode corrigir digitando no meio.</p>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-bottom:44px">
+        <div>
+          <div style="background:#101316;border:1px solid rgba(200,220,255,0.16);margin-bottom:14px">
+            <div style="padding:16px 18px;display:flex;gap:12px;align-items:baseline">
+              <span style="font-family:'JetBrains Mono',monospace;color:#E7C24E;font-size:17px;line-height:1">/</span>
+              <span style="font-size:15px;color:#E7EAEC;letter-spacing:-0.02em;line-height:1.4">amanhã revisar a navbar da Minarum com o Pedro</span>
+            </div>
+            <div style="border-top:1px solid rgba(200,220,255,0.08);padding:12px 18px;display:grid;grid-template-columns:58px 1fr;gap:7px 12px">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;color:#626A70;letter-spacing:0.1em">TASK</span><span style="font-size:13px;color:#E7EAEC">Revisar navbar</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;color:#626A70;letter-spacing:0.1em">PROJECT</span><span style="font-size:13px;color:#E7EAEC">Escadas Minarum</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;color:#626A70;letter-spacing:0.1em">DATE</span><span style="font-size:13px;color:#E7EAEC">Amanhã</span>
+            </div>
+            <div style="border-top:1px solid rgba(200,220,255,0.08);padding:10px 18px;display:flex;align-items:center;gap:9px">
+              <div style="width:2px;height:11px;background:#E7C24E"></div>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#8C949A;letter-spacing:0.08em">3 CAMPOS · TAB EDITA</span>
+              <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:9px;color:#C3C9CC;letter-spacing:0.08em">⏎ SALVAR</span>
+            </div>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.12em;color:#E7C24E;margin-bottom:7px">04 · INTERPRETADO</div>
+          <p style="font-size:13px;line-height:1.6;color:#8C949A;margin:0;text-wrap:pretty">Idêntico ao Capture digitado. Este é o ponto: a voz não gera uma experiência paralela, ela desemboca exatamente no mesmo estado.</p>
+        </div>
+        <div>
+          <div style="background:#101316;border:1px solid #626A70;margin-bottom:14px">
+            <div style="padding:16px 18px;display:flex;gap:12px;align-items:center">
+              <span style="font-family:'JetBrains Mono',monospace;color:#E7C24E;font-size:17px;line-height:1">/</span>
+              <span style="font-size:15px;color:#4E565B;letter-spacing:-0.02em">Não entendi o áudio</span>
+            </div>
+            <div style="border-top:1px solid rgba(200,220,255,0.08);padding:12px 18px;display:flex;align-items:flex-start;gap:9px">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#C3C9CC" stroke-width="2.2" style="margin-top:1px"><path d="M12 6 V14 M12 17 V18.5"></path></svg>
+              <span style="font-size:12.5px;color:#C3C9CC;line-height:1.5">Nada foi captado. Segure ⌥ e fale, ou digite normalmente.</span>
+            </div>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.12em;color:#E7C24E;margin-bottom:7px">05 · FALHOU</div>
+          <p style="font-size:13px;line-height:1.6;color:#8C949A;margin:0;text-wrap:pretty">Falha usa a linguagem de warning: sem cor, ícone mais frase, borda neutra. O campo continua utilizável — a falha nunca fecha o overlay nem apaga o que já existia.</p>
+        </div>
+        <div>
+          <div style="background:#101316;border:1px solid rgba(200,220,255,0.12);margin-bottom:14px;padding:18px">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#626A70;letter-spacing:0.1em;margin-bottom:14px">PERMISSÃO</div>
+            <div style="font-size:14px;color:#E7EAEC;line-height:1.5;margin-bottom:8px">O M/OS precisa do microfone para ditar.</div>
+            <div style="font-size:12.5px;color:#8C949A;line-height:1.55;margin-bottom:16px">Você continua capturando por texto sem conceder nada.</div>
+            <div style="display:flex;gap:9px">
+              <button style="font-family:'Schibsted Grotesk',sans-serif;font-size:12.5px;font-weight:500;color:#0A0C0E;background:#E7C24E;border:none;padding:8px 14px;border-radius:3px;cursor:pointer">Permitir</button>
+              <button style="font-family:'Schibsted Grotesk',sans-serif;font-size:12.5px;font-weight:500;color:#E7EAEC;background:transparent;border:1px solid #2A3136;padding:8px 14px;border-radius:3px;cursor:pointer">Agora não</button>
+            </div>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.12em;color:#E7C24E;margin-bottom:7px">06 · PERMISSÃO</div>
+          <p style="font-size:13px;line-height:1.6;color:#8C949A;margin:0;text-wrap:pretty">Pedida no primeiro uso do ditado, nunca no onboarding. Recusar não degrada o produto — e a frase diz isso explicitamente.</p>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:40px;padding-top:36px;border-top:1px solid rgba(200,220,255,0.08)">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.16em;color:#626A70;margin-bottom:12px">SEGURAR, NÃO ALTERNAR</div>
+          <p style="font-size:13.5px;line-height:1.6;color:#8C949A;margin:0;text-wrap:pretty">No desktop, ⌥ segurado enquanto fala. Alternar exige lembrar de desligar e produz gravações acidentais — o inverso de um sistema silencioso. No mobile, o oposto: toque para começar, toque para terminar, porque não há tecla para segurar.</p>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.16em;color:#626A70;margin-bottom:12px">NUNCA ENVIA SOZINHO</div>
+          <p style="font-size:13.5px;line-height:1.6;color:#8C949A;margin:0;text-wrap:pretty">Soltar a tecla encerra a captação, não a ação. Salvar continua sendo Enter, sempre — inclusive por voz. Um sistema que salva ao fim do silêncio adivinha, e adivinhar é o que destrói confiança.</p>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.16em;color:#B4523C;margin-bottom:12px">O QUE NÃO EXISTE</div>
+          <p style="font-size:13.5px;line-height:1.6;color:#8C949A;margin:0;text-wrap:pretty">Onda de áudio animada em tela cheia, círculo pulsante, orbe, som de confirmação, resposta falada, transcrição em bolha, histórico de conversa. Voz aqui é entrada de texto — nada mais.</p>
+        </div>
+      </div>
+    </section>
+
+
+    <section id="a02" data-screen-label="02 Library" style="padding-bottom:112px">
+      <div style="display:flex;gap:16px;align-items:baseline;margin-bottom:20px">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.14em;color:#E7C24E">02</span>
+        <h2 style="font-size:38px;line-height:1.05;letter-spacing:-0.028em;font-weight:700;margin:0">Library</h2>
+      </div>
+      <p style="font-size:16.5px;line-height:1.65;color:#A3AAAE;max-width:68ch;margin:0 0 20px 0;text-wrap:pretty">A licença editorial é <strong style="color:#E7EAEC">de escala, não de linguagem</strong>. A Library herda cor, tipografia, stroke, radius e spacing sem uma exceção. O que ela ganha é amplitude: a imagem em tamanho útil, a coluna larga, o respiro vertical maior.</p>
+      <p style="font-size:14px;line-height:1.6;color:#8C949A;max-width:68ch;margin:0 0 40px 0;text-wrap:pretty">O que faz a Library parecer editorial não é decoração — é a imagem ser grande e o texto ser pouco. Uma linha de título, uma linha de sistema. Nada mais na superfície; o resto vive no drawer.</p>
+
+      <div style="border:1px solid rgba(200,220,255,0.09);background:#0A0C0E;overflow:hidden;margin-bottom:20px">
+        <div style="height:44px;border-bottom:1px solid #1E2429;display:flex;align-items:center;padding:0 24px">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#626A70;letter-spacing:0.07em">WEB-DESIGN<span style="color:{{ sig }};padding:0 4px">/</span><span style="color:#E7EAEC">LIBRARY</span></span>
+          <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10px;color:#626A70;letter-spacing:0.07em">248 ITENS</span>
+        </div>
+        <div style="padding:22px 24px 18px 24px;display:flex;align-items:center;gap:20px;border-bottom:1px solid rgba(200,220,255,0.06)">
+          <div style="display:flex;gap:14px;align-items:baseline;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.1em">
+            <span style="color:#E7EAEC">TUDO</span>
+            <span style="color:{{ sig }}">/</span>
+            <span style="color:#626A70">TYPE</span>
+            <span style="color:#626A70">MOTION</span>
+            <span style="color:#626A70">UI</span>
+            <span style="color:#626A70">GRID</span>
+            <span style="color:#626A70">COMPONENTES</span>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:11px;align-items:center">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#626A70;letter-spacing:0.09em">ORDENAR</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#C3C9CC;letter-spacing:0.06em">RECENTE</span>
+          </div>
+        </div>
+        <div style="padding:28px 24px 32px 24px;display:grid;grid-template-columns:repeat(4,1fr);gap:20px 20px">
+          <div>
+            <div style="aspect-ratio:4/3;background-image:repeating-linear-gradient(135deg,#171B1F 0 7px,#101316 7px 15px);border:1px solid #1E2429;display:flex;align-items:flex-end;padding:11px;margin-bottom:12px"><span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:0.1em;color:#565E63">SCREENSHOT · SITE</span></div>
+            <div style="font-size:14px;color:#E7EAEC;letter-spacing:-0.01em;line-height:1.4;margin-bottom:6px">Off-canvas menu que abre por linha</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#626A70;letter-spacing:0.06em">MOTION · MAR 12</div>
+          </div>
+          <div>
+            <div style="aspect-ratio:4/3;background-image:repeating-linear-gradient(135deg,#171B1F 0 7px,#101316 7px 15px);border:1px solid #1E2429;display:flex;align-items:flex-end;padding:11px;margin-bottom:12px"><span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:0.1em;color:#565E63">SPECIMEN · TIPOGRAFIA</span></div>
+            <div style="font-size:14px;color:#E7EAEC;letter-spacing:-0.01em;line-height:1.4;margin-bottom:6px">Grotesk condensada em display grande</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#626A70;letter-spacing:0.06em">TYPE · MAR 09</div>
+          </div>
+          <div>
+            <div style="aspect-ratio:4/3;background-image:repeating-linear-gradient(135deg,#171B1F 0 7px,#101316 7px 15px);border:1px solid {{ sig }};display:flex;align-items:flex-end;padding:11px;margin-bottom:12px;position:relative"><span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:0.1em;color:#8C949A">UI · DETALHE</span><div style="position:absolute;left:0;top:11px;bottom:11px;width:2px;background:{{ sig }}"></div></div>
+            <div style="font-size:14px;color:#E7EAEC;letter-spacing:-0.01em;line-height:1.4;margin-bottom:6px">Estados de input sem borda visível</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#8C949A;letter-spacing:0.06em">UI · MAR 28 · SELECIONADO</div>
+          </div>
+          <div>
+            <div style="aspect-ratio:4/3;background-image:repeating-linear-gradient(135deg,#171B1F 0 7px,#101316 7px 15px);border:1px solid #1E2429;display:flex;align-items:flex-end;padding:11px;margin-bottom:12px"><span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:0.1em;color:#565E63">SEM IMAGEM · LINK</span></div>
+            <div style="font-size:14px;color:#E7EAEC;letter-spacing:-0.01em;line-height:1.4;margin-bottom:6px">Easing curves reference</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#626A70;letter-spacing:0.06em">MOTION · FEV 22</div>
+          </div>
+          <div>
+            <div style="aspect-ratio:4/3;background-image:repeating-linear-gradient(135deg,#171B1F 0 7px,#101316 7px 15px);border:1px solid #1E2429;display:flex;align-items:flex-end;padding:11px;margin-bottom:12px"><span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:0.1em;color:#565E63">SCREENSHOT · GRID</span></div>
+            <div style="font-size:14px;color:#E7EAEC;letter-spacing:-0.01em;line-height:1.4;margin-bottom:6px">Grid de 12 com gutter assimétrico</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#626A70;letter-spacing:0.06em">GRID · FEV 14</div>
+          </div>
+          <div>
+            <div style="aspect-ratio:4/3;background-image:repeating-linear-gradient(135deg,#171B1F 0 7px,#101316 7px 15px);border:1px solid #1E2429;display:flex;align-items:flex-end;padding:11px;margin-bottom:12px"><span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:0.1em;color:#565E63">COMPONENTE · CÓDIGO</span></div>
+            <div style="font-size:14px;color:#E7EAEC;letter-spacing:-0.01em;line-height:1.4;margin-bottom:6px">Tabs com indicador contínuo</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#626A70;letter-spacing:0.06em">COMPONENTES · JAN 30</div>
+          </div>
+          <div>
+            <div style="aspect-ratio:4/3;background-image:repeating-linear-gradient(135deg,#171B1F 0 7px,#101316 7px 15px);border:1px solid #1E2429;display:flex;align-items:flex-end;padding:11px;margin-bottom:12px"><span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:0.1em;color:#565E63">SCREENSHOT · SITE</span></div>
+            <div style="font-size:14px;color:#E7EAEC;letter-spacing:-0.01em;line-height:1.4;margin-bottom:6px">Cabeçalho que colapsa em uma linha</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#626A70;letter-spacing:0.06em">UI · JAN 18</div>
+          </div>
+          <div>
+            <div style="aspect-ratio:4/3;background-image:repeating-linear-gradient(135deg,#171B1F 0 7px,#101316 7px 15px);border:1px solid #1E2429;display:flex;align-items:flex-end;padding:11px;margin-bottom:12px"><span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:0.1em;color:#565E63">SPECIMEN · MONO</span></div>
+            <div style="font-size:14px;color:#E7EAEC;letter-spacing:-0.01em;line-height:1.4;margin-bottom:6px">Mono como rótulo, não como texto</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#626A70;letter-spacing:0.06em">TYPE · JAN 11</div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:40px;margin-bottom:44px">
+        <p style="font-size:13.5px;line-height:1.6;color:#8C949A;margin:0;max-width:40ch;text-wrap:pretty">Colunas de 320 com gutter 20, proporção 4:3 fixa. Itens sem imagem não ganham ilustração: recebem o mesmo campo listrado com um rótulo em mono dizendo o que são. A grade nunca quebra.</p>
+        <p style="font-size:13.5px;line-height:1.6;color:#8C949A;margin:0;max-width:40ch;text-wrap:pretty">Seleção é a mesma barra de 2 px do resto do sistema, aplicada na borda da imagem. Sem checkbox flutuante, sem overlay escuro, sem ícone de olho no hover.</p>
+        <p style="font-size:13.5px;line-height:1.6;color:#8C949A;margin:0;max-width:40ch;text-wrap:pretty">Os filtros usam a sintaxe da barra em vez de chips ou dropdown: uma linha de texto em mono, o ativo em branco. Zero chrome para uma função que aparece em toda superfície.</p>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:52px;padding-top:36px;border-top:1px solid rgba(200,220,255,0.08)">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.16em;color:#5FA37E;margin-bottom:16px">O QUE A LIBRARY HERDA · SEM EXCEÇÃO</div>
+          <div style="font-size:13.5px;line-height:1.85;color:#8C949A">cor e tokens · tipografia e escala · stroke e ícones · radius 3 · fronteira da mono · barra de seleção · motion · comportamento de Hermes</div>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.16em;color:#E7C24E;margin-bottom:16px">O QUE ELA GANHA DE LICENÇA</div>
+          <div style="font-size:13.5px;line-height:1.85;color:#8C949A">imagem em 4:3 grande · coluna de 320 em vez de linha · espaço vertical de 32 entre blocos · título em 14 com respiro maior · scroll longo sem paginação · e nada além disso</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="a03" data-screen-label="03 Kanban denso" style="padding-bottom:112px">
+      <div style="display:flex;gap:16px;align-items:baseline;margin-bottom:20px">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.14em;color:#E7C24E">03</span>
+        <h2 style="font-size:38px;line-height:1.05;letter-spacing:-0.028em;font-weight:700;margin:0">Kanban em densidade real</h2>
+      </div>
+      <p style="font-size:16.5px;line-height:1.65;color:#A3AAAE;max-width:68ch;margin:0 0 20px 0;text-wrap:pretty">Quarenta e uma tasks, cinco colunas, um item em arraste. O teste que faltava: o que acontece com a linguagem quando a tela está cheia de verdade.</p>
+      <p style="font-size:14px;line-height:1.6;color:#8C949A;max-width:68ch;margin:0 0 40px 0;text-wrap:pretty">A resposta é que a metadata precisa desaparecer. Em densidade alta, cada linha mostra só o título; data, projeto e pessoa aparecem no item ativo, selecionado ou em hover. É o inverso da tentação — não é a interface que cresce com a informação, é a informação que se esconde até ser pedida.</p>
+
+      <div style="border:1px solid rgba(200,220,255,0.09);background:#0A0C0E;overflow:hidden;margin-bottom:20px">
+        <div style="height:44px;border-bottom:1px solid #1E2429;display:flex;align-items:center;padding:0 20px">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#626A70;letter-spacing:0.07em">WEB-DESIGN<span style="color:{{ sig }};padding:0 4px">/</span>MINARUM<span style="color:{{ sig }};padding:0 4px">/</span><span style="color:#E7EAEC">BOARD</span></span>
+          <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10px;color:#626A70;letter-spacing:0.07em">41 TASKS · 9 DONE · WIP 3/4</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr) 44px;min-height:520px;font-size:{{ rowFont }}">
+          <div style="border-right:1px solid #1E2429;padding:16px 12px">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8C949A;letter-spacing:0.12em">BACKLOG</span><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#565E63">18</span></div>
+            <div style="display:flex;flex-direction:column;gap:1px">
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Ajustar grid do footer</div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Revisar copy da home</div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Comprimir imagens da galeria</div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Testar em Safari 16</div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Favicon e app icon</div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Meta tags e OG image</div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Página 404</div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Formulário de contato</div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Consentimento de cookies</div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Revisar alt text</div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Sitemap</div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Analytics sem cookie</div>
+              <div style="padding:0.44em 0.6em;color:#626A70;letter-spacing:-0.008em;line-height:1.35;font-family:'JetBrains Mono',monospace;font-size:0.78em;letter-spacing:0.08em;margin-top:6px">+ 6 MAIS</div>
+            </div>
+          </div>
+          <div style="border-right:1px solid #1E2429;padding:16px 12px;background:#0E1013">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#E7EAEC;letter-spacing:0.12em">DOING</span><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#565E63">3/4</span></div>
+            <div style="display:flex;flex-direction:column;gap:1px">
+              <div style="padding:0.44em 0.6em;background:{{ sigSoft }};border-radius:3px;position:relative">
+                <div style="position:absolute;left:0;top:0.44em;bottom:0.44em;width:2px;background:{{ sig }}"></div>
+                <div style="color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35;padding-left:0.5em">Refatorar navbar da Minarum</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:0.72em;color:#8C949A;letter-spacing:0.07em;margin-top:0.4em;padding-left:0.5em">TOMORROW · PEDRO</div>
+              </div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Tipografia do hero</div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Animação do menu</div>
+              <div style="height:2.2em;border:1px dashed #2A3136;border-radius:3px;margin-top:2px;display:flex;align-items:center;justify-content:center"><span style="font-family:'JetBrains Mono',monospace;font-size:0.7em;color:#454D52;letter-spacing:0.1em">SOLTE AQUI</span></div>
+              <div style="padding:0.44em 0.6em;background:#171B1F;border:1px solid {{ sig }};border-radius:3px;box-shadow:0 8px 24px rgba(0,0,0,0.5);transform:rotate(-0.4deg);margin-top:6px">
+                <div style="color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Estados de hover no card</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:0.72em;color:#8C949A;letter-spacing:0.07em;margin-top:0.4em">ARRASTANDO</div>
+              </div>
+            </div>
+          </div>
+          <div style="border-right:1px solid #1E2429;padding:16px 12px">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8C949A;letter-spacing:0.12em">REVIEW</span><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#565E63">4</span></div>
+            <div style="display:flex;flex-direction:column;gap:1px">
+              <div style="padding:0.44em 0.6em">
+                <div style="color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Página de contato</div>
+                <div style="display:flex;align-items:center;gap:5px;margin-top:0.4em"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#C3C9CC" stroke-width="2.6"><path d="M12 6 V14 M12 17 V18.5"></path></svg><span style="font-family:'JetBrains Mono',monospace;font-size:0.72em;color:#C3C9CC;letter-spacing:0.07em">AGUARDA CLIENTE · 4 DIAS</span></div>
+              </div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Seção de depoimentos</div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Galeria de projetos</div>
+              <div style="padding:0.44em 0.6em;color:#E7EAEC;letter-spacing:-0.008em;line-height:1.35">Rodapé com contatos</div>
+            </div>
+          </div>
+          <div style="border-right:1px solid #1E2429;padding:16px 12px">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8C949A;letter-spacing:0.12em">DONE</span><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#565E63">9</span></div>
+            <div style="display:flex;flex-direction:column;gap:1px;opacity:0.42">
+              <div style="padding:0.44em 0.6em;color:#8C949A;line-height:1.35;text-decoration:line-through;text-decoration-color:rgba(200,220,255,0.18)">Wireframe da home</div>
+              <div style="padding:0.44em 0.6em;color:#8C949A;line-height:1.35;text-decoration:line-through;text-decoration-color:rgba(200,220,255,0.18)">Paleta aprovada</div>
+              <div style="padding:0.44em 0.6em;color:#8C949A;line-height:1.35;text-decoration:line-through;text-decoration-color:rgba(200,220,255,0.18)">Setup do repositório</div>
+              <div style="padding:0.44em 0.6em;color:#8C949A;line-height:1.35;text-decoration:line-through;text-decoration-color:rgba(200,220,255,0.18)">Briefing com Pedro</div>
+              <div style="padding:0.44em 0.6em;color:#8C949A;line-height:1.35;text-decoration:line-through;text-decoration-color:rgba(200,220,255,0.18)">Escolha de fotografia</div>
+              <div style="padding:0.44em 0.6em;color:#8C949A;line-height:1.35;text-decoration:line-through;text-decoration-color:rgba(200,220,255,0.18)">Tipografia definida</div>
+              <div style="padding:0.44em 0.6em;color:#8C949A;line-height:1.35;text-decoration:line-through;text-decoration-color:rgba(200,220,255,0.18)">Domínio configurado</div>
+              <div style="padding:0.44em 0.6em;color:#8C949A;line-height:1.35;text-decoration:line-through;text-decoration-color:rgba(200,220,255,0.18)">Hospedagem</div>
+              <div style="padding:0.44em 0.6em;color:#8C949A;line-height:1.35;text-decoration:line-through;text-decoration-color:rgba(200,220,255,0.18)">Contrato assinado</div>
+            </div>
+          </div>
+          <div style="padding:16px 0;display:flex;flex-direction:column;align-items:center;gap:14px">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#565E63;letter-spacing:0.14em;writing-mode:vertical-rl;text-orientation:mixed">ARQUIVO · 7</span>
+          </div>
+        </div>
+      </div>
+      <p style="font-size:13.5px;line-height:1.6;color:#8C949A;margin:0 0 44px 0;max-width:82ch;text-wrap:pretty">Linha de 12,5 px com padding em em — trocar a densidade é trocar um valor, não redesenhar. Coluna ativa por 2% de luminância. Coluna encerrada colapsada em 44 px com rótulo vertical. Nada de card, nada de sombra, nada de avatar.</p>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:36px;padding-top:36px;border-top:1px solid rgba(200,220,255,0.08)">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.16em;color:#626A70;margin-bottom:12px">ARRASTE</div>
+          <p style="font-size:13px;line-height:1.6;color:#8C949A;margin:0;text-wrap:pretty">O item levantado ganha borda em sódio, sombra e 0,4° de rotação — inclinação mínima, só o suficiente para dizer “na mão”. O destino é um vão tracejado da altura exata da linha. Sem placeholder cinza, sem escala.</p>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.16em;color:#626A70;margin-bottom:12px">SEM MOUSE</div>
+          <p style="font-size:13px;line-height:1.6;color:#8C949A;margin:0;text-wrap:pretty">Setas navegam, <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#C3C9CC">⌥←→</span> move de coluna, espaço seleciona múltiplos. Um board de 41 itens é operável sem tirar a mão do teclado — que é a promessa de velocidade do produto.</p>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.16em;color:#626A70;margin-bottom:12px">LIMITE DE WIP</div>
+          <p style="font-size:13px;line-height:1.6;color:#8C949A;margin:0;text-wrap:pretty">Doing mostra 3/4 em mono. Ao passar do limite, o número vira warning sem cor — nunca vermelho, nunca bloqueio. O sistema informa; a decisão é do usuário.</p>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.16em;color:#626A70;margin-bottom:12px">ONDE QUEBRARIA</div>
+          <p style="font-size:13px;line-height:1.6;color:#8C949A;margin:0;text-wrap:pretty">Acima de ~20 itens por coluna, corta em “+ 6 mais” em vez de scroll infinito na coluna. Scroll dentro de coluna dentro de página é o defeito clássico de Kanban — e aqui é proibido.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="a04" data-screen-label="04 Estado final" style="padding-bottom:60px">
+      <div style="display:flex;gap:16px;align-items:baseline;margin-bottom:40px">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.14em;color:#E7C24E">04</span>
+        <h2 style="font-size:38px;line-height:1.05;letter-spacing:-0.028em;font-weight:700;margin:0">Estado final da direção</h2>
+      </div>
+      <div style="border-top:1px solid rgba(200,220,255,0.14);padding-top:36px;margin-bottom:44px">
+        <p style="font-size:24px;line-height:1.35;letter-spacing:-0.02em;color:#E7EAEC;max-width:62ch;margin:0;text-wrap:pretty">As três aberturas foram fechadas sem acrescentar um único token, uma cor ou uma família tipográfica. A fundação absorveu voz, densidade alta e uma superfície visual sem se deformar.</p>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:44px">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.16em;color:#5FA37E;margin-bottom:16px">FECHADO</div>
+          <div style="font-size:13.5px;line-height:1.85;color:#8C949A">Território e materialidade<br>Tipografia e escala<br>Cor nos dois modos<br>Geometria e grid<br>Símbolo, wordmark, app icon<br>Iconografia<br>Sintaxe da barra<br>Componentes base<br>Motion<br>Hermes<br>Voz<br>Library<br>Kanban denso<br>Quick Capture (protótipo)<br>Premissa mobile</div>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.16em;color:#E7C24E;margin-bottom:16px">SÓ SE RESOLVE USANDO</div>
+          <div style="display:flex;flex-direction:column;gap:13px;font-size:13.5px;line-height:1.6;color:#8C949A">
+            <div><strong style="color:#E7EAEC;font-weight:500">Latência real.</strong> Nenhum documento prova que o Quick Capture abre em 160 ms na máquina do usuário. Isso é engenharia, e é o que decide se a direção funciona.</div>
+            <div><strong style="color:#E7EAEC;font-weight:500">O símbolo em rasterização real.</strong> Os três desenhos precisam ser exportados e olhados na taskbar do Windows, no tray e no favicon — em 100% e em 150% de escala.</div>
+            <div><strong style="color:#E7EAEC;font-weight:500">Fadiga.</strong> Se o sódio incomoda depois de duas semanas de uso diário, ele desce de saturação. Isso não se decide em documento.</div>
+          </div>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.16em;color:#626A70;margin-bottom:16px">PRÓXIMO PASSO NATURAL</div>
+          <p style="font-size:13.5px;line-height:1.62;color:#8C949A;margin:0 0 14px 0;text-wrap:pretty">Escrever os tokens de foundation e os componentes base como código real, na ordem em que o produto usa: Capture, Command, list row, Task, navigation, overlay.</p>
+          <p style="font-size:13.5px;line-height:1.62;color:#8C949A;margin:0;text-wrap:pretty">A partir daqui, design e implementação andam juntos — o que este conjunto de documentos existia para permitir.</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;signalColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#E7C24E&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#E7C24E&quot;,&quot;#D9A93C&quot;,&quot;#E9EAE8&quot;],&quot;section&quot;:&quot;Sistema&quot;},&quot;boardDensity&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;alta&quot;,&quot;options&quot;:[&quot;alta&quot;,&quot;moderada&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Kanban&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const sig = this.props.signalColor ?? '#E7C24E';
+    return {
+      sig,
+      sigSoft: 'color-mix(in oklab, ' + sig + ' 16%, transparent)',
+      rowFont: (this.props.boardDensity ?? 'alta') === 'alta' ? '12.5px' : '14px'
+    };
+  }
+}
+</script>
+</body>
+</html>
