@@ -1131,6 +1131,12 @@ textarea::placeholder {
   font: var(--text-body);
 }
 
+.scoped-empty {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+}
+
 .split-page {
   display: grid;
   min-height: 100%;

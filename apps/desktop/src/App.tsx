@@ -77,6 +77,19 @@ function EmptyState({ children }: { children: ReactNode }) {
   return <p className="empty-state">{children}</p>;
 }
 
+/* O vazio de um painel com escopo tem duas causas que a mensagem antiga confundia:
+   nada cadastrado, ou nada vinculado ao Workspace ativo. Sem separar as duas, a Home
+   afirma que o usuario nao tem apps enquanto esconde os que ele tem. */
+function ScopedEmptyState({ total, workspace, noun, onLink }: { total: number; workspace: Workspace | null; noun: "app" | "project"; onLink: () => void }) {
+  if (total === 0 || !workspace) {
+    return <EmptyState>{noun === "app" ? "Apps cadastrados aparecerão aqui." : "Projects criados aparecerão aqui."}</EmptyState>;
+  }
+  const counted = noun === "app"
+    ? `${total} ${total === 1 ? "app cadastrado" : "apps cadastrados"}`
+    : `${total} ${total === 1 ? "Project criado" : "Projects criados"}`;
+  return <div className="scoped-empty"><EmptyState>{`${counted}, nenhum em ${workspace.name}.`}</EmptyState><Button variant="outline" size="sm" onClick={onLink}>Vincular</Button></div>;
+}
+
 function CaptureComposer({ onSaved, focusKey }: { onSaved: (capture: Capture) => void; focusKey?: number }) {
   const [content, setContent] = useState("");
   const [state, setState] = useState<"idle" | "saving" | "success" | "error">("idle");
@@ -216,7 +229,7 @@ function HomePage({ recent, projects, tasks, workspaces, apps, refresh, openCapt
       <Panel label="PROJECTS">{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} aria-hidden="true" />} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <EmptyState>Projects criados aparecerão aqui.</EmptyState> : null}</Panel>
       {/* O nome do app nao entra: o icone com a inicial e o atalho ja o
           identificam, e a linha de nomes competiria com as rows ao lado. */}
-      <Panel label="APPS"><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><span className="app-icon" aria-hidden="true">{app.name.trim().charAt(0).toUpperCase()}</span>{index < 9 ? <span className="app-shortcut">⌘{index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <EmptyState>Apps cadastrados aparecerão aqui.</EmptyState> : null}</Panel>
+      <Panel label="APPS"><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><span className="app-icon" aria-hidden="true">{app.name.trim().charAt(0).toUpperCase()}</span>{index < 9 ? <span className="app-shortcut">⌘{index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel>
     </div>
   </div>;
 }
