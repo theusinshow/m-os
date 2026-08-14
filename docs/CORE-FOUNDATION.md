@@ -96,15 +96,24 @@ Uma Task pode:
 - possuir no máximo um Project na v0.1;
 - aparecer em diferentes visualizações sem ser duplicada.
 
-Estados iniciais propostos:
+Estados, a partir da v0.3:
 
+- `inbox`;
 - `backlog`;
+- `planned`;
 - `doing`;
+- `review`;
 - `done`.
 
-O termo `inbox` não será usado como estado de Task para evitar colisão com a Inbox de Captures.
+A ordem acima é a ordem das colunas do Kanban.
 
-`Planned` depende de uma semântica temporal ainda inexistente. `Review` depende de um fluxo de trabalho que ainda precisa ser validado. Nenhum dos dois pertence à v0.1.
+**Histórico e revisão.** A v0.1 propôs apenas `backlog`, `doing` e `done`, com duas justificativas: `Planned` dependia de uma semântica temporal ainda inexistente, `Review` dependia de um fluxo de trabalho ainda não validado, e o termo `inbox` foi recusado para evitar colisão com a Inbox de Captures.
+
+As duas primeiras justificativas continuam corretas — e a decisão de incluir os estados assume que **coluna de Kanban é visualização, não semântica**. Uma Task em `planned` não promete nenhum comportamento temporal, e `review` não dispara fluxo algum. Se um dia essa semântica existir, ela se apoia em estados que já estarão persistidos, em vez de exigir migração de dados.
+
+**A colisão de `inbox` é real e permanece.** `Task.state = "inbox"` **não** é a Inbox de Captures: Capture tem `processing_state`, Task tem `work_state`. São conceitos distintos que compartilham o nome porque o design usa INBOX como rótulo da primeira coluna. A mitigação é nomenclatura e documentação, não renomeação — mudar o rótulo quebraria o design fechado. O aviso está no enum (`work.rs`) e na migration (`0007_v03_design.sql`).
+
+Isto revoga a recomendação de `ARCHITECTURE-REVIEW.md` de remover `Planned`.
 
 Task também possui `lifecycle_state` separado do estado de trabalho:
 
@@ -112,12 +121,10 @@ Task também possui `lifecycle_state` separado do estado de trabalho:
 - `archived`;
 - `trashed`.
 
-Transições iniciais:
+Transições: **livres entre quaisquer estados**. O Kanban permite arrastar um card para qualquer coluna, e restringir transições aqui quebraria o gesto sem proteger nada. `completed_at` continua exclusivo de `done`: entrar carimba, sair limpa.
 
 ```text
-backlog -> doing -> done
-    ^         |       |
-    +---------+-------+
+inbox <-> backlog <-> planned <-> doing <-> review <-> done
 
 active <-> archived
 active <-> trashed

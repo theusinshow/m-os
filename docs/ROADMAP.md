@@ -449,6 +449,8 @@ Conectar o fluxo pessoal de Tasks ao fluxo real de desenvolvimento.
 
 Permitir relacionar Project a um repositório GitHub.
 
+> **Parcialmente antecipado na v0.3.** O campo `repository` já existe em Project e aparece no pane de detalhe, porque o design v0.7 o exibe. É apenas o campo: sem API, sem token, sem sincronização. O que permanece nesta fase é a integração de fato — ler estado do repositório, vincular Issues e refletir estado externo.
+
 Exemplo:
 
 **Escadas Minarum**
