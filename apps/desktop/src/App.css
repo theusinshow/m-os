@@ -254,17 +254,6 @@ button {
   animation: barSpin 900ms linear infinite;
 }
 
-.nav-rail button > span {
-  position: absolute;
-  top: calc(var(--space-1) * -1);
-  right: calc(var(--space-1) * -1);
-  min-width: var(--space-4);
-  color: var(--signal-ink);
-  font: var(--text-micro);
-  letter-spacing: var(--tracking-micro);
-  text-align: center;
-}
-
 .main-column {
   display: grid;
   min-width: 0;
@@ -2159,4 +2148,377 @@ select {
     transform-origin: center !important;
     transition-duration: var(--dur-instant) !important;
   }
+}
+
+/* ============================================================
+   HERMES — tela inteira (M-OS Hermes - Chat Completo v0.1)
+   ============================================================ */
+
+.hermes-page {
+  display: grid;
+  min-width: 0;
+  height: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.hermes-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border-right: var(--line) solid var(--border);
+}
+
+.hermes-topline,
+.hermes-scope {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: var(--space-2);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.hermes-topline {
+  height: var(--topbar-height);
+  justify-content: space-between;
+  padding: 0 var(--space-4);
+}
+
+.hermes-topline-end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* A barra de escopo existe desde ja porque o desenho a define como parte da
+   moldura, e ela diz o que o Hermes esta enxergando. Enquanto ele nao le o
+   M/OS, ela declara isso em vez de mostrar filtros que nao filtram. */
+.hermes-scope {
+  height: var(--command-footer);
+  padding: 0 var(--content-margin);
+}
+
+.hermes-scope-label {
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+.hermes-scope-empty,
+.hermes-quiet {
+  color: var(--text-system);
+  font: var(--text-small);
+}
+
+.hermes-quiet {
+  max-width: 62ch;
+  margin: var(--space-2) 0 0;
+}
+
+.hermes-thread-area {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-5) var(--content-margin) var(--space-2);
+  overflow-y: auto;
+}
+
+.hermes-empty-thread {
+  max-width: 680px;
+  animation: viewEnter var(--dur-context) var(--ease-enter);
+}
+
+.hermes-suggestions {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--space-4);
+}
+
+/* Sugestao e pergunta de verdade sobre dado de verdade: numero em sodio,
+   frase em 21px. A borda superior acende no hover, sem fundo. */
+.hermes-suggestion {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-top: var(--line) solid var(--border-strong);
+  font: var(--text-capture);
+  letter-spacing: var(--tracking-capture);
+  text-align: left;
+  transition: border-color var(--dur-instant) var(--ease-state);
+}
+
+.hermes-suggestion:last-of-type {
+  border-bottom: var(--line) solid var(--border-strong);
+}
+
+.hermes-suggestion:hover:enabled {
+  border-color: var(--signal-ink);
+}
+
+.hermes-suggestion:disabled {
+  color: var(--text-disabled);
+}
+
+.hermes-suggestion-index {
+  flex: none;
+  color: var(--signal-ink);
+  font: var(--text-meta);
+}
+
+.hermes-turn {
+  max-width: 700px;
+  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-5);
+  border-bottom: var(--line) solid var(--border);
+  animation: turnEnter var(--dur-context) var(--ease-enter);
+}
+
+@keyframes turnEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* O filete cresce de cima para baixo enquanto a resposta chega. */
+@keyframes filet {
+  from {
+    transform: scaleY(0);
+  }
+
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.hermes-page .hermes-question {
+  margin: 0;
+  color: var(--text);
+  font: var(--text-capture);
+  letter-spacing: var(--tracking-capture);
+  line-height: 1.35;
+}
+
+.hermes-answer-row {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.hermes-filet {
+  flex: none;
+  width: var(--marker);
+  background: var(--signal-fill);
+  transform-origin: top;
+  animation: filet var(--dur-context) var(--ease-enter);
+}
+
+.hermes-answer-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.hermes-page .hermes-answer {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--text);
+  font: var(--text-body);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.hermes-page .hermes-approval {
+  max-width: 700px;
+  margin-bottom: var(--space-5);
+}
+
+.hermes-approval-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.hermes-composer {
+  position: relative;
+  flex-shrink: 0;
+  padding: var(--space-3) var(--content-margin) var(--space-4);
+  border-top: var(--line) solid var(--border);
+}
+
+.hermes-modes {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-label);
+}
+
+.hermes-mode {
+  padding: 2px var(--space-1);
+  color: var(--text-system);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  letter-spacing: inherit;
+  transition: background var(--dur-state) var(--ease-state), color var(--dur-state) var(--ease-state);
+}
+
+.hermes-mode[data-active] {
+  color: var(--on-signal);
+  background: var(--signal-fill);
+}
+
+/* Modo sem lastro fica visivelmente indisponivel em vez de sumir: o desenho
+   tem tres, e esconder dois faria parecer que so existe um. */
+.hermes-mode:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+.hermes-mode-rule {
+  color: var(--border-strong);
+}
+
+.hermes-mode-hint {
+  color: var(--text-disabled);
+}
+
+.hermes-mode-spacer {
+  flex: 1;
+}
+
+.hermes-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: var(--line) solid var(--border-strong);
+}
+
+.hermes-field-input {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+}
+
+.hermes-field-input input {
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  font: var(--text-capture);
+  letter-spacing: var(--tracking-capture);
+}
+
+.hermes-field-input input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Mencao: o acervo local aparece antes de o Hermes responder, porque buscar
+   Project e Resource e leitura — cabe na fase atual. */
+.hermes-mentions {
+  position: absolute;
+  bottom: 100%;
+  left: var(--content-margin);
+  width: var(--drawer-width);
+  padding: var(--space-1);
+  background: var(--surface);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-overlay);
+  animation: rowEnter var(--dur-state) var(--ease-enter);
+}
+
+.hermes-mention {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.hermes-mention:hover {
+  background: var(--surface-raised);
+}
+
+.hermes-mention-kind {
+  color: var(--signal-ink);
+  font: var(--text-meta);
+}
+
+.hermes-mention-name {
+  flex: 1;
+  color: var(--text);
+  font: var(--text-ui);
+}
+
+.hermes-mention-meta {
+  color: var(--text-disabled);
+  font: var(--text-meta);
+}
+
+.hermes-page .hermes-offline {
+  margin: var(--space-3) 0 0;
+}
+
+.hermes-page .hermes-running {
+  margin-top: var(--space-3);
+}
+
+.hermes-drawer {
+  display: flex;
+  width: var(--drawer-width);
+  flex-direction: column;
+  background: var(--surface);
+  animation: viewEnter var(--dur-enter) var(--ease-enter);
+}
+
+.hermes-drawer-head {
+  display: flex;
+  height: var(--topbar-height);
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-4);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.hermes-drawer-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+.hermes-drawer-section {
+  display: block;
+  margin-top: var(--space-5);
+}
+
+.hermes-cited {
+  margin-top: var(--space-3);
+}
+
+.hermes-cited-kind {
+  flex: none;
+  margin-right: var(--space-2);
+  color: var(--signal-ink);
+  font: var(--text-meta);
 }

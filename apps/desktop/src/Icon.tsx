@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 export type IconName =
   | "home"
+  | "hermes"
   | "inbox"
   | "projects"
   | "workspaces"
@@ -19,6 +20,8 @@ export type IconName =
 
 const paths: Record<IconName, ReactNode> = {
   home: <><path d="M3.5 9 10 3.5 16.5 9"/><path d="M5.5 8v8h9V8"/></>,
+  // Balao com o canto inferior esquerdo puxado: fala, nao chat generico.
+  hermes: <path d="M3.5 4.5h13v8h-8l-5 4z"/>,
   inbox: <><path d="M3.5 5.5h13v10h-13z"/><path d="M3.5 11h3l1.5 2h4l1.5-2h3"/></>,
   projects: <><path d="M3.5 5.5h5l1.5 2h6.5v8.5h-13z"/><path d="M3.5 7.5h13"/></>,
   workspaces: <><rect x="3.5" y="5" width="8.5" height="8.5"/><rect x="8" y="3.5" width="8.5" height="8.5"/><path d="M7 16.5h8.5v-8.5"/></>,

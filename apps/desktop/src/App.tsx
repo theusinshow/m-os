@@ -6,12 +6,13 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, appError } from "./api";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
 import { hermes, hermesUnavailableLabel, type HermesStatus } from "./hermes";
+import { HermesPage } from "./HermesPage";
 import { Icon, type IconName } from "./Icon";
 import { MosSymbol } from "./Symbol";
 import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, Project, RegisteredApp, Resource, ResourceKind, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 import "./App.css";
 
-type Page = "home" | "inbox" | "projects" | "workspaces" | "apps" | "library" | "tasks" | "settings";
+type Page = "home" | "hermes" | "inbox" | "projects" | "workspaces" | "apps" | "library" | "tasks" | "settings";
 type UndoAction = { message: string; run: () => Promise<unknown> };
 type Theme = "dark" | "light";
 type CommandResult = SearchItem | { kind: "function"; function: FunctionDefinition };
@@ -1287,13 +1288,17 @@ function DesktopApp() {
   // Seis destinos, na ordem do design: home · inbox · board · projects · library · apps.
   // O sistema tem oito paginas e o rail aceita seis. Workspaces entra pelo
   // Command; Settings fica no rodape do rail, que o README permite.
-  const nav: { page: Page; label: string; icon: IconName; count?: number }[] = [{ page: "home", label: "Home", icon: "home" }, { page: "inbox", label: "Inbox", icon: "inbox", count: inbox.length }, { page: "tasks", label: "Tasks", icon: "board" }, { page: "projects", label: "Projects", icon: "projects" }, { page: "library", label: "Library", icon: "library" }, { page: "apps", label: "Apps", icon: "apps" }];
-  const pageLabels: Record<Page, string> = { home: "Home", inbox: "Inbox", tasks: "Tasks", projects: "Projects", library: "Library", apps: "Apps", workspaces: "Workspaces", settings: "Settings" };
+  // Sete destinos: o Hermes entrou como tela propria no desenho v0.1 do chat
+  // completo, logo depois da Home. Ele deixou de ser so camada dentro do
+  // Command — continua alcancavel por la, mas agora tem endereco.
+  const nav: { page: Page; label: string; icon: IconName; count?: number }[] = [{ page: "home", label: "Home", icon: "home" }, { page: "hermes", label: "Hermes", icon: "hermes" }, { page: "inbox", label: "Inbox", icon: "inbox", count: inbox.length }, { page: "tasks", label: "Tasks", icon: "board" }, { page: "projects", label: "Projects", icon: "projects" }, { page: "library", label: "Library", icon: "library" }, { page: "apps", label: "Apps", icon: "apps" }];
+  const pageLabels: Record<Page, string> = { home: "Home", hermes: "Hermes", inbox: "Inbox", tasks: "Tasks", projects: "Projects", library: "Library", apps: "Apps", workspaces: "Workspaces", settings: "Settings" };
   const pageMeta = useMemo(() => {
     if (page !== "home") return pageLabels[page].toUpperCase();
     return new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date()).toUpperCase().replace(",", " ·");
   }, [page]);
   const pageContent = useMemo(() => {
+    if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} />;
     if (page === "home") return <HomePage recent={recent} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} intent={functionIntent ?? undefined} />;
     if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} openResource={openResource} intent={functionIntent ?? undefined} />;
     if (page === "projects") return <ProjectsPage projects={projects} tasks={tasks} initialProjectId={selectedProjectId} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
