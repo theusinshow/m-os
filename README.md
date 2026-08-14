@@ -1,8 +1,8 @@
 # M/OS
 
 M/OS e um sistema pessoal desktop-first para capturar, organizar e reencontrar
-contexto com baixa friccao. A implementacao atual e o corte local `v0.1` para
-Windows, do pensamento capturado ate a acao organizada.
+contexto com baixa friccao. A implementacao atual e a candidata local `v0.2.0`
+para Windows, da captura e acao organizada ate Resources reencontraveis.
 
 ## Estado atual
 
@@ -12,9 +12,15 @@ Windows, do pensamento capturado ate a acao organizada.
 - Inbox, Archive e Trash recuperaveis;
 - Projects e Tasks com proveniencia explicita de Capture;
 - Kanban simples com Backlog, Doing e Done;
-- Search unificada e agrupada para Captures, Tasks e Projects;
+- Workspaces como contexto compartilhado entre Projects e Apps;
+- App Registry local com abertura controlada de URLs e paths;
+- catalogo idempotente de Apps proprios, com origem GitHub separada do alvo de abertura;
+- Resources link-first com Library, nota contextual e proveniencia de Capture;
+- Search unificada para Captures, Tasks, Projects, Workspaces, Apps, Resources e Functions;
+- Functions de baixo risco roteadas pelo Command para os fluxos existentes;
 - backup `.mos-backup`, restore validado e safety backup;
 - export JSON legivel e versionado;
+- atualizacao manual assinada pelo Tauri Updater;
 - design system proprio com temas dark e light;
 - nenhuma rede no caminho de captura ou consulta.
 

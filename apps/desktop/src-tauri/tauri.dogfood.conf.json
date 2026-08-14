@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "M-OS Dogfood",
+  "identifier": "com.codedbym.mos.dogfood",
+  "build": {
+    "beforeDevCommand": "npm run dev -- --host 127.0.0.1 --port 1421 --strictPort",
+    "devUrl": "http://localhost:1421"
+  },
+  "app": {
+    "security": {
+      "devCsp": "default-src 'self' customprotocol: asset:; connect-src ipc: http://ipc.localhost http://localhost:1421 ws://localhost:1421; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'"
+    }
+  }
+}

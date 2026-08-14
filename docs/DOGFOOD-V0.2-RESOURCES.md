@@ -1,7 +1,9 @@
 # M/OS — Dogfood controlado v0.2 Resources
 
-**Data:** 2026-08-13  
-**Resultado:** aprovado com uma regressão encontrada, corrigida e repetida  
+**Data:** 2026-08-13
+
+**Resultado:** aprovado com uma regressão encontrada, corrigida e repetida
+
 **Escopo:** ensaio funcional isolado; não substitui observação de uso pessoal ao longo do tempo
 
 ## Ambiente seguro
