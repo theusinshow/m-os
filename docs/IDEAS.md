@@ -1847,3 +1847,255 @@ Nesse estágio, o M/OS funciona realmente como a interface entre:
 e
 
 **execução**.
+
+---
+
+# Catálogo de widgets da Home
+
+Levantamento de 2026-08-14, a partir do desenho `M-OS Ideas - Hermes e Home v0.1`.
+
+Cada entrada declara sua `Fonte` — de onde o dado viria. Isso não promove nenhuma delas
+ao Roadmap: a regra da seção 23 do `ROADMAP.md` continua valendo, e a maioria depende de
+integrações que ainda não existem.
+
+O arranjo da Home continua em aberto: `1B` Capture-led, `1C` Temporal spine ou
+`1D` Grade editável. A escolha muda quantos destes cabem.
+
+---
+
+## 151. Now / Current Context
+
+Mostra em que você está trabalhando agora: projeto, task atual, tempo correndo, branch e
+repo, com botão para retomar.
+
+Talvez o widget mais importante depois da Capture.
+
+Fonte: ChronoCAD + core + GitHub
+
+---
+
+## 152. Universal Capture
+
+Não exatamente um widget, mas o elemento principal da Home. Texto, voz ou link salvo
+instantaneamente na Inbox.
+
+Fonte: core
+
+---
+
+## 153. Jarvis
+
+Versão compacta do Hermes. Não um chat inteiro; algo como "pergunte ou peça algo".
+
+Pode expandir para o Command completo.
+
+Fonte: Hermes
+
+---
+
+## 154. Today
+
+Tarefas, reminders e compromissos realmente relevantes para hoje. Sem calendário inteiro.
+
+Fonte: core (exige agendamento) + calendário
+
+---
+
+## 155. Inbox Pulse
+
+Quantas captures ficaram por processar, e quantas já passaram do ponto. Clicar abre a
+Inbox.
+
+Existe para evitar que a Inbox vire um cemitério.
+
+Fonte: core
+
+---
+
+## 156. Continue Working
+
+Últimos contextos usados, com um clique para restaurar.
+
+Fonte: core (exige histórico de contexto)
+
+---
+
+## 157. Active Projects
+
+Três a cinco projetos realmente ativos, com estado discreto, task atual e última
+atividade.
+
+Nada de grid gigante de cards.
+
+Fonte: core
+
+---
+
+## 158. ChronoCAD / Work Timer
+
+Projeto, task e tempo corrido, com Start, Pause e Stop.
+
+No futuro pode alimentar cálculo real de tempo por projeto.
+
+Fonte: ChronoCAD
+
+---
+
+## 159. M-Finance Snapshot
+
+O mínimo que merece atravessar para o M/OS: saldo disponível, contas próximas, ou quanto
+posso gastar.
+
+Não duplicar o dashboard financeiro.
+
+Fonte: M-Finance
+
+---
+
+## 160. GitHub Pulse
+
+Somente o que exige atenção: PRs abertos, issues ligadas às suas Tasks, build quebrado.
+
+Não mostrar commit por mostrar.
+
+Fonte: GitHub
+
+---
+
+## 161. Project Pulse
+
+Contextual ao projeto aberto: tasks abertas, quantas em Doing, último commit, captures
+relacionadas.
+
+Fonte: core + GitHub
+
+---
+
+## 162. Quick Apps
+
+Ferramentas relevantes ao contexto atual. Em Web Design, Figma e Screenshot Tool; em
+Engenharia, ChronoCAD e AutoCAD.
+
+Fonte: App Registry
+
+---
+
+## 163. Recent Resources
+
+Últimas referências salvas: site, biblioteca, imagem, tipografia.
+
+Fonte: Library
+
+---
+
+## 164. Design Inspiration
+
+Específico do Workspace Web Design: três ou quatro referências recentes, visualmente
+maiores.
+
+Seria um dos poucos widgets realmente imagéticos.
+
+Fonte: Library
+
+---
+
+## 165. Waiting / Blocked
+
+Coisas que dependem de alguém ou estão paradas: aguardando retorno do cliente, PR
+esperando review.
+
+Melhor que "tarefas atrasadas", que culpa em vez de informar.
+
+Fonte: core
+
+---
+
+## 166. Someday / Ideas
+
+Duas ou três ideias recentes, sem transformar tudo em Task.
+
+Importante para quem gera projetos e ideias com frequência.
+
+Fonte: core
+
+---
+
+## 167. Recently Captured
+
+Últimas coisas jogadas no cérebro.
+
+Serve para criar confiança de que sim, aquilo foi salvo.
+
+Fonte: core
+
+---
+
+## 168. Recently Found
+
+Itens acessados recentemente via Search. Permite voltar a algo sem pesquisar de novo.
+
+Fonte: core (exige log de acesso)
+
+---
+
+## 169. Weekly Load
+
+Visão simples: projetos ativos, Tasks em Doing e compromissos.
+
+Não é produtividade gamificada; é alerta de sobrecarga.
+
+Fonte: core
+
+---
+
+## 170. Project Cost / Value
+
+Horas trabalhadas, valor recebido e valor por hora real de um projeto.
+
+Fonte: ChronoCAD + M-Finance
+
+---
+
+## 171. Hermes Suggestions
+
+Só quando houver algo realmente útil. Nada de sugestão constante.
+
+Fonte: Hermes
+
+---
+
+## 172. Connections
+
+Coisas relacionadas ao contexto atual. Abriu uma Task, mostra spec, PR, capture original
+e resource relacionado.
+
+Fonte: core (derivado)
+
+---
+
+## 173. System / M/OS Health
+
+Muito discreto: salvo localmente, backup do dia, Hermes online.
+
+Combina com a promessa de confiança do produto.
+
+Fonte: core
+
+---
+
+## 174. Hermes Status
+
+Estado da ponte com a VPS. Mostrar latência ou estado somente quando houver problema.
+
+Fonte: Hermes
+
+---
+
+## 175. Quick Actions
+
+Extremamente contextual. Dentro de um Project: nova Task, capturar, abrir repo, iniciar
+trabalho.
+
+Não uma coleção global de vinte botões.
+
+Fonte: core
