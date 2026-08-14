@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, appError } from "./api";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
-import { hermes, hermesUnavailableLabel, type HermesStatus } from "./hermes";
+import { hermes, hermesUnavailableLabel, type HermesConnectionState, type HermesStatus } from "./hermes";
 import { HermesPage } from "./HermesPage";
 import { Icon, type IconName } from "./Icon";
 import { MosSymbol } from "./Symbol";
@@ -81,6 +81,23 @@ function EmptyState({ children }: { children: ReactNode }) {
    que a etapa 2 (modo de edicao) mude posicao sem tocar em nenhum widget. */
 function Widget({ size, children }: { size: "1x1" | "2x1" | "2x2" | "full"; children: ReactNode }) {
   return <div className="widget" data-size={size}>{children}</div>;
+}
+
+/* A promessa central do produto e confianca: o que entrou esta guardado. Quando
+   tudo esta bem este e o elemento mais silencioso da tela; so ganha peso ao falhar. */
+function SystemHealth({ status }: { status: AppStatus | null }) {
+  const [hermesState, setHermesState] = useState<HermesConnectionState>("offline");
+  useEffect(() => {
+    void hermes.status().then((next) => setHermesState(next.state)).catch(() => undefined);
+    const subscription = hermes.onState((next) => setHermesState(next.state));
+    return () => { void subscription.then((dispose) => dispose()); };
+  }, []);
+  const saved = status?.storage.integrity === "ok";
+  return <dl className="health-list">
+    <div><dt>Dados</dt><dd data-ok={saved || undefined}>{saved ? "Salvos" : status ? status.storage.integrity : "—"}</dd></div>
+    <div><dt>Backup</dt><dd data-ok={status?.snapshot ? true : undefined}>{status?.snapshot || "—"}</dd></div>
+    <div><dt>Hermes</dt><dd data-ok={hermesState === "online" || undefined}>{hermesState === "online" ? "Online" : hermesState === "connecting" ? "Conectando" : "Offline"}</dd></div>
+  </dl>;
 }
 
 /* O vazio de um painel com escopo tem duas causas que a mensagem antiga confundia:
@@ -173,7 +190,7 @@ function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
   return nextIndex;
 }
 
-function HomePage({ recent, inbox, projects, tasks, workspaces, apps, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openInbox, openTasksPage, openProjectsPage, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openInbox: () => void; openTasksPage: () => void; openProjectsPage: () => void; intent?: FunctionIntent }) {
+function HomePage({ recent, inbox, projects, tasks, workspaces, apps, status, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openInbox, openTasksPage, openProjectsPage, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; status: AppStatus | null; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openInbox: () => void; openTasksPage: () => void; openProjectsPage: () => void; intent?: FunctionIntent }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState(() => localStorage.getItem("m-os-current-workspace") ?? "");
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
@@ -241,6 +258,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, refresh, o
       <Widget size="2x1"><Panel label="APPS"><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><span className="app-icon" aria-hidden="true">{app.name.trim().charAt(0).toUpperCase()}</span>{index < 9 ? <span className="app-shortcut">⌘{index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
       <Widget size="1x1"><Panel label="INBOX"><button type="button" className="pulse" onClick={() => openInbox()}><strong className="pulse-count">{inbox.length}</strong><small>{inbox.length === 1 ? "capture por processar" : "captures por processar"}</small>{staleInbox ? <small className="pulse-stale">{staleInbox === 1 ? "1 com mais de 3 dias" : `${staleInbox} com mais de 3 dias`}</small> : null}</button></Panel></Widget>
       <Widget size="1x1"><Panel label="AÇÕES"><div className="quick-actions"><Button variant="outline" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button><Button variant="outline" size="sm" onClick={() => openTasksPage()}>Nova Task</Button><Button variant="outline" size="sm" onClick={() => openProjectsPage()}>Novo Project</Button></div></Panel></Widget>
+      <Widget size="1x1"><Panel label="SISTEMA"><SystemHealth status={status} /></Panel></Widget>
     </div>
   </div>;
 }
@@ -1353,7 +1371,7 @@ function DesktopApp() {
   }, [page]);
   const pageContent = useMemo(() => {
     if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} />;
-    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openProjectsPage={() => setPage("projects")} intent={functionIntent ?? undefined} />;
+    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} status={status} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openProjectsPage={() => setPage("projects")} intent={functionIntent ?? undefined} />;
     if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} openResource={openResource} intent={functionIntent ?? undefined} />;
     if (page === "projects") return <ProjectsPage projects={projects} tasks={tasks} initialProjectId={selectedProjectId} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
     if (page === "workspaces") return <WorkspacesPage workspaces={workspaces} projects={projects} apps={apps} initialWorkspaceId={selectedWorkspaceId} refresh={refresh} openProject={openProject} openApp={openRegisteredApp} intent={functionIntent ?? undefined} />;

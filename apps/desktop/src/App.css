@@ -582,6 +582,36 @@ textarea::placeholder {
   padding-top: var(--space-2);
 }
 
+.health-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+}
+
+.health-list div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.health-list dt {
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+}
+
+.health-list dd {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.health-list dd[data-ok] {
+  color: var(--success);
+}
+
 @media (max-width: 1280px) {
   .home-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); }
   .widget[data-size="1x1"] { grid-column: span 4; }
