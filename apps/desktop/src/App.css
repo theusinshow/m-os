@@ -2635,3 +2635,16 @@ select {
   letter-spacing: var(--tracking-meta);
   text-align: right;
 }
+
+/* Botao pequeno de criacao, o que fica acima de uma lista. Ele nao e a acao
+   principal da tela — e a porta para uma. 28px e borda que acende em sodio no
+   hover: convida sem competir com o conteudo da lista. */
+.button.sm {
+  min-height: var(--height-control-sm);
+  padding: 0 var(--space-3);
+}
+
+.button.outline.sm:hover {
+  background: transparent;
+  border-color: var(--signal-ink);
+}

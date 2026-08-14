@@ -86,3 +86,15 @@ Só depois do polimento — corrigir o que existe vale mais que somar o que falt
 |---|---|---|
 | 1 | Branch, backlog, tentativa de visão | CLI ausente; app sem janela; seguindo sem olhos |
 | 2 | Fields, Rows com progresso, varredura de duplicados | colisão `.hermes-turn` corrigida; app segue sem janela |
+| 3 | Classes órfãs (nenhuma), Feedback, botão pequeno de criação | 170 classes todas em uso; app segue sem janela |
+
+## Nuance registrada
+
+A folha de componentes v0.5 diz **8 s** de janela de undo; a v0.7 e o README
+dizem ~5,2 s. Não é contradição: a folha fala de **ação em lote**, a v0.7 mostra
+o recibo de **ação única**. Não há ação em lote no app hoje, então 5,2 s vale.
+Quando lote existir, 8 s.
+
+A folha também define um **recibo passivo** de 1,6 s — sem botão, sem fechar,
+só um ponto de 4px e um rótulo mono. É outro componente, não o de undo.
+Não implementei: não há chamador hoje, e componente sem chamador é peso morto.
