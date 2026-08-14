@@ -1627,12 +1627,64 @@ select {
   border-bottom: var(--line) solid var(--border);
 }
 
-.check-control input {
-  width: var(--target-min);
-  min-height: var(--target-min);
+/* Checkbox desenhado, nao o nativo com accent-color: o nativo renderiza a caixa
+   do sistema operacional, que nao tem nada a ver com o resto da interface.
+   14px, radius de elemento pequeno, e os cinco estados da folha.
+   A area de clique continua grande porque o label envolve o input. */
+input[type="checkbox"] {
+  display: grid;
+  width: var(--checkbox-size);
+  min-width: var(--checkbox-size);
+  height: var(--checkbox-size);
+  min-height: var(--checkbox-size);
+  flex: none;
   margin: 0;
-  padding: var(--space-1);
-  accent-color: var(--signal-fill);
+  padding: 0;
+  place-items: center;
+  appearance: none;
+  background: transparent;
+  border: var(--line) solid var(--border-control);
+  border-radius: var(--radius-sm);
+  transition: background var(--dur-state) var(--ease-state),
+    border-color var(--dur-state) var(--ease-state);
+}
+
+input[type="checkbox"]:hover:enabled {
+  border-color: var(--text-secondary);
+}
+
+input[type="checkbox"]:checked {
+  background: var(--signal-fill);
+  border-color: var(--signal-fill);
+}
+
+/* O glifo e desenhado em CSS para nao depender de fonte nem de SVG inline num
+   pseudo-elemento. Herda a cor de tinta sobre sodio. */
+input[type="checkbox"]:checked::after {
+  width: 3px;
+  height: 7px;
+  border: solid var(--on-signal);
+  border-width: 0 2px 2px 0;
+  transform: translateY(-1px) rotate(45deg);
+  content: "";
+}
+
+/* Parcial: barra em vez de marca. Diz "alguns", nao "todos". */
+input[type="checkbox"]:indeterminate {
+  background: var(--text-system);
+  border-color: var(--text-system);
+}
+
+input[type="checkbox"]:indeterminate::after {
+  width: 7px;
+  height: var(--marker);
+  background: var(--on-signal);
+  content: "";
+}
+
+input[type="checkbox"]:disabled {
+  border-color: var(--border);
+  cursor: default;
 }
 
 .command-results {

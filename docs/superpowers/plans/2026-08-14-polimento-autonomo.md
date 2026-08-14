@@ -98,3 +98,4 @@ Quando lote existir, 8 s.
 A folha também define um **recibo passivo** de 1,6 s — sem botão, sem fechar,
 só um ponto de 4px e um rótulo mono. É outro componente, não o de undo.
 Não implementei: não há chamador hoje, e componente sem chamador é peso morto.
+| 4 | Checkbox desenhado, cinco estados | switch de tema conferido, sem regressão; app segue sem janela |
