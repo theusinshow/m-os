@@ -115,6 +115,25 @@ acioná-lo. Aqui a regra acima não se aplica: com `appearance: none`, um input 
 indeterminate sem estilo apareceria como desmarcado — estado errado em silêncio.
 É correção defensiva, não feature especulativa.
 
+## Por que o loop parou
+
+Não por ter terminado tudo, e sim porque o que sobrou não rende sozinho.
+
+**Esgotado:** folha de componentes inteira, varreduras mecânicas, revisão de
+código com os 11 achados corrigidos, comparação estrutural das seis telas,
+auditoria estática de tema.
+
+**Bloqueado:** todo o trabalho visual, por 11 checagens seguidas ao longo de
+~4h30. O `mos-desktop` nunca teve janela principal — só a auxiliar de 16×16.
+
+**Deliberadamente não iniciado:** as features do roadmap. A autonomia foi dada,
+mas a fase Time redefine o domínio (datas, reminders) e destrava o `Agendar` do
+desenho do Hermes. Isso é direção de produto, não polimento — e o valor de
+construir sem o proprietário por perto é baixo demais para o risco.
+
+Retomar é simples: abrir a janela do app e rodar `/loop` de novo. A fila que
+precisa de olhos está pronta, e o método está descrito acima.
+
 ## Registro
 
 | Volta | O que foi feito | Resultado |
@@ -125,3 +144,6 @@ indeterminate sem estilo apareceria como desmarcado — estado errado em silênc
 | 4 | Checkbox desenhado, cinco estados | switch de tema conferido, sem regressão |
 | 5 | Precedência entre documentos | folha superada para layout |
 | 6 | `/code-review` na ponte, migration e fronteira | ver resultado abaixo |
+| 7 | Onze achados da revisão, todos corrigidos | dois graves, com teste de regressão |
+| 8 | Row em flex, mono só em dado de sistema, hachura no light | três bugs meus |
+| 9 | Avaliação: fila sem olhos esgotada | loop encerrado |
