@@ -938,6 +938,9 @@ function CommandSurface({ close, openCapture, openTask, openProject, openWorkspa
           return <button id={`command-result-${index}`} aria-current={index === activeIndex ? "true" : undefined} data-active={index === activeIndex || undefined} key={`${item.kind}-${index}-${title}`} className="command-row" onFocus={() => setActiveIndex(index)} onMouseEnter={() => setActiveIndex(index)} onClick={() => openItem(item)}><span>{type}</span><strong>{title}</strong><small>{context}</small></button>;
         })}
       </div>
+      {/* TAB HERMES entra aqui na Spec B. Ate la o rodape nao anuncia um atalho
+          que nao existe. */}
+      <div className="command-footer">↑↓ NAVEGA · ⏎ ABRE · ESC FECHA</div>
     </section>
   </div>;
 }
@@ -1009,7 +1012,17 @@ function QuickCapture() {
   const input = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { input.current?.focus(); const unlisten = listen("window-revealed", () => input.current?.focus()); return () => { void unlisten.then((dispose) => dispose()); }; }, []);
   async function submit(event: FormEvent) { event.preventDefault(); if (!content.trim() || state === "saving") return; setState("saving"); setFeedback("Salvando localmente..."); try { await api.createCapture(content, "quick_capture"); setContent(""); setState("idle"); setFeedback("Salvo na Inbox"); window.setTimeout(() => void api.hideQuickCapture(), 160); } catch (error) { setState("error"); setFeedback(`${appError(error).message} O texto continua aqui.`); } }
-  return <main className="quick-shell"><form className="quick-capture" onSubmit={submit}><div className="capture-line"><span className="slash">/</span><textarea ref={input} value={content} onChange={(event) => setContent(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Escape") void api.hideQuickCapture(); if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} aria-label="Texto da captura" placeholder="What's on your mind?" rows={1} /></div><div className="capture-footer"><span className={`feedback ${state}`} aria-live="polite">{feedback}</span><Button variant="primary" type="submit" disabled={!content.trim() || state === "saving"}>Capturar</Button></div></form></main>;
+  // Os tres tracos de amplitude sao a unica presenca da voz em repouso — sem
+  // icone de microfone. Ficam apagados ate a voz existir (fase adiada).
+  return <main className="quick-shell"><form className="quick-capture" onSubmit={submit}>
+    <div className="capture-line">
+      <span className="capture-bar" aria-hidden="true" />
+      <textarea ref={input} value={content} onChange={(event) => setContent(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Escape") void api.hideQuickCapture(); if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} aria-label="Texto da captura" placeholder="What's on your mind?" rows={1} />
+      {content ? null : <span className="capture-caret" aria-hidden="true" />}
+      <span className="amplitude" aria-hidden="true"><i /><i /><i /></span>
+    </div>
+    <div className="capture-footer"><span className="micro-label">⏎ SALVA E FECHA · ESC CANCELA</span><span className={`feedback ${state}`} aria-live="polite">{state === "error" ? feedback : ""}</span></div>
+  </form></main>;
 }
 
 function DesktopApp() {

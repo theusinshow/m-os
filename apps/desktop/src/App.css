@@ -1391,6 +1391,9 @@ select {
   background: var(--overlay-backdrop);
 }
 
+/* O painel entra a 34% do topo da janela — nao centrado nela. Um overlay
+   centrado empurra o olho para o meio da tela; a 34% ele fica na altura de
+   leitura e o conteudo atras continua legivel. */
 .command-surface,
 .entity-viewer {
   position: absolute;
@@ -1399,10 +1402,23 @@ select {
   left: 50%;
   overflow: hidden;
   background: var(--surface-raised);
-  border-radius: var(--radius-lg);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
   box-shadow: var(--shadow-overlay);
-  transform: translate(-50%, -50%);
-  animation: overlay-in var(--dur-enter) var(--ease-enter);
+  transform: translateX(-50%);
+  animation: overlayEnter var(--dur-enter) var(--ease-enter);
+}
+
+@keyframes overlayEnter {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-6px) scale(0.99);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
 }
 
 .command-surface {
@@ -1457,11 +1473,13 @@ select {
   padding: var(--space-4);
 }
 
+/* Coluna de tipo com largura fixa: os tipos alinham verticalmente e a lista
+   fica varrivel pelo olho sem ler cada linha. */
 .command-row {
   display: grid;
   width: 100%;
-  min-height: var(--height-row-two-line);
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  min-height: var(--height-row-touch);
+  grid-template-columns: var(--command-type-column) minmax(0, 1fr);
   align-items: center;
   gap: 0 var(--space-3);
   padding: 0 var(--space-4);
@@ -1486,6 +1504,19 @@ select {
   grid-row: 1 / 3;
   color: var(--text-system);
   font: var(--text-meta);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+
+.command-footer {
+  display: flex;
+  align-items: center;
+  height: var(--command-footer);
+  padding: 0 var(--space-4);
+  color: var(--text-system);
+  border-top: var(--line) solid var(--border);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
 }
 
 .command-row strong {
@@ -1756,6 +1787,27 @@ select {
   border: 0;
   font: var(--text-meta);
   letter-spacing: var(--tracking-meta);
+}
+
+/* Amplitude em repouso: tres tracos apagados. Nao ha icone de microfone, e
+   nao ha animacao enquanto a voz nao existir — um indicador que se mexe sem
+   estar gravando mente sobre o estado do sistema. */
+.amplitude {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--capture-bar-height);
+}
+
+.amplitude i {
+  width: var(--line);
+  height: var(--space-2);
+  background: var(--text-disabled);
+}
+
+.amplitude i:nth-child(2) {
+  height: var(--space-3);
 }
 
 .quick-shell {

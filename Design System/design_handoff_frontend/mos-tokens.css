@@ -136,6 +136,8 @@
   --caret-height: 20px;
   --dot-size: 5px;
   --receipt-offset: 24px;
+  --command-type-column: 84px;
+  --command-footer: 34px;
   --fillet: 3px;
 
   /* Tile da Library sem imagem. Hachura, nunca ilustracao nem icone gigante. */
