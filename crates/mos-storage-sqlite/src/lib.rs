@@ -15,13 +15,14 @@ use mos_core::{CoreError, ErrorCode};
 use rusqlite::{Connection, MAIN_DB};
 use serde::Serialize;
 
-const SCHEMA_VERSION: u32 = 6;
+const SCHEMA_VERSION: u32 = 7;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
 const MIGRATION_004: &str = include_str!("../migrations/0004_workspaces.sql");
 const MIGRATION_005: &str = include_str!("../migrations/0005_app_sources.sql");
 const MIGRATION_006: &str = include_str!("../migrations/0006_resources.sql");
+const MIGRATION_007: &str = include_str!("../migrations/0007_v03_design.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -182,6 +183,11 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
             .execute_batch(MIGRATION_006)
             .map_err(map_sql_error)?;
     }
+    if current <= 6 {
+        connection
+            .execute_batch(MIGRATION_007)
+            .map_err(map_sql_error)?;
+    }
     Ok(())
 }
 
@@ -329,7 +335,7 @@ mod tests {
 
         assert_eq!(health.journal_mode.to_lowercase(), "wal");
         assert_eq!(health.synchronous, "FULL");
-        assert_eq!(health.schema_version, 6);
+        assert_eq!(health.schema_version, 7);
         assert_eq!(health.integrity, "ok");
     }
 
@@ -358,7 +364,7 @@ mod tests {
         drop(connection);
 
         let storage = SqliteStorage::open(&database, &backups).unwrap();
-        assert_eq!(storage.health().unwrap().schema_version, 6);
+        assert_eq!(storage.health().unwrap().schema_version, 7);
         assert_eq!(CaptureRepository::recent(&storage, 10).unwrap().len(), 1);
         assert_eq!(
             fs::read_dir(&backups)
@@ -371,6 +377,170 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    /// Sobe um v6 povoado ate v7 e confere as tres mudancas do design v0.3.
+    ///
+    /// O ponto delicado e a busca: tasks e resources sao recriadas, e as tabelas
+    /// FTS de conteudo externo indexam por rowid. Depois de um swap as contagens
+    /// continuam batendo enquanto os rowids mudam, entao ensure_search_projection()
+    /// nao detectaria a divergencia. Se a migration esquecer o rebuild explicito,
+    /// a busca passa a devolver resultado errado em silencio — e este teste falha.
+    #[test]
+    fn upgrades_populated_v6_to_the_v03_design_schema() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("mos.db");
+        let backups = directory.path().join("backups");
+        fs::create_dir_all(&backups).unwrap();
+        let connection = Connection::open(&database).unwrap();
+        configure_connection(&connection).unwrap();
+        for migration in [
+            MIGRATION_001,
+            MIGRATION_002,
+            MIGRATION_003,
+            MIGRATION_004,
+            MIGRATION_005,
+            MIGRATION_006,
+        ] {
+            connection.execute_batch(migration).unwrap();
+        }
+
+        connection
+            .execute(
+                "INSERT INTO projects (id, name, description, lifecycle_state, created_at, updated_at)
+                 VALUES ('0198a7d5-a64e-7000-8000-000000000010', 'Minarum', 'Escadas',
+                         'active', '2026-08-13T00:00:00Z', '2026-08-13T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO tasks (id, title, description, work_state, lifecycle_state,
+                                    created_at, updated_at)
+                 VALUES ('0198a7d5-a64e-7000-8000-000000000011', 'Refatorar navbar',
+                         'com urgencia', 'doing', 'active',
+                         '2026-08-13T00:00:00Z', '2026-08-13T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO resources (id, kind, title, url, note, lifecycle_state,
+                                        created_at, updated_at)
+                 VALUES ('0198a7d5-a64e-7000-8000-000000000012', 'link', 'Motion',
+                         'https://motion.dev', 'animacao declarativa', 'active',
+                         '2026-08-13T00:00:00Z', '2026-08-13T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO apps (id, name, description, launch_kind, launch_target,
+                                   lifecycle_state, created_at, updated_at)
+                 VALUES ('0198a7d5-a64e-7000-8000-000000000013', 'ChronoCAD', 'Cronometro',
+                         'url', 'https://chronocad.local', 'active',
+                         '2026-08-13T00:00:00Z', '2026-08-13T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+
+        let storage = SqliteStorage::open(&database, &backups).unwrap();
+        assert_eq!(storage.health().unwrap().schema_version, 7);
+        assert_eq!(storage.health().unwrap().integrity, "ok");
+
+        let connection = Connection::open(&database).unwrap();
+
+        // 1. Estado existente preservado, e os tres estados novos sao aceitos.
+        let state: String = connection
+            .query_row(
+                "SELECT work_state FROM tasks WHERE id = '0198a7d5-a64e-7000-8000-000000000011'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(state, "doing", "estado existente nao pode ser reescrito");
+
+        for new_state in ["inbox", "planned", "review"] {
+            connection
+                .execute(
+                    "UPDATE tasks SET work_state = ?1
+                     WHERE id = '0198a7d5-a64e-7000-8000-000000000011'",
+                    [new_state],
+                )
+                .unwrap_or_else(|error| panic!("estado {new_state} deveria ser aceito: {error}"));
+        }
+
+        // 2. link virou site, e a busca continua encontrando o recurso.
+        let kind: String = connection
+            .query_row("SELECT kind FROM resources", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(kind, "site");
+
+        let found = storage
+            .search_resources(SearchRequest {
+                query: "animacao".into(),
+                include_archived: false,
+                limit: 10,
+            })
+            .unwrap();
+        assert_eq!(found.len(), 1, "o indice FTS de resources ficou obsoleto");
+        assert_eq!(found[0].title, "Motion");
+
+        // 3. Capacidades e repositorio.
+        let can_open: i64 = connection
+            .query_row("SELECT can_open FROM apps", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            can_open, 1,
+            "app com launch_target ja abre, e deve declarar isso"
+        );
+
+        let can_write: i64 = connection
+            .query_row("SELECT can_write FROM apps", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(can_write, 0);
+
+        let repository: String = connection
+            .query_row("SELECT repository FROM projects", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(repository, "");
+    }
+
+    /// A CHECK de url no banco espelha a validacao do dominio: uma Note nao tem
+    /// url, e um Site sem http(s) e recusado nos dois lugares.
+    #[test]
+    fn resource_url_rules_follow_the_kind() {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = SqliteStorage::open(
+            directory.path().join("mos.db"),
+            directory.path().join("backups"),
+        )
+        .unwrap();
+        let connection = Connection::open(directory.path().join("mos.db")).unwrap();
+
+        connection
+            .execute(
+                "INSERT INTO resources (id, kind, title, url, note, lifecycle_state,
+                                        created_at, updated_at)
+                 VALUES ('0198a7d5-a64e-7000-8000-000000000020', 'note', 'Ideia solta', '',
+                         'o motivo', 'active', '2026-08-13T00:00:00Z', '2026-08-13T00:00:00Z')",
+                [],
+            )
+            .expect("note sem url deve ser aceita");
+
+        connection
+            .execute(
+                "INSERT INTO resources (id, kind, title, url, note, lifecycle_state,
+                                        created_at, updated_at)
+                 VALUES ('0198a7d5-a64e-7000-8000-000000000021', 'site', 'Sem esquema',
+                         'motion.dev', '', 'active',
+                         '2026-08-13T00:00:00Z', '2026-08-13T00:00:00Z')",
+                [],
+            )
+            .expect_err("site sem http(s) deve ser recusado pelo banco");
+
+        drop(storage);
     }
 
     #[test]
@@ -402,7 +572,7 @@ mod tests {
 
         let storage = SqliteStorage::open(&database, &backups).unwrap();
 
-        assert_eq!(storage.health().unwrap().schema_version, 6);
+        assert_eq!(storage.health().unwrap().schema_version, 7);
         let apps = storage.apps(false).unwrap();
         assert_eq!(apps.len(), 1);
         assert_eq!(apps[0].name, "Motion");

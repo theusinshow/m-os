@@ -19,7 +19,7 @@ use crate::{
 };
 
 pub(crate) const PROJECT_COLUMNS: &str =
-    "id, name, description, lifecycle_state, created_at, updated_at";
+    "id, name, description, lifecycle_state, created_at, updated_at, repository";
 pub(crate) const WORKSPACE_COLUMNS: &str =
     "id, name, description, lifecycle_state, created_at, updated_at";
 pub(crate) const TASK_COLUMNS: &str = "id, title, description, project_id, source_capture_id, work_state, lifecycle_state, created_at, updated_at, completed_at";
@@ -31,6 +31,7 @@ struct RawProject {
     lifecycle_state: String,
     created_at: String,
     updated_at: String,
+    repository: String,
 }
 
 impl RawProject {
@@ -42,6 +43,7 @@ impl RawProject {
             lifecycle_state: row.get(3)?,
             created_at: row.get(4)?,
             updated_at: row.get(5)?,
+            repository: row.get(6)?,
         })
     }
 
@@ -50,6 +52,7 @@ impl RawProject {
             id: ProjectId::parse(&self.id)?,
             name: self.name,
             description: self.description,
+            repository: self.repository,
             lifecycle_state: LifecycleState::parse(&self.lifecycle_state)?,
             created_at: parse_time(&self.created_at)?,
             updated_at: parse_time(&self.updated_at)?,

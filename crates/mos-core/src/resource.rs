@@ -32,22 +32,35 @@ impl std::fmt::Display for ResourceId {
     }
 }
 
+/// Tipo do Resource.
+///
+/// A Library filtra por estes quatro. A validacao de URL varia por tipo, e o
+/// banco espelha exatamente estas regras numa CHECK (migration 0007).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceKind {
-    Link,
+    Site,
+    Library,
+    Image,
+    Note,
 }
 
 impl ResourceKind {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Link => "link",
+            Self::Site => "site",
+            Self::Library => "library",
+            Self::Image => "image",
+            Self::Note => "note",
         }
     }
 
     pub fn parse(value: &str) -> Result<Self, CoreError> {
         match value {
-            "link" => Ok(Self::Link),
+            "site" => Ok(Self::Site),
+            "library" => Ok(Self::Library),
+            "image" => Ok(Self::Image),
+            "note" => Ok(Self::Note),
             _ => Err(CoreError::new(
                 ErrorCode::DataIntegrity,
                 "Tipo de Resource desconhecido.",
@@ -85,20 +98,39 @@ pub struct NewResource {
 }
 
 impl NewResource {
-    pub fn create_link(
+    /// Cria um Resource de qualquer tipo.
+    ///
+    /// A validacao de URL varia por tipo: Site e Library exigem http(s);
+    /// Image aceita http(s) ou caminho local; Note nao tem URL — e por isso
+    /// exige titulo proprio, ja que nao ha URL para servir de fallback.
+    pub fn create(
+        kind: ResourceKind,
         title: &str,
         url: &str,
         note: &str,
         source_capture_id: Option<CaptureId>,
     ) -> Result<Self, CoreError> {
-        let url = validate_resource_url(url)?;
+        let url = match kind {
+            ResourceKind::Site | ResourceKind::Library => validate_resource_url(url)?,
+            ResourceKind::Image => validate_image_location(url)?,
+            ResourceKind::Note => String::new(),
+        };
+
         let title = match title.trim() {
+            "" if url.is_empty() => {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidInput,
+                    "Uma Note precisa de titulo.",
+                    false,
+                ))
+            }
             "" => url.clone(),
             value => value.to_owned(),
         };
+
         Ok(Self {
             id: ResourceId::new(),
-            kind: ResourceKind::Link,
+            kind,
             title,
             url,
             note: note.trim().to_owned(),
@@ -106,6 +138,28 @@ impl NewResource {
             created_at: OffsetDateTime::now_utc(),
         })
     }
+
+    /// Atalho historico: um link e um Site.
+    pub fn create_link(
+        title: &str,
+        url: &str,
+        note: &str,
+        source_capture_id: Option<CaptureId>,
+    ) -> Result<Self, CoreError> {
+        Self::create(ResourceKind::Site, title, url, note, source_capture_id)
+    }
+}
+
+fn validate_image_location(value: &str) -> Result<String, CoreError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidInput,
+            "Uma imagem precisa de um endereco ou caminho.",
+            false,
+        ));
+    }
+    Ok(value.to_owned())
 }
 
 pub fn validate_resource_url(url: &str) -> Result<String, CoreError> {
@@ -126,11 +180,60 @@ mod tests {
     use super::*;
 
     #[test]
+    fn kinds_round_trip() {
+        for kind in [
+            ResourceKind::Site,
+            ResourceKind::Library,
+            ResourceKind::Image,
+            ResourceKind::Note,
+        ] {
+            assert_eq!(ResourceKind::parse(kind.as_str()).unwrap(), kind);
+        }
+        assert!(ResourceKind::parse("link").is_err());
+    }
+
+    #[test]
+    fn site_and_library_require_http_url() {
+        assert!(NewResource::create(ResourceKind::Site, "", "motion.dev", "", None).is_err());
+        assert!(NewResource::create(ResourceKind::Library, "", "", "", None).is_err());
+    }
+
+    #[test]
+    fn note_has_no_url_and_requires_a_title() {
+        let resource =
+            NewResource::create(ResourceKind::Note, "Ideia", "", "o motivo", None).unwrap();
+        assert_eq!(resource.url, "");
+        assert_eq!(resource.note, "o motivo");
+        assert!(NewResource::create(ResourceKind::Note, "  ", "", "corpo", None).is_err());
+    }
+
+    #[test]
+    fn image_accepts_local_path_or_url() {
+        assert!(NewResource::create(
+            ResourceKind::Image,
+            "captura",
+            "C:/imagens/hero.png",
+            "",
+            None
+        )
+        .is_ok());
+        assert!(NewResource::create(
+            ResourceKind::Image,
+            "captura",
+            "https://x.dev/a.png",
+            "",
+            None
+        )
+        .is_ok());
+        assert!(NewResource::create(ResourceKind::Image, "captura", "", "", None).is_err());
+    }
+
+    #[test]
     fn link_requires_http_and_uses_url_as_fallback_title() {
         assert!(NewResource::create_link("", "motion.dev", "", None).is_err());
         let resource =
             NewResource::create_link("", "https://motion.dev", "Animacoes", None).unwrap();
         assert_eq!(resource.title, "https://motion.dev");
-        assert_eq!(resource.kind, ResourceKind::Link);
+        assert_eq!(resource.kind, ResourceKind::Site);
     }
 }
