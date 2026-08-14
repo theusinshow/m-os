@@ -342,8 +342,10 @@ kbd {
   overflow: auto;
 }
 
+/* Fluida por decisao: o teto de leitura nao mora mais no container mais externo,
+   e sim nos blocos que contem texto corrido. Ver spec de 2026-08-14. */
 .page {
-  width: min(100%, var(--content-max));
+  width: 100%;
   min-height: 100%;
   padding: var(--space-5) var(--content-margin) var(--space-7);
 }
@@ -1124,6 +1126,7 @@ textarea::placeholder {
 
 .empty-state {
   margin: var(--space-4) 0;
+  max-width: var(--measure);
   color: var(--text-secondary);
   font: var(--text-body);
 }
@@ -1920,9 +1923,13 @@ input[type="checkbox"]:disabled {
   margin: 0;
 }
 
+/* Unica pagina que e leitura e formulario de ponta a ponta, entao assume o teto
+   que .page largou. Alinhada a esquerda de proposito: todo o resto do app alinha
+   a esquerda a partir do rail, e centralizar so o Settings criaria excecao. */
 .settings-page {
   display: grid;
   gap: var(--space-6);
+  max-width: var(--content-max);
 }
 
 .settings-page .panel {
@@ -1943,6 +1950,7 @@ input[type="checkbox"]:disabled {
 .setting-row p,
 .support-copy {
   margin: var(--space-1) 0 0;
+  max-width: var(--measure);
   color: var(--text-secondary);
   font: var(--text-small);
 }

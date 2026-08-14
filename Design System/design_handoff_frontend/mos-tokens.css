@@ -170,6 +170,7 @@
   --focus-ring: 3px;
   --target-min: 24px;
   --content-max: 1100px;
+  --measure: 70ch;
   --column-min: 260px;
   --list-pane-width: 400px;
   --border-control: #626A70;
