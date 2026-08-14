@@ -53,7 +53,17 @@ disciplina de token, CI.
 - [x] Fields — cinco estados; vazio e preenchido têm bordas diferentes.
 - [x] Rows — estrutura confirmada; faltava a project row com barra de progresso,
       agora implementada a partir das tasks concluídas.
-- [ ] Controls, Navigation, Overlays, Feedback.
+- [x] Controls — checkbox desenhado no lugar do nativo.
+- [x] Feedback — nada quebrado; duas nuances registradas abaixo.
+- [x] Navigation e Overlays — **não usar a folha aqui.** Ela mostra um rail
+      antigo (símbolo de 18px, linha divisória, ícones de 19px, gap 20) que a
+      v0.7 substituiu. Etags: folha `1786597925`, v0.7 `1786674649`.
+
+**Regra de precedência que vale para as próximas voltas:** a folha de
+componentes é mais antiga que a v0.7 em tudo. Ela só manda onde a v0.7 é
+omissa — os cinco estados de botão, campo e controle, que nenhuma tela mostra.
+Onde as duas falam da mesma coisa, a v0.7 ganha. Minerar a folha para layout de
+tela é reintroduzir desenho velho.
 - [x] Varredura de seletor duplicado. Achou uma colisão real entre componentes
       (`.hermes-turn` valia para o Command e para a tela ao mesmo tempo) e duas
       duplicatas minhas. Os sete restantes são grupo compartilhado + bloco
@@ -99,3 +109,4 @@ A folha também define um **recibo passivo** de 1,6 s — sem botão, sem fechar
 só um ponto de 4px e um rótulo mono. É outro componente, não o de undo.
 Não implementei: não há chamador hoje, e componente sem chamador é peso morto.
 | 4 | Checkbox desenhado, cinco estados | switch de tema conferido, sem regressão; app segue sem janela |
+| 5 | Precedência folha vs v0.7; `/code-review` na ponte e na migration | folha superada para layout; revisão em background |
