@@ -2322,6 +2322,7 @@ name = "mos-desktop"
 version = "0.2.0"
 dependencies = [
  "mos-core",
+ "mos-hermes",
  "mos-storage-sqlite",
  "serde",
  "serde_json",
@@ -2332,6 +2333,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tokio",
  "windows-sys 0.61.2",
 ]
 

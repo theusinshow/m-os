@@ -21,6 +21,8 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+mod hermes;
+
 const DEFAULT_CAPTURE_SHORTCUT: &str = "Ctrl+Shift+Space";
 
 struct AppState {
@@ -991,6 +993,7 @@ pub fn run() {
                 )
                 .map_err(|error| std::io::Error::other(error.to_string()))?,
             );
+            app.manage(hermes::HermesState::default());
             app.manage(AppState {
                 captures: CaptureService::new(storage.clone()),
                 work: WorkService::new(storage.clone()),
@@ -1030,6 +1033,15 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            hermes::hermes_status,
+            hermes::hermes_set_credentials,
+            hermes::hermes_clear_credentials,
+            hermes::hermes_set_base_url,
+            hermes::hermes_connect,
+            hermes::hermes_send,
+            hermes::hermes_interrupt,
+            hermes::hermes_approve,
+            hermes::hermes_disconnect,
             create_capture,
             get_capture,
             list_recent,

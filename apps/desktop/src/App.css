@@ -1508,6 +1508,103 @@ select {
   text-transform: uppercase;
 }
 
+/* Alternador de modo. Visivel no campo, nao escondido num atalho. */
+.command-modes {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-2);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.command-mode {
+  padding: 0;
+  color: var(--text-system);
+  background: transparent;
+  border: 0;
+  font: var(--text-small);
+  transition: color var(--dur-instant) var(--ease-state);
+}
+
+.command-mode[data-active] {
+  color: var(--text);
+}
+
+.command-mode-state {
+  margin-left: auto;
+  color: var(--text-disabled);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+}
+
+.command-mode-state[data-state="online"] {
+  color: var(--text-system);
+}
+
+.hermes-thread {
+  display: grid;
+  gap: var(--space-4);
+  max-height: calc(var(--height-row-two-line) * 8);
+  padding: var(--space-4);
+  overflow: auto;
+}
+
+.hermes-turn {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.hermes-question {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+/* A barra de 2px em sodio marca tudo que o sistema produziu. Nao ha bolha, nao
+   ha avatar, nao ha orb: o Hermes e capacidade nativa, nao um convidado. */
+.hermes-answer {
+  margin: 0;
+  padding-left: var(--space-3);
+  border-left: var(--marker) solid var(--signal-fill);
+  font: var(--text-body);
+  white-space: pre-wrap;
+}
+
+.hermes-reasoning summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.hermes-reasoning p {
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
+  white-space: pre-wrap;
+}
+
+.hermes-offline,
+.hermes-approval p {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+/* Warning nao tem cor: borda neutra, frase, e as duas saidas explicitas. */
+.hermes-approval {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.hermes-running {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--signal-ink);
+}
+
 .command-footer {
   display: flex;
   align-items: center;

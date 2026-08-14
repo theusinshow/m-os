@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, appError } from "./api";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
+import { hermes, hermesUnavailableLabel, type HermesStatus } from "./hermes";
 import { Icon, type IconName } from "./Icon";
 import { MosSymbol } from "./Symbol";
 import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, Project, RegisteredApp, Resource, ResourceKind, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
@@ -865,6 +866,20 @@ function CaptureViewer({ capture, close }: { capture: Capture; close: () => void
   return <div className="overlay-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}><article ref={dialog} className="entity-viewer" role="dialog" aria-modal="true" tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") close(); }}><header><span className="micro-label">CAPTURE</span><IconButton label="Fechar" icon="close" onClick={close} /></header><h1>{capture.content}</h1><dl><div><dt>ORIGEM</dt><dd>{sourceLabel(capture.source)}</dd></div><div><dt>ESTADO</dt><dd>{capture.lifecycleState === "archived" ? "Arquivada" : capture.processingState === "processed" ? "Processada" : "Na Inbox"}</dd></div><div><dt>CAPTURADA</dt><dd>{new Date(capture.capturedAt).toLocaleString("pt-BR")}</dd></div></dl></article></div>;
 }
 
+type HermesTurn = { question: string; answer: string; reasoning: string };
+
+/** Acumula o delta no turno corrente sem reagrupar nada: o servidor desliga o
+ *  Nagle de proposito para preservar a cadencia. */
+function appendToAnswer(turns: HermesTurn[], text: string): HermesTurn[] {
+  if (!turns.length) return turns;
+  return turns.map((turn, index) => index === turns.length - 1 ? { ...turn, answer: turn.answer + text } : turn);
+}
+
+function appendToReasoning(turns: HermesTurn[], text: string): HermesTurn[] {
+  if (!turns.length) return turns;
+  return turns.map((turn, index) => index === turns.length - 1 ? { ...turn, reasoning: turn.reasoning + text } : turn);
+}
+
 function CommandSurface({ close, openCapture, openTask, openProject, openWorkspace, openApp, openResource, routeFunction }: { close: () => void; openCapture: (capture: Capture) => void; openTask: (task: Task) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; routeFunction: (definition: FunctionDefinition) => void }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CommandResult[]>([]);
@@ -874,7 +889,46 @@ function CommandSurface({ close, openCapture, openTask, openProject, openWorkspa
   const input = useRef<HTMLInputElement>(null);
   const previousFocus = useRef(document.activeElement as HTMLElement | null);
   const searchSequence = useRef(0);
+  // Modo do campo. Tab alterna, e o modo fica visivel no proprio campo em vez
+  // de ser folclore de atalho.
+  const [mode, setMode] = useState<"search" | "hermes">("search");
+  const [hermesStatus, setHermesStatus] = useState<HermesStatus | null>(null);
+  const [turns, setTurns] = useState<HermesTurn[]>([]);
+  const [running, setRunning] = useState(false);
+  const [approval, setApproval] = useState<string | null>(null);
+  const [showReasoning, setShowReasoning] = useState(false);
   useEffect(() => { input.current?.focus(); return () => previousFocus.current?.focus(); }, []);
+  useEffect(() => {
+    void hermes.status().then(setHermesStatus).catch(() => setHermesStatus(null));
+    const subscriptions = [
+      hermes.onState(setHermesStatus),
+      hermes.onEvent((event) => {
+        if (event.outcome === "delta") return setTurns((current) => appendToAnswer(current, event.text));
+        if (event.outcome === "reasoning") return setTurns((current) => appendToReasoning(current, event.text));
+        if (event.outcome === "complete") return setRunning(false);
+        if (event.outcome === "busy") { setRunning(true); return; }
+        if (event.outcome === "approval") return setApproval(event.prompt);
+        if (event.outcome === "failed") { setRunning(false); return setTurns((current) => appendToAnswer(current, `\n${event.message}`)); }
+        // tool e unknown_frame nao interrompem a leitura da resposta.
+      }),
+    ];
+    return () => { subscriptions.forEach((subscription) => void subscription.then((dispose) => dispose())); };
+  }, []);
+  // Conexao preguicosa: so ao entrar no modo Hermes pela primeira vez. Tunel
+  // morto nao pode atrasar o Command.
+  useEffect(() => {
+    if (mode !== "hermes") return;
+    if (hermesStatus && hermesStatus.state === "offline" && hermesStatus.hasCredentials) void hermes.connect().catch(() => undefined);
+  }, [mode, hermesStatus?.state, hermesStatus?.hasCredentials]);
+  async function askHermes() {
+    const text = query.trim();
+    if (!text || running) return;
+    setTurns((current) => [...current, { question: text, answer: "", reasoning: "" }]);
+    setQuery("");
+    setRunning(true);
+    try { await hermes.send(text); }
+    catch (nextError) { setRunning(false); setTurns((current) => appendToAnswer(current, String(nextError))); }
+  }
   async function searchCommand(requestId: number) {
     try {
       const [items, resources, functions] = await Promise.all([api.search(query, includeArchived), api.searchResources(query, includeArchived), api.searchFunctions(query)]);
@@ -912,7 +966,17 @@ function CommandSurface({ close, openCapture, openTask, openProject, openWorkspa
     else openCapture(item.capture);
   }
   function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.nativeEvent.isComposing || !results.length) return;
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === "Tab") {
+      event.preventDefault();
+      setMode((current) => current === "search" ? "hermes" : "search");
+      return;
+    }
+    if (mode === "hermes") {
+      if (event.key === "Enter") { event.preventDefault(); void askHermes(); }
+      return;
+    }
+    if (!results.length) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const direction = event.key === "ArrowDown" ? 1 : -1;
@@ -925,7 +989,34 @@ function CommandSurface({ close, openCapture, openTask, openProject, openWorkspa
   }
   return <div className="overlay-backdrop command-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
     <section className="command-surface" role="dialog" aria-modal="true" aria-label="Command" onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
-      <div className="command-input"><span className="slash">/</span><input ref={input} aria-controls="command-results" value={query} onChange={(event) => setQuery(event.currentTarget.value)} onKeyDown={handleInputKeyDown} placeholder="Buscar ou executar comando" aria-label="Buscar no M/OS" /><IconButton label="Fechar" icon="close" onClick={close} /></div>
+      <div className="command-input"><span className="slash">/</span><input ref={input} aria-controls="command-results" value={query} onChange={(event) => setQuery(event.currentTarget.value)} onKeyDown={handleInputKeyDown} placeholder={mode === "hermes" ? "O que você quer fazer?" : "Buscar ou executar comando"} aria-label={mode === "hermes" ? "Perguntar ao Hermes" : "Buscar no M/OS"} /><IconButton label="Fechar" icon="close" onClick={close} /></div>
+      {/* O modo fica visivel no campo, nao escondido num atalho que so quem
+          leu o rodape descobre. */}
+      <div className="command-modes" role="group" aria-label="Modo">
+        {([["search", "Search"], ["hermes", "Hermes"]] as const).map(([value, label]) => <button key={value} type="button" className="command-mode" data-active={mode === value || undefined} aria-pressed={mode === value} onClick={() => { setMode(value); input.current?.focus(); }}>{label}</button>)}
+        {mode === "hermes" && hermesStatus ? <span className="command-mode-state" data-state={hermesStatus.state}>{hermesStatus.state === "online" ? "ONLINE" : hermesStatus.state === "connecting" ? "CONECTANDO" : "OFFLINE"}</span> : null}
+      </div>
+      {mode === "hermes" ? <div className="hermes-thread" aria-live="polite">
+        {hermesStatus && hermesStatus.state !== "online" ? <p className="hermes-offline">{hermesUnavailableLabel(hermesStatus)}</p> : null}
+        {!turns.length && hermesStatus?.state === "online" ? <EmptyState>Pergunte alguma coisa. É o mesmo Hermes do WhatsApp, numa conversa separada.</EmptyState> : null}
+        {turns.map((turn, index) => <div className="hermes-turn" key={index}>
+          <p className="hermes-question">{turn.question}</p>
+          {/* Barra de 2px em sodio: o marcador de autoria do sistema que o
+              design ja define. Nao ha bolha, nao ha avatar. */}
+          {turn.answer ? <p className="hermes-answer">{turn.answer}</p> : null}
+          {turn.reasoning ? <details className="hermes-reasoning" open={showReasoning} onToggle={(event) => setShowReasoning(event.currentTarget.open)}><summary className="micro-label">RACIOCÍNIO</summary><p>{turn.reasoning}</p></details> : null}
+        </div>)}
+        {approval ? <div className="hermes-approval" role="alertdialog" aria-label="Aprovação do Hermes">
+          <p>{approval}</p>
+          <div className="form-actions">
+            {/* Fechar sem escolher nega: o servidor tambem tem deny como
+                default, e aprovar por omissao seria o pior erro deste caminho. */}
+            <Button variant="ghost" onClick={() => { setApproval(null); void hermes.approve(false); }}>Negar</Button>
+            <Button variant="primary" onClick={() => { setApproval(null); void hermes.approve(true); }}>Aprovar</Button>
+          </div>
+        </div> : null}
+        {running ? <div className="hermes-running"><MosSymbol size={16} spinning /><Button variant="ghost" onClick={() => { setRunning(false); void hermes.interrupt(); }}>Cancelar</Button></div> : null}
+      </div> : <>
       {query ? <label className="check-control"><input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.currentTarget.checked)} /><span>Incluir arquivados</span></label> : null}
       <div id="command-results" className="command-results" aria-label="Resultados" aria-live="polite">
         {error ? <div className="command-error"><p>! {error}</p><Button variant="outline" onClick={() => void searchCommand(++searchSequence.current)}>Tentar novamente</Button></div> : null}
@@ -937,12 +1028,56 @@ function CommandSurface({ close, openCapture, openTask, openProject, openWorkspa
           const context = item.kind === "function" ? `${item.function.id} · risco ${functionRiskLabels[item.function.risk]}` : item.kind === "project" ? item.project.description : item.kind === "workspace" ? item.workspace.description : item.kind === "task" ? item.project?.name : item.kind === "app" ? item.app.description || item.app.launchTarget || "" : item.kind === "resource" ? `${resourceHost(item.resource.url)}${item.resource.note ? ` · ${item.resource.note}` : ""}` : item.project?.name ?? item.capture.content;
           return <button id={`command-result-${index}`} aria-current={index === activeIndex ? "true" : undefined} data-active={index === activeIndex || undefined} key={`${item.kind}-${index}-${title}`} className="command-row" onFocus={() => setActiveIndex(index)} onMouseEnter={() => setActiveIndex(index)} onClick={() => openItem(item)}><span>{type}</span><strong>{title}</strong><small>{context}</small></button>;
         })}
-      </div>
-      {/* TAB HERMES entra aqui na Spec B. Ate la o rodape nao anuncia um atalho
-          que nao existe. */}
-      <div className="command-footer">↑↓ NAVEGA · ⏎ ABRE · ESC FECHA</div>
+      </div></>}
+      <div className="command-footer">{mode === "hermes" ? "⏎ PERGUNTA · TAB SEARCH · ESC FECHA" : "↑↓ NAVEGA · ⏎ ABRE · TAB HERMES · ESC FECHA"}</div>
     </section>
   </div>;
+}
+
+function HermesSettings() {
+  const [status, setStatus] = useState<HermesStatus | null>(null);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    void hermes.status().then((next) => { setStatus(next); setBaseUrl(next.baseUrl); }).catch(() => undefined);
+    const subscription = hermes.onState(setStatus);
+    return () => { void subscription.then((dispose) => dispose()); };
+  }, []);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    try {
+      if (baseUrl.trim()) await hermes.setBaseUrl(baseUrl);
+      if (username.trim() && password) await hermes.setCredentials(username, password);
+      // A senha some da memoria do renderer assim que sai daqui. Ela vive no
+      // Credential Manager, e nem o proprio campo a mantem.
+      setPassword("");
+      setMessage("Credencial guardada no Windows Credential Manager.");
+      setStatus(await hermes.status());
+    } catch (error) { setMessage(String(error)); }
+  }
+
+  const stateLabel = status?.state === "online" ? "Conectado" : status?.state === "connecting" ? "Conectando" : "Desconectado";
+  return <Panel label="HERMES">
+    <p className="support-copy">O M/OS é mais uma superfície do Hermes que já roda na sua VPS — a mesma que você usa pelo WhatsApp, numa conversa separada. O acesso é pelo túnel SSH; o M/OS não abre porta nem inicia o túnel.</p>
+    <form className="stack-form" onSubmit={save}>
+      <label><span>ENDEREÇO LOCAL</span><input className="mono-input" value={baseUrl} onChange={(event) => setBaseUrl(event.currentTarget.value)} placeholder="http://127.0.0.1:9119" /></label>
+      <label><span>USUÁRIO</span><input value={username} onChange={(event) => setUsername(event.currentTarget.value)} autoComplete="off" /></label>
+      <label><span>SENHA</span><input type="password" value={password} onChange={(event) => setPassword(event.currentTarget.value)} autoComplete="off" /></label>
+      <div className="form-actions">
+        <Button variant="ghost" onClick={() => void hermes.clearCredentials().then(() => hermes.status()).then(setStatus).catch(() => undefined)}>Remover credencial</Button>
+        <Button variant="primary" type="submit">Salvar</Button>
+      </div>
+    </form>
+    <dl className="fact-grid">
+      <div><dt>ESTADO</dt><dd>{stateLabel}</dd></div>
+      <div><dt>CREDENCIAL</dt><dd>{status?.hasCredentials ? "Configurada" : <span className="fact-empty">Não configurada</span>}</dd></div>
+    </dl>
+    {status?.detail ? <p className="support-copy">{status.detail}</p> : null}
+    {message ? <p className="settings-message" aria-live="polite">{message}</p> : null}
+  </Panel>;
 }
 
 function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrashed, projects, tasks, workspaces, apps, resources, trashedResources, refresh, intent }: { theme: Theme; setTheme: (theme: Theme) => void; status: AppStatus | null; capturesArchived: Capture[]; capturesTrashed: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; trashedResources: Resource[]; refresh: () => Promise<void>; intent?: FunctionIntent }) {
@@ -1002,7 +1137,7 @@ function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrash
   const archivedResources = resources.filter((resource) => resource.lifecycleState === "archived");
   const archivedWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "archived");
   const functionsByCategory = functionCategories.map((category) => ({ category, items: functions.filter((item) => item.category === category) })).filter((group) => group.items.length);
-  return <div className="page settings-page"><ContextPath segments={["M", "SETTINGS"]} /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateProgressLabel() ? <p className="support-copy">{updateProgressLabel()}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then(setMessage).catch((error) => setMessage(appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button></div>)}</details></Panel><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}<dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></div>;
+  return <div className="page settings-page"><ContextPath segments={["M", "SETTINGS"]} /><HermesSettings /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateProgressLabel() ? <p className="support-copy">{updateProgressLabel()}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then(setMessage).catch((error) => setMessage(appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button></div>)}</details></Panel><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}<dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></div>;
 }
 
 function QuickCapture() {
