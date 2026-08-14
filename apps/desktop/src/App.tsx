@@ -93,9 +93,16 @@ function SystemHealth({ status }: { status: AppStatus | null }) {
     return () => { void subscription.then((dispose) => dispose()); };
   }, []);
   const saved = status?.storage.integrity === "ok";
+  // Falha fechado de proposito. `snapshot` e texto livre vindo de schedule_snapshot
+  // (src-tauri/src/lib.rs:801) e tem tres formas: "Snapshot diario criado.",
+  // "Snapshot diario ja existe." e "Falha no snapshot diario: ...". Marcar como ok
+  // qualquer string nao vazia pintaria a falha de verde — justamente o caso em que
+  // este widget precisa ser honesto. Casar com o sucesso, e nao com a falha, faz
+  // qualquer mensagem futura desconhecida ficar sem o verde em vez de ganha-lo.
+  const backupOk = status?.snapshot.startsWith("Snapshot") ?? false;
   return <dl className="health-list">
     <div><dt>Dados</dt><dd data-ok={saved || undefined}>{saved ? "Salvos" : status ? status.storage.integrity : "—"}</dd></div>
-    <div><dt>Backup</dt><dd data-ok={status?.snapshot ? true : undefined}>{status?.snapshot || "—"}</dd></div>
+    <div><dt>Backup</dt><dd data-ok={backupOk || undefined}>{status?.snapshot || "—"}</dd></div>
     <div><dt>Hermes</dt><dd data-ok={hermesState === "online" || undefined}>{hermesState === "online" ? "Online" : hermesState === "connecting" ? "Conectando" : "Offline"}</dd></div>
   </dl>;
 }
