@@ -127,6 +127,14 @@
   --rail-symbol-gap: 24px;
   --rail-symbol-bar: 16px;
   --symbol-inline: 13px;
+
+  /* Capture: a barra e o limiar de entrada, desenhada vertical (e a barra da
+     marca a -22 graus). O caret e de bloco, nao de linha. */
+  --capture-bar-width: 7px;
+  --capture-bar-height: 22px;
+  --caret-width: 8px;
+  --caret-height: 20px;
+  --dot-size: 5px;
   --marker-height: 16px;
   --marker-offset: 12px;
   --focus-ring: 3px;

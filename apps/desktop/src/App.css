@@ -348,30 +348,35 @@ kbd {
   color: var(--text);
 }
 
+/* A excecao deliberada do sistema: sem caixa, sem borda. Um Capture nao deve
+   parecer um formulario — deve parecer o comeco de um pensamento. */
 .capture-field {
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-6) 0 var(--space-5);
+  padding: var(--space-5) 0 var(--space-5);
 }
 
 .capture-line {
-  display: grid;
-  grid-template-columns: var(--space-4) minmax(0, 1fr);
-  align-items: start;
-  gap: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
   border-bottom: var(--line) solid var(--border-strong);
 }
 
-.capture-line .slash {
-  padding-top: var(--space-2);
-  font: var(--text-capture);
+/* O limiar de entrada. E a barra da marca, vertical. */
+.capture-bar {
+  flex: none;
+  width: var(--capture-bar-width);
+  height: var(--capture-bar-height);
+  background: var(--signal-fill);
 }
 
 .capture-line textarea {
   width: 100%;
-  min-height: var(--height-control-lg);
+  min-height: var(--capture-bar-height);
   max-height: calc(var(--height-control-lg) * 4);
-  padding: var(--space-2) 0;
+  padding: 0;
   overflow: auto;
   color: var(--text);
   background: transparent;
@@ -382,9 +387,29 @@ kbd {
   resize: none;
 }
 
-.capture-line:focus-within {
-  border-color: var(--signal-ink);
-  box-shadow: 0 var(--marker) 0 var(--signal-ink);
+/* Caret de bloco. steps(1, end) porque um caret pisca, nao esmaece. */
+.capture-caret {
+  flex: none;
+  width: var(--caret-width);
+  height: var(--caret-height);
+  background: var(--text-system);
+  animation: caret 1.1s steps(1, end) infinite;
+}
+
+@keyframes caret {
+  0%,
+  46% {
+    opacity: 1;
+  }
+
+  47%,
+  100% {
+    opacity: 0.15;
+  }
+}
+
+.capture-save {
+  flex: none;
 }
 
 .startup-state {
@@ -454,39 +479,50 @@ textarea::placeholder {
   color: var(--danger);
 }
 
+/* Quatro paineis em grade 2x2. Cada um se resolve sozinho; nenhum depende de
+   ler o vizinho. */
 .home-sections {
   display: grid;
-  gap: var(--space-6);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  padding-top: var(--space-5);
 }
 
 .context-switcher {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--space-2);
-  padding: var(--space-2) 0 var(--space-4);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-3) 0 var(--space-4);
 }
 
 .context-switcher button {
   display: grid;
-  min-height: var(--height-row-two-line);
   align-content: center;
   gap: var(--space-1);
-  padding: 0 var(--space-2);
+  padding: var(--space-3);
   color: var(--text);
   background: transparent;
   border: var(--line) solid var(--border);
   border-radius: var(--radius);
   text-align: left;
+  transition: border-color var(--dur-instant) var(--ease-state),
+    background var(--dur-instant) var(--ease-state);
 }
 
-.context-switcher button:hover,
-.context-switcher button[data-selected] {
-  background: var(--surface-hover);
+.context-switcher button strong {
+  font: var(--text-body);
+  font-weight: 500;
+}
+
+.context-switcher button:hover {
   border-color: var(--border-strong);
 }
 
+/* Ativo e borda em sodio mais um lavado de 6%. O accent marca qual contexto
+   esta valendo — nao decora os outros. */
 .context-switcher button[data-selected] {
-  color: var(--signal-ink);
+  background: color-mix(in srgb, var(--signal-fill) 6%, transparent);
+  border-color: var(--signal-ink);
 }
 
 .context-switcher small {
@@ -497,10 +533,12 @@ textarea::placeholder {
   white-space: nowrap;
 }
 
+/* Panel nu: sem borda, sem fundo. O que o delimita e o rotulo mono e a regua.
+   Nao existe card neste sistema. */
 .panel {
   display: grid;
   gap: 0;
-  border-top: var(--line) solid var(--border);
+  min-width: 0;
 }
 
 .panel-header {
@@ -508,6 +546,7 @@ textarea::placeholder {
   align-items: center;
   justify-content: space-between;
   min-height: var(--height-row);
+  border-bottom: var(--line) solid var(--border);
 }
 
 .panel-header h2,
@@ -517,8 +556,116 @@ textarea::placeholder {
   text-transform: uppercase;
 }
 
+.panel-count {
+  color: var(--text-disabled);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
 .row-list {
   display: grid;
+}
+
+/* Separador de row e 1px de --border, nunca gap. Gap deixaria as rows
+   flutuando; a regua diz que elas pertencem a mesma lista. */
+.row-list > * + * {
+  border-top: var(--line) solid var(--border);
+}
+
+@keyframes rowEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* O unico uso de fundo sodio em row nao selecionada: confirma que a Capture
+   entrou, sem precisar de um toast dizendo a mesma coisa. */
+@keyframes savedWash {
+  from {
+    background: var(--signal-wash);
+  }
+
+  to {
+    background: transparent;
+  }
+}
+
+.data-row[data-entered] {
+  animation: rowEnter var(--dur-move) var(--ease-state);
+}
+
+.data-row[data-saved] {
+  animation: rowEnter var(--dur-move) var(--ease-state), savedWash 900ms var(--ease-state);
+}
+
+/* Sodio = mexido hoje. O resto e neutro: o ponto informa, nao enfeita. */
+.project-dot {
+  flex: none;
+  width: var(--dot-size);
+  height: var(--dot-size);
+  background: var(--border-strong);
+  border-radius: 50%;
+}
+
+.project-dot[data-active] {
+  background: var(--signal-fill);
+}
+
+.app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--height-control-lg), 1fr));
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+}
+
+.app-tile {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.app-icon {
+  display: grid;
+  width: var(--height-control-lg);
+  height: var(--height-control-lg);
+  place-items: center;
+  color: var(--text);
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  font: var(--text-body);
+  font-weight: 700;
+  transition: border-color var(--dur-instant) var(--ease-state);
+}
+
+/* Hover so troca a borda: os icones da familia M/ sao brancos e moldurados,
+   so o sistema usa sodio e massa solida. */
+.app-tile:hover .app-icon {
+  border-color: var(--text-system);
+}
+
+.app-name {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font: var(--text-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shortcut {
+  color: var(--text-disabled);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
 }
 
 .workspace-grid {
