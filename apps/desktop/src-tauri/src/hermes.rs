@@ -112,7 +112,16 @@ pub fn hermes_set_base_url(url: String, state: State<'_, HermesState>) -> Result
 #[tauri::command]
 pub async fn hermes_connect<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     let state = app.state::<HermesState>();
-    if matches!(get(&state.connection), ConnectionState::Online) {
+    // Curto-circuito tambem em Connecting, nao so em Online.
+    //
+    // Sem isso, duas chamadas concorrentes rodavam dois handshakes e criavam
+    // duas tasks de pump; a segunda sobrescrevia o sender da primeira, que
+    // ficava orfa mas continuava emitindo — o usuario veria cada token duas
+    // vezes, e duas sessoes seriam abertas no servidor.
+    if matches!(
+        get(&state.connection),
+        ConnectionState::Online | ConnectionState::Connecting
+    ) {
         return Ok(());
     }
 
@@ -142,6 +151,8 @@ pub async fn hermes_connect<R: Runtime>(app: AppHandle<R>) -> Result<(), String>
     let pump = app.clone();
     tauri::async_runtime::spawn(async move {
         let mut bridge = Bridge::new(channels);
+        let mut last_state = ConnectionState::Connecting;
+        let mut last_session: Option<String> = None;
         if let Err(error) = bridge.open_session(resume.as_deref()).await {
             set(&detail, error.to_string());
         }
@@ -176,12 +187,25 @@ pub async fn hermes_connect<R: Runtime>(app: AppHandle<R>) -> Result<(), String>
                 }
             }
 
-            set(&connection, bridge.state());
-            if let Some(id) = bridge.session_id() {
-                set(&session_slot, Some(id.to_owned()));
+            // Anunciar so quando algo mudou de verdade.
+            //
+            // Antes isto rodava a cada frame recebido, ou seja, uma vez por
+            // token da resposta. Cada volta fazia uma leitura bloqueante do
+            // Credential Manager (Credentials::exist) de dentro da task async,
+            // mais um emit que re-renderizava a superficie inteira. Uma resposta
+            // longa produzia milhares de acessos ao cofre.
+            let next_state = bridge.state();
+            let next_session = bridge.session_id().map(str::to_owned);
+            if next_state != last_state || next_session != last_session {
+                last_state = next_state;
+                last_session.clone_from(&next_session);
+                set(&connection, next_state);
+                if next_session.is_some() {
+                    set(&session_slot, next_session);
+                }
+                let state = pump.state::<HermesState>();
+                announce(&pump, &state);
             }
-            let state = pump.state::<HermesState>();
-            announce(&pump, &state);
         }
 
         set(&connection, ConnectionState::Offline);

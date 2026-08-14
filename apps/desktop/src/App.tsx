@@ -950,11 +950,20 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
     ];
     return () => { subscriptions.forEach((subscription) => void subscription.then((dispose) => dispose())); };
   }, []);
-  // Conexao preguicosa: so ao entrar no modo Hermes pela primeira vez. Tunel
-  // morto nao pode atrasar o Command.
+  // Conexao preguicosa: UMA tentativa ao entrar no modo Hermes.
+  //
+  // O ref existe para nao repetir. Sem ele, o efeito reagia a hermesStatus.state,
+  // e como uma falha de conexao anuncia Offline, o proprio efeito se redisparava:
+  // connect -> offline -> connect, o mais rapido que o IPC permitisse. Com o
+  // tunel aberto e senha errada isso martelava o login, que o gateway responde
+  // com 429 — o loop trancaria a conta do dashboard do usuario.
+  const connectAttempted = useRef(false);
   useEffect(() => {
-    if (mode !== "hermes") return;
-    if (hermesStatus && hermesStatus.state === "offline" && hermesStatus.hasCredentials) void hermes.connect().catch(() => undefined);
+    if (mode !== "hermes" || connectAttempted.current) return;
+    if (hermesStatus?.state === "offline" && hermesStatus.hasCredentials) {
+      connectAttempted.current = true;
+      void hermes.connect().catch(() => undefined);
+    }
   }, [mode, hermesStatus?.state, hermesStatus?.hasCredentials]);
   async function askHermes() {
     const text = query.trim();

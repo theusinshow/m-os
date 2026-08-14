@@ -46,6 +46,10 @@ pub struct Bridge {
     state: ConnectionState,
     session_id: Option<String>,
     next_id: i64,
+    /// Id do request de `session.resume` em voo, para reconhecer a rejeicao
+    /// dele e cair em `session.create`. Sem isso, uma sessao que sumiu da VPS
+    /// deixava o Hermes inutilizavel ate o app reiniciar.
+    pending_resume: Option<i64>,
 }
 
 impl Bridge {
@@ -58,6 +62,7 @@ impl Bridge {
             state: ConnectionState::Connecting,
             session_id: None,
             next_id: 1,
+            pending_resume: None,
         }
     }
 
@@ -89,10 +94,20 @@ impl Bridge {
     pub async fn open_session(&mut self, resume: Option<&str>) -> Result<(), HermesError> {
         let id = self.take_id();
         let frame = match resume {
-            Some(session_id) => Request::session_resume(id, session_id),
+            Some(session_id) => {
+                self.pending_resume = Some(id);
+                Request::session_resume(id, session_id)
+            }
             None => Request::session_create(id),
         };
         self.send(frame).await
+    }
+
+    /// Abre sessao nova depois de um resume rejeitado.
+    async fn create_after_failed_resume(&mut self) -> Result<(), HermesError> {
+        self.pending_resume = None;
+        let id = self.take_id();
+        self.send(Request::session_create(id)).await
     }
 
     pub async fn submit(&mut self, text: &str) -> Result<(), HermesError> {
@@ -138,20 +153,35 @@ impl Bridge {
     pub async fn next(&mut self) -> Option<Result<Outcome, HermesError>> {
         let frame = match self.channels.incoming.recv().await {
             Some(Ok(frame)) => frame,
-            Some(Err(error)) => {
-                self.state = ConnectionState::Offline;
-                return Some(Err(error));
-            }
+            // Erro de frame nao derruba a conexao: um frame ilegivel ou binario
+            // nao fecha o socket, e marcar Offline aqui travava o estado para
+            // sempre — so `gateway.ready` volta a promover para Online, e ele
+            // so chega uma vez, no aceite.
+            Some(Err(error)) => return Some(Err(error)),
+            // Canal seco: o socket fechou de verdade.
             None => {
                 self.state = ConnectionState::Offline;
                 return None;
             }
         };
 
-        match HermesEvent::parse(&frame) {
-            Err(error) => Some(Err(error)),
-            Ok(event) => self.absorb(event, &frame),
+        let event = match HermesEvent::parse(&frame) {
+            Err(error) => return Some(Err(error)),
+            Ok(event) => event,
+        };
+
+        // Resume rejeitado: a sessao sumiu da VPS, ou o gateway nao conhece o
+        // metodo. Abrir uma nova em vez de deixar o Hermes inutilizavel.
+        if let HermesEvent::Rejected { id, .. } = &event {
+            if id.is_some() && *id == self.pending_resume {
+                if let Err(error) = self.create_after_failed_resume().await {
+                    return Some(Err(error));
+                }
+                return None;
+            }
         }
+
+        self.absorb(event, &frame)
     }
 
     fn absorb(&mut self, event: HermesEvent, frame: &str) -> Option<Result<Outcome, HermesError>> {
@@ -185,6 +215,7 @@ impl Bridge {
                 // num result, nao num evento tipado. Colhemos aqui.
                 if let Some(session_id) = session_id_from(frame) {
                     self.session_id = Some(session_id);
+                    self.pending_resume = None;
                     return None;
                 }
                 Some(Ok(Outcome::UnknownFrame { kind }))
@@ -355,6 +386,52 @@ mod tests {
 
         bridge.open_session(Some("M/OS")).await.unwrap();
         assert!(sent.recv().await.unwrap().contains("M/OS"));
+    }
+
+    /// Uma sessao que sumiu da VPS nao pode deixar o Hermes inutilizavel: o
+    /// resume rejeitado tem que virar um create, sozinho.
+    #[tokio::test]
+    async fn a_rejected_resume_falls_back_to_create() {
+        let (channels, mut sent, push) = fake_channels();
+        let mut bridge = Bridge::new(channels);
+
+        bridge.open_session(Some("sessao-morta")).await.unwrap();
+        let resume = sent.recv().await.unwrap();
+        assert!(resume.contains(r#""method":"session.resume""#));
+
+        // O gateway rejeita o resume com o mesmo id do request.
+        push.send(Ok(
+            r#"{"jsonrpc":"2.0","error":{"code":4004,"message":"unknown session"},"id":1}"#.into(),
+        ))
+        .await
+        .unwrap();
+
+        // A rejeicao e absorvida — nao vira Failed na cara do usuario...
+        assert!(bridge.next().await.is_none());
+        // ...e uma sessao nova e aberta no lugar.
+        let created = sent.recv().await.unwrap();
+        assert!(created.contains(r#""method":"session.create""#));
+    }
+
+    /// Erro de frame nao fecha o socket, entao nao pode derrubar o estado: so
+    /// `gateway.ready` promove para Online, e ele chega uma vez so.
+    #[tokio::test]
+    async fn a_frame_error_does_not_latch_the_connection_offline() {
+        let (channels, _sent, push) = fake_channels();
+        let mut bridge = Bridge::new(channels);
+        push.send(Ok(READY.into())).await.unwrap();
+        bridge.next().await;
+        assert_eq!(bridge.state(), ConnectionState::Online);
+
+        push.send(Err(HermesError::Protocol("frame binario".into())))
+            .await
+            .unwrap();
+        assert!(bridge.next().await.unwrap().is_err());
+        assert_eq!(
+            bridge.state(),
+            ConnectionState::Online,
+            "o socket continua vivo, entao o estado tambem"
+        );
     }
 
     #[tokio::test]

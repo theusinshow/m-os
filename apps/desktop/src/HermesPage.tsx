@@ -93,10 +93,25 @@ export function HermesPage({ inbox, projects, tasks, openProject, openResource }
     return () => { subscriptions.forEach((subscription) => void subscription.then((dispose) => dispose())); };
   }, []);
 
-  // Conexao preguicosa: so ao abrir a tela, e so quando ha credencial.
+  // Conexao preguicosa e de tentativa UNICA.
+  //
+  // O ref impede o loop: uma falha anuncia Offline, Offline muda a dependencia,
+  // e sem guarda o efeito se redispararia sozinho — martelando o login, que o
+  // gateway responde com 429 e tranca a conta. Reconectar depois de falhar e
+  // acao explicita do usuario, no botao abaixo.
+  const connectAttempted = useRef(false);
   useEffect(() => {
-    if (status?.state === "offline" && status.hasCredentials) void hermes.connect().catch(() => undefined);
+    if (connectAttempted.current) return;
+    if (status?.state === "offline" && status.hasCredentials) {
+      connectAttempted.current = true;
+      void hermes.connect().catch(() => undefined);
+    }
   }, [status?.state, status?.hasCredentials]);
+
+  function reconnect() {
+    connectAttempted.current = true;
+    void hermes.connect().catch(() => undefined);
+  }
 
   // A thread acompanha o texto chegando, sem roubar o scroll de quem subiu.
   useEffect(() => {
@@ -249,7 +264,10 @@ export function HermesPage({ inbox, projects, tasks, openProject, openResource }
             : <button type="submit" className="button primary" disabled={!draft.trim() || !online}>Enviar ⏎</button>}
         </div>
 
-        {!online ? <p className="hermes-offline">{status ? hermesUnavailableLabel(status) : "Verificando o Hermes…"}</p> : null}
+        {!online ? <div className="hermes-offline-row">
+          <p className="hermes-offline">{status ? hermesUnavailableLabel(status) : "Verificando o Hermes…"}</p>
+          {status?.hasCredentials && status.state === "offline" ? <button type="button" className="button outline sm" onClick={reconnect}>Reconectar</button> : null}
+        </div> : null}
         {running ? <div className="hermes-running"><MosSymbol size={16} spinning /><span className="micro-label">PENSANDO</span></div> : null}
       </form>
     </div>

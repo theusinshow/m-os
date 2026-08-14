@@ -181,6 +181,7 @@ Todos verificados em `tui_gateway/server.py`:
 | Método | Linha | Papel no M/OS |
 |---|---|---|
 | `session.create` | 3986 | cria a **sessão própria** do M/OS |
+| `session.resume` | 4218 | retoma a sessão guardada; aceita **id ou título** |
 | `prompt.submit` | 5660 | envia a mensagem do usuário |
 | `session.interrupt` | 5377 | **cancelamento** |
 | `session.close` | 5294 | encerra ao fechar o app |

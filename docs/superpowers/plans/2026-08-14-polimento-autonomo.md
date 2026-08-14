@@ -17,14 +17,35 @@ não da minha cabeça.** O produto tem sequenciamento pensado e um `IDEAS.md` qu
 o roadmap deliberadamente não puxou. Inventar escopo contra isso é retrabalho.
 Cada decisão vira entrada em `DECISIONS.md`.
 
-## Visão — resolvido pela metade
+## Precedência entre documentos
+
+Descoberta na volta 5, e vale para todas as próximas. Os etags do projeto no
+Claude Design dão a ordem real:
+
+```
+Design Direction v0.1/v0.2   1786594–1786596   mais antigo
+Components v0.5              1786597925
+handoff/                     1786598…
+design_handoff_frontend/     1786672560
+Redesign v0.7 — Telas        1786674649
+Hermes — Chat Completo v0.1  1786681360        mais novo
+```
+
+**A folha de componentes é mais antiga que a v0.7 em tudo.** Ela só manda onde
+a v0.7 é omissa — os cinco estados de botão, campo e controle, que nenhuma tela
+mostra. Foi de lá que saíram as correções de campo, checkbox e botão pequeno.
+Onde as duas falam da mesma coisa, a v0.7 ganha: minerar a folha para layout de
+tela é reintroduzir desenho velho.
+
+Pelo mesmo motivo, a Design Direction não é normativa. Ela elege `Archivo` como
+tipografia, e o sistema fechou em Schibsted Grotesk depois.
+
+## Visão — resolvida pela metade
 
 A CLI **funciona**. O subcomando é `orca computer`, não `orca computer-use` —
-foi esse chute errado que me fez concluir que ela não existia. O guia
-versionado sai de `orca skills get computer-use` e deve ser lido a cada sessão,
-porque os flags mudam entre releases.
-
-Loop principal:
+foi esse chute errado que me fez concluir que ela não existia. O guia versionado
+sai de `orca skills get computer-use` e deve ser lido a cada sessão, porque os
+flags mudam entre releases.
 
 ```text
 orca computer list-apps --json
@@ -35,43 +56,32 @@ orca computer get-app-state --app mos-desktop --window-id <id> --json
 O que **ainda** bloqueia: o `mos-desktop` tem uma única janela, de 16×16,
 titulada `com.codedbym.mos-siw` — a auxiliar de single-instance. A janela
 principal não está aberta; o processo vive só como tray. Não há o que olhar até
-alguém abrir a interface.
+alguém abrir a interface. Checado nas voltas 1 a 6, sempre igual.
 
-Quando ela abrir, `get-app-state` devolve a árvore de acessibilidade em
-`result.snapshot.treeText`, e os índices de elemento são efêmeros: eles vencem
-a cada re-render, scroll ou troca de foco. Reler o estado antes de cada ação.
-
-Enquanto isso, o trabalho segue no que tem verdade objetiva sem precisar de
-olhos: comparação com o HTML dos protótipos, estados de componente, CSS morto,
-disciplina de token, CI.
+Quando ela abrir: `get-app-state` devolve a árvore em `result.snapshot.treeText`,
+e os índices de elemento são efêmeros — vencem a cada re-render, scroll ou troca
+de foco. Reler o estado antes de cada ação.
 
 ## Fila
 
-### Sem precisar de olhos
+### Concluído sem olhos
 
 - [x] Buttons — 13px, destrutivo só em outline.
 - [x] Fields — cinco estados; vazio e preenchido têm bordas diferentes.
-- [x] Rows — estrutura confirmada; faltava a project row com barra de progresso,
-      agora implementada a partir das tasks concluídas.
-- [x] Controls — checkbox desenhado no lugar do nativo.
-- [x] Feedback — nada quebrado; duas nuances registradas abaixo.
-- [x] Navigation e Overlays — **não usar a folha aqui.** Ela mostra um rail
-      antigo (símbolo de 18px, linha divisória, ícones de 19px, gap 20) que a
-      v0.7 substituiu. Etags: folha `1786597925`, v0.7 `1786674649`.
+- [x] Rows — faltava a project row com barra de progresso, agora implementada.
+- [x] Controls — checkbox desenhado no lugar do nativo com `accent-color`.
+- [x] Feedback — nada quebrado; duas nuances abaixo.
+- [x] Navigation e Overlays — folha superada pela v0.7, não usar.
+- [x] Varredura de seletor duplicado. Achou colisão real entre componentes:
+      `.hermes-turn` valia para o Command e para a tela ao mesmo tempo.
+- [x] Varredura de classe órfã — 170 definidas, todas em uso.
+- [x] `/code-review` na ponte do Hermes, na migration e na fronteira Tauri.
 
-**Regra de precedência que vale para as próximas voltas:** a folha de
-componentes é mais antiga que a v0.7 em tudo. Ela só manda onde a v0.7 é
-omissa — os cinco estados de botão, campo e controle, que nenhuma tela mostra.
-Onde as duas falam da mesma coisa, a v0.7 ganha. Minerar a folha para layout de
-tela é reintroduzir desenho velho.
-- [x] Varredura de seletor duplicado. Achou uma colisão real entre componentes
-      (`.hermes-turn` valia para o Command e para a tela ao mesmo tempo) e duas
-      duplicatas minhas. Os sete restantes são grupo compartilhado + bloco
-      específico, que é composição intencional.
-- [ ] Varredura de classe órfã (CSS sem uso no TSX).
-- [ ] `/code-review` no diff acumulado da série.
+### Ainda sem olhos
+
 - [ ] Inbox: comparar o pane esquerdo linha a linha (só o direito foi conferido).
-- [ ] Projects: lista da esquerda ainda não comparada com o protótipo.
+- [ ] Library: o desenho não tem pane de detalhe; o app tem, por decisão
+      documentada em `DOGFOOD-V0.2-RESOURCES.md`. Revisar se ainda se sustenta.
 
 ### Precisa de olhos
 
@@ -90,23 +100,28 @@ Só depois do polimento — corrigir o que existe vale mais que somar o que falt
       Hermes mostra e que hoje não tem lastro no domínio.**
 - [ ] Fase 5 · GitHub: a integração de fato, além do campo `repository`.
 
+## Nuances registradas
+
+**Janela de undo.** A folha diz 8 s; a v0.7 e o README dizem ~5,2 s. Não é
+contradição: a folha fala de **ação em lote**, a v0.7 mostra o recibo de **ação
+única**. Não há lote no app hoje, então 5,2 s vale. Quando lote existir, 8 s.
+
+**Recibo passivo.** A folha define um de 1,6 s — sem botão, sem fechar, só um
+ponto de 4px e um rótulo mono. É outro componente, não o de undo. Não
+implementado: não há chamador, e componente sem chamador é peso morto.
+
+**Estado indeterminado do checkbox.** Estilizado apesar de nenhum código
+acioná-lo. Aqui a regra acima não se aplica: com `appearance: none`, um input em
+indeterminate sem estilo apareceria como desmarcado — estado errado em silêncio.
+É correção defensiva, não feature especulativa.
+
 ## Registro
 
 | Volta | O que foi feito | Resultado |
 |---|---|---|
-| 1 | Branch, backlog, tentativa de visão | CLI ausente; app sem janela; seguindo sem olhos |
-| 2 | Fields, Rows com progresso, varredura de duplicados | colisão `.hermes-turn` corrigida; app segue sem janela |
-| 3 | Classes órfãs (nenhuma), Feedback, botão pequeno de criação | 170 classes todas em uso; app segue sem janela |
-
-## Nuance registrada
-
-A folha de componentes v0.5 diz **8 s** de janela de undo; a v0.7 e o README
-dizem ~5,2 s. Não é contradição: a folha fala de **ação em lote**, a v0.7 mostra
-o recibo de **ação única**. Não há ação em lote no app hoje, então 5,2 s vale.
-Quando lote existir, 8 s.
-
-A folha também define um **recibo passivo** de 1,6 s — sem botão, sem fechar,
-só um ponto de 4px e um rótulo mono. É outro componente, não o de undo.
-Não implementei: não há chamador hoje, e componente sem chamador é peso morto.
-| 4 | Checkbox desenhado, cinco estados | switch de tema conferido, sem regressão; app segue sem janela |
-| 5 | Precedência folha vs v0.7; `/code-review` na ponte e na migration | folha superada para layout; revisão em background |
+| 1 | Branch, backlog, tentativa de visão | CLI existia; eu errei o subcomando |
+| 2 | Fields, row de progresso, duplicados | colisão `.hermes-turn` corrigida |
+| 3 | Classes órfãs, Feedback, botão pequeno | 170 classes todas em uso |
+| 4 | Checkbox desenhado, cinco estados | switch de tema conferido, sem regressão |
+| 5 | Precedência entre documentos | folha superada para layout |
+| 6 | `/code-review` na ponte, migration e fronteira | ver resultado abaixo |

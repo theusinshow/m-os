@@ -51,7 +51,28 @@ pub async fn connect(url: &str) -> Result<Channels, HermesError> {
                 Ok(Message::Binary(_)) => Err(HermesError::Protocol(
                     "o gateway mandou frame binario, que o contrato nao preve".into(),
                 )),
-                Ok(Message::Close(_)) => break,
+                // O codigo de fechamento carrega o motivo, e jogar fora fazia
+                // uma recusa de credencial (4401) ou de politica (4403) chegar
+                // ao usuario como "o tunel nao esta aberto" — culpando a rede
+                // por um problema de autenticacao.
+                Ok(Message::Close(frame)) => {
+                    if let Some(frame) = frame {
+                        let code: u16 = frame.code.into();
+                        let reported = match code {
+                            4401 => Some(HermesError::Unauthorized(
+                                "o gateway recusou o ticket ao fechar a conexao".into(),
+                            )),
+                            4403 => Some(HermesError::Gateway(
+                                "O gateway recusou a conexao por politica (chat embutido desligado ou origem nao permitida).".into(),
+                            )),
+                            _ => None,
+                        };
+                        if let Some(error) = reported {
+                            let _ = incoming_tx.send(Err(error)).await;
+                        }
+                    }
+                    break;
+                }
                 Ok(_) => continue,
                 Err(error) => Err(classify(error)),
             };

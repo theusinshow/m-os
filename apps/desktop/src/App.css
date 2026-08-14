@@ -2700,3 +2700,10 @@ input[type="checkbox"]:disabled {
   background: transparent;
   border-color: var(--signal-ink);
 }
+
+.hermes-offline-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
