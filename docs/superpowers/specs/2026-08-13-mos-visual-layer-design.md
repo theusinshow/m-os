@@ -20,8 +20,8 @@ Precedência, do handoff: `README.md` > `mos-design-system.md` > `mos-tokens.css
 
 ## 1. Tokens (etapa bloqueante)
 
-O app hoje importa `Design System/handoff/mos-tokens.css` — pasta que foi substituída
-pelo pacote novo. **O build está quebrado** (`main.tsx:7`). Primeira coisa a consertar.
+O app importava `Design System/handoff/mos-tokens.css` — pasta substituída pelo pacote
+novo. **O build estava quebrado** (`main.tsx:7`). Primeira coisa a consertar.
 
 O arquivo antigo era uma adaptação: trazia tokens que o `App.css` usa e o pacote novo
 não define. Adotar o novo cru quebraria o CSS inteiro. O arquivo final é uma mescla:

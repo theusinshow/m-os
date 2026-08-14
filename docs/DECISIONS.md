@@ -436,7 +436,7 @@ Task e marca a Capture como processada na mesma transação.
 
 ### Decisão
 
-`Design System/handoff/mos-tokens.css` é a fonte única de tokens do cliente
+`Design System/design_handoff_frontend/mos-tokens.css` é a fonte única de tokens do cliente
 desktop. Componentes usam primitivas próprias, SVGs próprios e fontes locais.
 Bibliotecas genéricas de UI ou ícones não entram sem uma necessidade concreta.
 
