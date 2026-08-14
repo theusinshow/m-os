@@ -77,6 +77,12 @@ function EmptyState({ children }: { children: ReactNode }) {
   return <p className="empty-state">{children}</p>;
 }
 
+/* Cuida so do posicionamento na grade. A moldura e o rotulo continuam no Panel, para
+   que a etapa 2 (modo de edicao) mude posicao sem tocar em nenhum widget. */
+function Widget({ size, children }: { size: "1x1" | "2x1" | "2x2" | "full"; children: ReactNode }) {
+  return <div className="widget" data-size={size}>{children}</div>;
+}
+
 /* O vazio de um painel com escopo tem duas causas que a mensagem antiga confundia:
    nada cadastrado, ou nada vinculado ao Workspace ativo. Sem separar as duas, a Home
    afirma que o usuario nao tem apps enquanto esconde os que ele tem. */
@@ -220,16 +226,16 @@ function HomePage({ recent, projects, tasks, workspaces, apps, refresh, openCapt
     <ContextPath segments={["M", "HOME"]} />
     <CaptureComposer onSaved={(capture) => { markSaved(capture); void refresh(); }} focusKey={intent?.target === "home_capture" ? intent.key : undefined} />
     <Panel label="CONTEXTO" rule action={currentWorkspace ? <Button variant="ghost" onClick={() => setCurrentWorkspaceId("")}>Todos</Button> : undefined}><div className="context-switcher">{activeWorkspaces.map((workspace) => <button key={workspace.id} type="button" data-selected={workspace.id === currentWorkspaceId || undefined} onClick={() => setCurrentWorkspaceId(workspace.id)} onDoubleClick={() => openWorkspace(workspace)}><strong>{workspace.name}</strong><small>{workspace.description || "Workspace"}</small></button>)}{!activeWorkspaces.length ? <EmptyState>Workspaces ativos aparecerão aqui.</EmptyState> : null}</div></Panel>
-    <div className="home-sections">
-      <Panel label="EM ANDAMENTO" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nothing in progress right now.</EmptyState>}</Panel>
-      <Panel label="RECENTES" count={`INBOX ${recent.length}`}>{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nothing on your mind right now.</EmptyState>}</Panel>
+    <div className="home-grid">
+      <Widget size="2x1"><Panel label="EM ANDAMENTO" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nothing in progress right now.</EmptyState>}</Panel></Widget>
+      <Widget size="2x1"><Panel label="RECENTES" count={`INBOX ${recent.length}`}>{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nothing on your mind right now.</EmptyState>}</Panel></Widget>
       {/* Sem contagem: o desenho so conta o que exige decisao — o que esta em
           andamento e o que espera na Inbox. Project e App voce navega, nao
           processa. */}
-      <Panel label="PROJECTS">{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} aria-hidden="true" />} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <ScopedEmptyState total={projects.filter((project) => project.lifecycleState === "active").length} workspace={currentWorkspace} noun="project" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel>
+      <Widget size="2x2"><Panel label="PROJECTS">{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} aria-hidden="true" />} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <ScopedEmptyState total={projects.filter((project) => project.lifecycleState === "active").length} workspace={currentWorkspace} noun="project" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
       {/* O nome do app nao entra: o icone com a inicial e o atalho ja o
           identificam, e a linha de nomes competiria com as rows ao lado. */}
-      <Panel label="APPS"><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><span className="app-icon" aria-hidden="true">{app.name.trim().charAt(0).toUpperCase()}</span>{index < 9 ? <span className="app-shortcut">⌘{index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel>
+      <Widget size="2x1"><Panel label="APPS"><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><span className="app-icon" aria-hidden="true">{app.name.trim().charAt(0).toUpperCase()}</span>{index < 9 ? <span className="app-shortcut">⌘{index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
     </div>
   </div>;
 }

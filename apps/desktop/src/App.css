@@ -528,13 +528,41 @@ textarea::placeholder {
 
 /* Quatro paineis em grade 2x2. Cada um se resolve sozinho; nenhum depende de
    ler o vizinho. */
-/* auto-fit colapsa as trilhas vazias, entao os paineis dividem entre si toda a
-   largura disponivel em vez de ficarem presos a duas colunas. */
-.home-sections {
+/* Grade de 12 colunas do arranjo 1D. Uma celula do desenho vale 3 colunas, entao
+   cabem quatro celulas por linha. As media queries repetem as larguras que ja
+   existem no arquivo (1280 e 960) — nenhum breakpoint novo — mas ficam aqui, junto
+   das regras que governam, em vez de espalhadas nos blocos de padding. */
+.home-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(var(--column-min), 1fr));
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: var(--space-4);
   padding-top: var(--space-5);
+}
+
+.widget {
+  min-width: 0;
+}
+
+.widget[data-size="1x1"] { grid-column: span 3; }
+.widget[data-size="2x1"] { grid-column: span 6; }
+.widget[data-size="2x2"] { grid-column: span 6; grid-row: span 2; }
+.widget[data-size="full"] { grid-column: span 12; }
+
+@media (max-width: 1280px) {
+  .home-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+  .widget[data-size="1x1"] { grid-column: span 4; }
+  .widget[data-size="2x1"] { grid-column: span 8; }
+  .widget[data-size="2x2"] { grid-column: span 8; }
+  .widget[data-size="full"] { grid-column: span 8; }
+}
+
+@media (max-width: 960px) {
+  .home-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .widget[data-size="1x1"],
+  .widget[data-size="2x1"],
+  .widget[data-size="2x2"],
+  .widget[data-size="full"] { grid-column: span 4; }
+  .widget[data-size="2x2"] { grid-row: span 1; }
 }
 
 /* auto-fill, nao auto-fit: preserva as trilhas vazias para que um unico
