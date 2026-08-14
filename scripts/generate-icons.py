@@ -9,6 +9,26 @@ Por isso `tauri icon` nao serve — ele deriva tudo de uma fonte so.
 Uso:
     python scripts/generate-icons.py
 
+DEPOIS DE RODAR, LIMPE O RESOURCE DO BUILD:
+
+    rm -rf target/release/build/mos-desktop-*
+    rm -f  target/release/mos-desktop.exe
+
+O `tauri-build` gera um `resource.rc` que aponta para `icons/icon.ico`, mas nao
+declara `rerun-if-changed` nos arquivos de icone. Trocar o icone sozinho nao
+invalida nada: o Cargo reaproveita o `.res` ja compilado e o executavel sai com
+o icone antigo. O build passa, o instalador e produzido, nenhum aviso aparece —
+so olhando os bytes do binario da para notar.
+
+Para conferir que o icone entrou de verdade:
+
+    python -c "ico=open('apps/desktop/src-tauri/icons/icon.ico','rb').read(); \
+    s=ico.find(b'\\x89PNG\\r\\n\\x1a\\n'); \
+    print(open('target/release/mos-desktop.exe','rb').read().find(ico[s:s+48]))"
+
+Offset >= 0 significa que o icone correto esta embutido. -1 significa que o
+resource ficou em cache.
+
 Requer Pillow. Nao gera .icns (o alvo de release e Windows/NSIS); se o macOS
 entrar, o .icns precisa de uma ferramenta que escreva aquele container.
 """
