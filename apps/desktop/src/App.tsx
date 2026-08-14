@@ -63,8 +63,13 @@ function ContextPath({ segments }: { segments: string[] }) {
   return <div className="context-path" aria-label={segments.join(" / ")}>{segments.map((segment, index) => <span key={`${segment}-${index}`} className={index === segments.length - 1 ? "current" : undefined}>{index ? <b>/</b> : null}{segment}</span>)}</div>;
 }
 
-function Panel({ label, count, action, children, className = "" }: { label: string; count?: string; action?: ReactNode; children: ReactNode; className?: string }) {
-  return <section className={`panel ${className}`} data-panel={label}><header className="panel-header"><h2>{label}</h2>{count ? <span className="panel-count">{count}</span> : null}{action}</header>{children}</section>;
+/**
+ * `rule` troca a regua: em vez de sublinhar o cabecalho inteiro, ela sai do
+ * rotulo e atravessa a linha. E como o desenho separa uma secao que abre a
+ * pagina (CONTEXTO) de um painel dentro da grade.
+ */
+function Panel({ label, count, action, rule = false, children, className = "" }: { label: string; count?: string; action?: ReactNode; rule?: boolean; children: ReactNode; className?: string }) {
+  return <section className={`panel ${className}`} data-panel={label} data-rule={rule || undefined}><header className="panel-header"><h2>{label}</h2>{rule ? <span className="panel-rule" aria-hidden="true" /> : null}{count ? <span className="panel-count">{count}</span> : null}{action}</header>{children}</section>;
 }
 
 function EmptyState({ children }: { children: ReactNode }) {
@@ -75,6 +80,7 @@ function CaptureComposer({ onSaved, focusKey }: { onSaved: (capture: Capture) =>
   const [content, setContent] = useState("");
   const [state, setState] = useState<"idle" | "saving" | "success" | "error">("idle");
   const [feedback, setFeedback] = useState("");
+  const [focused, setFocused] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { if (focusKey !== undefined) input.current?.focus(); }, [focusKey]);
 
@@ -98,11 +104,20 @@ function CaptureComposer({ onSaved, focusKey }: { onSaved: (capture: Capture) =>
   // Sem caixa e sem borda: a excecao deliberada do sistema. O caret de bloco so
   // aparece com o campo vazio, como convite — a partir do primeiro caractere
   // quem manda e o caret nativo, e dois caretes na tela seria mentira visual.
+  // Sem caixa e sem borda: a excecao deliberada do sistema.
+  //
+  // O placeholder e o caret sao desenhados por cima do textarea, e nao pelo
+  // atributo placeholder, porque o desenho poe o caret de bloco colado no fim
+  // do texto. Com placeholder nativo o caret so poderia ficar na borda do
+  // campo, que e onde ele estava antes desta correcao. Some ao focar: dali em
+  // diante quem manda e o caret nativo, e dois caretes seriam mentira visual.
   return <form className="capture-field" onSubmit={submit}>
     <div className="capture-line">
       <span className="capture-bar" aria-hidden="true" />
-      <textarea ref={input} aria-label="Conteúdo da captura" value={content} onChange={(event) => setContent(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="What's on your mind?" rows={1} />
-      {content ? null : <span className="capture-caret" aria-hidden="true" />}
+      <div className="capture-input">
+        <textarea ref={input} aria-label="Conteúdo da captura" value={content} onChange={(event) => setContent(event.currentTarget.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} rows={1} />
+        {!content && !focused ? <span className="capture-ghost" aria-hidden="true">What's on your mind?<i className="capture-caret" /></span> : null}
+      </div>
       <Button className="capture-save" variant="primary" type="submit" disabled={!content.trim() || state === "saving"}>{state === "saving" ? "Salvando" : "Salvar ⏎"}</Button>
     </div>
     {feedback && state === "error" ? <p className="feedback error" role="alert">{feedback}</p> : null}
@@ -176,12 +191,17 @@ function HomePage({ recent, projects, tasks, workspaces, apps, refresh, openCapt
   return <div className="page home-page">
     <ContextPath segments={["M", "HOME"]} />
     <CaptureComposer onSaved={(capture) => { markSaved(capture); void refresh(); }} focusKey={intent?.target === "home_capture" ? intent.key : undefined} />
-    <Panel label="CONTEXTO" action={currentWorkspace ? <Button variant="ghost" onClick={() => setCurrentWorkspaceId("")}>Todos</Button> : undefined}><div className="context-switcher">{activeWorkspaces.map((workspace) => <button key={workspace.id} type="button" data-selected={workspace.id === currentWorkspaceId || undefined} onClick={() => setCurrentWorkspaceId(workspace.id)} onDoubleClick={() => openWorkspace(workspace)}><strong>{workspace.name}</strong><small>{workspace.description || "Workspace"}</small></button>)}{!activeWorkspaces.length ? <EmptyState>Workspaces ativos aparecerão aqui.</EmptyState> : null}</div></Panel>
+    <Panel label="CONTEXTO" rule action={currentWorkspace ? <Button variant="ghost" onClick={() => setCurrentWorkspaceId("")}>Todos</Button> : undefined}><div className="context-switcher">{activeWorkspaces.map((workspace) => <button key={workspace.id} type="button" data-selected={workspace.id === currentWorkspaceId || undefined} onClick={() => setCurrentWorkspaceId(workspace.id)} onDoubleClick={() => openWorkspace(workspace)}><strong>{workspace.name}</strong><small>{workspace.description || "Workspace"}</small></button>)}{!activeWorkspaces.length ? <EmptyState>Workspaces ativos aparecerão aqui.</EmptyState> : null}</div></Panel>
     <div className="home-sections">
       <Panel label="EM ANDAMENTO" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nothing in progress right now.</EmptyState>}</Panel>
       <Panel label="RECENTES" count={`INBOX ${recent.length}`}>{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nothing on your mind right now.</EmptyState>}</Panel>
-      <Panel label="PROJECTS" count={scopedProjects.length ? String(scopedProjects.length) : undefined}>{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} aria-hidden="true" />} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <EmptyState>Projects criados aparecerão aqui.</EmptyState> : null}</Panel>
-      <Panel label="APPS" count={activeApps.length ? String(activeApps.length) : undefined}><div className="app-grid">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name}><span className="app-icon" aria-hidden="true">{app.name.trim().charAt(0).toUpperCase()}</span><span className="app-name">{app.name}</span>{index < 9 ? <span className="app-shortcut">⌘{index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <EmptyState>Apps cadastrados aparecerão aqui.</EmptyState> : null}</Panel>
+      {/* Sem contagem: o desenho so conta o que exige decisao — o que esta em
+          andamento e o que espera na Inbox. Project e App voce navega, nao
+          processa. */}
+      <Panel label="PROJECTS">{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} aria-hidden="true" />} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <EmptyState>Projects criados aparecerão aqui.</EmptyState> : null}</Panel>
+      {/* O nome do app nao entra: o icone com a inicial e o atalho ja o
+          identificam, e a linha de nomes competiria com as rows ao lado. */}
+      <Panel label="APPS"><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><span className="app-icon" aria-hidden="true">{app.name.trim().charAt(0).toUpperCase()}</span>{index < 9 ? <span className="app-shortcut">⌘{index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <EmptyState>Apps cadastrados aparecerão aqui.</EmptyState> : null}</Panel>
     </div>
   </div>;
 }

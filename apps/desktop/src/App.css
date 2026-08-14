@@ -372,7 +372,15 @@ kbd {
   background: var(--signal-fill);
 }
 
+/* O textarea e o campo real; o fantasma por cima e so desenho. */
+.capture-input {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
 .capture-line textarea {
+  display: block;
   width: 100%;
   min-height: var(--capture-bar-height);
   max-height: calc(var(--height-control-lg) * 4);
@@ -385,6 +393,23 @@ kbd {
   font: var(--text-capture);
   letter-spacing: var(--tracking-capture);
   resize: none;
+}
+
+/* Placeholder desenhado, nao nativo: so assim o caret de bloco fica colado no
+   fim do texto em vez de ir parar na borda do campo. Nao intercepta clique —
+   quem recebe o foco continua sendo o textarea embaixo. */
+.capture-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  color: var(--text-placeholder);
+  font: var(--text-capture);
+  letter-spacing: var(--tracking-capture);
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 /* Caret de bloco. steps(1, end) porque um caret pisca, nao esmaece. */
@@ -544,9 +569,22 @@ textarea::placeholder {
 .panel-header {
   display: flex;
   align-items: center;
+  gap: var(--space-2);
   justify-content: space-between;
   min-height: var(--height-row);
   border-bottom: var(--line) solid var(--border);
+}
+
+/* Variante de secao: a regua sai do rotulo e atravessa a linha, em vez de
+   sublinhar o cabecalho. */
+.panel[data-rule] > .panel-header {
+  border-bottom: 0;
+}
+
+.panel-rule {
+  flex: 1;
+  height: var(--line);
+  background: var(--border);
 }
 
 .panel-header h2,
@@ -567,9 +605,11 @@ textarea::placeholder {
 }
 
 /* Separador de row e 1px de --border, nunca gap. Gap deixaria as rows
-   flutuando; a regua diz que elas pertencem a mesma lista. */
-.row-list > * + * {
-  border-top: var(--line) solid var(--border);
+   flutuando; a regua diz que elas pertencem a mesma lista.
+   A linha vai embaixo de TODA row, inclusive a ultima: e o que fecha a lista
+   contra o que vier depois. */
+.row-list > * {
+  border-bottom: var(--line) solid var(--border);
 }
 
 @keyframes rowEnter {
@@ -617,9 +657,11 @@ textarea::placeholder {
   background: var(--signal-fill);
 }
 
-.app-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--height-control-lg), 1fr));
+/* Fileira, nao grade: os apps fixados sao poucos e cabem numa linha. Uma
+   grade os espalharia e faria a secao competir com as rows ao lado. */
+.app-row {
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-3);
   padding: var(--space-3) 0;
 }
@@ -651,15 +693,6 @@ textarea::placeholder {
    so o sistema usa sodio e massa solida. */
 .app-tile:hover .app-icon {
   border-color: var(--text-system);
-}
-
-.app-name {
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--text-secondary);
-  font: var(--text-small);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .app-shortcut {
