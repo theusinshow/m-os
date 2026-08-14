@@ -1264,15 +1264,43 @@ textarea::placeholder {
   text-transform: uppercase;
 }
 
+/* Campo em repouso: fundo transparente e borda discreta. O campo nao precisa
+   se anunciar — ele se anuncia quando recebe conteudo ou foco. */
 input,
 textarea,
 select {
   min-height: var(--height-input);
   padding: 0 var(--space-3);
   color: var(--text);
-  background: var(--surface);
-  border: var(--line) solid var(--border-control);
+  background: transparent;
+  border: var(--line) solid var(--border);
   border-radius: var(--radius);
+  font: var(--text-small);
+  transition: border-color var(--dur-instant) var(--ease-state);
+}
+
+/* Preenchido acende a borda. E a diferenca entre "aqui cabe algo" e "aqui ja
+   tem algo" sem precisar de rotulo dizendo isso. */
+input:not(:placeholder-shown),
+textarea:not(:placeholder-shown),
+select:valid {
+  border-color: var(--border-strong);
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled {
+  color: var(--text-system);
+  background: var(--surface);
+  border-color: var(--border);
+  cursor: default;
+}
+
+/* Erro tem cor, ao contrario de warning: e o unico estado alem do sinal que
+   pode usar cromatica, e vem sempre acompanhado de frase. */
+input[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: var(--danger);
 }
 
 textarea {
