@@ -49,12 +49,16 @@ disciplina de token, CI.
 
 ### Sem precisar de olhos
 
-- [ ] Estados dos componentes contra `M-OS Components v0.5`: Fields, Controls,
-      Rows, Navigation, Overlays, Feedback. Buttons já foi.
-- [ ] Os cinco estados que o `AGENTS.md` exige em cada componente: repouso,
-      hover, focus, ativo, bloqueado.
-- [ ] Varredura de CSS morto e classe órfã (o `.app-name` e o badge do rail já
-      apareceram assim; provavelmente há mais).
+- [x] Buttons — 13px, destrutivo só em outline.
+- [x] Fields — cinco estados; vazio e preenchido têm bordas diferentes.
+- [x] Rows — estrutura confirmada; faltava a project row com barra de progresso,
+      agora implementada a partir das tasks concluídas.
+- [ ] Controls, Navigation, Overlays, Feedback.
+- [x] Varredura de seletor duplicado. Achou uma colisão real entre componentes
+      (`.hermes-turn` valia para o Command e para a tela ao mesmo tempo) e duas
+      duplicatas minhas. Os sete restantes são grupo compartilhado + bloco
+      específico, que é composição intencional.
+- [ ] Varredura de classe órfã (CSS sem uso no TSX).
 - [ ] `/code-review` no diff acumulado da série.
 - [ ] Inbox: comparar o pane esquerdo linha a linha (só o direito foi conferido).
 - [ ] Projects: lista da esquerda ainda não comparada com o protótipo.
@@ -81,3 +85,4 @@ Só depois do polimento — corrigir o que existe vale mais que somar o que falt
 | Volta | O que foi feito | Resultado |
 |---|---|---|
 | 1 | Branch, backlog, tentativa de visão | CLI ausente; app sem janela; seguindo sem olhos |
+| 2 | Fields, Rows com progresso, varredura de duplicados | colisão `.hermes-turn` corrigida; app segue sem janela |

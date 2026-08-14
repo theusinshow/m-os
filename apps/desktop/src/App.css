@@ -56,13 +56,6 @@ button {
     opacity var(--dur-instant) linear;
 }
 
-/* Destrutivo so existe em outline. Preenchido, ele convidaria ao clique que
-   justamente nao deve ser convidado. */
-.button.danger {
-  color: var(--danger);
-  background: transparent;
-}
-
 .button.primary {
   color: var(--on-signal);
   background: var(--signal-fill);
@@ -98,6 +91,8 @@ button {
   background: transparent;
 }
 
+/* Destrutivo so existe em outline. Preenchido, ele convidaria ao clique que
+   justamente nao deve ser convidado. */
 .button.danger {
   color: var(--danger);
   background: transparent;
@@ -1732,7 +1727,13 @@ select {
   color: var(--text-system);
 }
 
-.hermes-thread {
+/* Estas regras sao do modo Hermes DENTRO do Command, e ficam escopadas nele.
+   Sem o escopo, elas colidiam com as da tela do Hermes, que usa os mesmos
+   nomes de classe: o turno do Command herdava max-width e borda que nao eram
+   dele, e o da tela recebia um display: grid que brigava com o layout. Mesmo
+   nome de classe em dois componentes e o tipo de bug que nao aparece em build
+   nem em teste — so na tela. */
+.command-surface .hermes-thread {
   display: grid;
   gap: var(--space-4);
   max-height: calc(var(--height-row-two-line) * 8);
@@ -1740,12 +1741,12 @@ select {
   overflow: auto;
 }
 
-.hermes-turn {
+.command-surface .hermes-turn {
   display: grid;
   gap: var(--space-2);
 }
 
-.hermes-question {
+.command-surface .hermes-question {
   margin: 0;
   color: var(--text-secondary);
   font: var(--text-small);
@@ -1753,7 +1754,7 @@ select {
 
 /* A barra de 2px em sodio marca tudo que o sistema produziu. Nao ha bolha, nao
    ha avatar, nao ha orb: o Hermes e capacidade nativa, nao um convidado. */
-.hermes-answer {
+.command-surface .hermes-answer {
   margin: 0;
   padding-left: var(--space-3);
   border-left: var(--marker) solid var(--signal-fill);
@@ -2118,17 +2119,13 @@ select {
 .amplitude {
   display: flex;
   flex: none;
-  align-items: center;
+  align-items: flex-end;
   gap: var(--space-1);
   height: var(--capture-bar-height);
 }
 
 /* Quatro tracos de alturas diferentes: le como forma de onda parada, nao como
    barra de progresso. Alinhados pela base. */
-.amplitude {
-  align-items: flex-end;
-}
-
 .amplitude i {
   width: var(--line);
   background: var(--text-system);
@@ -2612,4 +2609,29 @@ select {
   margin-right: var(--space-2);
   color: var(--signal-ink);
   font: var(--text-meta);
+}
+
+/* Progresso do Project na row. A barra ocupa largura fixa para que varias rows
+   fiquem comparaveis pelo olho: barras de largura variavel nao se comparam. */
+.row-progress {
+  flex: none;
+  width: 96px;
+  height: var(--marker);
+  background: var(--border);
+}
+
+.row-progress i {
+  display: block;
+  height: 100%;
+  background: var(--signal-fill);
+  transition: width var(--dur-state) var(--ease-state);
+}
+
+.row-progress-count {
+  flex: none;
+  min-width: var(--space-6);
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-align: right;
 }
