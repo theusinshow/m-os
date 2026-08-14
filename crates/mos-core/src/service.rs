@@ -188,6 +188,8 @@ pub struct CreateAppInput {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default)]
+    pub source_url: Option<String>,
     pub launch_kind: Option<AppLaunchKind>,
     pub launch_target: Option<String>,
 }
@@ -199,6 +201,8 @@ pub struct UpdateAppInput {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default)]
+    pub source_url: Option<String>,
     pub launch_kind: Option<AppLaunchKind>,
     pub launch_target: Option<String>,
 }
@@ -208,24 +212,165 @@ pub struct AppService {
     repository: Arc<dyn AppRepository>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateResourceInput {
+    #[serde(default)]
+    pub title: String,
+    pub url: String,
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub source_capture_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateResourceInput {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    pub url: String,
+    #[serde(default)]
+    pub note: String,
+}
+
+#[derive(Clone)]
+pub struct MemoryService {
+    repository: Arc<dyn crate::ResourceRepository>,
+}
+
+impl MemoryService {
+    pub fn new(repository: Arc<dyn crate::ResourceRepository>) -> Self {
+        Self { repository }
+    }
+
+    pub fn create_resource(
+        &self,
+        input: CreateResourceInput,
+    ) -> Result<crate::Resource, CoreError> {
+        let source_capture_id = input
+            .source_capture_id
+            .as_deref()
+            .map(crate::CaptureId::parse)
+            .transpose()?;
+        self.repository
+            .create_resource(crate::NewResource::create_link(
+                &input.title,
+                &input.url,
+                &input.note,
+                source_capture_id,
+            )?)
+    }
+
+    pub fn update_resource(
+        &self,
+        input: UpdateResourceInput,
+    ) -> Result<crate::Resource, CoreError> {
+        let validated =
+            crate::NewResource::create_link(&input.title, &input.url, &input.note, None)?;
+        self.repository.update_resource(
+            crate::ResourceId::parse(&input.id)?,
+            &validated.title,
+            &validated.url,
+            &validated.note,
+        )
+    }
+
+    pub fn resource(&self, id: &str) -> Result<crate::Resource, CoreError> {
+        self.repository.get_resource(crate::ResourceId::parse(id)?)
+    }
+
+    pub fn resources(&self, include_archived: bool) -> Result<Vec<crate::Resource>, CoreError> {
+        self.repository.resources(include_archived)
+    }
+
+    pub fn trashed_resources(&self) -> Result<Vec<crate::Resource>, CoreError> {
+        self.repository.trashed_resources()
+    }
+
+    pub fn set_resource_lifecycle(
+        &self,
+        id: &str,
+        lifecycle: LifecycleState,
+    ) -> Result<crate::Resource, CoreError> {
+        self.repository
+            .set_resource_lifecycle(crate::ResourceId::parse(id)?, lifecycle)
+    }
+
+    pub fn search(
+        &self,
+        query: &str,
+        include_archived: bool,
+        limit: usize,
+    ) -> Result<Vec<crate::Resource>, CoreError> {
+        self.repository.search_resources(SearchRequest {
+            query: query.trim().to_owned(),
+            include_archived,
+            limit: limit.min(100),
+        })
+    }
+
+    pub fn rebuild_search(&self) -> Result<usize, CoreError> {
+        self.repository.rebuild_resource_search()
+    }
+}
+
 impl AppService {
     pub fn new(repository: Arc<dyn AppRepository>) -> Self {
         Self { repository }
     }
 
     pub fn create_app(&self, input: CreateAppInput) -> Result<RegisteredApp, CoreError> {
-        self.repository.create_app(NewRegisteredApp::create(
-            &input.name,
-            &input.description,
-            input.launch_kind,
-            input.launch_target.as_deref(),
-        )?)
+        self.repository
+            .create_app(NewRegisteredApp::create_with_source(
+                &input.name,
+                &input.description,
+                input.source_url.as_deref(),
+                input.launch_kind,
+                input.launch_target.as_deref(),
+            )?)
+    }
+
+    pub fn catalog(&self) -> Vec<crate::AppCatalogEntry> {
+        crate::app_catalog()
+    }
+
+    pub fn register_catalog(&self, ids: &[String]) -> Result<Vec<RegisteredApp>, CoreError> {
+        let catalog = crate::app_catalog();
+        let mut selected = Vec::new();
+        for id in ids {
+            if selected
+                .iter()
+                .any(|entry: &crate::AppCatalogEntry| entry.id == *id)
+            {
+                continue;
+            }
+            let entry = catalog
+                .iter()
+                .find(|entry| entry.id == *id)
+                .cloned()
+                .ok_or_else(|| {
+                    CoreError::new(
+                        crate::ErrorCode::InvalidInput,
+                        format!("App conhecido desconhecido: {id}."),
+                        false,
+                    )
+                })?;
+            selected.push(entry);
+        }
+        let apps = selected
+            .into_iter()
+            .map(crate::AppCatalogEntry::into_new_app)
+            .collect::<Result<Vec<_>, _>>()?;
+        self.repository.register_catalog_apps(apps)
     }
 
     pub fn update_app(&self, input: UpdateAppInput) -> Result<RegisteredApp, CoreError> {
-        let validated = NewRegisteredApp::create(
+        let validated = NewRegisteredApp::create_with_source(
             &input.name,
             &input.description,
+            input.source_url.as_deref(),
             input.launch_kind,
             input.launch_target.as_deref(),
         )?;
@@ -233,6 +378,7 @@ impl AppService {
             AppId::parse(&input.id)?,
             &validated.name,
             &validated.description,
+            validated.source_url.as_deref(),
             validated.launch_kind,
             validated.launch_target.as_deref(),
         )

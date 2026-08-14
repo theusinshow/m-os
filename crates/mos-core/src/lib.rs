@@ -3,10 +3,14 @@ mod capture;
 mod error;
 mod functions;
 mod ports;
+mod resource;
 mod service;
 mod work;
 
-pub use app::{validate_launch_target, AppId, AppLaunchKind, NewRegisteredApp, RegisteredApp};
+pub use app::{
+    app_catalog, validate_launch_target, validate_source_url, AppCatalogEntry, AppId,
+    AppLaunchKind, NewRegisteredApp, RegisteredApp,
+};
 pub use capture::{Capture, CaptureId, CaptureSource, LifecycleState, NewCapture, ProcessingState};
 pub use error::{CoreError, ErrorCode};
 pub use functions::{
@@ -15,12 +19,14 @@ pub use functions::{
 };
 pub use ports::{
     AppRepository, BackupInspection, BackupReceipt, CaptureRepository, DataMaintenance,
-    SearchRequest, WorkRepository,
+    ResourceRepository, SearchRequest, WorkRepository,
 };
+pub use resource::{validate_resource_url, NewResource, Resource, ResourceId, ResourceKind};
 pub use service::{
     AppService, CaptureService, CreateAppInput, CreateCaptureInput, CreateProjectInput,
-    CreateTaskInput, CreateWorkspaceInput, DataService, UpdateAppInput, UpdateProjectInput,
-    UpdateTaskInput, UpdateWorkspaceInput, WorkService,
+    CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService, MemoryService,
+    UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput,
+    WorkService,
 };
 pub use work::{
     NewProject, NewTask, NewWorkspace, Project, ProjectId, SearchItem, Task, TaskId, TaskState,

@@ -1,0 +1,439 @@
+use mos_core::{
+    CoreError, ErrorCode, LifecycleState, NewResource, Resource, ResourceId, ResourceKind,
+    ResourceRepository, SearchRequest,
+};
+use rusqlite::{params, OptionalExtension, Row, Transaction};
+use time::OffsetDateTime;
+
+use crate::{
+    map_lock_error, map_sql_error,
+    repository::{format_time, parse_time, to_fts_query},
+    SqliteStorage,
+};
+
+pub(crate) const RESOURCE_COLUMNS: &str =
+    "id, kind, title, url, note, source_capture_id, lifecycle_state, created_at, updated_at";
+
+struct RawResource {
+    id: String,
+    kind: String,
+    title: String,
+    url: String,
+    note: String,
+    source_capture_id: Option<String>,
+    lifecycle_state: String,
+    created_at: String,
+    updated_at: String,
+}
+
+impl RawResource {
+    fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get(0)?,
+            kind: row.get(1)?,
+            title: row.get(2)?,
+            url: row.get(3)?,
+            note: row.get(4)?,
+            source_capture_id: row.get(5)?,
+            lifecycle_state: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
+        })
+    }
+
+    fn into_resource(self) -> Result<Resource, CoreError> {
+        Ok(Resource {
+            id: ResourceId::parse(&self.id)?,
+            kind: ResourceKind::parse(&self.kind)?,
+            title: self.title,
+            url: self.url,
+            note: self.note,
+            source_capture_id: self
+                .source_capture_id
+                .as_deref()
+                .map(mos_core::CaptureId::parse)
+                .transpose()?,
+            lifecycle_state: LifecycleState::parse(&self.lifecycle_state)?,
+            created_at: parse_time(&self.created_at)?,
+            updated_at: parse_time(&self.updated_at)?,
+        })
+    }
+}
+
+impl ResourceRepository for SqliteStorage {
+    fn create_resource(&self, resource: NewResource) -> Result<Resource, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        if let Some(capture_id) = resource.source_capture_id {
+            let lifecycle = transaction
+                .query_row(
+                    "SELECT lifecycle_state FROM captures WHERE id = ?1",
+                    [capture_id.to_string()],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(map_sql_error)?
+                .ok_or_else(|| {
+                    CoreError::new(ErrorCode::NotFound, "Capture nao encontrada.", false)
+                })?;
+            if lifecycle != "active" {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidTransition,
+                    "Somente uma Capture ativa pode originar Resource.",
+                    false,
+                ));
+            }
+            let already_derived: bool = transaction
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM resources WHERE source_capture_id = ?1)",
+                    [capture_id.to_string()],
+                    |row| row.get(0),
+                )
+                .map_err(map_sql_error)?;
+            if already_derived {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidTransition,
+                    "Esta Capture ja originou um Resource.",
+                    false,
+                ));
+            }
+        }
+
+        let now = format_time(resource.created_at)?;
+        let id = resource.id;
+        transaction
+            .execute(
+                "INSERT INTO resources (
+                    id, kind, title, url, note, source_capture_id,
+                    lifecycle_state, created_at, updated_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?7)",
+                params![
+                    resource.id.to_string(),
+                    resource.kind.as_str(),
+                    resource.title,
+                    resource.url,
+                    resource.note,
+                    resource.source_capture_id.map(|value| value.to_string()),
+                    now,
+                ],
+            )
+            .map_err(map_sql_error)?;
+        insert_resource_search(&transaction, transaction.last_insert_rowid())?;
+        if let Some(capture_id) = resource.source_capture_id {
+            transaction
+                .execute(
+                    "UPDATE captures
+                     SET processing_state = 'processed', updated_at = ?1
+                     WHERE id = ?2",
+                    params![now, capture_id.to_string()],
+                )
+                .map_err(map_sql_error)?;
+        }
+        transaction.commit().map_err(map_sql_error)?;
+        query_resource(&connection, id)
+    }
+
+    fn update_resource(
+        &self,
+        id: ResourceId,
+        title: &str,
+        url: &str,
+        note: &str,
+    ) -> Result<Resource, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        delete_resource_search(&transaction, id)?;
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let changed = transaction
+            .execute(
+                "UPDATE resources
+                 SET title = ?1, url = ?2, note = ?3, updated_at = ?4
+                 WHERE id = ?5",
+                params![title, url, note, now, id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        ensure_resource_changed(changed)?;
+        let rowid = transaction
+            .query_row(
+                "SELECT rowid FROM resources WHERE id = ?1",
+                [id.to_string()],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(map_sql_error)?;
+        insert_resource_search(&transaction, rowid)?;
+        transaction.commit().map_err(map_sql_error)?;
+        query_resource(&connection, id)
+    }
+
+    fn get_resource(&self, id: ResourceId) -> Result<Resource, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        query_resource(&connection, id)
+    }
+
+    fn resources(&self, include_archived: bool) -> Result<Vec<Resource>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let lifecycle = if include_archived {
+            "lifecycle_state IN ('active', 'archived')"
+        } else {
+            "lifecycle_state = 'active'"
+        };
+        query_resources(
+            &connection,
+            &format!(
+                "SELECT {RESOURCE_COLUMNS} FROM resources WHERE {lifecycle}
+                 ORDER BY updated_at DESC"
+            ),
+        )
+    }
+
+    fn trashed_resources(&self) -> Result<Vec<Resource>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        query_resources(
+            &connection,
+            &format!(
+                "SELECT {RESOURCE_COLUMNS} FROM resources
+                 WHERE lifecycle_state = 'trashed'
+                 ORDER BY updated_at DESC"
+            ),
+        )
+    }
+
+    fn set_resource_lifecycle(
+        &self,
+        id: ResourceId,
+        lifecycle: LifecycleState,
+    ) -> Result<Resource, CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let (archived_at, deleted_at) = match lifecycle {
+            LifecycleState::Active => (None, None),
+            LifecycleState::Archived => (Some(now.as_str()), None),
+            LifecycleState::Trashed => (None, Some(now.as_str())),
+        };
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let changed = connection
+            .execute(
+                "UPDATE resources
+                 SET lifecycle_state = ?1, updated_at = ?2, archived_at = ?3, deleted_at = ?4
+                 WHERE id = ?5",
+                params![
+                    lifecycle.as_str(),
+                    now,
+                    archived_at,
+                    deleted_at,
+                    id.to_string()
+                ],
+            )
+            .map_err(map_sql_error)?;
+        ensure_resource_changed(changed)?;
+        query_resource(&connection, id)
+    }
+
+    fn search_resources(&self, request: SearchRequest) -> Result<Vec<Resource>, CoreError> {
+        if request.query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let fts_query = to_fts_query(&request.query);
+        if fts_query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let lifecycle = if request.include_archived {
+            "r.lifecycle_state IN ('active', 'archived')"
+        } else {
+            "r.lifecycle_state = 'active'"
+        };
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT r.{columns}
+                 FROM resource_search s
+                 JOIN resources r ON r.rowid = s.rowid
+                 WHERE resource_search MATCH ?1 AND {lifecycle}
+                 ORDER BY bm25(resource_search), r.updated_at DESC
+                 LIMIT ?2",
+                columns = RESOURCE_COLUMNS.replace(", ", ", r.")
+            ))
+            .map_err(map_sql_error)?;
+        let resources = statement
+            .query_map(
+                params![fts_query, request.limit as i64],
+                RawResource::from_row,
+            )
+            .map_err(map_sql_error)?
+            .map(|row| row.map_err(map_sql_error)?.into_resource())
+            .collect();
+        resources
+    }
+
+    fn rebuild_resource_search(&self) -> Result<usize, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        transaction
+            .execute(
+                "INSERT INTO resource_search(resource_search) VALUES('rebuild')",
+                [],
+            )
+            .map_err(map_sql_error)?;
+        let count = transaction
+            .query_row("SELECT count(*) FROM resource_search", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(map_sql_error)? as usize;
+        transaction.commit().map_err(map_sql_error)?;
+        Ok(count)
+    }
+}
+
+fn insert_resource_search(transaction: &Transaction<'_>, rowid: i64) -> Result<(), CoreError> {
+    transaction
+        .execute(
+            "INSERT INTO resource_search (rowid, title, url, note)
+             SELECT rowid, title, url, note FROM resources WHERE rowid = ?1",
+            [rowid],
+        )
+        .map_err(map_sql_error)?;
+    Ok(())
+}
+
+fn delete_resource_search(transaction: &Transaction<'_>, id: ResourceId) -> Result<(), CoreError> {
+    transaction
+        .execute(
+            "INSERT INTO resource_search(resource_search, rowid, title, url, note)
+             SELECT 'delete', rowid, title, url, note FROM resources WHERE id = ?1",
+            [id.to_string()],
+        )
+        .map_err(map_sql_error)?;
+    Ok(())
+}
+
+pub(crate) fn query_resource(
+    connection: &rusqlite::Connection,
+    id: ResourceId,
+) -> Result<Resource, CoreError> {
+    connection
+        .query_row(
+            &format!("SELECT {RESOURCE_COLUMNS} FROM resources WHERE id = ?1"),
+            [id.to_string()],
+            RawResource::from_row,
+        )
+        .optional()
+        .map_err(map_sql_error)?
+        .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "Resource nao encontrado.", false))?
+        .into_resource()
+}
+
+pub(crate) fn query_resources(
+    connection: &rusqlite::Connection,
+    sql: &str,
+) -> Result<Vec<Resource>, CoreError> {
+    let mut statement = connection.prepare(sql).map_err(map_sql_error)?;
+    let resources = statement
+        .query_map([], RawResource::from_row)
+        .map_err(map_sql_error)?
+        .map(|row| row.map_err(map_sql_error)?.into_resource())
+        .collect();
+    resources
+}
+
+pub(crate) fn query_resources_all(
+    connection: &rusqlite::Connection,
+) -> Result<Vec<Resource>, CoreError> {
+    query_resources(
+        connection,
+        &format!("SELECT {RESOURCE_COLUMNS} FROM resources ORDER BY created_at ASC"),
+    )
+}
+
+fn ensure_resource_changed(changed: usize) -> Result<(), CoreError> {
+    if changed == 0 {
+        Err(CoreError::new(
+            ErrorCode::NotFound,
+            "Resource nao encontrado.",
+            false,
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mos_core::{CaptureRepository, CaptureSource, NewCapture};
+
+    fn storage() -> (tempfile::TempDir, SqliteStorage) {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = SqliteStorage::open(
+            directory.path().join("mos.db"),
+            directory.path().join("backups"),
+        )
+        .unwrap();
+        (directory, storage)
+    }
+
+    #[test]
+    fn create_update_search_and_archive_resource() {
+        let (_directory, storage) = storage();
+        let resource = storage
+            .create_resource(
+                NewResource::create_link("Motion", "https://motion.dev", "Hero animada", None)
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            storage
+                .search_resources(SearchRequest {
+                    query: "animada".into(),
+                    include_archived: false,
+                    limit: 20,
+                })
+                .unwrap()
+                .len(),
+            1
+        );
+        let updated = storage
+            .update_resource(
+                resource.id,
+                "Motion docs",
+                "https://motion.dev/docs",
+                "Referencia",
+            )
+            .unwrap();
+        assert_eq!(updated.url, "https://motion.dev/docs");
+        storage
+            .set_resource_lifecycle(resource.id, LifecycleState::Archived)
+            .unwrap();
+        assert!(storage.resources(false).unwrap().is_empty());
+        assert_eq!(storage.resources(true).unwrap().len(), 1);
+        storage
+            .set_resource_lifecycle(resource.id, LifecycleState::Trashed)
+            .unwrap();
+        assert!(storage.resources(true).unwrap().is_empty());
+        assert_eq!(storage.trashed_resources().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn capture_to_resource_is_atomic_and_unique() {
+        let (_directory, storage) = storage();
+        let capture = storage
+            .create(NewCapture::create("https://motion.dev", CaptureSource::Home).unwrap())
+            .unwrap();
+        let resource = storage
+            .create_resource(
+                NewResource::create_link("", "https://motion.dev", "Motion", Some(capture.id))
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(resource.source_capture_id, Some(capture.id));
+        assert_eq!(
+            storage.get(capture.id).unwrap().processing_state,
+            mos_core::ProcessingState::Processed
+        );
+        assert!(storage
+            .create_resource(
+                NewResource::create_link("Outra", "https://motion.dev/docs", "", Some(capture.id),)
+                    .unwrap(),
+            )
+            .is_err());
+        assert_eq!(storage.resources(false).unwrap().len(), 1);
+    }
+}

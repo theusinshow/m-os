@@ -11,12 +11,13 @@ use crate::{
     SqliteStorage,
 };
 
-pub(crate) const APP_COLUMNS: &str = "id, name, description, launch_kind, launch_target, lifecycle_state, created_at, updated_at, last_opened_at";
+pub(crate) const APP_COLUMNS: &str = "id, name, description, source_url, launch_kind, launch_target, lifecycle_state, created_at, updated_at, last_opened_at";
 
 struct RawApp {
     id: String,
     name: String,
     description: String,
+    source_url: Option<String>,
     launch_kind: Option<String>,
     launch_target: Option<String>,
     lifecycle_state: String,
@@ -31,12 +32,13 @@ impl RawApp {
             id: row.get(0)?,
             name: row.get(1)?,
             description: row.get(2)?,
-            launch_kind: row.get(3)?,
-            launch_target: row.get(4)?,
-            lifecycle_state: row.get(5)?,
-            created_at: row.get(6)?,
-            updated_at: row.get(7)?,
-            last_opened_at: row.get(8)?,
+            source_url: row.get(3)?,
+            launch_kind: row.get(4)?,
+            launch_target: row.get(5)?,
+            lifecycle_state: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
+            last_opened_at: row.get(9)?,
         })
     }
 
@@ -45,6 +47,7 @@ impl RawApp {
             id: AppId::parse(&self.id)?,
             name: self.name,
             description: self.description,
+            source_url: self.source_url,
             launch_kind: self
                 .launch_kind
                 .as_deref()
@@ -68,13 +71,14 @@ impl AppRepository for SqliteStorage {
         transaction
             .execute(
                 "INSERT INTO apps (
-                    id, name, description, launch_kind, launch_target,
+                    id, name, description, source_url, launch_kind, launch_target,
                     lifecycle_state, created_at, updated_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, 'active', ?6, ?6)",
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?7)",
                 params![
                     app.id.to_string(),
                     app.name,
                     app.description,
+                    app.source_url,
                     app.launch_kind.map(AppLaunchKind::as_str),
                     app.launch_target,
                     now,
@@ -86,11 +90,95 @@ impl AppRepository for SqliteStorage {
         query_app(&connection, id)
     }
 
+    fn register_catalog_apps(
+        &self,
+        apps: Vec<NewRegisteredApp>,
+    ) -> Result<Vec<RegisteredApp>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let mut ids = Vec::with_capacity(apps.len());
+        for app in apps {
+            let source_url = app.source_url.as_deref();
+            let existing_id = transaction
+                .query_row(
+                    "SELECT id FROM apps
+                     WHERE (?1 IS NOT NULL AND source_url = ?1) OR lower(name) = lower(?2)
+                     ORDER BY CASE WHEN source_url = ?1 THEN 0 ELSE 1 END
+                     LIMIT 1",
+                    params![source_url, app.name],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(map_sql_error)?;
+
+            if let Some(existing_id) = existing_id {
+                let id = AppId::parse(&existing_id)?;
+                delete_app_search(&transaction, id)?;
+                let now = format_time(OffsetDateTime::now_utc())?;
+                transaction
+                    .execute(
+                        "UPDATE apps
+                         SET description = CASE WHEN trim(description) = '' THEN ?1 ELSE description END,
+                             source_url = COALESCE(source_url, ?2),
+                             launch_kind = COALESCE(launch_kind, ?3),
+                             launch_target = COALESCE(launch_target, ?4),
+                             updated_at = ?5
+                         WHERE id = ?6",
+                        params![
+                            app.description,
+                            app.source_url,
+                            app.launch_kind.map(AppLaunchKind::as_str),
+                            app.launch_target,
+                            now,
+                            existing_id,
+                        ],
+                    )
+                    .map_err(map_sql_error)?;
+                let rowid = transaction
+                    .query_row(
+                        "SELECT rowid FROM apps WHERE id = ?1",
+                        [existing_id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(map_sql_error)?;
+                insert_app_search(&transaction, rowid)?;
+                ids.push(id);
+            } else {
+                let now = format_time(app.created_at)?;
+                let id = app.id;
+                transaction
+                    .execute(
+                        "INSERT INTO apps (
+                            id, name, description, source_url, launch_kind, launch_target,
+                            lifecycle_state, created_at, updated_at
+                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?7)",
+                        params![
+                            app.id.to_string(),
+                            app.name,
+                            app.description,
+                            app.source_url,
+                            app.launch_kind.map(AppLaunchKind::as_str),
+                            app.launch_target,
+                            now,
+                        ],
+                    )
+                    .map_err(map_sql_error)?;
+                insert_app_search(&transaction, transaction.last_insert_rowid())?;
+                ids.push(id);
+            }
+        }
+        transaction.commit().map_err(map_sql_error)?;
+        ids.into_iter()
+            .map(|id| query_app(&connection, id))
+            .collect()
+    }
+
     fn update_app(
         &self,
         id: AppId,
         name: &str,
         description: &str,
+        source_url: Option<&str>,
         launch_kind: Option<AppLaunchKind>,
         launch_target: Option<&str>,
     ) -> Result<RegisteredApp, CoreError> {
@@ -101,12 +189,13 @@ impl AppRepository for SqliteStorage {
         let changed = transaction
             .execute(
                 "UPDATE apps
-                 SET name = ?1, description = ?2, launch_kind = ?3, launch_target = ?4,
-                     updated_at = ?5
-                 WHERE id = ?6",
+                 SET name = ?1, description = ?2, source_url = ?3, launch_kind = ?4,
+                     launch_target = ?5, updated_at = ?6
+                 WHERE id = ?7",
                 params![
                     name,
                     description,
+                    source_url,
                     launch_kind.map(AppLaunchKind::as_str),
                     launch_target,
                     now,
@@ -243,8 +332,8 @@ impl AppRepository for SqliteStorage {
 fn insert_app_search(transaction: &Transaction<'_>, rowid: i64) -> Result<(), CoreError> {
     transaction
         .execute(
-            "INSERT INTO app_search (rowid, name, description, launch_target)
-             SELECT rowid, name, description, launch_target FROM apps WHERE rowid = ?1",
+            "INSERT INTO app_search (rowid, name, description, source_url, launch_target)
+             SELECT rowid, name, description, source_url, launch_target FROM apps WHERE rowid = ?1",
             [rowid],
         )
         .map_err(map_sql_error)?;
@@ -254,8 +343,8 @@ fn insert_app_search(transaction: &Transaction<'_>, rowid: i64) -> Result<(), Co
 fn delete_app_search(transaction: &Transaction<'_>, id: AppId) -> Result<(), CoreError> {
     transaction
         .execute(
-            "INSERT INTO app_search(app_search, rowid, name, description, launch_target)
-             SELECT 'delete', rowid, name, description, launch_target FROM apps WHERE id = ?1",
+            "INSERT INTO app_search(app_search, rowid, name, description, source_url, launch_target)
+             SELECT 'delete', rowid, name, description, source_url, launch_target FROM apps WHERE id = ?1",
             [id.to_string()],
         )
         .map_err(map_sql_error)?;
@@ -347,6 +436,7 @@ mod tests {
                 app.id,
                 "M Finance",
                 "Contas e faturas",
+                Some("https://github.com/theusinshow/m-finance"),
                 Some(AppLaunchKind::Path),
                 Some("C:\\Apps\\m-finance.exe"),
             )
@@ -362,6 +452,60 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, app.id);
+        assert_eq!(
+            results[0].source_url.as_deref(),
+            Some("https://github.com/theusinshow/m-finance")
+        );
+        let source_results = storage
+            .search_apps(SearchRequest {
+                query: "theusinshow".into(),
+                include_archived: false,
+                limit: 20,
+            })
+            .unwrap();
+        assert_eq!(source_results.len(), 1);
+        assert_eq!(source_results[0].id, app.id);
+    }
+
+    #[test]
+    fn catalog_registration_is_idempotent_and_preserves_existing_target() {
+        let (_directory, storage) = storage();
+        let existing = storage
+            .create_app(
+                NewRegisteredApp::create(
+                    "CronoCAD",
+                    "",
+                    Some(AppLaunchKind::Path),
+                    Some("C:\\Apps\\cronocad.exe"),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let entries = mos_core::app_catalog()
+            .into_iter()
+            .map(mos_core::AppCatalogEntry::into_new_app)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let first = storage.register_catalog_apps(entries).unwrap();
+        let second_entries = mos_core::app_catalog()
+            .into_iter()
+            .map(mos_core::AppCatalogEntry::into_new_app)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let second = storage.register_catalog_apps(second_entries).unwrap();
+
+        assert_eq!(first.len(), 3);
+        assert_eq!(second.len(), 3);
+        assert_eq!(storage.apps(false).unwrap().len(), 3);
+        let cronocad = storage.get_app(existing.id).unwrap();
+        assert_eq!(
+            cronocad.launch_target.as_deref(),
+            Some("C:\\Apps\\cronocad.exe")
+        );
+        assert_eq!(
+            cronocad.source_url.as_deref(),
+            Some("https://github.com/theusinshow/cronocad")
+        );
     }
 
     #[test]

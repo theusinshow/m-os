@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum FunctionCategory {
     Capture,
     Work,
+    Memory,
     App,
     Data,
     System,
@@ -92,6 +93,30 @@ pub fn function_registry() -> Vec<FunctionDefinition> {
             "Cria um Project local para agrupar trabalho.",
             FunctionCategory::Work,
             FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "resource.create",
+            "Salvar Resource",
+            "Guarda um link com o contexto pelo qual ele merece ser lembrado.",
+            FunctionCategory::Memory,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "resource.create_from_capture",
+            "Converter Capture em Resource",
+            "Cria um Resource preservando a Capture como origem.",
+            FunctionCategory::Memory,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "resource.open",
+            "Abrir Resource",
+            "Abre a URL validada de um Resource ativo no sistema.",
+            FunctionCategory::Memory,
+            FunctionRisk::Medium,
             FunctionConfirmation::None,
         ),
         function(
@@ -221,6 +246,7 @@ mod tests {
         let functions = function_registry();
 
         assert!(functions.iter().any(|item| item.id == "capture.create"));
+        assert!(functions.iter().any(|item| item.id == "resource.create"));
         assert!(functions.iter().any(|item| item.id == "data.restore"));
         assert!(functions.iter().all(|item| item.id.contains('.')));
     }

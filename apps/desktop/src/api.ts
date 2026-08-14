@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, Project, RegisteredApp, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, Project, RegisteredApp, Resource, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -48,6 +48,36 @@ export const api = {
   restore(id: string) {
     return invoke<Capture>("restore_capture", { id });
   },
+  resources(includeArchived = false) {
+    return invoke<Resource[]>("list_resources", { includeArchived });
+  },
+  trashedResources() {
+    return invoke<Resource[]>("list_trashed_resources");
+  },
+  resource(id: string) {
+    return invoke<Resource>("get_resource", { id });
+  },
+  searchResources(query: string, includeArchived = false) {
+    return invoke<Resource[]>("search_resources", { query, includeArchived });
+  },
+  createResource(title: string, url: string, note: string, sourceCaptureId: string | null = null) {
+    return invoke<Resource>("create_resource", { input: { title, url, note, sourceCaptureId } });
+  },
+  updateResource(id: string, title: string, url: string, note: string) {
+    return invoke<Resource>("update_resource", { input: { id, title, url, note } });
+  },
+  setResourceArchived(id: string, archived: boolean) {
+    return invoke<Resource>("set_resource_archived", { id, archived });
+  },
+  trashResource(id: string) {
+    return invoke<Resource>("trash_resource", { id });
+  },
+  restoreResource(id: string) {
+    return invoke<Resource>("restore_resource", { id });
+  },
+  openResource(id: string) {
+    return invoke<void>("open_resource", { id });
+  },
   projects(includeArchived = false) {
     return invoke<Project[]>("list_projects", { includeArchived });
   },
@@ -78,11 +108,17 @@ export const api = {
   registeredApps(includeArchived = false) {
     return invoke<RegisteredApp[]>("list_registered_apps", { includeArchived });
   },
-  createRegisteredApp(name: string, description: string, launchKind: AppLaunchKind | null, launchTarget: string | null) {
-    return invoke<RegisteredApp>("create_registered_app", { input: { name, description, launchKind, launchTarget } });
+  createRegisteredApp(name: string, description: string, sourceUrl: string | null, launchKind: AppLaunchKind | null, launchTarget: string | null) {
+    return invoke<RegisteredApp>("create_registered_app", { input: { name, description, sourceUrl, launchKind, launchTarget } });
   },
-  updateRegisteredApp(id: string, name: string, description: string, launchKind: AppLaunchKind | null, launchTarget: string | null) {
-    return invoke<RegisteredApp>("update_registered_app", { input: { id, name, description, launchKind, launchTarget } });
+  updateRegisteredApp(id: string, name: string, description: string, sourceUrl: string | null, launchKind: AppLaunchKind | null, launchTarget: string | null) {
+    return invoke<RegisteredApp>("update_registered_app", { input: { id, name, description, sourceUrl, launchKind, launchTarget } });
+  },
+  appCatalog() {
+    return invoke<AppCatalogEntry[]>("list_app_catalog");
+  },
+  registerAppCatalog(ids: string[]) {
+    return invoke<RegisteredApp[]>("register_app_catalog", { ids });
   },
   setRegisteredAppArchived(id: string, archived: boolean) {
     return invoke<RegisteredApp>("set_registered_app_archived", { id, archived });

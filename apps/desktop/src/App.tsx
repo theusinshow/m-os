@@ -4,28 +4,23 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, appError } from "./api";
+import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
 import { Icon, type IconName } from "./Icon";
-import type { AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, Project, RegisteredApp, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, Project, RegisteredApp, Resource, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 import "./App.css";
 
-type Page = "home" | "inbox" | "projects" | "workspaces" | "apps" | "tasks" | "settings";
+type Page = "home" | "inbox" | "projects" | "workspaces" | "apps" | "library" | "tasks" | "settings";
 type UndoAction = { message: string; run: () => Promise<unknown> };
 type Theme = "dark" | "light";
 type CommandResult = SearchItem | { kind: "function"; function: FunctionDefinition };
+type FunctionIntent = { target: FunctionIntentTarget; key: number };
 
 const stateOrder: TaskState[] = ["backlog", "doing", "done"];
 const stateLabels: Record<TaskState, string> = { backlog: "Backlog", doing: "Doing", done: "Done" };
-const functionCategories: FunctionDefinition["category"][] = ["capture", "work", "app", "data", "system"];
-const functionCategoryLabels: Record<FunctionDefinition["category"], string> = { capture: "CAPTURE", work: "WORK", app: "APP", data: "DATA", system: "SYSTEM" };
+const functionCategories: FunctionDefinition["category"][] = ["capture", "work", "memory", "app", "data", "system"];
+const functionCategoryLabels: Record<FunctionDefinition["category"], string> = { capture: "CAPTURE", work: "WORK", memory: "MEMORY", app: "APP", data: "DATA", system: "SYSTEM" };
 const functionRiskLabels: Record<FunctionDefinition["risk"], string> = { low: "baixo", medium: "medio", high: "alto" };
 const functionConfirmationLabels: Record<FunctionDefinition["confirmation"], string> = { none: "sem confirmacao", explicit: "confirmacao explicita" };
-const suggestedApps = [
-  { name: "M-Finance", description: "Cockpit mensal de contas e faturas." },
-  { name: "NexoDoc", description: "Ferramenta de trabalho documental." },
-  { name: "ChronoCAD", description: "Controle de tempo de projetos técnicos." },
-  { name: "Screenshot Tool", description: "Captura de imagens e screenshots de referência." },
-  { name: "KNOW/OS", description: "Ambiente de aprendizado e trilhas." },
-];
 const relativeFormatter = new Intl.RelativeTimeFormat("pt-BR", { numeric: "auto" });
 
 function relativeTime(value: string) {
@@ -42,6 +37,14 @@ function sourceLabel(source: Capture["source"]) {
   return source === "quick_capture" ? "Quick Capture" : "Home";
 }
 
+function resourceHost(url: string) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
 function Button({ variant = "secondary", children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "outline" | "ghost" | "danger" }) {
   return <button className={`button ${variant}`} type="button" {...props}>{children}</button>;
 }
@@ -55,17 +58,19 @@ function ContextPath({ segments }: { segments: string[] }) {
 }
 
 function Panel({ label, action, children, className = "" }: { label: string; action?: ReactNode; children: ReactNode; className?: string }) {
-  return <section className={`panel ${className}`}><header className="panel-header"><h2>{label}</h2>{action}</header>{children}</section>;
+  return <section className={`panel ${className}`} data-panel={label}><header className="panel-header"><h2>{label}</h2>{action}</header>{children}</section>;
 }
 
 function EmptyState({ children }: { children: ReactNode }) {
   return <p className="empty-state">{children}</p>;
 }
 
-function CaptureComposer({ onSaved }: { onSaved: (capture: Capture) => void }) {
+function CaptureComposer({ onSaved, focusKey }: { onSaved: (capture: Capture) => void; focusKey?: number }) {
   const [content, setContent] = useState("");
   const [state, setState] = useState<"idle" | "saving" | "success" | "error">("idle");
   const [feedback, setFeedback] = useState("");
+  const input = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { if (focusKey !== undefined) input.current?.focus(); }, [focusKey]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -85,16 +90,31 @@ function CaptureComposer({ onSaved }: { onSaved: (capture: Capture) => void }) {
   }
 
   return <form className="capture-field" onSubmit={submit}>
-    <div className="capture-line"><span className="slash">/</span><textarea aria-label="Conteúdo da captura" value={content} onChange={(event) => setContent(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="What's on your mind?" rows={1} /></div>
+    <div className="capture-line"><span className="slash">/</span><textarea ref={input} aria-label="Conteúdo da captura" value={content} onChange={(event) => setContent(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="What's on your mind?" rows={1} /></div>
     <div className="capture-footer"><span className={`feedback ${state}`} aria-live="polite">{feedback}</span><Button variant="primary" type="submit" disabled={!content.trim() || state === "saving"}>{state === "saving" ? "Salvando" : "Capturar"}</Button></div>
   </form>;
 }
 
 function DataRow({ primary, meta, secondary, selected = false, completed = false, onClick, onKeyDown, onPointerDown, draggable, onDragStart, onDragEnd }: { primary: string; meta?: string; secondary?: string; selected?: boolean; completed?: boolean; onClick?: () => void; onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void; onPointerDown?: React.PointerEventHandler<HTMLButtonElement>; draggable?: boolean; onDragStart?: React.DragEventHandler<HTMLButtonElement>; onDragEnd?: React.DragEventHandler<HTMLButtonElement> }) {
-  return <button className="data-row" type="button" data-selected={selected || undefined} data-completed={completed || undefined} onClick={onClick} onKeyDown={onKeyDown} onPointerDown={onPointerDown} draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd}><span className="row-copy"><strong>{primary}</strong>{secondary ? <small>{secondary}</small> : null}</span>{meta ? <span className="row-meta">{meta}</span> : null}</button>;
+  return <button className="data-row" type="button" aria-current={selected ? "true" : undefined} data-selected={selected || undefined} data-completed={completed || undefined} onClick={onClick} onKeyDown={onKeyDown} onPointerDown={onPointerDown} draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd}><span className="row-copy"><strong>{primary}</strong>{secondary ? <small>{secondary}</small> : null}</span>{meta ? <span className="row-meta">{meta}</span> : null}</button>;
 }
 
-function HomePage({ recent, projects, tasks, workspaces, apps, refresh, openCapture, openProject, openWorkspace, openTask, openApp }: { recent: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void }) {
+function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return null;
+  const rows = Array.from(event.currentTarget.closest(".row-list")?.querySelectorAll<HTMLButtonElement>(".data-row") ?? []);
+  const currentIndex = rows.indexOf(event.currentTarget);
+  if (currentIndex < 0 || !rows.length) return null;
+  event.preventDefault();
+  const nextIndex = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? rows.length - 1
+      : Math.max(0, Math.min(rows.length - 1, currentIndex + (event.key === "ArrowDown" ? 1 : -1)));
+  rows[nextIndex]?.focus();
+  return nextIndex;
+}
+
+function HomePage({ recent, projects, tasks, workspaces, apps, refresh, openCapture, openProject, openWorkspace, openTask, openApp, intent }: { recent: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; intent?: FunctionIntent }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState(() => localStorage.getItem("m-os-current-workspace") ?? "");
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
@@ -132,7 +152,7 @@ function HomePage({ recent, projects, tasks, workspaces, apps, refresh, openCapt
     .slice(0, 5);
   return <div className="page home-page">
     <ContextPath segments={["M/OS", "HOME"]} />
-    <CaptureComposer onSaved={() => void refresh()} />
+    <CaptureComposer onSaved={() => void refresh()} focusKey={intent?.target === "home_capture" ? intent.key : undefined} />
     <Panel label="CONTEXTO" action={currentWorkspace ? <Button variant="ghost" onClick={() => setCurrentWorkspaceId("")}>Todos</Button> : undefined}><div className="context-switcher">{activeWorkspaces.map((workspace) => <button key={workspace.id} type="button" data-selected={workspace.id === currentWorkspaceId || undefined} onClick={() => setCurrentWorkspaceId(workspace.id)} onDoubleClick={() => openWorkspace(workspace)}><strong>{workspace.name}</strong><small>{workspace.description || "Workspace"}</small></button>)}{!activeWorkspaces.length ? <EmptyState>Workspaces ativos aparecerão aqui.</EmptyState> : null}</div></Panel>
     <div className="home-sections">
       <Panel label="EM ANDAMENTO">{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={stateLabels[task.state]} onClick={() => openTask(task)} />) : <EmptyState>Nenhuma Task em andamento.</EmptyState>}</Panel>
@@ -169,12 +189,31 @@ function CaptureTaskForm({ capture, projects, onCreated, cancel }: { capture: Ca
   </form>;
 }
 
-function InboxPage({ captures, projects, refresh, receipt, openTask }: { captures: Capture[]; projects: Project[]; refresh: () => Promise<void>; receipt: (action: UndoAction) => void; openTask: (task: Task) => void }) {
+function InboxPage({ captures, projects, refresh, receipt, openTask, openResource, intent }: { captures: Capture[]; projects: Project[]; refresh: () => Promise<void>; receipt: (action: UndoAction) => void; openTask: (task: Task) => void; openResource: (resource: Resource) => void; intent?: FunctionIntent }) {
   const [selectedId, setSelectedId] = useState(captures[0]?.id ?? "");
   const [taskForm, setTaskForm] = useState(false);
+  const [resourceForm, setResourceForm] = useState(false);
   const [error, setError] = useState("");
+  const detailActions = useRef<HTMLDivElement>(null);
   useEffect(() => { if (!captures.some((capture) => capture.id === selectedId)) setSelectedId(captures[0]?.id ?? ""); }, [captures, selectedId]);
   const selected = captures.find((capture) => capture.id === selectedId) ?? null;
+  useEffect(() => {
+    if (!intent || !selected) return;
+    if (intent.target === "inbox_create_task") {
+      setTaskForm(true);
+      setResourceForm(false);
+      return;
+    }
+    if (intent.target === "inbox_create_resource") {
+      setTaskForm(false);
+      setResourceForm(true);
+      return;
+    }
+    if (intent.target === "inbox_process") {
+      setTaskForm(false);
+      window.requestAnimationFrame(() => detailActions.current?.querySelector<HTMLButtonElement>("[data-function-action='capture.mark_processed']")?.focus());
+    }
+  }, [intent?.key, selected?.id]);
 
   async function mutate(action: "processed" | "archive" | "trash") {
     if (!selected) return;
@@ -196,10 +235,10 @@ function InboxPage({ captures, projects, refresh, receipt, openTask }: { capture
 
   if (!captures.length) return <div className="page"><ContextPath segments={["M/OS", "INBOX"]} /><EmptyState>Inbox limpa.</EmptyState></div>;
   return <div className="split-page">
-    <section className="list-pane"><ContextPath segments={["M/OS", "INBOX"]} /><div className="row-list">{captures.map((capture) => <DataRow key={capture.id} primary={capture.content} secondary={sourceLabel(capture.source)} meta={relativeTime(capture.capturedAt)} selected={capture.id === selectedId} onClick={() => { setSelectedId(capture.id); setTaskForm(false); }} />)}</div></section>
+    <section className="list-pane"><ContextPath segments={["M/OS", "INBOX"]} /><div className="row-list">{captures.map((capture) => <DataRow key={capture.id} primary={capture.content} secondary={sourceLabel(capture.source)} meta={relativeTime(capture.capturedAt)} selected={capture.id === selectedId} onClick={() => { setSelectedId(capture.id); setTaskForm(false); setResourceForm(false); }} />)}</div></section>
     {selected ? <article className="detail-pane"><header className="detail-header"><div><span className="micro-label">CAPTURE</span><h1>{selected.content}</h1><p>{sourceLabel(selected.source)} · {relativeTime(selected.capturedAt)}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => void mutate("archive")}>Arquivar</button><button className="danger-text" onClick={() => void mutate("trash")}>Mover para a Lixeira</button></div></details></header>
       {error ? <p className="inline-error" role="alert">! {error}</p> : null}
-      {taskForm ? <CaptureTaskForm capture={selected} projects={projects} cancel={() => setTaskForm(false)} onCreated={(task) => { setTaskForm(false); void refresh(); openTask(task); }} /> : <div className="detail-actions"><Button variant="primary" onClick={() => setTaskForm(true)}>Criar Task</Button><Button variant="ghost" onClick={() => void mutate("processed")}>Marcar como processada</Button></div>}
+      {taskForm ? <CaptureTaskForm capture={selected} projects={projects} cancel={() => setTaskForm(false)} onCreated={(task) => { setTaskForm(false); void refresh(); openTask(task); }} /> : resourceForm ? <ResourceForm capture={selected} cancel={() => setResourceForm(false)} saved={(resource) => { setResourceForm(false); void refresh(); openResource(resource); }} /> : <div ref={detailActions} className="detail-actions"><Button variant="primary" onClick={() => { setTaskForm(true); setResourceForm(false); }}>Criar Task</Button><Button variant="secondary" onClick={() => { setTaskForm(false); setResourceForm(true); }}>Salvar como Resource</Button><Button variant="ghost" data-function-action="capture.mark_processed" onClick={() => void mutate("processed")}>Marcar como processada</Button></div>}
     </article> : null}
   </div>;
 }
@@ -240,11 +279,12 @@ function DirectTaskForm({ projectId = null, projects, cancel, saved }: { project
   </form>;
 }
 
-function ProjectsPage({ projects, tasks, initialProjectId, refresh, openTask }: { projects: Project[]; tasks: Task[]; initialProjectId: string; refresh: () => Promise<void>; openTask: (task: Task) => void }) {
+function ProjectsPage({ projects, tasks, initialProjectId, refresh, openTask, intent }: { projects: Project[]; tasks: Task[]; initialProjectId: string; refresh: () => Promise<void>; openTask: (task: Task) => void; intent?: FunctionIntent }) {
   const activeProjects = projects.filter((project) => project.lifecycleState === "active");
   const [selectedId, setSelectedId] = useState(initialProjectId || activeProjects[0]?.id || "");
   const [mode, setMode] = useState<"view" | "edit" | "new" | "task">("view");
   useEffect(() => { if (initialProjectId) setSelectedId(initialProjectId); }, [initialProjectId]);
+  useEffect(() => { if (intent?.target === "projects_create") setMode("new"); }, [intent?.key]);
   useEffect(() => { if (!activeProjects.some((project) => project.id === selectedId)) setSelectedId(activeProjects[0]?.id ?? ""); }, [activeProjects, selectedId]);
   const selected = activeProjects.find((project) => project.id === selectedId) ?? null;
   const relatedTasks = tasks.filter((task) => task.projectId === selectedId && task.lifecycleState === "active");
@@ -271,7 +311,7 @@ function WorkspaceForm({ workspace, cancel, saved }: { workspace?: Workspace; ca
   </form>;
 }
 
-function WorkspacesPage({ workspaces, projects, apps, initialWorkspaceId, refresh, openProject, openApp }: { workspaces: Workspace[]; projects: Project[]; apps: RegisteredApp[]; initialWorkspaceId: string; refresh: () => Promise<void>; openProject: (project: Project) => void; openApp: (app: RegisteredApp) => void }) {
+function WorkspacesPage({ workspaces, projects, apps, initialWorkspaceId, refresh, openProject, openApp, intent }: { workspaces: Workspace[]; projects: Project[]; apps: RegisteredApp[]; initialWorkspaceId: string; refresh: () => Promise<void>; openProject: (project: Project) => void; openApp: (app: RegisteredApp) => void; intent?: FunctionIntent }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const activeProjects = projects.filter((project) => project.lifecycleState === "active");
   const activeApps = apps.filter((app) => app.lifecycleState === "active");
@@ -281,6 +321,18 @@ function WorkspacesPage({ workspaces, projects, apps, initialWorkspaceId, refres
   const [workspaceApps, setWorkspaceApps] = useState<RegisteredApp[]>([]);
   const [message, setMessage] = useState("");
   useEffect(() => { if (initialWorkspaceId) setSelectedId(initialWorkspaceId); }, [initialWorkspaceId]);
+  useEffect(() => {
+    if (!intent) return;
+    if (intent.target === "workspaces_create" || !activeWorkspaces.length) {
+      setMode("new");
+      return;
+    }
+    if (intent.target === "workspaces_link_project" || intent.target === "workspaces_link_app") {
+      setMode("view");
+      const relation = intent.target === "workspaces_link_project" ? "workspace.link_project" : "workspace.link_app";
+      window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-function-section='${relation}'] input`)?.focus());
+    }
+  }, [intent?.key]);
   useEffect(() => { if (!activeWorkspaces.some((workspace) => workspace.id === selectedId)) setSelectedId(activeWorkspaces[0]?.id ?? ""); }, [activeWorkspaces, selectedId]);
   const selected = activeWorkspaces.find((workspace) => workspace.id === selectedId) ?? null;
   const linkedProjectIds = new Set(workspaceProjects.map((project) => project.id));
@@ -314,7 +366,7 @@ function WorkspacesPage({ workspaces, projects, apps, initialWorkspaceId, refres
   }
   return <div className="split-page workspaces-page">
     <section className="list-pane"><ContextPath segments={["M/OS", "WORKSPACES"]} /><div className="list-command"><Button variant="outline" onClick={() => setMode("new")}>Novo Workspace</Button></div><div className="row-list">{activeWorkspaces.map((workspace) => <DataRow key={workspace.id} primary={workspace.name} secondary={workspace.description || undefined} meta={relativeTime(workspace.updatedAt)} selected={workspace.id === selectedId} onClick={() => { setSelectedId(workspace.id); setMode("view"); setMessage(""); }} />)}</div>{!activeWorkspaces.length && mode !== "new" ? <EmptyState>Crie contextos amplos como Engineering, Finance ou Learning.</EmptyState> : null}</section>
-    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO WORKSPACE</span><WorkspaceForm cancel={() => setMode("view")} saved={(workspace) => { setSelectedId(workspace.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <WorkspaceForm workspace={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">WORKSPACE</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setWorkspaceArchived(selected.id, true).then(refresh)}>Arquivar</button></div></details></header><div className="workspace-grid"><Panel label="PROJECTS">{activeProjects.length ? activeProjects.map((project) => <div className="relation-row" key={project.id}><label><input type="checkbox" checked={linkedProjectIds.has(project.id)} onChange={(event) => void toggleProject(project, event.currentTarget.checked)} /><span><strong>{project.name}</strong><small>{project.description || "Sem descrição."}</small></span></label><button type="button" onClick={() => openProject(project)}>Abrir</button></div>) : <EmptyState>Projects ativos aparecerão aqui.</EmptyState>}</Panel><Panel label="APPS">{activeApps.length ? activeApps.map((app) => <div className="relation-row" key={app.id}><label><input type="checkbox" checked={linkedAppIds.has(app.id)} onChange={(event) => void toggleApp(app, event.currentTarget.checked)} /><span><strong>{app.name}</strong><small>{app.description || app.launchTarget || "Sem descrição."}</small></span></label><button type="button" onClick={() => openApp(app)}>Abrir</button></div>) : <EmptyState>Apps ativos aparecerão aqui.</EmptyState>}</Panel></div>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
+    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO WORKSPACE</span><WorkspaceForm cancel={() => setMode("view")} saved={(workspace) => { setSelectedId(workspace.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <WorkspaceForm workspace={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">WORKSPACE</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setWorkspaceArchived(selected.id, true).then(refresh)}>Arquivar</button></div></details></header><div className="workspace-grid"><div data-function-section="workspace.link_project"><Panel label="PROJECTS">{activeProjects.length ? activeProjects.map((project) => <div className="relation-row" key={project.id}><label><input type="checkbox" checked={linkedProjectIds.has(project.id)} onChange={(event) => void toggleProject(project, event.currentTarget.checked)} /><span><strong>{project.name}</strong><small>{project.description || "Sem descrição."}</small></span></label><button type="button" onClick={() => openProject(project)}>Abrir</button></div>) : <EmptyState>Projects ativos aparecerão aqui.</EmptyState>}</Panel></div><div data-function-section="workspace.link_app"><Panel label="APPS">{activeApps.length ? activeApps.map((app) => <div className="relation-row" key={app.id}><label><input type="checkbox" checked={linkedAppIds.has(app.id)} onChange={(event) => void toggleApp(app, event.currentTarget.checked)} /><span><strong>{app.name}</strong><small>{app.description || app.launchTarget || "Sem descrição."}</small></span></label><button type="button" onClick={() => openApp(app)}>Abrir</button></div>) : <EmptyState>Apps ativos aparecerão aqui.</EmptyState>}</Panel></div></div>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
   </div>;
 }
 
@@ -327,6 +379,7 @@ function launchKindLabel(kind: AppLaunchKind | null) {
 function RegisteredAppForm({ app, cancel, saved }: { app?: RegisteredApp; cancel: () => void; saved: (app: RegisteredApp) => void }) {
   const [name, setName] = useState(app?.name ?? "");
   const [description, setDescription] = useState(app?.description ?? "");
+  const [sourceUrl, setSourceUrl] = useState(app?.sourceUrl ?? "");
   const [launchKind, setLaunchKind] = useState<AppLaunchKind | "">((app?.launchKind ?? "") as AppLaunchKind | "");
   const [launchTarget, setLaunchTarget] = useState(app?.launchTarget ?? "");
   const [error, setError] = useState("");
@@ -340,8 +393,9 @@ function RegisteredAppForm({ app, cancel, saved }: { app?: RegisteredApp; cancel
     setSaving(true);
     const kind = launchKind || null;
     const target = launchTarget.trim() ? launchTarget : null;
+    const source = sourceUrl.trim() ? sourceUrl : null;
     try {
-      saved(app ? await api.updateRegisteredApp(app.id, name, description, kind, target) : await api.createRegisteredApp(name, description, kind, target));
+      saved(app ? await api.updateRegisteredApp(app.id, name, description, source, kind, target) : await api.createRegisteredApp(name, description, source, kind, target));
     } catch (nextError) {
       setError(appError(nextError).message);
       setSaving(false);
@@ -350,6 +404,7 @@ function RegisteredAppForm({ app, cancel, saved }: { app?: RegisteredApp; cancel
   return <form className="stack-form" onSubmit={submit}>
     <label><span>NOME</span><input value={name} onChange={(event) => setName(event.currentTarget.value)} autoFocus /></label>
     <label><span>DESCRIÇÃO</span><textarea value={description} onChange={(event) => setDescription(event.currentTarget.value)} rows={4} /></label>
+    <label><span>ORIGEM</span><input value={sourceUrl} onChange={(event) => setSourceUrl(event.currentTarget.value)} placeholder="https://github.com/..." /></label>
     <label><span>TIPO DE ABERTURA</span><select value={launchKind} onChange={(event) => { setLaunchKind(event.currentTarget.value as AppLaunchKind | ""); if (!event.currentTarget.value) setLaunchTarget(""); }}><option value="">Sem alvo por enquanto</option><option value="url">URL</option><option value="path">Path local</option></select></label>
     {launchKind ? <label><span>ALVO</span>{launchKind === "path" ? <div className="target-picker"><input value={launchTarget} onChange={(event) => setLaunchTarget(event.currentTarget.value)} placeholder={"C:\\Apps\\app.exe"} /><Button variant="outline" onClick={() => void choosePath(false)}>Escolher arquivo</Button><Button variant="ghost" onClick={() => void choosePath(true)}>Escolher pasta</Button></div> : <input value={launchTarget} onChange={(event) => setLaunchTarget(event.currentTarget.value)} placeholder="https://..." />}</label> : null}
     {error ? <p className="inline-error" role="alert">! {error}</p> : null}
@@ -357,14 +412,17 @@ function RegisteredAppForm({ app, cancel, saved }: { app?: RegisteredApp; cancel
   </form>;
 }
 
-function AppsPage({ apps, initialAppId, refresh }: { apps: RegisteredApp[]; initialAppId: string; refresh: () => Promise<void> }) {
+function AppsPage({ apps, initialAppId, refresh, intent }: { apps: RegisteredApp[]; initialAppId: string; refresh: () => Promise<void>; intent?: FunctionIntent }) {
   const visibleApps = apps.filter((app) => app.lifecycleState === "active" || app.id === initialAppId);
   const [selectedId, setSelectedId] = useState(initialAppId || visibleApps[0]?.id || "");
   const [mode, setMode] = useState<"view" | "edit" | "new">("view");
   const [message, setMessage] = useState("");
   const [creatingSuggestions, setCreatingSuggestions] = useState(false);
-  const missingSuggestions = suggestedApps.filter((suggestion) => !apps.some((app) => app.name.toLowerCase() === suggestion.name.toLowerCase()));
+  const [catalog, setCatalog] = useState<AppCatalogEntry[]>([]);
+  const missingSuggestions = catalog.filter((suggestion) => !apps.some((app) => app.sourceUrl === suggestion.sourceUrl || app.name.toLowerCase() === suggestion.name.toLowerCase()));
+  useEffect(() => { void api.appCatalog().then(setCatalog).catch((error) => setMessage(appError(error).message)); }, []);
   useEffect(() => { if (initialAppId) setSelectedId(initialAppId); }, [initialAppId]);
+  useEffect(() => { if (intent?.target === "apps_register") setMode("new"); }, [intent?.key]);
   useEffect(() => { if (!visibleApps.some((app) => app.id === selectedId)) setSelectedId(visibleApps[0]?.id ?? ""); }, [visibleApps, selectedId]);
   const selected = visibleApps.find((app) => app.id === selectedId) ?? null;
   async function openApp(app: RegisteredApp) {
@@ -380,13 +438,11 @@ function AppsPage({ apps, initialAppId, refresh }: { apps: RegisteredApp[]; init
     if (!missingSuggestions.length || creatingSuggestions) return;
     setCreatingSuggestions(true);
     try {
-      let lastCreated: RegisteredApp | null = null;
-      for (const suggestion of missingSuggestions) {
-        lastCreated = await api.createRegisteredApp(suggestion.name, suggestion.description, null, null);
-      }
+      const created = await api.registerAppCatalog(missingSuggestions.map((suggestion) => suggestion.id));
+      const lastCreated = created[created.length - 1] ?? null;
       if (lastCreated) setSelectedId(lastCreated.id);
       setMode("view");
-      setMessage(`${missingSuggestions.length} Apps sugeridos adicionados.`);
+      setMessage(`${missingSuggestions.length} Apps conhecidos adicionados.`);
       await refresh();
     } catch (nextError) {
       setMessage(appError(nextError).message);
@@ -395,17 +451,284 @@ function AppsPage({ apps, initialAppId, refresh }: { apps: RegisteredApp[]; init
     }
   }
   return <div className="split-page apps-page">
-    <section className="list-pane"><ContextPath segments={["M/OS", "APPS"]} /><div className="list-command"><Button variant="outline" onClick={() => setMode("new")}>Novo App</Button>{missingSuggestions.length ? <Button variant="ghost" onClick={() => void addSuggestions()} disabled={creatingSuggestions}>{creatingSuggestions ? "Adicionando" : "Adicionar sugestões"}</Button> : null}</div><div className="row-list">{visibleApps.map((app) => <DataRow key={app.id} primary={app.name} secondary={app.description || app.launchTarget || undefined} meta={app.lifecycleState === "archived" ? "ARQUIVADO" : launchKindLabel(app.launchKind)} selected={app.id === selectedId} onClick={() => { setSelectedId(app.id); setMode("view"); setMessage(""); }} />)}</div>{!visibleApps.length && mode !== "new" ? <EmptyState>Cadastre as ferramentas que você usa para não depender da memória.</EmptyState> : null}</section>
-    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO APP</span><RegisteredAppForm cancel={() => setMode("view")} saved={(app) => { setSelectedId(app.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <RegisteredAppForm app={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">APP</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setRegisteredAppArchived(selected.id, true).then(refresh)}>Arquivar</button></div></details></header><dl className="app-facts"><div><dt>ABERTURA</dt><dd>{launchKindLabel(selected.launchKind)}</dd></div><div><dt>ALVO</dt><dd>{selected.launchTarget || "Nao definido"}</dd></div><div><dt>ULTIMA ABERTURA</dt><dd>{selected.lastOpenedAt ? relativeTime(selected.lastOpenedAt) : "Nunca"}</dd></div><div><dt>ATUALIZADO</dt><dd>{relativeTime(selected.updatedAt)}</dd></div></dl><div className="detail-actions"><Button variant="primary" onClick={() => void openApp(selected)} disabled={!selected.launchTarget || selected.lifecycleState !== "active"}>Abrir</Button><Button variant="ghost" onClick={() => setMode("edit")}>Editar</Button></div>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
+    <section className="list-pane"><ContextPath segments={["M/OS", "APPS"]} /><div className="list-command"><Button variant="outline" onClick={() => setMode("new")}>Novo App</Button>{missingSuggestions.length ? <Button variant="ghost" onClick={() => void addSuggestions()} disabled={creatingSuggestions}>{creatingSuggestions ? "Adicionando" : "Adicionar meus Apps"}</Button> : null}</div><div className="row-list">{visibleApps.map((app) => <DataRow key={app.id} primary={app.name} secondary={app.description || app.launchTarget || undefined} meta={app.lifecycleState === "archived" ? "ARQUIVADO" : launchKindLabel(app.launchKind)} selected={app.id === selectedId} onClick={() => { setSelectedId(app.id); setMode("view"); setMessage(""); }} />)}</div>{!visibleApps.length && mode !== "new" ? <EmptyState>Cadastre as ferramentas que você usa para não depender da memória.</EmptyState> : null}</section>
+    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO APP</span><RegisteredAppForm cancel={() => setMode("view")} saved={(app) => { setSelectedId(app.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <RegisteredAppForm app={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">APP</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setRegisteredAppArchived(selected.id, true).then(refresh)}>Arquivar</button></div></details></header><dl className="app-facts"><div><dt>ORIGEM</dt><dd>{selected.sourceUrl || "Nao definida"}</dd></div><div><dt>ABERTURA</dt><dd>{launchKindLabel(selected.launchKind)}</dd></div><div><dt>ALVO</dt><dd>{selected.launchTarget || "Nao definido"}</dd></div><div><dt>ULTIMA ABERTURA</dt><dd>{selected.lastOpenedAt ? relativeTime(selected.lastOpenedAt) : "Nunca"}</dd></div><div><dt>ATUALIZADO</dt><dd>{relativeTime(selected.updatedAt)}</dd></div></dl><div className="detail-actions"><Button variant="primary" onClick={() => void openApp(selected)} disabled={!selected.launchTarget || selected.lifecycleState !== "active"}>Abrir</Button><Button variant="ghost" onClick={() => setMode("edit")}>Editar</Button></div>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
   </div>;
 }
 
-function BoardPage({ tasks, projects, refresh, openTask }: { tasks: Task[]; projects: Project[]; refresh: () => Promise<void>; openTask: (task: Task) => void }) {
+function ResourceForm({ resource, capture, cancel, saved }: { resource?: Resource; capture?: Capture; cancel: () => void; saved: (resource: Resource) => void }) {
+  const captureContent = capture?.content.trim() ?? "";
+  const captureIsUrl = /^https?:\/\//i.test(captureContent);
+  const [url, setUrl] = useState(resource?.url ?? (captureIsUrl ? captureContent : ""));
+  const [title, setTitle] = useState(resource?.title ?? "");
+  const [note, setNote] = useState(resource?.note ?? (captureIsUrl ? "" : captureContent));
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!url.trim() || saving) return;
+    setSaving(true);
+    try {
+      const next = resource
+        ? await api.updateResource(resource.id, title, url, note)
+        : await api.createResource(title, url, note, capture?.id ?? null);
+      saved(next);
+    } catch (nextError) {
+      setError(appError(nextError).message);
+      setSaving(false);
+    }
+  }
+  return <form className="stack-form" onSubmit={submit} aria-busy={saving}>
+    <fieldset className="form-fields" disabled={saving}>
+      <label><span>URL</span><input type="url" value={url} onChange={(event) => setUrl(event.currentTarget.value)} placeholder="https://..." autoFocus /></label>
+      <label><span>TÍTULO</span><input value={title} onChange={(event) => setTitle(event.currentTarget.value)} placeholder="Opcional · usa a URL quando vazio" /></label>
+      <label><span>POR QUÊ?</span><textarea value={note} onChange={(event) => setNote(event.currentTarget.value)} placeholder="O que merece ser lembrado sobre este link?" rows={4} /></label>
+      {capture ? <div className="provenance"><span className="micro-label">ORIGEM PRESERVADA</span><span>{capture.content}</span><small>{sourceLabel(capture.source)} · {relativeTime(capture.capturedAt)}</small></div> : null}
+      {error ? <p className="inline-error" role="alert">! {error} Os campos continuam aqui.</p> : null}
+      <div className="form-actions"><Button variant="ghost" onClick={cancel}>Cancelar</Button><Button variant="primary" type="submit" disabled={!url.trim() || saving}>{saving ? "Salvando" : "Salvar Resource"}</Button></div>
+    </fieldset>
+  </form>;
+}
+
+function LibraryPage({ resources, initialResourceId, initialResourceKey, refresh, receipt, openCapture, intent }: { resources: Resource[]; initialResourceId: string; initialResourceKey: number; refresh: () => Promise<void>; receipt: (action: UndoAction) => void; openCapture: (capture: Capture) => void; intent?: FunctionIntent }) {
+  const activeResources = resources.filter((resource) => resource.lifecycleState === "active");
+  const [selectedId, setSelectedId] = useState(initialResourceId || activeResources[0]?.id || "");
+  const [mode, setMode] = useState<"view" | "edit" | "new">("view");
+  const [narrowPane, setNarrowPane] = useState<"list" | "detail">(initialResourceId ? "detail" : "list");
+  const [source, setSource] = useState<Capture | null>(null);
+  const [sourceError, setSourceError] = useState(false);
+  const [message, setMessage] = useState("");
+  const [pendingAction, setPendingAction] = useState<"open" | "archive" | "trash" | "restore" | null>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const detail = useRef<HTMLElement>(null);
+  const visibleResources = resources.filter((resource) => resource.lifecycleState === "active" || resource.id === selectedId);
+  const selected = visibleResources.find((resource) => resource.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (!initialResourceId) return;
+    setSelectedId(initialResourceId);
+    setMode("view");
+    setNarrowPane("detail");
+  }, [initialResourceId, initialResourceKey]);
+
+  useEffect(() => {
+    if (intent?.target !== "library_create") return;
+    setMode("new");
+    setNarrowPane("detail");
+  }, [intent?.key]);
+
+  useEffect(() => {
+    const nextVisibleResources = resources.filter((resource) => resource.lifecycleState === "active" || resource.id === selectedId);
+    if (nextVisibleResources.some((resource) => resource.id === selectedId)) return;
+    const nextId = nextVisibleResources[0]?.id ?? "";
+    setSelectedId(nextId);
+    if (!nextId) setNarrowPane("list");
+  }, [resources, selectedId]);
+
+  useEffect(() => {
+    setSource(null);
+    setSourceError(false);
+    if (selected?.sourceCaptureId) void api.getCapture(selected.sourceCaptureId).then(setSource).catch(() => setSourceError(true));
+  }, [selected?.id, selected?.sourceCaptureId]);
+
+  function startNew() {
+    setMode("new");
+    setNarrowPane("detail");
+    setMessage("");
+  }
+
+  function selectResource(resource: Resource) {
+    setSelectedId(resource.id);
+    setMode("view");
+    setNarrowPane("detail");
+    setMessage("");
+  }
+
+  function returnToList() {
+    setMode("view");
+    setNarrowPane("list");
+    requestAnimationFrame(() => {
+      const selectedRow = list.current?.querySelector<HTMLButtonElement>(".data-row[data-selected]");
+      const emptyAction = list.current?.closest(".list-pane")?.querySelector<HTMLButtonElement>(".library-empty .button");
+      (selectedRow ?? emptyAction)?.focus();
+    });
+  }
+
+  async function openLink(resource: Resource) {
+    setPendingAction("open");
+    setMessage("");
+    try {
+      await api.openResource(resource.id);
+      setMessage("Link aberto no navegador padrão.");
+    } catch (nextError) {
+      setMessage(appError(nextError).message);
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function archive(resource: Resource) {
+    setPendingAction("archive");
+    try {
+      await api.setResourceArchived(resource.id, true);
+      receipt({ message: "Resource arquivado.", run: () => api.setResourceArchived(resource.id, false) });
+      setSelectedId(activeResources.find((candidate) => candidate.id !== resource.id)?.id ?? "");
+      setNarrowPane("list");
+      setMessage("");
+      await refresh();
+    } catch (nextError) {
+      setMessage(appError(nextError).message);
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function trash(resource: Resource) {
+    setPendingAction("trash");
+    try {
+      await api.trashResource(resource.id);
+      receipt({ message: "Resource movido para a Lixeira.", run: () => api.restoreResource(resource.id) });
+      setSelectedId(activeResources.find((candidate) => candidate.id !== resource.id)?.id ?? "");
+      setNarrowPane("list");
+      setMessage("");
+      await refresh();
+    } catch (nextError) {
+      setMessage(appError(nextError).message);
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function restore(resource: Resource) {
+    setPendingAction("restore");
+    setMessage("");
+    try {
+      await api.setResourceArchived(resource.id, false);
+      setMessage("Resource restaurado para a Library.");
+      await refresh();
+    } catch (nextError) {
+      setMessage(appError(nextError).message);
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  const libraryIsEmpty = !visibleResources.length && mode === "view";
+
+  return <div className="split-page library-page" data-pane={narrowPane} data-empty={libraryIsEmpty || undefined}>
+    <section className="list-pane" aria-labelledby="library-title">
+      <h1 id="library-title" className="visually-hidden">Library</h1>
+      <ContextPath segments={["M/OS", "LIBRARY"]} />
+      {visibleResources.length ? <div className="list-command"><Button variant="outline" onClick={startNew}>Novo Resource</Button></div> : null}
+      <div ref={list} className="row-list" aria-label="Resources salvos">
+        {visibleResources.map((resource) => <DataRow
+          key={resource.id}
+          primary={resource.title}
+          secondary={resourceHost(resource.url)}
+          meta={resource.lifecycleState === "archived" ? "ARQUIVADO" : relativeTime(resource.updatedAt)}
+          selected={resource.id === selectedId}
+          onClick={() => selectResource(resource)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              selectResource(resource);
+              requestAnimationFrame(() => detail.current?.focus());
+              return;
+            }
+            const nextIndex = moveListFocus(event);
+            if (nextIndex === null) return;
+            const nextResource = visibleResources[nextIndex];
+            if (nextResource) {
+              setSelectedId(nextResource.id);
+              setMode("view");
+              setMessage("");
+            }
+          }}
+        />)}
+      </div>
+      {!visibleResources.length && mode !== "new" ? <div className="library-empty"><EmptyState>Guarde um link junto do motivo pelo qual ele merece ser lembrado.</EmptyState><Button variant="primary" onClick={startNew}>Salvar primeiro link</Button></div> : null}
+    </section>
+    <article
+      ref={detail}
+      className="detail-pane"
+      tabIndex={-1}
+      aria-label="Detalhe do Resource"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && mode === "view") {
+          event.preventDefault();
+          returnToList();
+        }
+      }}
+    >
+      <div className="library-detail-nav"><Button variant="ghost" onClick={returnToList}><Icon name="back" />Voltar à lista</Button></div>
+      {mode === "new" ? <>
+        <span className="micro-label">NOVO RESOURCE</span>
+        <ResourceForm
+          cancel={() => {
+            if (selected) {
+              setMode("view");
+              setNarrowPane("detail");
+              requestAnimationFrame(() => detail.current?.focus());
+            } else {
+              returnToList();
+            }
+          }}
+          saved={(resource) => {
+            setSelectedId(resource.id);
+            setMode("view");
+            setNarrowPane("detail");
+            void refresh().then(() => requestAnimationFrame(() => detail.current?.focus()));
+          }}
+        />
+      </> : selected ? mode === "edit" ? <>
+        <span className="micro-label">EDITAR RESOURCE</span>
+        <ResourceForm
+          resource={selected}
+          cancel={() => { setMode("view"); requestAnimationFrame(() => detail.current?.focus()); }}
+          saved={() => { setMode("view"); void refresh().then(() => requestAnimationFrame(() => detail.current?.focus())); }}
+        />
+      </> : <>
+        <header className="detail-header">
+          <div>
+            <span className="micro-label">RESOURCE · LINK{selected.lifecycleState === "archived" ? " · ARQUIVADO" : ""}</span>
+            <h1>{selected.title}</h1>
+            <p className="resource-url">{selected.url}</p>
+          </div>
+          <details className="menu">
+            <summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary>
+            <div>
+              <button disabled={pendingAction !== null} onClick={() => setMode("edit")}>Editar</button>
+              {selected.lifecycleState === "active" ? <>
+                <button disabled={pendingAction !== null} onClick={() => void archive(selected)}>{pendingAction === "archive" ? "Arquivando" : "Arquivar"}</button>
+                <button disabled={pendingAction !== null} className="danger-text" onClick={() => void trash(selected)}>{pendingAction === "trash" ? "Movendo" : "Mover para a Lixeira"}</button>
+              </> : <button disabled={pendingAction !== null} onClick={() => void restore(selected)}>{pendingAction === "restore" ? "Restaurando" : "Restaurar"}</button>}
+            </div>
+          </details>
+        </header>
+        <div className="resource-note"><span className="micro-label">POR QUÊ?</span><p>{selected.note || "Nenhum contexto adicional foi registrado."}</p></div>
+        {source ? <div className="provenance"><span className="micro-label">ORIGEM</span><button type="button" onClick={() => openCapture(source)}>{source.content}</button><small>{sourceLabel(source.source)} · {relativeTime(source.capturedAt)}</small></div> : null}
+        {sourceError ? <p className="inline-error" role="status">Não foi possível carregar a Capture de origem agora.</p> : null}
+        <div className="detail-actions">
+          <Button variant="primary" onClick={() => void openLink(selected)} disabled={selected.lifecycleState !== "active" || pendingAction !== null}>{pendingAction === "open" ? "Abrindo" : "Abrir link"}</Button>
+          <Button variant="ghost" onClick={() => setMode("edit")} disabled={pendingAction !== null}>Editar</Button>
+        </div>
+        {message ? <p className="settings-message" aria-live="polite">{message}</p> : null}
+      </> : null}
+    </article>
+  </div>;
+}
+
+function BoardPage({ tasks, projects, refresh, openTask, intent }: { tasks: Task[]; projects: Project[]; refresh: () => Promise<void>; openTask: (task: Task) => void; intent?: FunctionIntent }) {
   const [creating, setCreating] = useState(false);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [dragOverState, setDragOverState] = useState<TaskState | null>(null);
   const pointerDrag = useRef<{ taskId: string; x: number; y: number; active: boolean } | null>(null);
   const suppressClickTaskId = useRef<string | null>(null);
+  const board = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (intent?.target === "tasks_create") setCreating(true);
+    if (intent?.target === "tasks_move") window.requestAnimationFrame(() => board.current?.focus());
+  }, [intent?.key]);
   async function move(task: Task, state: TaskState) { if (task.state !== state) await api.setTaskState(task.id, state).then(refresh); }
   function draggedTask(event: DragEvent<HTMLElement>) {
     const id = event.dataTransfer.getData("text/task-id") || event.dataTransfer.getData("text/plain") || draggingTaskId;
@@ -457,7 +780,7 @@ function BoardPage({ tasks, projects, refresh, openTask }: { tasks: Task[]; proj
       window.removeEventListener("pointercancel", finishDrag);
     };
   }, [tasks, refresh]);
-  return <div className="page board-page"><div className="board-heading"><ContextPath segments={["M/OS", "TASKS"]} />{!creating ? <Button variant="primary" onClick={() => setCreating(true)}>Criar Task</Button> : null}</div>{creating ? <DirectTaskForm projects={projects} cancel={() => setCreating(false)} saved={() => { setCreating(false); void refresh(); }} /> : null}<div className="kanban">{stateOrder.map((state) => { const column = tasks.filter((task) => task.lifecycleState === "active" && task.state === state); const visible = column.slice(0, 20); return <section key={state} className="kanban-column" data-kanban-state={state} data-drop-target={dragOverState === state || undefined} onDragEnter={(event) => { event.preventDefault(); setDragOverState(state); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverState(state); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverState(null); }} onDrop={(event) => { event.preventDefault(); const task = draggedTask(event); finishDrag(); if (task) void move(task, state); }}><header><h2>{stateLabels[state]}</h2><span>{column.length}</span></header><div>{visible.map((task) => <DataRow key={task.id} primary={task.title} secondary={projects.find((project) => project.id === task.projectId)?.name} completed={task.state === "done"} onClick={() => { if (suppressClickTaskId.current === task.id) { suppressClickTaskId.current = null; return; } openTask(task); }} onKeyDown={(event) => keyboardMove(event, task)} onPointerDown={(event) => { if (event.button !== 0) return; pointerDrag.current = { taskId: task.id, x: event.clientX, y: event.clientY, active: false }; }} draggable onDragStart={(event) => { setDraggingTaskId(task.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={finishDrag} />)}{!column.length ? <EmptyState>Nenhuma Task.</EmptyState> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</div></section>; })}</div></div>;
+  return <div className="page board-page"><div className="board-heading"><ContextPath segments={["M/OS", "TASKS"]} />{!creating ? <Button variant="primary" onClick={() => setCreating(true)}>Criar Task</Button> : null}</div>{creating ? <DirectTaskForm projects={projects} cancel={() => setCreating(false)} saved={() => { setCreating(false); void refresh(); }} /> : null}<div ref={board} className="kanban" tabIndex={-1} aria-label="Kanban de Tasks">{stateOrder.map((state) => { const column = tasks.filter((task) => task.lifecycleState === "active" && task.state === state); const visible = column.slice(0, 20); return <section key={state} className="kanban-column" data-kanban-state={state} data-drop-target={dragOverState === state || undefined} onDragEnter={(event) => { event.preventDefault(); setDragOverState(state); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverState(state); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverState(null); }} onDrop={(event) => { event.preventDefault(); const task = draggedTask(event); finishDrag(); if (task) void move(task, state); }}><header><h2>{stateLabels[state]}</h2><span>{column.length}</span></header><div>{visible.map((task) => <DataRow key={task.id} primary={task.title} secondary={projects.find((project) => project.id === task.projectId)?.name} completed={task.state === "done"} onClick={() => { if (suppressClickTaskId.current === task.id) { suppressClickTaskId.current = null; return; } openTask(task); }} onKeyDown={(event) => keyboardMove(event, task)} onPointerDown={(event) => { if (event.button !== 0) return; pointerDrag.current = { taskId: task.id, x: event.clientX, y: event.clientY, active: false }; }} draggable onDragStart={(event) => { setDraggingTaskId(task.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={finishDrag} />)}{!column.length ? <EmptyState>Nenhuma Task.</EmptyState> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</div></section>; })}</div></div>;
 }
 
 function TaskDrawer({ task, projects, close, refresh, openCapture }: { task: Task; projects: Project[]; close: () => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void }) {
@@ -483,26 +806,84 @@ function CaptureViewer({ capture, close }: { capture: Capture; close: () => void
   return <div className="overlay-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}><article ref={dialog} className="entity-viewer" role="dialog" aria-modal="true" tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") close(); }}><header><span className="micro-label">CAPTURE</span><IconButton label="Fechar" icon="close" onClick={close} /></header><h1>{capture.content}</h1><dl><div><dt>ORIGEM</dt><dd>{sourceLabel(capture.source)}</dd></div><div><dt>ESTADO</dt><dd>{capture.lifecycleState === "archived" ? "Arquivada" : capture.processingState === "processed" ? "Processada" : "Na Inbox"}</dd></div><div><dt>CAPTURADA</dt><dd>{new Date(capture.capturedAt).toLocaleString("pt-BR")}</dd></div></dl></article></div>;
 }
 
-function CommandSurface({ close, openCapture, openTask, openProject, openWorkspace, openApp, openFunctionRegistry }: { close: () => void; openCapture: (capture: Capture) => void; openTask: (task: Task) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openApp: (app: RegisteredApp) => void; openFunctionRegistry: () => void }) {
+function CommandSurface({ close, openCapture, openTask, openProject, openWorkspace, openApp, openResource, routeFunction }: { close: () => void; openCapture: (capture: Capture) => void; openTask: (task: Task) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; routeFunction: (definition: FunctionDefinition) => void }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CommandResult[]>([]);
   const [includeArchived, setIncludeArchived] = useState(false);
   const [error, setError] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const previousFocus = useRef(document.activeElement as HTMLElement | null);
+  const searchSequence = useRef(0);
   useEffect(() => { input.current?.focus(); return () => previousFocus.current?.focus(); }, []);
-  function searchCommand() {
-    return Promise.all([api.search(query, includeArchived), api.searchFunctions(query)]).then(([items, functions]) => {
-      setResults([...items, ...functions.map((definition) => ({ kind: "function" as const, function: definition }))]);
+  async function searchCommand(requestId: number) {
+    try {
+      const [items, resources, functions] = await Promise.all([api.search(query, includeArchived), api.searchResources(query, includeArchived), api.searchFunctions(query)]);
+      if (requestId !== searchSequence.current) return;
+      setResults([...items, ...resources.map((resource) => ({ kind: "resource" as const, resource })), ...functions.map((definition) => ({ kind: "function" as const, function: definition }))]);
+      setActiveIndex(0);
       setError("");
-    });
+    } catch (nextError) {
+      if (requestId !== searchSequence.current) return;
+      setResults([]);
+      setError(appError(nextError).message);
+    }
   }
-  useEffect(() => { if (!query.trim()) { setResults([]); return; } const timeout = window.setTimeout(() => void searchCommand().catch((nextError) => setError(appError(nextError).message)), 80); return () => window.clearTimeout(timeout); }, [query, includeArchived]);
-  function openItem(item: CommandResult) { close(); if (item.kind === "function") openFunctionRegistry(); else if (item.kind === "project") openProject(item.project); else if (item.kind === "workspace") openWorkspace(item.workspace); else if (item.kind === "task") openTask(item.task); else if (item.kind === "app") openApp(item.app); else if (item.derivedTask) openTask(item.derivedTask); else openCapture(item.capture); }
-  return <div className="overlay-backdrop command-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}><section className="command-surface" role="dialog" aria-modal="true" aria-label="Command" onKeyDown={(event) => { if (event.key === "Escape") close(); }}><div className="command-input"><span className="slash">/</span><input ref={input} value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Buscar ou executar comando" aria-label="Buscar no M/OS" /><IconButton label="Fechar" icon="close" onClick={close} /></div>{query ? <label className="check-control"><input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.currentTarget.checked)} /><span>Incluir arquivados</span></label> : null}<div className="command-results" aria-live="polite">{error ? <div className="command-error"><p>! {error}</p><Button variant="outline" onClick={() => void searchCommand()}>Reconstruir busca</Button></div> : null}{!query ? <EmptyState>Digite para buscar.</EmptyState> : null}{query && !error && !results.length ? <EmptyState>Nenhum resultado para “{query}”.</EmptyState> : null}{results.map((item, index) => { const type = item.kind === "function" ? "FUNCTION" : item.kind === "project" ? "PROJECT" : item.kind === "workspace" ? "WORKSPACE" : item.kind === "task" ? "TASK" : item.kind === "app" ? "APP" : item.derivedTask ? "TASK + CAPTURE" : "CAPTURE"; const title = item.kind === "function" ? item.function.name : item.kind === "project" ? item.project.name : item.kind === "workspace" ? item.workspace.name : item.kind === "task" ? item.task.title : item.kind === "app" ? item.app.name : item.derivedTask?.title ?? item.capture.content; const context = item.kind === "function" ? `${item.function.id} · risco ${functionRiskLabels[item.function.risk]}` : item.kind === "project" ? item.project.description : item.kind === "workspace" ? item.workspace.description : item.kind === "task" ? item.project?.name : item.kind === "app" ? item.app.description || item.app.launchTarget || "" : item.project?.name ?? item.capture.content; return <button key={`${item.kind}-${index}-${title}`} className="command-row" onClick={() => openItem(item)}><span>{type}</span><strong>{title}</strong><small>{context}</small></button>; })}</div></section></div>;
+  useEffect(() => {
+    const requestId = ++searchSequence.current;
+    setResults([]);
+    setActiveIndex(0);
+    setError("");
+    if (!query.trim()) {
+      return;
+    }
+    const timeout = window.setTimeout(() => void searchCommand(requestId), 80);
+    return () => window.clearTimeout(timeout);
+  }, [query, includeArchived]);
+  useEffect(() => { document.getElementById(`command-result-${activeIndex}`)?.scrollIntoView({ block: "nearest" }); }, [activeIndex]);
+  function openItem(item: CommandResult) {
+    close();
+    if (item.kind === "function") routeFunction(item.function);
+    else if (item.kind === "project") openProject(item.project);
+    else if (item.kind === "workspace") openWorkspace(item.workspace);
+    else if (item.kind === "task") openTask(item.task);
+    else if (item.kind === "app") openApp(item.app);
+    else if (item.kind === "resource") openResource(item.resource);
+    else if (item.derivedTask) openTask(item.derivedTask);
+    else openCapture(item.capture);
+  }
+  function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.nativeEvent.isComposing || !results.length) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      setActiveIndex((current) => (current + direction + results.length) % results.length);
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      openItem(results[activeIndex] ?? results[0]);
+    }
+  }
+  return <div className="overlay-backdrop command-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
+    <section className="command-surface" role="dialog" aria-modal="true" aria-label="Command" onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
+      <div className="command-input"><span className="slash">/</span><input ref={input} aria-controls="command-results" value={query} onChange={(event) => setQuery(event.currentTarget.value)} onKeyDown={handleInputKeyDown} placeholder="Buscar ou executar comando" aria-label="Buscar no M/OS" /><IconButton label="Fechar" icon="close" onClick={close} /></div>
+      {query ? <label className="check-control"><input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.currentTarget.checked)} /><span>Incluir arquivados</span></label> : null}
+      <div id="command-results" className="command-results" aria-label="Resultados" aria-live="polite">
+        {error ? <div className="command-error"><p>! {error}</p><Button variant="outline" onClick={() => void searchCommand(++searchSequence.current)}>Tentar novamente</Button></div> : null}
+        {!query ? <EmptyState>Digite para buscar.</EmptyState> : null}
+        {query && !error && !results.length ? <EmptyState>Nenhum resultado para “{query}”.</EmptyState> : null}
+        {results.map((item, index) => {
+          const type = item.kind === "function" ? "FUNCTION" : item.kind === "project" ? "PROJECT" : item.kind === "workspace" ? "WORKSPACE" : item.kind === "task" ? "TASK" : item.kind === "app" ? "APP" : item.kind === "resource" ? "RESOURCE" : item.derivedTask ? "TASK + CAPTURE" : "CAPTURE";
+          const title = item.kind === "function" ? item.function.name : item.kind === "project" ? item.project.name : item.kind === "workspace" ? item.workspace.name : item.kind === "task" ? item.task.title : item.kind === "app" ? item.app.name : item.kind === "resource" ? item.resource.title : item.derivedTask?.title ?? item.capture.content;
+          const context = item.kind === "function" ? `${item.function.id} · risco ${functionRiskLabels[item.function.risk]}` : item.kind === "project" ? item.project.description : item.kind === "workspace" ? item.workspace.description : item.kind === "task" ? item.project?.name : item.kind === "app" ? item.app.description || item.app.launchTarget || "" : item.kind === "resource" ? `${resourceHost(item.resource.url)}${item.resource.note ? ` · ${item.resource.note}` : ""}` : item.project?.name ?? item.capture.content;
+          return <button id={`command-result-${index}`} aria-current={index === activeIndex ? "true" : undefined} data-active={index === activeIndex || undefined} key={`${item.kind}-${index}-${title}`} className="command-row" onFocus={() => setActiveIndex(index)} onMouseEnter={() => setActiveIndex(index)} onClick={() => openItem(item)}><span>{type}</span><strong>{title}</strong><small>{context}</small></button>;
+        })}
+      </div>
+    </section>
+  </div>;
 }
 
-function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrashed, projects, tasks, workspaces, apps, refresh }: { theme: Theme; setTheme: (theme: Theme) => void; status: AppStatus | null; capturesArchived: Capture[]; capturesTrashed: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; refresh: () => Promise<void> }) {
+function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrashed, projects, tasks, workspaces, apps, resources, trashedResources, refresh, intent }: { theme: Theme; setTheme: (theme: Theme) => void; status: AppStatus | null; capturesArchived: Capture[]; capturesTrashed: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; trashedResources: Resource[]; refresh: () => Promise<void>; intent?: FunctionIntent }) {
   const [shortcut, setShortcut] = useState("Ctrl+Shift+Space");
   const [message, setMessage] = useState("");
   const [inspection, setInspection] = useState<BackupInspection | null>(null);
@@ -532,6 +913,10 @@ function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrash
       setMessage(appError(error).message);
     }
   }
+  useEffect(() => {
+    if (intent?.target === "updates_check") void checkUpdates();
+    if (intent?.target === "function_registry") window.requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-panel='FUNCTIONS']")?.scrollIntoView({ block: "start" }));
+  }, [intent?.key]);
   async function installUpdate() {
     setUpdateState("installing");
     setMessage("Baixando atualizacao...");
@@ -552,9 +937,10 @@ function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrash
   const archivedProjects = projects.filter((project) => project.lifecycleState === "archived");
   const archivedTasks = tasks.filter((task) => task.lifecycleState === "archived");
   const archivedApps = apps.filter((app) => app.lifecycleState === "archived");
+  const archivedResources = resources.filter((resource) => resource.lifecycleState === "archived");
   const archivedWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "archived");
   const functionsByCategory = functionCategories.map((category) => ({ category, items: functions.filter((item) => item.category === category) })).filter((group) => group.items.length);
-  return <div className="page settings-page"><ContextPath segments={["M/OS", "SETTINGS"]} /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateProgressLabel() ? <p className="support-copy">{updateProgressLabel()}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then(setMessage).catch((error) => setMessage(appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button></div>)}</details></Panel><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}<dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></div>;
+  return <div className="page settings-page"><ContextPath segments={["M/OS", "SETTINGS"]} /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateProgressLabel() ? <p className="support-copy">{updateProgressLabel()}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then(setMessage).catch((error) => setMessage(appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button></div>)}</details></Panel><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}<dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></div>;
 }
 
 function QuickCapture() {
@@ -576,6 +962,8 @@ function DesktopApp() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [apps, setApps] = useState<RegisteredApp[]>([]);
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [trashedResources, setTrashedResources] = useState<Resource[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -584,35 +972,94 @@ function DesktopApp() {
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
   const [selectedAppId, setSelectedAppId] = useState("");
+  const [selectedResourceId, setSelectedResourceId] = useState("");
+  const [resourceOpenKey, setResourceOpenKey] = useState(0);
+  const [functionIntent, setFunctionIntent] = useState<FunctionIntent | null>(null);
   const [undo, setUndo] = useState<UndoAction | null>(null);
+  const [bootState, setBootState] = useState<"loading" | "ready" | "error">("loading");
+  const [bootMessage, setBootMessage] = useState("");
+  const [showBootLoading, setShowBootLoading] = useState(false);
   const [theme, setThemeState] = useState<Theme>(() => localStorage.getItem("m-os-theme") === "light" ? "light" : "dark");
   const undoTimer = useRef<number | null>(null);
+  const functionIntentKey = useRef(0);
 
   const refresh = useCallback(async () => {
-    const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextTasks, nextStatus] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.tasks(true), api.status()]);
-    setRecent(nextRecent); setInbox(nextInbox); setArchived(nextArchived); setTrashed(nextTrashed); setProjects(nextProjects); setWorkspaces(nextWorkspaces); setApps(nextApps); setTasks(nextTasks); setStatus(nextStatus);
+    const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status()]);
+    setRecent(nextRecent); setInbox(nextInbox); setArchived(nextArchived); setTrashed(nextTrashed); setProjects(nextProjects); setWorkspaces(nextWorkspaces); setApps(nextApps); setResources(nextResources); setTrashedResources(nextTrashedResources); setTasks(nextTasks); setStatus(nextStatus);
     setDrawerTask((current) => current ? nextTasks.find((task) => task.id === current.id) ?? null : null);
   }, []);
-  useEffect(() => { void refresh(); const events = [listen("capture-changed", () => void refresh()), listen("data-changed", () => void refresh()), listen("dataset-restored", () => void refresh()), listen("snapshot-status-changed", () => void refresh())]; return () => { events.forEach((event) => void event.then((dispose) => dispose())); }; }, [refresh]);
+  const initialize = useCallback(async () => {
+    setBootState("loading");
+    setBootMessage("");
+    setShowBootLoading(false);
+    const loadingTimer = window.setTimeout(() => setShowBootLoading(true), 150);
+    try {
+      await refresh();
+      setBootState("ready");
+    } catch (error) {
+      setBootMessage(appError(error).message);
+      setBootState("error");
+    } finally {
+      window.clearTimeout(loadingTimer);
+      setShowBootLoading(false);
+    }
+  }, [refresh]);
+  useEffect(() => {
+    void initialize();
+    const refreshFromEvent = () => void refresh().catch((error) => {
+      setBootMessage(appError(error).message);
+      setBootState("error");
+    });
+    const events = [listen("capture-changed", refreshFromEvent), listen("data-changed", refreshFromEvent), listen("dataset-restored", refreshFromEvent), listen("snapshot-status-changed", refreshFromEvent)];
+    return () => { events.forEach((event) => void event.then((dispose) => dispose())); };
+  }, [initialize, refresh]);
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("m-os-theme", theme); }, [theme]);
   useEffect(() => { const handler = (event: globalThis.KeyboardEvent) => { if (event.ctrlKey && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); } if (event.ctrlKey && event.key.toLowerCase() === "z" && undo) { event.preventDefault(); void undo.run().then(() => { setUndo(null); return refresh(); }); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, [refresh, undo]);
 
   function showReceipt(action: UndoAction) { setUndo(action); if (undoTimer.current) window.clearTimeout(undoTimer.current); undoTimer.current = window.setTimeout(() => setUndo(null), 8_000); }
-  function openProject(project: Project) { setSelectedProjectId(project.id); setPage("projects"); }
-  function openWorkspace(workspace: Workspace) { setSelectedWorkspaceId(workspace.id); setPage("workspaces"); }
-  function openRegisteredApp(app: RegisteredApp) { setSelectedAppId(app.id); setPage("apps"); }
-  const nav: { page: Page; label: string; icon: IconName; count?: number }[] = [{ page: "home", label: "Home", icon: "home" }, { page: "inbox", label: "Inbox", icon: "inbox", count: inbox.length }, { page: "projects", label: "Projects", icon: "projects" }, { page: "workspaces", label: "Workspaces", icon: "workspaces" }, { page: "apps", label: "Apps", icon: "apps" }, { page: "tasks", label: "Tasks", icon: "board" }, { page: "settings", label: "Settings", icon: "settings" }];
-  const content = useMemo(() => {
-    if (page === "home") return <HomePage recent={recent} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} />;
-    if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} />;
-    if (page === "projects") return <ProjectsPage projects={projects} tasks={tasks} initialProjectId={selectedProjectId} refresh={refresh} openTask={setDrawerTask} />;
-    if (page === "workspaces") return <WorkspacesPage workspaces={workspaces} projects={projects} apps={apps} initialWorkspaceId={selectedWorkspaceId} refresh={refresh} openProject={openProject} openApp={openRegisteredApp} />;
-    if (page === "apps") return <AppsPage apps={apps} initialAppId={selectedAppId} refresh={refresh} />;
-    if (page === "tasks") return <BoardPage tasks={tasks} projects={projects} refresh={refresh} openTask={setDrawerTask} />;
-    return <SettingsPage theme={theme} setTheme={setThemeState} status={status} capturesArchived={archived} capturesTrashed={trashed} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} refresh={refresh} />;
-  }, [page, recent, projects, workspaces, apps, tasks, refresh, inbox, selectedProjectId, selectedWorkspaceId, selectedAppId, theme, status, archived, trashed]);
+  function navigate(page: Page) { setFunctionIntent(null); setPage(page); }
+  function openProject(project: Project) { setFunctionIntent(null); setSelectedProjectId(project.id); setPage("projects"); }
+  function openWorkspace(workspace: Workspace) { setFunctionIntent(null); setSelectedWorkspaceId(workspace.id); setPage("workspaces"); }
+  function openRegisteredApp(app: RegisteredApp) { setFunctionIntent(null); setSelectedAppId(app.id); setPage("apps"); }
+  function openResource(resource: Resource) { setFunctionIntent(null); setSelectedResourceId(resource.id); setResourceOpenKey((key) => key + 1); setPage("library"); }
+  function routeFunction(definition: FunctionDefinition) {
+    const target = resolveFunctionTarget(definition);
+    if (target === "quick_capture") {
+      void api.showQuickCapture();
+      return;
+    }
+    functionIntentKey.current += 1;
+    setFunctionIntent({ target, key: functionIntentKey.current });
+    if (target === "home_capture") setPage("home");
+    else if (target === "inbox_process" || target === "inbox_create_task") setPage("inbox");
+    else if (target === "tasks_create" || target === "tasks_move") setPage("tasks");
+    else if (target === "projects_create") setPage("projects");
+    else if (target === "library_create") setPage("library");
+    else if (target === "inbox_create_resource") setPage("inbox");
+    else if (target === "workspaces_create" || target === "workspaces_link_project" || target === "workspaces_link_app") setPage("workspaces");
+    else if (target === "apps_register") setPage("apps");
+    else setPage("settings");
+  }
+  const nav: { page: Page; label: string; icon: IconName; count?: number }[] = [{ page: "home", label: "Home", icon: "home" }, { page: "inbox", label: "Inbox", icon: "inbox", count: inbox.length }, { page: "projects", label: "Projects", icon: "projects" }, { page: "workspaces", label: "Workspaces", icon: "workspaces" }, { page: "apps", label: "Apps", icon: "apps" }, { page: "library", label: "Library", icon: "library" }, { page: "tasks", label: "Tasks", icon: "board" }, { page: "settings", label: "Settings", icon: "settings" }];
+  const pageContent = useMemo(() => {
+    if (page === "home") return <HomePage recent={recent} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} intent={functionIntent ?? undefined} />;
+    if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} openResource={openResource} intent={functionIntent ?? undefined} />;
+    if (page === "projects") return <ProjectsPage projects={projects} tasks={tasks} initialProjectId={selectedProjectId} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
+    if (page === "workspaces") return <WorkspacesPage workspaces={workspaces} projects={projects} apps={apps} initialWorkspaceId={selectedWorkspaceId} refresh={refresh} openProject={openProject} openApp={openRegisteredApp} intent={functionIntent ?? undefined} />;
+    if (page === "apps") return <AppsPage apps={apps} initialAppId={selectedAppId} refresh={refresh} intent={functionIntent ?? undefined} />;
+    if (page === "library") return <LibraryPage resources={resources} initialResourceId={selectedResourceId} initialResourceKey={resourceOpenKey} refresh={refresh} receipt={showReceipt} openCapture={setViewedCapture} intent={functionIntent ?? undefined} />;
+    if (page === "tasks") return <BoardPage tasks={tasks} projects={projects} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
+    return <SettingsPage theme={theme} setTheme={setThemeState} status={status} capturesArchived={archived} capturesTrashed={trashed} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} trashedResources={trashedResources} refresh={refresh} intent={functionIntent ?? undefined} />;
+  }, [page, recent, projects, workspaces, apps, resources, trashedResources, tasks, refresh, inbox, selectedProjectId, selectedWorkspaceId, selectedAppId, selectedResourceId, resourceOpenKey, theme, status, archived, trashed, functionIntent]);
+  const content = bootState === "ready"
+    ? pageContent
+    : bootState === "error"
+      ? <section className="page startup-state" role="alert"><h1>M/OS não abriu os dados locais com segurança.</h1><p>{bootMessage} Nenhuma alteração foi feita.</p><Button variant="primary" onClick={() => void initialize()}>Tentar novamente</Button></section>
+      : showBootLoading
+        ? <section className="page startup-state" role="status"><p>Abrindo dados locais...</p></section>
+        : null;
 
-  return <div className="app-shell"><aside className="nav-rail"><div className="symbol">M<span>/</span></div><nav aria-label="Navegação principal">{nav.map((item) => <button key={item.page} aria-current={page === item.page ? "page" : undefined} aria-label={item.label} title={item.label} onClick={() => setPage(item.page)}><Icon name={item.icon} filled={page === item.page} />{item.count ? <span>{item.count}</span> : null}</button>)}</nav><IconButton label="Quick Capture" icon="capture" onClick={() => void api.showQuickCapture()} /></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button></header><main className="content">{content}</main></div>{commandOpen ? <CommandSurface close={() => setCommandOpen(false)} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openFunctionRegistry={() => setPage("settings")} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
+  return <div className="app-shell"><aside className="nav-rail"><div className="symbol">M<span>/</span></div><nav aria-label="Navegação principal">{nav.map((item) => <button key={item.page} aria-current={page === item.page ? "page" : undefined} aria-label={item.label} title={item.label} onClick={() => navigate(item.page)}><Icon name={item.icon} filled={page === item.page} />{item.count ? <span>{item.count}</span> : null}</button>)}</nav><IconButton label="Quick Capture" icon="capture" onClick={() => void api.showQuickCapture()} /></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button></header><main className="content">{content}</main></div>{commandOpen ? <CommandSurface close={() => setCommandOpen(false)} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
 }
 
 export default function App() {

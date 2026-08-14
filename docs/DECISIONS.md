@@ -33,6 +33,10 @@ Estados possíveis:
 | ADR-015 | Estado de processamento separado do lifecycle | Accepted |
 | ADR-016 | Quick Capture depende do processo no tray | Accepted |
 | ADR-017 | WAL com synchronous FULL | Accepted |
+| ADR-018 | Proveniência explícita de Capture para Task | Accepted |
+| ADR-019 | Design system versionado como contrato do renderer | Accepted |
+| ADR-020 | Origem de App é metadata, não alvo de abertura | Accepted |
+| ADR-021 | Resource começa por Link e preserva contexto | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -442,3 +446,49 @@ Bibliotecas genéricas de UI ou ícones não entram sem uma necessidade concreta
 - valores visuais deixam de ser espalhados pelos componentes;
 - Capture e Command preservam as geometrias normativas do produto;
 - extensões de token devem ser explícitas e documentadas.
+
+## ADR-020 — Origem de App é metadata, não alvo de abertura
+
+**Estado:** Accepted
+
+**Aceita em:** 2026-08-13, para introduzir o catálogo pessoal de Apps sem antecipar a Integration GitHub.
+
+### Contexto
+
+CronoCAD, M Finance e Coded Atlas possuem repositórios conhecidos, mas nem todo repositório representa um alvo operacional. CronoCAD, por exemplo, é desktop e não possui release publicada.
+
+### Decisão
+
+`RegisteredApp` preserva `source_url` separadamente de `launch_kind` e `launch_target`. O catálogo conhecido pelo Core pode cadastrar e enriquecer Apps de forma explícita e idempotente, sem sobrescrever um alvo já escolhido pelo usuário.
+
+### Consequências
+
+- o repositório de origem permanece encontrável sem ser executado como se fosse o App;
+- Apps web podem possuir URL de uso e origem distintas;
+- Apps desktop podem ser conhecidos antes de um executável local ser configurado;
+- o corte não cria autenticação nem integração runtime com GitHub;
+- associação Project → Repository continua adiada para sua fase própria.
+
+## ADR-021 — Resource começa por Link e preserva contexto
+
+**Estado:** Accepted
+
+**Aceita em:** 2026-08-13, como primeiro corte vertical da Fase Memory.
+
+### Contexto
+
+Resource é conceitualmente amplo, mas implementar antecipadamente imagens, arquivos, artigos, bibliotecas e taxonomias criaria abstrações sem uso observado. O primeiro caso concreto é guardar uma URL junto do motivo pelo qual ela merece ser lembrada.
+
+### Decisão
+
+Introduzir `Resource` com o tipo concreto `link`, contendo título, URL, nota contextual, lifecycle e proveniência opcional de Capture. Library é uma projeção em lista/detalhe, não uma entidade ou container. A conversão de Capture é atômica e não apaga a origem. Links ativos são abertos somente pelo backend nativo depois de nova validação de esquema.
+
+### Consequências
+
+- a Fase Memory começa com um caso pequeno e útil;
+- título vazio pode usar a URL para preservar baixa fricção;
+- metadata remota, arquivos, tags e relações ficam adiados;
+- o schema pode receber novos tipos apenas quando casos concretos forem aprovados;
+- título, URL e nota participam da Search unificada;
+- encontrar um Resource no Command abre seu detalhe, não executa a URL;
+- Archive e Trash permanecem recuperáveis sem exclusão definitiva.

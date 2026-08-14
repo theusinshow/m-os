@@ -116,11 +116,16 @@ pub trait WorkRepository: Send + Sync {
 
 pub trait AppRepository: Send + Sync {
     fn create_app(&self, app: NewRegisteredApp) -> Result<RegisteredApp, CoreError>;
+    fn register_catalog_apps(
+        &self,
+        apps: Vec<NewRegisteredApp>,
+    ) -> Result<Vec<RegisteredApp>, CoreError>;
     fn update_app(
         &self,
         id: AppId,
         name: &str,
         description: &str,
+        source_url: Option<&str>,
         launch_kind: Option<crate::AppLaunchKind>,
         launch_target: Option<&str>,
     ) -> Result<RegisteredApp, CoreError>;
@@ -134,6 +139,27 @@ pub trait AppRepository: Send + Sync {
     fn mark_app_opened(&self, id: AppId) -> Result<RegisteredApp, CoreError>;
     fn search_apps(&self, request: SearchRequest) -> Result<Vec<RegisteredApp>, CoreError>;
     fn rebuild_app_search(&self) -> Result<usize, CoreError>;
+}
+
+pub trait ResourceRepository: Send + Sync {
+    fn create_resource(&self, resource: crate::NewResource) -> Result<crate::Resource, CoreError>;
+    fn update_resource(
+        &self,
+        id: crate::ResourceId,
+        title: &str,
+        url: &str,
+        note: &str,
+    ) -> Result<crate::Resource, CoreError>;
+    fn get_resource(&self, id: crate::ResourceId) -> Result<crate::Resource, CoreError>;
+    fn resources(&self, include_archived: bool) -> Result<Vec<crate::Resource>, CoreError>;
+    fn trashed_resources(&self) -> Result<Vec<crate::Resource>, CoreError>;
+    fn set_resource_lifecycle(
+        &self,
+        id: crate::ResourceId,
+        lifecycle: LifecycleState,
+    ) -> Result<crate::Resource, CoreError>;
+    fn search_resources(&self, request: SearchRequest) -> Result<Vec<crate::Resource>, CoreError>;
+    fn rebuild_resource_search(&self) -> Result<usize, CoreError>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

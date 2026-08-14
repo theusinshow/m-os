@@ -102,12 +102,13 @@
   --surface-active: #252C31;
   --border: #1E2429;
   --border-strong: #2A3136;
+  --border-control: #626A70;
 
   --text: #E7EAEC;
   --text-secondary: #8C949A;
-  --text-system: #626A70;
+  --text-system: #768086;
   --text-disabled: #565E63;
-  --text-placeholder: #4E565B;
+  --text-placeholder: #8C949A;
 
   --signal-fill: #E7C24E;   /* preenchimento: igual nos dois modos */
   --signal-ink: #E7C24E;    /* tinta: muda no light */
@@ -133,12 +134,13 @@
   --surface-active: #E4E8EA;
   --border: #D6DBDE;
   --border-strong: #C9CFD2;
+  --border-control: #868E93;
 
   --text: #14181A;
   --text-secondary: #596166;
-  --text-system: #868E93;
+  --text-system: #687075;
   --text-disabled: #A2A9AD;
-  --text-placeholder: #A2A9AD;
+  --text-placeholder: #596166;
 
   --signal-fill: #E7C24E;
   --signal-ink: #8A6A12;    /* âmbar puro é ilegível como texto no claro */
@@ -169,9 +171,10 @@ body {
 
 /* Focus: idêntico em todos os componentes do sistema */
 :focus-visible {
-  outline: none;
+  outline: var(--marker) solid var(--signal-ink);
+  outline-offset: var(--marker);
   border-color: var(--signal-ink);
-  box-shadow: 0 0 0 3px var(--signal-ring);
+  box-shadow: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -198,6 +201,7 @@ body {
     --surface-active: Highlight;
     --border: ButtonBorder;
     --border-strong: ButtonText;
+    --border-control: ButtonText;
     --text: CanvasText;
     --text-secondary: CanvasText;
     --text-system: GrayText;

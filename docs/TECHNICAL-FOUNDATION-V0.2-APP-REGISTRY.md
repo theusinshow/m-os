@@ -39,6 +39,7 @@ Campos iniciais:
 
 - nome;
 - descricao;
+- origem opcional, tratada como metadata inerte;
 - alvo de abertura opcional;
 - tipo do alvo: `url` ou `path`;
 - lifecycle;
@@ -66,3 +67,5 @@ Politica inicial:
 A abertura e considerada aceita quando o sistema operacional aceita a acao. So depois disso o M/OS registra `last_opened_at`.
 
 Presets sugeridos nunca sao inseridos automaticamente. O usuario precisa acionar a criacao, e o sistema cria apenas Apps ainda inexistentes pelo nome.
+
+O incremento posterior documentado em `TECHNICAL-FOUNDATION-V0.2-APP-CATALOG.md` separa `source_url` do alvo operacional e torna o cadastro dos Apps conhecidos idempotente no backend.

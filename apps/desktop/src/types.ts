@@ -51,6 +51,7 @@ export type RegisteredApp = {
   id: string;
   name: string;
   description: string;
+  sourceUrl: string | null;
   launchKind: AppLaunchKind | null;
   launchTarget: string | null;
   lifecycleState: LifecycleState;
@@ -59,14 +60,36 @@ export type RegisteredApp = {
   lastOpenedAt: string | null;
 };
 
+export type Resource = {
+  id: string;
+  kind: "link";
+  title: string;
+  url: string;
+  note: string;
+  sourceCaptureId: string | null;
+  lifecycleState: LifecycleState;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AppCatalogEntry = {
+  id: string;
+  name: string;
+  description: string;
+  sourceUrl: string;
+  launchKind: AppLaunchKind | null;
+  launchTarget: string | null;
+};
+
 export type SearchItem =
   | { kind: "capture"; capture: Capture; derivedTask: Task | null; project: Project | null }
   | { kind: "task"; task: Task; project: Project | null }
   | { kind: "project"; project: Project }
   | { kind: "workspace"; workspace: Workspace }
-  | { kind: "app"; app: RegisteredApp };
+  | { kind: "app"; app: RegisteredApp }
+  | { kind: "resource"; resource: Resource };
 
-export type FunctionCategory = "capture" | "work" | "app" | "data" | "system";
+export type FunctionCategory = "capture" | "work" | "memory" | "app" | "data" | "system";
 export type FunctionRisk = "low" | "medium" | "high";
 export type FunctionConfirmation = "none" | "explicit";
 
@@ -90,6 +113,7 @@ export type AppStatus = {
   projectCount: number;
   taskCount: number;
   appCount: number;
+  resourceCount: number;
   workspaceCount: number;
   shortcut: string;
   snapshot: string;

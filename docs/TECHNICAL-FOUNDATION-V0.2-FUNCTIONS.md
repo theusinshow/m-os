@@ -21,12 +21,26 @@ It can be listed and searched by the desktop shell through Tauri commands.
 
 The Settings screen exposes the registry so the product can inspect its current operational surface without introducing a heavy Functions UI.
 
-The Command surface can discover Functions by text search. Selecting a Function opens the registry view instead of executing behavior automatically.
+The Command surface can discover Functions by text search. Selection is fully operable with keyboard through Arrow Up, Arrow Down and Enter.
+
+## Intent Routing
+
+Low-risk Functions use an explicit, fail-closed routing table in the desktop renderer.
+
+- creation Functions open the existing form for Capture, Task, Project, Workspace, App or Resource;
+- Functions that need an existing entity open the relevant context instead of guessing a target;
+- `capture.quick_open` opens the existing Quick Capture window;
+- `system.update_check` starts the existing update check because selecting the Function is an explicit low-risk intent;
+- medium-risk, high-risk and unknown Functions open the registry without executing behavior;
+- restore, export, backup, update installation and App launch keep their existing selection and confirmation boundaries.
+
+The routing table belongs to the renderer because it describes UI destinations. The Core keeps stable capability definitions and does not gain knowledge of pages, forms or focus behavior.
 
 ## Included Function Families
 
 - Capture
 - Work
+- Memory
 - App Registry
 - Data and portability
 - System updates
@@ -57,4 +71,4 @@ Backups still cover local user data. Function definitions are restored by the in
 
 ## Next Step
 
-The next safe increment is to add explicit intent routing for low-risk Functions, still using existing UI flows and confirmation boundaries.
+Dogfood the routed Functions and observe which actions need structured arguments before introducing parameter collection or broader execution. Natural-language interpretation, automation chains and Hermes remain out of scope.

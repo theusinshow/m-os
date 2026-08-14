@@ -5,10 +5,11 @@ use std::{
 };
 
 use mos_core::{
-    AppLaunchKind, AppService, BackupInspection, BackupReceipt, Capture, CaptureService, CoreError,
-    CreateAppInput, CreateCaptureInput, CreateProjectInput, CreateTaskInput, CreateWorkspaceInput,
-    DataService, FunctionDefinition, Project, RegisteredApp, SearchItem, Task, TaskState,
-    UpdateAppInput, UpdateProjectInput, UpdateTaskInput, UpdateWorkspaceInput, WorkService,
+    AppCatalogEntry, AppLaunchKind, AppService, BackupInspection, BackupReceipt, Capture,
+    CaptureService, CoreError, CreateAppInput, CreateCaptureInput, CreateProjectInput,
+    CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService, FunctionDefinition,
+    MemoryService, Project, RegisteredApp, Resource, SearchItem, Task, TaskState, UpdateAppInput,
+    UpdateProjectInput, UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, WorkService,
     Workspace,
 };
 use mos_storage_sqlite::{SqliteStorage, StorageHealth};
@@ -26,6 +27,7 @@ struct AppState {
     captures: CaptureService,
     work: WorkService,
     apps: AppService,
+    memory: MemoryService,
     data: DataService,
     storage: Arc<SqliteStorage>,
     shortcut_status: Mutex<String>,
@@ -47,6 +49,7 @@ struct AppStatus {
     project_count: usize,
     task_count: usize,
     app_count: usize,
+    resource_count: usize,
     workspace_count: usize,
     shortcut: String,
     snapshot: String,
@@ -184,7 +187,119 @@ fn restore_capture(
 
 #[tauri::command]
 fn rebuild_search(state: tauri::State<'_, AppState>) -> Result<usize, CoreError> {
-    Ok(state.work.rebuild_search()? + state.apps.rebuild_search()?)
+    Ok(state.work.rebuild_search()?
+        + state.apps.rebuild_search()?
+        + state.memory.rebuild_search()?)
+}
+
+#[tauri::command]
+fn create_resource(
+    input: CreateResourceInput,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Resource, CoreError> {
+    let resource = state.memory.create_resource(input)?;
+    notify_data_changed(&app, "resource-created");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(resource)
+}
+
+#[tauri::command]
+fn update_resource(
+    input: UpdateResourceInput,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Resource, CoreError> {
+    let resource = state.memory.update_resource(input)?;
+    notify_data_changed(&app, "resource-updated");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(resource)
+}
+
+#[tauri::command]
+fn get_resource(id: &str, state: tauri::State<'_, AppState>) -> Result<Resource, CoreError> {
+    state.memory.resource(id)
+}
+
+#[tauri::command]
+fn list_resources(
+    include_archived: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Resource>, CoreError> {
+    state.memory.resources(include_archived)
+}
+
+#[tauri::command]
+fn list_trashed_resources(state: tauri::State<'_, AppState>) -> Result<Vec<Resource>, CoreError> {
+    state.memory.trashed_resources()
+}
+
+#[tauri::command]
+fn search_resources(
+    query: &str,
+    include_archived: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Resource>, CoreError> {
+    state.memory.search(query, include_archived, 50)
+}
+
+#[tauri::command]
+fn set_resource_archived(
+    id: &str,
+    archived: bool,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Resource, CoreError> {
+    let lifecycle = if archived {
+        mos_core::LifecycleState::Archived
+    } else {
+        mos_core::LifecycleState::Active
+    };
+    let resource = state.memory.set_resource_lifecycle(id, lifecycle)?;
+    notify_data_changed(&app, "resource-lifecycle");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(resource)
+}
+
+#[tauri::command]
+fn trash_resource(
+    id: &str,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Resource, CoreError> {
+    let resource = state
+        .memory
+        .set_resource_lifecycle(id, mos_core::LifecycleState::Trashed)?;
+    notify_data_changed(&app, "resource-lifecycle");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(resource)
+}
+
+#[tauri::command]
+fn restore_resource(
+    id: &str,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Resource, CoreError> {
+    let resource = state
+        .memory
+        .set_resource_lifecycle(id, mos_core::LifecycleState::Active)?;
+    notify_data_changed(&app, "resource-lifecycle");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(resource)
+}
+
+#[tauri::command]
+fn open_resource(id: &str, state: tauri::State<'_, AppState>) -> Result<(), CoreError> {
+    let resource = state.memory.resource(id)?;
+    if resource.lifecycle_state != mos_core::LifecycleState::Active {
+        return Err(CoreError::new(
+            mos_core::ErrorCode::InvalidTransition,
+            "Somente um Resource ativo pode ser aberto.",
+            false,
+        ));
+    }
+    open_external_target(AppLaunchKind::Url, &resource.url)
 }
 
 #[tauri::command]
@@ -427,6 +542,23 @@ fn create_registered_app(
 }
 
 #[tauri::command]
+fn list_app_catalog(state: tauri::State<'_, AppState>) -> Vec<AppCatalogEntry> {
+    state.apps.catalog()
+}
+
+#[tauri::command]
+fn register_app_catalog(
+    ids: Vec<String>,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<RegisteredApp>, CoreError> {
+    let registered = state.apps.register_catalog(&ids)?;
+    notify_data_changed(&app, "app-catalog-registered");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(registered)
+}
+
+#[tauri::command]
 fn update_registered_app(
     input: UpdateAppInput,
     app: AppHandle,
@@ -552,6 +684,7 @@ fn get_app_status(state: tauri::State<'_, AppState>) -> Result<AppStatus, CoreEr
         project_count: state.work.projects(false)?.len(),
         task_count: state.work.tasks(false)?.len(),
         app_count: state.apps.apps(false)?.len(),
+        resource_count: state.memory.resources(false)?.len(),
         workspace_count: state.work.workspaces(false)?.len(),
         shortcut: state
             .shortcut_status
@@ -862,6 +995,7 @@ pub fn run() {
                 captures: CaptureService::new(storage.clone()),
                 work: WorkService::new(storage.clone()),
                 apps: AppService::new(storage.clone()),
+                memory: MemoryService::new(storage.clone()),
                 data: DataService::new(storage.clone()),
                 storage,
                 shortcut_status: Mutex::new("Registrando...".into()),
@@ -912,6 +1046,16 @@ pub fn run() {
             trash_capture,
             restore_capture,
             rebuild_search,
+            create_resource,
+            update_resource,
+            get_resource,
+            list_resources,
+            list_trashed_resources,
+            search_resources,
+            set_resource_archived,
+            trash_resource,
+            restore_resource,
+            open_resource,
             create_workspace,
             update_workspace,
             get_workspace,
@@ -935,6 +1079,8 @@ pub fn run() {
             set_task_state,
             set_task_archived,
             create_registered_app,
+            list_app_catalog,
+            register_app_catalog,
             update_registered_app,
             get_registered_app,
             list_registered_apps,

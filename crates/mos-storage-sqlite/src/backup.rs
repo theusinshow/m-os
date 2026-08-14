@@ -15,7 +15,9 @@ use zip::{write::SimpleFileOptions, ZipArchive, ZipWriter};
 use crate::{
     app_repository::query_apps_all,
     configure_connection, ensure_search_projection, map_io_error, map_lock_error, map_sql_error,
-    migrate, verify_integrity,
+    migrate,
+    resource_repository::query_resources_all,
+    verify_integrity,
     work_repository::{
         query_app_workspace_links, query_captures_all, query_project_workspace_links,
         query_projects, query_tasks, query_workspaces_all, PROJECT_COLUMNS, TASK_COLUMNS,
@@ -174,6 +176,7 @@ impl SqliteStorage {
                     &format!("SELECT {TASK_COLUMNS} FROM tasks ORDER BY created_at ASC"),
                 )?,
                 apps: query_apps_all(&connection)?,
+                resources: query_resources_all(&connection)?,
                 workspaces: query_workspaces_all(&connection)?,
                 project_workspaces: query_project_workspace_links(&connection)?
                     .into_iter()
@@ -220,6 +223,7 @@ struct ExportDataset {
     projects: Vec<mos_core::Project>,
     tasks: Vec<mos_core::Task>,
     apps: Vec<mos_core::RegisteredApp>,
+    resources: Vec<mos_core::Resource>,
     workspaces: Vec<mos_core::Workspace>,
     project_workspaces: Vec<WorkspaceProjectLink>,
     app_workspaces: Vec<WorkspaceAppLink>,
@@ -399,7 +403,10 @@ fn backup_invalid(message: impl Into<String>) -> CoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mos_core::{AppRepository, CaptureRepository, CaptureSource, NewCapture, NewRegisteredApp};
+    use mos_core::{
+        AppRepository, CaptureRepository, CaptureSource, NewCapture, NewRegisteredApp, NewResource,
+        ResourceRepository,
+    };
 
     #[test]
     fn backup_restore_round_trip_and_safety_backup() {
@@ -412,10 +419,32 @@ mod tests {
         let original = storage
             .create(NewCapture::create("Original", CaptureSource::Home).unwrap())
             .unwrap();
+        let original_resource = storage
+            .create_resource(
+                NewResource::create_link(
+                    "Motion",
+                    "https://motion.dev",
+                    "Referencia preservada no backup",
+                    None,
+                )
+                .unwrap(),
+            )
+            .unwrap();
         let backup_path = directory.path().join("manual.mos-backup");
         storage.create_backup(&backup_path).unwrap();
         storage
             .create(NewCapture::create("Posterior", CaptureSource::Home).unwrap())
+            .unwrap();
+        storage
+            .create_resource(
+                NewResource::create_link(
+                    "Posterior",
+                    "https://example.com/posterior",
+                    "Nao deve sobreviver ao restore",
+                    None,
+                )
+                .unwrap(),
+            )
             .unwrap();
 
         let inspection = storage.inspect_backup(&backup_path).unwrap();
@@ -424,6 +453,13 @@ mod tests {
         assert!(Path::new(&safety.path).exists());
         assert_eq!(storage.recent(10).unwrap()[0].id, original.id);
         assert_eq!(storage.recent(10).unwrap().len(), 1);
+        let restored_resources = storage.resources(false).unwrap();
+        assert_eq!(restored_resources.len(), 1);
+        assert_eq!(restored_resources[0].id, original_resource.id);
+        assert_eq!(
+            restored_resources[0].note,
+            "Referencia preservada no backup"
+        );
     }
 
     #[test]
@@ -461,6 +497,12 @@ mod tests {
         storage
             .create_app(NewRegisteredApp::create("M-Finance", "Cockpit", None, None).unwrap())
             .unwrap();
+        storage
+            .create_resource(
+                NewResource::create_link("Motion", "https://motion.dev", "Referencia", None)
+                    .unwrap(),
+            )
+            .unwrap();
         let destination = directory.path().join("m-os-export.json");
         storage.export_json(&destination).unwrap();
         let export: serde_json::Value =
@@ -470,5 +512,6 @@ mod tests {
         assert_eq!(export["formatVersion"], 1);
         assert_eq!(export["captures"].as_array().unwrap().len(), 1);
         assert_eq!(export["apps"].as_array().unwrap().len(), 1);
+        assert_eq!(export["resources"].as_array().unwrap().len(), 1);
     }
 }

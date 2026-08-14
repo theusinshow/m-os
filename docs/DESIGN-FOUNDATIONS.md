@@ -535,7 +535,9 @@ Contrastes medidos em 2026-08-13:
 |---|---:|---:|
 | texto principal / canvas | `15.76:1` | `14.39:1` |
 | texto secundário / canvas | `7.77:1` | `7.58:1` |
+| texto de sistema / canvas | `4.65:1` | `4.85:1` |
 | texto do botão / primary | `6.60:1` | `6.90:1` |
-| focus / canvas | `3.79:1` | `7.91:1` |
+| focus sólido / canvas | `4.67:1` | `11.41:1` |
+| borda de controle / surface | `3.33:1` | `3.39:1` |
 
-Todos os pares atendem ao baseline definido nesta fundação.
+Todos os pares atendem ao baseline definido nesta fundação. Em `forced-colors`, foco e bordas usam as cores de sistema `Highlight` e `ButtonText`, sem depender de `box-shadow`.

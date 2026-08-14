@@ -66,6 +66,7 @@ pub struct RegisteredApp {
     pub id: AppId,
     pub name: String,
     pub description: String,
+    pub source_url: Option<String>,
     pub launch_kind: Option<AppLaunchKind>,
     pub launch_target: Option<String>,
     pub lifecycle_state: LifecycleState,
@@ -82,6 +83,7 @@ pub struct NewRegisteredApp {
     pub id: AppId,
     pub name: String,
     pub description: String,
+    pub source_url: Option<String>,
     pub launch_kind: Option<AppLaunchKind>,
     pub launch_target: Option<String>,
     pub created_at: OffsetDateTime,
@@ -94,14 +96,92 @@ impl NewRegisteredApp {
         launch_kind: Option<AppLaunchKind>,
         launch_target: Option<&str>,
     ) -> Result<Self, CoreError> {
+        Self::create_with_source(name, description, None, launch_kind, launch_target)
+    }
+
+    pub fn create_with_source(
+        name: &str,
+        description: &str,
+        source_url: Option<&str>,
+        launch_kind: Option<AppLaunchKind>,
+        launch_target: Option<&str>,
+    ) -> Result<Self, CoreError> {
         Ok(Self {
             id: AppId::new(),
             name: required(name, "O nome do App nao pode estar vazio.")?,
             description: description.trim().to_owned(),
+            source_url: validate_source_url(source_url)?,
             launch_kind,
             launch_target: validate_launch_target(launch_kind, launch_target)?,
             created_at: OffsetDateTime::now_utc(),
         })
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppCatalogEntry {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub source_url: String,
+    pub launch_kind: Option<AppLaunchKind>,
+    pub launch_target: Option<String>,
+}
+
+impl AppCatalogEntry {
+    pub fn into_new_app(self) -> Result<NewRegisteredApp, CoreError> {
+        NewRegisteredApp::create_with_source(
+            &self.name,
+            &self.description,
+            Some(&self.source_url),
+            self.launch_kind,
+            self.launch_target.as_deref(),
+        )
+    }
+}
+
+pub fn app_catalog() -> Vec<AppCatalogEntry> {
+    vec![
+        AppCatalogEntry {
+            id: "cronocad".into(),
+            name: "CronoCAD".into(),
+            description: "Rastreador de horas local-first para projetos CAD.".into(),
+            source_url: "https://github.com/theusinshow/cronocad".into(),
+            launch_kind: None,
+            launch_target: None,
+        },
+        AppCatalogEntry {
+            id: "m-finance".into(),
+            name: "M Finance".into(),
+            description: "Cockpit pessoal de contas, vencimentos e faturas.".into(),
+            source_url: "https://github.com/theusinshow/m-finance".into(),
+            launch_kind: Some(AppLaunchKind::Url),
+            launch_target: Some("https://m-finance-silk.vercel.app".into()),
+        },
+        AppCatalogEntry {
+            id: "coded-atlas".into(),
+            name: "Coded Atlas".into(),
+            description: "Catalogo visual de projetos e gerador de assets de portfolio.".into(),
+            source_url: "https://github.com/theusinshow/coded-atlas".into(),
+            launch_kind: Some(AppLaunchKind::Url),
+            launch_target: Some("https://coded-atlas.vercel.app".into()),
+        },
+    ]
+}
+
+pub fn validate_source_url(source_url: Option<&str>) -> Result<Option<String>, CoreError> {
+    let source_url = source_url.map(str::trim).filter(|value| !value.is_empty());
+    match source_url {
+        Some(url) if url.starts_with("https://") || url.starts_with("http://") => {
+            Ok(Some(url.to_owned()))
+        }
+        Some(_) => Err(CoreError::new(
+            ErrorCode::InvalidInput,
+            "A origem do App deve comecar com http:// ou https://.",
+            false,
+        )),
+        None => Ok(None),
     }
 }
 
@@ -170,5 +250,34 @@ mod tests {
             Some("https://figma.com"),
         )
         .is_ok());
+    }
+
+    #[test]
+    fn source_url_is_optional_and_requires_http() {
+        assert!(NewRegisteredApp::create_with_source(
+            "CronoCAD",
+            "",
+            Some("github.com/theusinshow/cronocad"),
+            None,
+            None,
+        )
+        .is_err());
+        assert!(NewRegisteredApp::create_with_source(
+            "CronoCAD",
+            "",
+            Some("https://github.com/theusinshow/cronocad"),
+            None,
+            None,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn catalog_keeps_source_and_launch_separate() {
+        let catalog = app_catalog();
+        assert_eq!(catalog.len(), 3);
+        let cronocad = catalog.iter().find(|entry| entry.id == "cronocad").unwrap();
+        assert!(cronocad.source_url.ends_with("/cronocad"));
+        assert!(cronocad.launch_target.is_none());
     }
 }

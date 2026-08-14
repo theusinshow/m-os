@@ -1,6 +1,7 @@
 mod app_repository;
 mod backup;
 mod repository;
+mod resource_repository;
 mod work_repository;
 
 use std::{
@@ -14,11 +15,13 @@ use mos_core::{CoreError, ErrorCode};
 use rusqlite::{Connection, MAIN_DB};
 use serde::Serialize;
 
-const SCHEMA_VERSION: u32 = 4;
+const SCHEMA_VERSION: u32 = 6;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
 const MIGRATION_004: &str = include_str!("../migrations/0004_workspaces.sql");
+const MIGRATION_005: &str = include_str!("../migrations/0005_app_sources.sql");
+const MIGRATION_006: &str = include_str!("../migrations/0006_resources.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -169,6 +172,16 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
             .execute_batch(MIGRATION_004)
             .map_err(map_sql_error)?;
     }
+    if current <= 4 {
+        connection
+            .execute_batch(MIGRATION_005)
+            .map_err(map_sql_error)?;
+    }
+    if current <= 5 {
+        connection
+            .execute_batch(MIGRATION_006)
+            .map_err(map_sql_error)?;
+    }
     Ok(())
 }
 
@@ -195,6 +208,7 @@ fn ensure_search_projection(connection: &Connection) -> Result<(), CoreError> {
         ("tasks", "task_search"),
         ("apps", "app_search"),
         ("workspaces", "workspace_search"),
+        ("resources", "resource_search"),
     ] {
         let source_count: i64 = connection
             .query_row(&format!("SELECT count(*) FROM {source}"), [], |row| {
@@ -299,7 +313,9 @@ fn map_lock_error<T>(error: std::sync::PoisonError<T>) -> CoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mos_core::CaptureRepository;
+    use mos_core::{
+        AppRepository, CaptureRepository, NewResource, ResourceRepository, SearchRequest,
+    };
 
     #[test]
     fn opens_with_required_pragmas_and_schema() {
@@ -313,7 +329,7 @@ mod tests {
 
         assert_eq!(health.journal_mode.to_lowercase(), "wal");
         assert_eq!(health.synchronous, "FULL");
-        assert_eq!(health.schema_version, 4);
+        assert_eq!(health.schema_version, 6);
         assert_eq!(health.integrity, "ok");
     }
 
@@ -342,7 +358,7 @@ mod tests {
         drop(connection);
 
         let storage = SqliteStorage::open(&database, &backups).unwrap();
-        assert_eq!(storage.health().unwrap().schema_version, 4);
+        assert_eq!(storage.health().unwrap().schema_version, 6);
         assert_eq!(CaptureRepository::recent(&storage, 10).unwrap().len(), 1);
         assert_eq!(
             fs::read_dir(&backups)
@@ -352,6 +368,87 @@ mod tests {
                     .file_name()
                     .to_string_lossy()
                     .starts_with("pre-migration-v1-"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn upgrades_populated_v4_through_app_sources_and_resources() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("mos.db");
+        let backups = directory.path().join("backups");
+        fs::create_dir_all(&backups).unwrap();
+        let connection = Connection::open(&database).unwrap();
+        configure_connection(&connection).unwrap();
+        connection.execute_batch(MIGRATION_001).unwrap();
+        connection.execute_batch(MIGRATION_002).unwrap();
+        connection.execute_batch(MIGRATION_003).unwrap();
+        connection.execute_batch(MIGRATION_004).unwrap();
+        connection
+            .execute(
+                "INSERT INTO apps (
+                    id, name, description, launch_kind, launch_target,
+                    lifecycle_state, created_at, updated_at
+                 ) VALUES (
+                    '0198a7d5-a64e-7000-8000-000000000004', 'Motion',
+                    'Biblioteca de animacao', 'url', 'https://motion.dev',
+                    'active', '2026-08-13T00:00:00Z', '2026-08-13T00:00:00Z'
+                 )",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+
+        let storage = SqliteStorage::open(&database, &backups).unwrap();
+
+        assert_eq!(storage.health().unwrap().schema_version, 6);
+        let apps = storage.apps(false).unwrap();
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].name, "Motion");
+        assert_eq!(apps[0].source_url, None);
+        assert_eq!(
+            storage
+                .search_apps(SearchRequest {
+                    query: "animacao".into(),
+                    include_archived: false,
+                    limit: 10,
+                })
+                .unwrap()
+                .len(),
+            1
+        );
+
+        let resource = storage
+            .create_resource(
+                NewResource::create_link(
+                    "SQLite FTS5",
+                    "https://sqlite.org/fts5.html",
+                    "Busca local depois da migration",
+                    None,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            storage
+                .search_resources(SearchRequest {
+                    query: "migration".into(),
+                    include_archived: false,
+                    limit: 10,
+                })
+                .unwrap()[0]
+                .id,
+            resource.id
+        );
+        assert_eq!(
+            fs::read_dir(&backups)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("pre-migration-v4-"))
                 .count(),
             1
         );
