@@ -154,9 +154,13 @@ function HomePage({ recent, projects, tasks, workspaces, apps, refresh, openCapt
       setWorkspaceProjects([]);
       setWorkspaceApps([]);
       localStorage.removeItem("m-os-current-workspace");
+      localStorage.removeItem("m-os-current-workspace-name");
       return;
     }
     localStorage.setItem("m-os-current-workspace", currentWorkspaceId);
+    // O nome alimenta o segmento do meio do caminho de contexto nas outras
+    // telas. Guardado junto do id para nao exigir uma busca so para um rotulo.
+    localStorage.setItem("m-os-current-workspace-name", activeWorkspaces.find((workspace) => workspace.id === currentWorkspaceId)?.name ?? "");
     void Promise.all([api.workspaceProjects(currentWorkspaceId), api.workspaceApps(currentWorkspaceId)])
       .then(([nextProjects, nextApps]) => {
         setWorkspaceProjects(nextProjects);
@@ -511,7 +515,7 @@ function AppsPage({ apps, initialAppId, refresh, intent }: { apps: RegisteredApp
   }
   return <div className="split-page apps-page">
     <section className="list-pane"><ContextPath segments={["M", "APPS"]} /><div className="list-command"><Button variant="outline" onClick={() => setMode("new")}>Novo App</Button>{missingSuggestions.length ? <Button variant="ghost" onClick={() => void addSuggestions()} disabled={creatingSuggestions}>{creatingSuggestions ? "Adicionando" : "Adicionar meus Apps"}</Button> : null}</div><div className="row-list">{visibleApps.map((app) => <DataRow key={app.id} primary={app.name} secondary={app.description || app.launchTarget || undefined} meta={app.lifecycleState === "archived" ? "ARQUIVADO" : launchKindLabel(app.launchKind)} selected={app.id === selectedId} onClick={() => { setSelectedId(app.id); setMode("view"); setMessage(""); }} />)}</div>{!visibleApps.length && mode !== "new" ? <EmptyState>Cadastre as ferramentas que você usa para não depender da memória.</EmptyState> : null}</section>
-    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO APP</span><RegisteredAppForm cancel={() => setMode("view")} saved={(app) => { setSelectedId(app.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <RegisteredAppForm app={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">APP</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setRegisteredAppArchived(selected.id, true).then(refresh)}>Arquivar</button></div></details></header><dl className="app-facts"><div><dt>ORIGEM</dt><dd>{selected.sourceUrl || "Nao definida"}</dd></div><div><dt>ABERTURA</dt><dd>{launchKindLabel(selected.launchKind)}</dd></div><div><dt>ALVO</dt><dd>{selected.launchTarget || "Nao definido"}</dd></div><div><dt>ULTIMA ABERTURA</dt><dd>{selected.lastOpenedAt ? relativeTime(selected.lastOpenedAt) : "Nunca"}</dd></div><div><dt>ATUALIZADO</dt><dd>{relativeTime(selected.updatedAt)}</dd></div></dl><div className="detail-actions"><Button variant="primary" onClick={() => void openApp(selected)} disabled={!selected.launchTarget || selected.lifecycleState !== "active"}>Abrir</Button><Button variant="secondary" onClick={() => setMode("edit")}>Editar</Button></div><Panel label="CAPACIDADES" className="capability-panel">{([["OPEN", selected.canOpen], ["READ", selected.canRead], ["WRITE", selected.canWrite], ["AUTOMATE", selected.canAutomate]] as const).map(([label, granted]) => <div className="capability-row" key={label}><span className="micro-label">{label}</span><span data-granted={granted || undefined}>{granted ? "✓" : "—"}</span></div>)}</Panel><p className="pane-footnote">Capacidade não declarada é capacidade que o Hermes não tenta usar.</p>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
+    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO APP</span><RegisteredAppForm cancel={() => setMode("view")} saved={(app) => { setSelectedId(app.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <RegisteredAppForm app={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">APP</span><div className="app-identity"><span className="app-icon" aria-hidden="true">{selected.name.trim().charAt(0).toUpperCase()}</span><div><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div></div></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setRegisteredAppArchived(selected.id, true).then(refresh)}>Arquivar</button></div></details></header><div className="detail-actions"><Button variant="primary" onClick={() => void openApp(selected)} disabled={!selected.launchTarget || selected.lifecycleState !== "active"}>Abrir</Button><Button variant="secondary" onClick={() => setMode("edit")}>Editar</Button></div><dl className="fact-grid" data-framed><div><dt>TIPO</dt><dd>{launchKindLabel(selected.launchKind)}</dd></div><div><dt>ORIGEM</dt><dd>{selected.sourceUrl || <span className="fact-empty">Não definida</span>}</dd></div><div><dt>DESTINO</dt><dd className="mono-value">{selected.launchTarget || <span className="fact-empty">Não definido</span>}</dd></div><div><dt>ÚLTIMA ABERTURA</dt><dd>{selected.lastOpenedAt ? relativeTime(selected.lastOpenedAt) : <span className="fact-empty">Nunca</span>}</dd></div></dl><Panel label="CAPACIDADES" className="capability-panel">{([["OPEN", selected.canOpen], ["READ", selected.canRead], ["WRITE", selected.canWrite], ["AUTOMATE", selected.canAutomate]] as const).map(([label, granted]) => <div className="capability-row" key={label}><span className="micro-label">{label}</span><span data-granted={granted || undefined}>{granted ? "✓" : "—"}</span></div>)}</Panel><p className="pane-footnote">Capacidade não declarada é capacidade que o Hermes não tenta usar.</p>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
   </div>;
 }
 
@@ -570,6 +574,8 @@ function LibraryPage({ resources, initialResourceId, initialResourceKey, refresh
   // nao no banco. O alternador GRID/LISTA e do proprio design.
   const [kindFilter, setKindFilter] = useState<ResourceKind | "all">("all");
   const [view, setView] = useState<"grid" | "list">("grid");
+  // O workspace escolhido na Home nomeia o segmento do meio do caminho.
+  const workspaceSegment = (localStorage.getItem("m-os-current-workspace-name") ?? "").toUpperCase() || null;
   const liveResources = resources.filter((resource) => resource.lifecycleState === "active" || resource.id === selectedId);
   const visibleResources = kindFilter === "all" ? liveResources : liveResources.filter((resource) => resource.kind === kindFilter || resource.id === selectedId);
   const selected = visibleResources.find((resource) => resource.id === selectedId) ?? null;
@@ -688,7 +694,9 @@ function LibraryPage({ resources, initialResourceId, initialResourceKey, refresh
   return <div className="split-page library-page" data-pane={narrowPane} data-empty={libraryIsEmpty || undefined}>
     <section className="list-pane" aria-labelledby="library-title">
       <h1 id="library-title" className="visually-hidden">Library</h1>
-      <div className="pane-heading"><ContextPath segments={["M", "LIBRARY"]} /><span className="micro-label">{liveResources.length} {liveResources.length === 1 ? "ITEM" : "ITENS"}</span></div>
+      {/* O caminho carrega o workspace ativo quando existe: M / WEB-DESIGN /
+          LIBRARY. E o que diz de qual acervo voce esta olhando. */}
+      <div className="pane-heading"><ContextPath segments={workspaceSegment ? ["M", workspaceSegment, "LIBRARY"] : ["M", "LIBRARY"]} /><span className="micro-label">{liveResources.length} {liveResources.length === 1 ? "ITEM" : "ITENS"}</span></div>
       {/* Filtros sao texto, nao chip: um chip por tipo viraria cinco caixas
           competindo com o acervo, que e o que importa nesta tela. */}
       <div className="filter-bar">
@@ -1009,7 +1017,7 @@ function CommandSurface({ close, openCapture, openTask, openProject, openWorkspa
   }
   return <div className="overlay-backdrop command-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
     <section className="command-surface" role="dialog" aria-modal="true" aria-label="Command" onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
-      <div className="command-input"><span className="slash">/</span><input ref={input} aria-controls="command-results" value={query} onChange={(event) => setQuery(event.currentTarget.value)} onKeyDown={handleInputKeyDown} placeholder={mode === "hermes" ? "O que você quer fazer?" : "Buscar ou executar comando"} aria-label={mode === "hermes" ? "Perguntar ao Hermes" : "Buscar no M/OS"} /><IconButton label="Fechar" icon="close" onClick={close} /></div>
+      <div className="command-input"><span className="slash">/</span><input ref={input} aria-controls="command-results" value={query} onChange={(event) => setQuery(event.currentTarget.value)} onKeyDown={handleInputKeyDown} placeholder={mode === "hermes" ? "O que você quer fazer?" : "Buscar ou executar comando"} aria-label={mode === "hermes" ? "Perguntar ao Hermes" : "Buscar no M/OS"} /><span className="micro-label">ESC FECHA</span></div>
       {/* O modo fica visivel no campo, nao escondido num atalho que so quem
           leu o rodape descobre. */}
       <div className="command-modes" role="group" aria-label="Modo">
@@ -1049,7 +1057,7 @@ function CommandSurface({ close, openCapture, openTask, openProject, openWorkspa
           return <button id={`command-result-${index}`} aria-current={index === activeIndex ? "true" : undefined} data-active={index === activeIndex || undefined} key={`${item.kind}-${index}-${title}`} className="command-row" onFocus={() => setActiveIndex(index)} onMouseEnter={() => setActiveIndex(index)} onClick={() => openItem(item)}><span>{type}</span><strong>{title}</strong><small>{context}</small></button>;
         })}
       </div></>}
-      <div className="command-footer">{mode === "hermes" ? "⏎ PERGUNTA · TAB SEARCH · ESC FECHA" : "↑↓ NAVEGA · ⏎ ABRE · TAB HERMES · ESC FECHA"}</div>
+      <div className="command-footer">{(mode === "hermes" ? ["⏎ PERGUNTA", "TAB SEARCH", "ESC FECHA"] : ["↑↓ NAVEGA", "⏎ ABRE", "/ COMANDO", "TAB HERMES"]).map((hint) => <span key={hint}>{hint}</span>)}</div>
     </section>
   </div>;
 }
@@ -1174,7 +1182,7 @@ function QuickCapture() {
       <span className="capture-bar" aria-hidden="true" />
       <textarea ref={input} value={content} onChange={(event) => setContent(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Escape") void api.hideQuickCapture(); if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} aria-label="Texto da captura" placeholder="What's on your mind?" rows={1} />
       {content ? null : <span className="capture-caret" aria-hidden="true" />}
-      <span className="amplitude" aria-hidden="true"><i /><i /><i /></span>
+      <span className="amplitude" aria-hidden="true"><i /><i /><i /><i /></span>
     </div>
     <div className="capture-footer"><span className="micro-label">⏎ SALVA E FECHA · ESC CANCELA</span><span className={`feedback ${state}`} aria-live="polite">{state === "error" ? feedback : ""}</span></div>
   </form></main>;
@@ -1303,7 +1311,11 @@ function DesktopApp() {
         ? <section className="page startup-state" role="status"><p>Abrindo dados locais...</p></section>
         : null;
 
-  return <div className="app-shell"><aside className="nav-rail"><div className="rail-symbol" aria-hidden="true"><MosSymbol size={16} /></div><nav aria-label="Navegação principal">{nav.map((item) => <button key={item.page} aria-current={page === item.page ? "page" : undefined} aria-label={item.label} title={item.label} onClick={() => navigate(item.page)}><Icon name={item.icon} filled={page === item.page} />{item.count ? <span>{item.count}</span> : null}</button>)}</nav><div className="rail-footer"><IconButton label="Quick Capture" icon="capture" onClick={() => void api.showQuickCapture()} /><IconButton label="Settings" icon="settings" active={page === "settings"} onClick={() => navigate("settings")} /></div></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button><div className="system-state" aria-live="polite">{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : <span className="micro-label">{pageMeta}</span>}</div></header><main className="content">{content}</main></div>{commandOpen ? <CommandSurface close={() => setCommandOpen(false)} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
+  return <div className="app-shell"><aside className="nav-rail"><div className="rail-symbol" aria-hidden="true"><MosSymbol size={16} /></div><nav aria-label="Navegação principal">{nav.map((item) => <button key={item.page} aria-current={page === item.page ? "page" : undefined} aria-label={item.label} title={item.label} onClick={() => navigate(item.page)}><Icon name={item.icon} filled={page === item.page} />{/* Sem badge de contagem: o desenho nao tem, e um numero permanente no rail
+    vira ansiedade de fundo. A contagem da Inbox aparece na Home e na propria
+    tela, onde ela leva a uma acao. */}</button>)}</nav><div className="rail-footer"><IconButton label="Quick Capture" icon="capture" onClick={() => void api.showQuickCapture()} /><IconButton label="Settings" icon="settings" active={page === "settings"} onClick={() => navigate("settings")} /></div></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button>{/* O estado de sistema nao substitui o meta da pagina: os dois convivem, e o
+    indicador de ocupado entra antes sem apagar onde voce esta. */}
+<div className="system-state" aria-live="polite">{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content">{content}</main></div>{commandOpen ? <CommandSurface close={() => setCommandOpen(false)} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
 }
 
 export default function App() {

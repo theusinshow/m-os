@@ -191,11 +191,27 @@ button {
   content: "";
 }
 
+/* Botao de 28px com borda, nao um icone solto: e uma acao, nao um destino, e
+   o contorno e o que separa as duas coisas no rail. */
 .rail-footer {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
   margin-top: auto;
+}
+
+.rail-footer .icon-button {
+  width: var(--height-control-sm);
+  height: var(--height-control-sm);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  transition: border-color var(--dur-instant) var(--ease-state);
+}
+
+.rail-footer .icon-button:hover {
+  background: transparent;
+  border-color: var(--signal-ink);
 }
 
 .mos-symbol {
@@ -264,10 +280,11 @@ button {
   border-bottom: var(--line) solid var(--border);
 }
 
+/* Sem largura minima: o gatilho abraca o conteudo. Esticado ate a largura da
+   sidebar ele viraria uma barra de busca, que e outra coisa. */
 .command-trigger {
   display: flex;
   align-items: center;
-  min-width: var(--sidebar-width);
   height: var(--height-control-sm);
   gap: var(--space-2);
   padding: 0 var(--space-2);
@@ -290,6 +307,13 @@ button {
   align-items: center;
   gap: var(--space-2);
   color: var(--text-system);
+}
+
+.page-meta {
+  color: var(--text-disabled);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
 }
 
 .system-state .mos-symbol {
@@ -708,8 +732,11 @@ textarea::placeholder {
   gap: var(--space-3);
 }
 
+/* Fixado na base do pane: a dica de teclado fecha a coluna, nao flutua logo
+   depois do ultimo bloco de conteudo. */
 .pane-footnote {
-  margin: var(--space-4) 0 0;
+  margin: var(--space-5) 0 0;
+  padding-top: var(--space-4);
   color: var(--text-disabled);
   font: var(--text-small);
 }
@@ -747,16 +774,26 @@ textarea::placeholder {
   font: var(--text-small);
 }
 
-/* Metadata entre duas reguas. Rotulo em mono porque e dado de sistema; valor
-   em mono so quando o proprio valor e dado de sistema (caminho, repositorio). */
+/* Rotulo em mono porque e dado de sistema; valor em mono so quando o proprio
+   valor e dado de sistema (caminho, repositorio).
+   Por padrao o bloco e fechado por uma regua embaixo. `data-framed` usa as
+   duas reguas — e a diferenca entre um bloco que encerra a secao e um que fica
+   entre duas. */
 .fact-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-5);
+  margin: var(--space-5) 0 0;
+  padding-bottom: var(--space-4);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.fact-grid[data-framed] {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3) var(--space-4);
-  margin: var(--space-4) 0;
-  padding: var(--space-3) 0;
+  gap: var(--space-4) var(--space-5);
+  padding: var(--space-4) 0;
   border-top: var(--line) solid var(--border);
-  border-bottom: var(--line) solid var(--border);
 }
 
 .fact-grid dt {
@@ -769,7 +806,7 @@ textarea::placeholder {
 .fact-grid dd {
   margin: var(--space-1) 0 0;
   color: var(--text);
-  font: var(--text-small);
+  font: var(--text-ui);
 }
 
 .mono-value {
@@ -828,7 +865,7 @@ textarea::placeholder {
   background: transparent;
   border: 0;
   font: var(--text-meta);
-  letter-spacing: var(--tracking-micro);
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   transition: color var(--dur-instant) var(--ease-state);
 }
@@ -841,11 +878,25 @@ textarea::placeholder {
   color: var(--text);
 }
 
+/* Quatro colunas fixas, como o desenho. Auto-fill mudaria a contagem conforme
+   a janela e o acervo perderia o ritmo de leitura. */
 .tile-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--column-min), 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-4);
   padding: var(--space-4) 0;
+}
+
+@keyframes tileEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .tile {
@@ -855,6 +906,7 @@ textarea::placeholder {
   background: transparent;
   border: 0;
   text-align: left;
+  animation: tileEnter var(--dur-move) var(--ease-state);
 }
 
 /* Sem imagem, o fundo e hachura. Nunca ilustracao, nunca icone gigante: o
@@ -877,10 +929,12 @@ textarea::placeholder {
   border-color: var(--signal-ink);
 }
 
+/* A barra nao vai de ponta a ponta: recua 12px em cima e embaixo, para ler
+   como marcador dentro da moldura e nao como uma segunda borda. */
 .tile[data-selected] .tile-face::before {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: var(--space-3);
+  bottom: var(--space-3);
   left: 0;
   width: var(--marker);
   background: var(--signal-fill);
@@ -1075,7 +1129,7 @@ textarea::placeholder {
 
 .list-pane {
   min-width: 0;
-  padding: var(--space-5) var(--space-4) var(--space-7) var(--content-margin);
+  padding: var(--space-5) var(--space-5) var(--space-5) var(--content-margin);
   border-right: var(--line) solid var(--border);
 }
 
@@ -1089,9 +1143,17 @@ textarea::placeholder {
   padding-bottom: var(--space-3);
 }
 
+/* A margem larga fica no lado de fora da janela; entre as duas panes o
+   respiro e menor, porque a divisoria ja separa. */
 .detail-pane {
+  display: flex;
   min-width: 0;
-  padding: var(--space-6) var(--content-margin) var(--space-7);
+  flex-direction: column;
+  padding: var(--space-5) var(--content-margin) var(--space-5) var(--space-5);
+}
+
+.detail-pane > .pane-footnote {
+  margin-top: auto;
 }
 
 .detail-header {
@@ -1233,31 +1295,21 @@ select {
   margin-top: var(--space-6);
 }
 
-.apps-page .app-facts {
-  display: grid;
-  gap: 0;
-  margin: var(--space-5) 0 0;
-}
-
-.apps-page .app-facts div {
-  display: grid;
-  min-height: var(--height-row);
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+/* A identidade do App e o icone ao lado do nome, nao o nome sozinho: e o mesmo
+   icone que aparece na Home, e reconhece-lo e mais rapido que ler. */
+.app-identity {
+  display: flex;
   align-items: center;
-  border-bottom: var(--line) solid var(--border);
+  gap: var(--space-4);
+  margin-top: var(--space-3);
 }
 
-.apps-page .app-facts dt {
-  color: var(--text-system);
-  font: var(--text-micro);
-  letter-spacing: var(--tracking-micro);
-}
-
-.apps-page .app-facts dd {
-  min-width: 0;
+.app-identity h1 {
   margin: 0;
-  overflow-wrap: anywhere;
-  color: var(--text-secondary);
+}
+
+.app-identity p {
+  margin: var(--space-1) 0 0;
 }
 
 .resource-url {
@@ -1367,9 +1419,48 @@ select {
   color: var(--text-system);
 }
 
+/* Card de verdade: fundo, borda e padding. Uma row nua funciona numa lista,
+   mas numa coluna de kanban o card precisa de corpo para ser arrastavel a
+   olho — e o que voce pega e uma peca, nao uma linha. */
 .kanban-column .data-row {
-  min-height: var(--height-row-dense);
+  display: block;
+  min-height: 0;
+  padding: var(--space-3);
+  margin-top: var(--space-2);
+  background: var(--surface);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius);
+  animation: rowEnter var(--dur-move) var(--ease-state);
+  transition: border-color var(--dur-instant) var(--ease-state),
+    transform var(--dur-move) var(--ease-state);
 }
+
+.kanban-column .data-row:hover {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+
+.kanban-column .data-row .row-copy {
+  display: block;
+}
+
+.kanban-column .data-row strong {
+  display: block;
+  font: var(--text-ui);
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.kanban-column .data-row small {
+  display: block;
+  margin-top: var(--space-2);
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+/* Cards nao usam o separador de lista: eles ja se separam pelo proprio corpo.
+   Como nao estao dentro de .row-list, a regra de separador nao os alcanca. */
 
 .more-count {
   padding: 0 var(--space-2);
@@ -1512,7 +1603,7 @@ select {
   display: grid;
   width: 100%;
   min-height: var(--height-row-touch);
-  grid-template-columns: var(--command-type-column) minmax(0, 1fr);
+  grid-template-columns: var(--command-type-column) minmax(0, 1fr) auto;
   align-items: center;
   gap: 0 var(--space-3);
   padding: 0 var(--space-4);
@@ -1534,11 +1625,25 @@ select {
 }
 
 .command-row > span {
-  grid-row: 1 / 3;
   color: var(--text-system);
   font: var(--text-meta);
   letter-spacing: var(--tracking-micro);
   text-transform: uppercase;
+}
+
+/* Uma linha por resultado: tipo, titulo, meta. A versao de duas linhas dobrava
+   a altura da lista e derrubava pela metade quantos resultados cabem sem
+   rolar — que e o que o Command precisa entregar. */
+.command-row strong {
+  align-self: center;
+  font: var(--text-body);
+}
+
+.command-row small {
+  align-self: center;
+  color: var(--text-disabled);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
 }
 
 /* Alternador de modo. Visivel no campo, nao escondido num atalho. */
@@ -1641,12 +1746,13 @@ select {
 .command-footer {
   display: flex;
   align-items: center;
+  gap: var(--space-4);
   height: var(--command-footer);
   padding: 0 var(--space-4);
-  color: var(--text-system);
+  color: var(--text-disabled);
   border-top: var(--line) solid var(--border);
-  font: var(--text-micro);
-  letter-spacing: var(--tracking-micro);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-label);
 }
 
 .command-row strong {
@@ -1889,10 +1995,19 @@ select {
   color: var(--text);
   background: var(--surface-raised);
   border: var(--line) solid var(--border-strong);
-  border-left: var(--fillet) solid var(--signal-fill);
   border-radius: var(--radius);
   box-shadow: var(--shadow-overlay);
   animation: receiptEnter var(--dur-enter) var(--ease-enter);
+}
+
+/* Filete de 3x16 dentro da caixa, nao uma borda de altura inteira: ele marca
+   que o sistema agiu, e uma borda lateral cheia leria como estado de erro. */
+.receipt::before {
+  flex: none;
+  width: var(--fillet);
+  height: var(--marker-height);
+  background: var(--signal-fill);
+  content: "";
 }
 
 @keyframes receiptEnter {
@@ -1930,14 +2045,31 @@ select {
   height: var(--capture-bar-height);
 }
 
+/* Quatro tracos de alturas diferentes: le como forma de onda parada, nao como
+   barra de progresso. Alinhados pela base. */
+.amplitude {
+  align-items: flex-end;
+}
+
 .amplitude i {
   width: var(--line);
-  height: var(--space-2);
-  background: var(--text-disabled);
+  background: var(--text-system);
+}
+
+.amplitude i:nth-child(1) {
+  height: var(--space-1);
 }
 
 .amplitude i:nth-child(2) {
   height: var(--space-3);
+}
+
+.amplitude i:nth-child(3) {
+  height: var(--space-4);
+}
+
+.amplitude i:nth-child(4) {
+  height: var(--space-2);
 }
 
 .quick-shell {
