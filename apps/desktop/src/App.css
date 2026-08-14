@@ -548,6 +548,40 @@ textarea::placeholder {
 .widget[data-size="2x2"] { grid-column: span 6; grid-row: span 2; }
 .widget[data-size="full"] { grid-column: span 12; }
 
+.pulse {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.pulse-count {
+  font: var(--text-display);
+  letter-spacing: var(--tracking-display);
+  color: var(--text);
+}
+
+.pulse small {
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.pulse-stale {
+  color: var(--text-system);
+}
+
+.quick-actions {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+
 @media (max-width: 1280px) {
   .home-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); }
   .widget[data-size="1x1"] { grid-column: span 4; }
