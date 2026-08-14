@@ -15,9 +15,15 @@
 //!
 //! Contrato verificado em `docs/HERMES-GATEWAY-CONTRACT.md`.
 
+mod auth;
+mod bridge;
 mod protocol;
+mod transport;
 
+pub use auth::{Credentials, Gateway, GatewayStatus};
+pub use bridge::{Bridge, Outcome};
 pub use protocol::{HermesEvent, Request};
+pub use transport::{connect, Channels};
 
 use thiserror::Error;
 
