@@ -137,6 +137,13 @@
   --dot-size: 5px;
   --receipt-offset: 24px;
   --fillet: 3px;
+
+  /* Tile da Library sem imagem. Hachura, nunca ilustracao nem icone gigante. */
+  --hatch: repeating-linear-gradient(
+    135deg,
+    var(--surface-raised) 0 7px,
+    var(--surface) 7px 15px
+  );
   --marker-height: 16px;
   --marker-offset: 12px;
   --focus-ring: 3px;

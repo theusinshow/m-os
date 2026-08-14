@@ -7,7 +7,7 @@ import { api, appError } from "./api";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
 import { Icon, type IconName } from "./Icon";
 import { MosSymbol } from "./Symbol";
-import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, Project, RegisteredApp, Resource, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, Project, RegisteredApp, Resource, ResourceKind, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 import "./App.css";
 
 type Page = "home" | "inbox" | "projects" | "workspaces" | "apps" | "library" | "tasks" | "settings";
@@ -500,16 +500,21 @@ function ResourceForm({ resource, capture, cancel, saved }: { resource?: Resourc
   const [url, setUrl] = useState(resource?.url ?? (captureIsUrl ? captureContent : ""));
   const [title, setTitle] = useState(resource?.title ?? "");
   const [note, setNote] = useState(resource?.note ?? (captureIsUrl ? "" : captureContent));
+  // Uma Capture que nao e URL vira Note por padrao: o texto ja e o conteudo.
+  const [kind, setKind] = useState<ResourceKind>(resource?.kind ?? (capture && !captureIsUrl ? "note" : "site"));
+  const needsUrl = kind !== "note";
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!url.trim() || saving) return;
+    if (saving) return;
+    if (needsUrl && !url.trim()) return;
+    if (!needsUrl && !title.trim()) return;
     setSaving(true);
     try {
       const next = resource
-        ? await api.updateResource(resource.id, resource.kind, title, url, note)
-        : await api.createResource("site", title, url, note, capture?.id ?? null);
+        ? await api.updateResource(resource.id, kind, title, needsUrl ? url : "", note)
+        : await api.createResource(kind, title, needsUrl ? url : "", note, capture?.id ?? null);
       saved(next);
     } catch (nextError) {
       setError(appError(nextError).message);
@@ -518,12 +523,13 @@ function ResourceForm({ resource, capture, cancel, saved }: { resource?: Resourc
   }
   return <form className="stack-form" onSubmit={submit} aria-busy={saving}>
     <fieldset className="form-fields" disabled={saving}>
-      <label><span>URL</span><input type="url" value={url} onChange={(event) => setUrl(event.currentTarget.value)} placeholder="https://..." autoFocus /></label>
-      <label><span>TÍTULO</span><input value={title} onChange={(event) => setTitle(event.currentTarget.value)} placeholder="Opcional · usa a URL quando vazio" /></label>
+      <label><span>TIPO</span><select value={kind} onChange={(event) => setKind(event.currentTarget.value as ResourceKind)}><option value="site">Site</option><option value="library">Library</option><option value="image">Imagem</option><option value="note">Nota</option></select></label>
+      {needsUrl ? <label><span>{kind === "image" ? "ENDEREÇO OU CAMINHO" : "URL"}</span><input value={url} onChange={(event) => setUrl(event.currentTarget.value)} placeholder={kind === "image" ? "https://... ou C:\\imagens\\hero.png" : "https://..."} autoFocus /></label> : null}
+      <label><span>TÍTULO</span><input value={title} onChange={(event) => setTitle(event.currentTarget.value)} placeholder={needsUrl ? "Opcional · usa a URL quando vazio" : "Obrigatório para uma nota"} autoFocus={!needsUrl} /></label>
       <label><span>POR QUÊ?</span><textarea value={note} onChange={(event) => setNote(event.currentTarget.value)} placeholder="O que merece ser lembrado sobre este link?" rows={4} /></label>
       {capture ? <div className="provenance"><span className="micro-label">ORIGEM PRESERVADA</span><span>{capture.content}</span><small>{sourceLabel(capture.source)} · {relativeTime(capture.capturedAt)}</small></div> : null}
       {error ? <p className="inline-error" role="alert">! {error} Os campos continuam aqui.</p> : null}
-      <div className="form-actions"><Button variant="ghost" onClick={cancel}>Cancelar</Button><Button variant="primary" type="submit" disabled={!url.trim() || saving}>{saving ? "Salvando" : "Salvar Resource"}</Button></div>
+      <div className="form-actions"><Button variant="ghost" onClick={cancel}>Cancelar</Button><Button variant="primary" type="submit" disabled={saving || (needsUrl ? !url.trim() : !title.trim())}>{saving ? "Salvando" : "Salvar Resource"}</Button></div>
     </fieldset>
   </form>;
 }
@@ -539,7 +545,12 @@ function LibraryPage({ resources, initialResourceId, initialResourceKey, refresh
   const [pendingAction, setPendingAction] = useState<"open" | "archive" | "trash" | "restore" | null>(null);
   const list = useRef<HTMLDivElement>(null);
   const detail = useRef<HTMLElement>(null);
-  const visibleResources = resources.filter((resource) => resource.lifecycleState === "active" || resource.id === selectedId);
+  // Filtro e apresentacao sao preferencia de leitura, nao dado: vivem aqui e
+  // nao no banco. O alternador GRID/LISTA e do proprio design.
+  const [kindFilter, setKindFilter] = useState<ResourceKind | "all">("all");
+  const [view, setView] = useState<"grid" | "list">("grid");
+  const liveResources = resources.filter((resource) => resource.lifecycleState === "active" || resource.id === selectedId);
+  const visibleResources = kindFilter === "all" ? liveResources : liveResources.filter((resource) => resource.kind === kindFilter || resource.id === selectedId);
   const selected = visibleResources.find((resource) => resource.id === selectedId) ?? null;
 
   useEffect(() => {
@@ -656,9 +667,19 @@ function LibraryPage({ resources, initialResourceId, initialResourceKey, refresh
   return <div className="split-page library-page" data-pane={narrowPane} data-empty={libraryIsEmpty || undefined}>
     <section className="list-pane" aria-labelledby="library-title">
       <h1 id="library-title" className="visually-hidden">Library</h1>
-      <ContextPath segments={["M", "LIBRARY"]} />
+      <div className="pane-heading"><ContextPath segments={["M", "LIBRARY"]} /><span className="micro-label">{liveResources.length} {liveResources.length === 1 ? "ITEM" : "ITENS"}</span></div>
+      {/* Filtros sao texto, nao chip: um chip por tipo viraria cinco caixas
+          competindo com o acervo, que e o que importa nesta tela. */}
+      <div className="filter-bar">
+        <div className="filter-group" role="group" aria-label="Filtrar por tipo">
+          {([["all", "TUDO"], ["site", "SITES"], ["library", "LIBRARIES"], ["image", "IMAGENS"], ["note", "NOTAS"]] as const).map(([value, label]) => <button key={value} type="button" className="filter-label" data-active={kindFilter === value || undefined} aria-pressed={kindFilter === value} onClick={() => setKindFilter(value)}>{label}</button>)}
+        </div>
+        <div className="filter-group" role="group" aria-label="Apresentação">
+          {([["grid", "GRID"], ["list", "LISTA"]] as const).map(([value, label]) => <button key={value} type="button" className="filter-label" data-active={view === value || undefined} aria-pressed={view === value} onClick={() => setView(value)}>{label}</button>)}
+        </div>
+      </div>
       {visibleResources.length ? <div className="list-command"><Button variant="outline" onClick={startNew}>Novo Resource</Button></div> : null}
-      <div ref={list} className="row-list" aria-label="Resources salvos">
+      {view === "grid" ? <div className="tile-grid" aria-label="Resources salvos">{visibleResources.map((resource) => <button key={resource.id} type="button" className="tile" data-selected={resource.id === selectedId || undefined} onClick={() => selectResource(resource)} onDoubleClick={() => { if (resource.url) void api.openResource(resource.id); }}><span className="tile-face" aria-hidden="true"><span className="tile-kind">{resource.kind.toUpperCase()}</span></span><strong className="tile-title">{resource.title}</strong>{/* O motivo e o que torna o acervo recuperavel: ele nunca e omitido. */}<span className="tile-reason" data-missing={resource.note ? undefined : true}>{resource.note || "Sem motivo registrado — abra e diga por que isto merece ser lembrado."}</span><span className="tile-origin">{resourceHost(resource.url) || "LOCAL"}</span></button>)}</div> : <div ref={list} className="row-list" aria-label="Resources salvos">
         {visibleResources.map((resource) => <DataRow
           key={resource.id}
           primary={resource.title}
@@ -683,7 +704,7 @@ function LibraryPage({ resources, initialResourceId, initialResourceKey, refresh
             }
           }}
         />)}
-      </div>
+      </div>}
       {!visibleResources.length && mode !== "new" ? <div className="library-empty"><EmptyState>Guarde um link junto do motivo pelo qual ele merece ser lembrado.</EmptyState><Button variant="primary" onClick={startNew}>Salvar primeiro link</Button></div> : null}
     </section>
     <article

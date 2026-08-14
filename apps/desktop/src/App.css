@@ -773,6 +773,121 @@ textarea::placeholder {
   color: var(--text-disabled);
 }
 
+/* Filtros como texto. Ativo em --text, resto em --text-system: a hierarquia
+   e tipografica, nao cromatica. */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: var(--line) solid var(--border);
+}
+
+.filter-group {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.filter-label {
+  padding: 0;
+  color: var(--text-system);
+  background: transparent;
+  border: 0;
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  transition: color var(--dur-instant) var(--ease-state);
+}
+
+.filter-label:hover {
+  color: var(--text-secondary);
+}
+
+.filter-label[data-active] {
+  color: var(--text);
+}
+
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--column-min), 1fr));
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+}
+
+.tile {
+  display: grid;
+  gap: var(--space-1);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+
+/* Sem imagem, o fundo e hachura. Nunca ilustracao, nunca icone gigante: o
+   tile e um lugar reservado para o recurso, nao um desenho sobre ele. */
+.tile-face {
+  position: relative;
+  display: block;
+  aspect-ratio: 4 / 3;
+  background: var(--hatch);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color var(--dur-instant) var(--ease-state);
+}
+
+.tile:hover .tile-face {
+  border-color: var(--border-strong);
+}
+
+.tile[data-selected] .tile-face {
+  border-color: var(--signal-ink);
+}
+
+.tile[data-selected] .tile-face::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--marker);
+  background: var(--signal-fill);
+  content: "";
+}
+
+.tile-kind {
+  position: absolute;
+  bottom: var(--space-2);
+  left: var(--space-2);
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-micro);
+}
+
+.tile-title {
+  padding-top: var(--space-2);
+  overflow: hidden;
+  color: var(--text);
+  font: var(--text-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tile-reason {
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.tile-reason[data-missing] {
+  color: var(--text-disabled);
+}
+
+.tile-origin {
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+}
+
 .capability-fieldset {
   display: flex;
   flex-wrap: wrap;
