@@ -43,14 +43,24 @@ button {
   stroke: currentColor;
 }
 
+/* 13px e nao 14: o rotulo de botao e menor que o texto de interface, para o
+   controle nao competir com o conteudo que ele atende. */
 .button {
   min-height: var(--height-control);
   padding: 0 var(--space-3);
   border: 0;
   border-radius: var(--radius);
+  font: var(--text-small);
   font-weight: 500;
   transition: background var(--dur-instant) linear, color var(--dur-instant) linear,
     opacity var(--dur-instant) linear;
+}
+
+/* Destrutivo so existe em outline. Preenchido, ele convidaria ao clique que
+   justamente nao deve ser convidado. */
+.button.danger {
+  color: var(--danger);
+  background: transparent;
 }
 
 .button.primary {
@@ -1534,6 +1544,28 @@ select {
   }
 }
 
+/* Saida em 90ms, so opacity — sem transform. Entrar merece gesto; sair nao:
+   quem fechou ja decidiu, e animar a saida so atrasa o proximo passo. */
+@keyframes overlayExit {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes scrimExit {
+  to {
+    opacity: 0;
+  }
+}
+
+.command-backdrop[data-closing] {
+  animation: scrimExit var(--dur-exit) var(--ease-exit) forwards;
+}
+
+.command-backdrop[data-closing] .command-surface {
+  animation: overlayExit var(--dur-exit) var(--ease-exit) forwards;
+}
+
 .command-surface {
   width: min(var(--overlay-command), calc(100vw - var(--space-6)));
   max-height: calc(100vh - var(--space-7));
@@ -1981,12 +2013,37 @@ select {
   min-height: var(--height-control-lg);
   gap: var(--space-4);
   padding: 0 var(--space-3);
+  overflow: hidden;
   color: var(--text);
   background: var(--surface-raised);
   border: var(--line) solid var(--border-strong);
   border-radius: var(--radius);
   box-shadow: var(--shadow-overlay);
   animation: receiptEnter var(--dur-enter) var(--ease-enter);
+}
+
+/* A janela do undo esvaziando na base da caixa. Some junto com o recibo, e diz
+   quanto tempo resta sem escrever um numero na tela. */
+.receipt::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--line);
+  background: var(--signal-fill);
+  transform-origin: left;
+  animation: drain 5200ms linear forwards;
+  content: "";
+}
+
+@keyframes drain {
+  from {
+    transform: scaleX(1);
+  }
+
+  to {
+    transform: scaleX(0);
+  }
 }
 
 /* Filete de 3x16 dentro da caixa, nao uma borda de altura inteira: ele marca

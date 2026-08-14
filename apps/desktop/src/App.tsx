@@ -909,7 +909,8 @@ function appendToReasoning(turns: HermesTurn[], text: string): HermesTurn[] {
   return turns.map((turn, index) => index === turns.length - 1 ? { ...turn, reasoning: turn.reasoning + text } : turn);
 }
 
-function CommandSurface({ close, openCapture, openTask, openProject, openWorkspace, openApp, openResource, routeFunction }: { close: () => void; openCapture: (capture: Capture) => void; openTask: (task: Task) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; routeFunction: (definition: FunctionDefinition) => void }) {
+function CommandSurface({ close, closing = false, openCapture, openTask, openProject, openWorkspace, openApp, openResource, routeFunction }: {
+  closing?: boolean; close: () => void; openCapture: (capture: Capture) => void; openTask: (task: Task) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; routeFunction: (definition: FunctionDefinition) => void }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CommandResult[]>([]);
   const [includeArchived, setIncludeArchived] = useState(false);
@@ -1016,7 +1017,7 @@ function CommandSurface({ close, openCapture, openTask, openProject, openWorkspa
       openItem(results[activeIndex] ?? results[0]);
     }
   }
-  return <div className="overlay-backdrop command-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
+  return <div className="overlay-backdrop command-backdrop" data-closing={closing || undefined} onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
     <section className="command-surface" role="dialog" aria-modal="true" aria-label="Command" onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
       <div className="command-input"><span className="slash">/</span><input ref={input} aria-controls="command-results" value={query} onChange={(event) => setQuery(event.currentTarget.value)} onKeyDown={handleInputKeyDown} placeholder={mode === "hermes" ? "O que você quer fazer?" : "Buscar ou executar comando"} aria-label={mode === "hermes" ? "Perguntar ao Hermes" : "Buscar no M/OS"} /><span className="micro-label">ESC FECHA</span></div>
       {/* O modo fica visivel no campo, nao escondido num atalho que so quem
@@ -1203,6 +1204,9 @@ function DesktopApp() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [commandOpen, setCommandOpen] = useState(false);
+  // O overlay continua montado durante os 90ms de saida. Desmontar na hora
+  // cortaria a animacao pela metade, que e pior que nao ter animacao.
+  const [commandClosing, setCommandClosing] = useState(false);
   const [viewedCapture, setViewedCapture] = useState<Capture | null>(null);
   const [drawerTask, setDrawerTask] = useState<Task | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState("");
@@ -1261,6 +1265,10 @@ function DesktopApp() {
   useEffect(() => { const handler = (event: globalThis.KeyboardEvent) => { if (event.ctrlKey && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); } if (event.ctrlKey && event.key.toLowerCase() === "z" && undo) { event.preventDefault(); void undo.run().then(() => { setUndo(null); return refresh(); }); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, [refresh, undo]);
 
   // ~5s: tempo de ler e decidir desfazer, sem virar mobilia na tela.
+  function closeCommand() {
+    setCommandClosing(true);
+    window.setTimeout(() => { setCommandOpen(false); setCommandClosing(false); }, 90);
+  }
   function showReceipt(action: UndoAction) { setUndo(action); if (undoTimer.current) window.clearTimeout(undoTimer.current); undoTimer.current = window.setTimeout(() => setUndo(null), 5_000); }
   function navigate(page: Page) { setFunctionIntent(null); setPage(page); }
   function openProject(project: Project) { setFunctionIntent(null); setSelectedProjectId(project.id); setPage("projects"); }
@@ -1320,7 +1328,7 @@ function DesktopApp() {
     vira ansiedade de fundo. A contagem da Inbox aparece na Home e na propria
     tela, onde ela leva a uma acao. */}</button>)}</nav><div className="rail-footer"><IconButton label="Quick Capture" icon="capture" onClick={() => void api.showQuickCapture()} /><IconButton label="Settings" icon="settings" active={page === "settings"} onClick={() => navigate("settings")} /></div></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button>{/* O estado de sistema nao substitui o meta da pagina: os dois convivem, e o
     indicador de ocupado entra antes sem apagar onde voce esta. */}
-<div className="system-state" aria-live="polite">{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content">{content}</main></div>{commandOpen ? <CommandSurface close={() => setCommandOpen(false)} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
+<div className="system-state" aria-live="polite">{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content">{content}</main></div>{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
 }
 
 export default function App() {
