@@ -14,7 +14,12 @@ rust-version.workspace = true
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "mos_desktop_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Somente rlib. O template do Tauri v2 traz staticlib e cdylib para iOS e Android;
+# no desktop nada os consome — o binario linka o rlib. Construir a cdylib estourava
+# o limite de ordinais de exportacao do ld do mingw ("export ordinal too large"),
+# quebrando tauri dev e cargo test --workspace no ambiente portable com w64devkit.
+# Se um dia houver alvo mobile, os dois voltam aqui.
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
