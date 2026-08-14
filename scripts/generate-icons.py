@@ -101,15 +101,28 @@ def main() -> None:
     # O .ico carrega varios tamanhos, e cada um precisa do seu proprio desenho:
     # deixar o Pillow derivar as variantes de uma fonte so reintroduziria
     # exatamente o escalonamento que o handoff proibe.
-    ico_sizes = [16, 24, 32, 48, 64, 128, 256]
+    #
+    # A base TEM que ser o maior desenho. O Pillow descarta de `sizes` tudo que
+    # for maior que a imagem base, entao salvar a partir do frame de 16px
+    # produzia um .ico com um unico icone de 16 — e o Windows ampliava aquilo
+    # para 32, 48 e 256. Foi exatamente esse o bug da primeira versao.
+    ico_sizes = [256, 128, 64, 48, 32, 24, 16]
     frames = [render(size) for size in ico_sizes]
     frames[0].save(
         icons / "icon.ico",
         format="ICO",
-        sizes=[(s, s) for s in ico_sizes],
+        sizes=[(size, size) for size in ico_sizes],
         append_images=frames[1:],
     )
-    print(f"{'icon.ico':<24} {', '.join(str(s) for s in ico_sizes)}")
+
+    written = sorted(size for size, _ in Image.open(icons / "icon.ico").info["sizes"])
+    print(f"{'icon.ico':<24} {', '.join(str(size) for size in written)}")
+    missing = sorted(set(ico_sizes) - set(written))
+    if missing:
+        raise SystemExit(
+            f"icon.ico saiu incompleto — faltam {missing}. O Windows ampliaria o "
+            "tamanho mais proximo, e o icone ficaria borrado."
+        )
 
 
 if __name__ == "__main__":
