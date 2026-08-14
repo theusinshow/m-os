@@ -1039,12 +1039,16 @@ textarea::placeholder {
   color: var(--text);
 }
 
+/* Flex, nao grid de duas colunas.
+   A row aceita numero variavel de filhos — marcador, conteudo, progresso,
+   metadata — e com grid de duas colunas o terceiro filho quebrava para uma
+   segunda linha implicita, jogando a metadata para baixo. Acontecia no painel
+   PROJECTS da Home, que tem o ponto, e na lista de Projects, que tem a barra. */
 .data-row {
   position: relative;
-  display: grid;
+  display: flex;
   width: 100%;
   min-height: var(--height-row);
-  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-3);
   padding: 0 var(--space-2);
@@ -1090,6 +1094,7 @@ textarea::placeholder {
 .row-copy {
   display: grid;
   min-width: 0;
+  flex: 1;
   gap: var(--space-1);
 }
 
@@ -2706,4 +2711,13 @@ input[type="checkbox"]:disabled {
   align-items: center;
   gap: var(--space-3);
   margin-top: var(--space-3);
+}
+
+/* Segunda linha de row em mono quando o valor e dado de sistema: origem de
+   captura, tipo de lancamento. Descricao de Project continua em grotesk. */
+.row-copy small[data-system] {
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
 }
