@@ -35,7 +35,13 @@ pub async fn connect(url: &str) -> Result<Channels, HermesError> {
 
     tokio::spawn(async move {
         while let Some(frame) = outgoing_rx.recv().await {
-            if sink.send(Message::text(frame)).await.is_err() {
+            // O terminador vai junto: um servidor que reusa o leitor de linha do
+            // stdio nunca veria o request terminar sem ele.
+            if sink
+                .send(Message::text(format!("{frame}\n")))
+                .await
+                .is_err()
+            {
                 break;
             }
         }
@@ -45,7 +51,19 @@ pub async fn connect(url: &str) -> Result<Channels, HermesError> {
     tokio::spawn(async move {
         while let Some(message) = stream.next().await {
             let forwarded = match message {
-                Ok(Message::Text(text)) => Ok(text.to_string()),
+                // O protocolo e newline-delimited: um frame de texto pode
+                // carregar mais de uma mensagem. Entregar o bloco inteiro ao
+                // parser derrubava TODAS as mensagens do lote como "frame
+                // ilegivel" — e um lote e justamente o que chega quando o
+                // servidor emite varios eventos juntos.
+                Ok(Message::Text(text)) => {
+                    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+                        if incoming_tx.send(Ok(line.to_owned())).await.is_err() {
+                            return;
+                        }
+                    }
+                    continue;
+                }
                 // O gateway so manda texto; binario seria divergencia de
                 // contrato, e vale dizer isso em vez de ignorar em silencio.
                 Ok(Message::Binary(_)) => Err(HermesError::Protocol(

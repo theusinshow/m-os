@@ -140,7 +140,8 @@ export function HermesPage({ inbox, projects, tasks, openProject, openResource }
   }, [draft]);
 
   const suggestions = useMemo(() => suggestionsFor(inbox, projects, tasks), [inbox, projects, tasks]);
-  const online = status?.state === "online";
+  // Enviar depende da sessao aberta, nao so do socket aceito.
+  const online = status?.state === "online" && status.sessionReady;
 
   function pickMention(item: SearchItem) {
     const name = item.kind === "project" ? item.project.name : item.kind === "resource" ? item.resource.title : "";

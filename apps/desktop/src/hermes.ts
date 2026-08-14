@@ -9,6 +9,8 @@ import { listen } from "@tauri-apps/api/event";
  * que existe credencial, nunca qual e.
  */
 
+const BASE_URL_KEY = "m-os-hermes-base-url";
+
 export type HermesConnectionState = "offline" | "connecting" | "online";
 
 export type HermesStatus = {
@@ -17,6 +19,9 @@ export type HermesStatus = {
   baseUrl: string;
   /** Mensagem legivel do ultimo erro. Vazia quando nao ha. */
   detail: string;
+  /** Online significa socket aceito; isto significa sessao aberta. Perguntar
+   *  antes disso falha, e a janela entre os dois e real sobre um tunel. */
+  sessionReady: boolean;
 };
 
 /** O que a ponte entrega. Espelha `Outcome` do crate mos-hermes. */
@@ -57,8 +62,18 @@ export const hermes = {
   clearCredentials() {
     return invoke<void>("hermes_clear_credentials");
   },
-  setBaseUrl(url: string) {
-    return invoke<void>("hermes_set_base_url", { url });
+  /** O endereco nao e segredo, entao mora no renderer e e reaplicado no boot.
+   *  Sem isso ele vivia so em memoria do processo Rust e voltava ao padrao a
+   *  cada reinicio — em silencio, para quem usa porta ou prefixo diferente. */
+  async setBaseUrl(url: string) {
+    await invoke<void>("hermes_set_base_url", { url });
+    localStorage.setItem(BASE_URL_KEY, url);
+  },
+  /** Reaplica o endereco guardado. Chamado uma vez, na abertura do app. */
+  async restoreBaseUrl() {
+    const saved = localStorage.getItem(BASE_URL_KEY);
+    if (!saved) return;
+    await invoke<void>("hermes_set_base_url", { url: saved }).catch(() => undefined);
   },
   onEvent(handler: (outcome: HermesOutcome) => void) {
     return listen<HermesOutcome>("hermes-event", (event) => handler(event.payload));

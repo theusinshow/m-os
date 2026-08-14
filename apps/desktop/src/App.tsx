@@ -1039,7 +1039,7 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
           leu o rodape descobre. */}
       <div className="command-modes" role="group" aria-label="Modo">
         {([["search", "Search"], ["hermes", "Hermes"]] as const).map(([value, label]) => <button key={value} type="button" className="command-mode" data-active={mode === value || undefined} aria-pressed={mode === value} onClick={() => { setMode(value); input.current?.focus(); }}>{label}</button>)}
-        {mode === "hermes" && hermesStatus ? <span className="command-mode-state" data-state={hermesStatus.state}>{hermesStatus.state === "online" ? "ONLINE" : hermesStatus.state === "connecting" ? "CONECTANDO" : "OFFLINE"}</span> : null}
+        {mode === "hermes" && hermesStatus ? <span className="command-mode-state" data-state={hermesStatus.state}>{hermesStatus.state === "online" ? (hermesStatus.sessionReady ? "ONLINE" : "ABRINDO SESSÃO") : hermesStatus.state === "connecting" ? "CONECTANDO" : "OFFLINE"}</span> : null}
       </div>
       {mode === "hermes" ? <div className="hermes-thread" aria-live="polite">
         {hermesStatus && hermesStatus.state !== "online" ? <p className="hermes-offline">{hermesUnavailableLabel(hermesStatus)}</p> : null}
@@ -1268,6 +1268,9 @@ function DesktopApp() {
     }
   }, [refresh]);
   useEffect(() => {
+    // O endereco do gateway e reaplicado antes de qualquer conexao: ele vive no
+    // renderer porque nao e segredo, e sem isto voltava ao padrao a cada boot.
+    void hermes.restoreBaseUrl();
     void initialize();
     const refreshFromEvent = () => void refresh().catch((error) => {
       setBootMessage(appError(error).message);
