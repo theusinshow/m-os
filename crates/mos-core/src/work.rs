@@ -146,16 +146,18 @@ pub struct NewProject {
     pub id: ProjectId,
     pub name: String,
     pub description: String,
+    pub repository: String,
     pub created_at: OffsetDateTime,
 }
 
 impl NewProject {
-    pub fn create(name: &str, description: &str) -> Result<Self, CoreError> {
+    pub fn create(name: &str, description: &str, repository: &str) -> Result<Self, CoreError> {
         let name = required(name, "O nome do Project nao pode estar vazio.")?;
         Ok(Self {
             id: ProjectId::new(),
             name,
             description: description.trim().to_owned(),
+            repository: repository.trim().to_owned(),
             created_at: OffsetDateTime::now_utc(),
         })
     }
@@ -242,7 +244,7 @@ mod tests {
 
     #[test]
     fn project_and_task_require_names() {
-        assert!(NewProject::create(" ", "").is_err());
+        assert!(NewProject::create(" ", "", "").is_err());
         assert!(NewTask::create("", "", None).is_err());
         assert!(NewWorkspace::create("", "").is_err());
     }

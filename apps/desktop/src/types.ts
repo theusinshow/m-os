@@ -16,6 +16,8 @@ export type Project = {
   id: string;
   name: string;
   description: string;
+  /** Vazio significa sem repositorio. */
+  repository: string;
   lifecycleState: LifecycleState;
   createdAt: string;
   updatedAt: string;
@@ -30,7 +32,11 @@ export type Workspace = {
   updatedAt: string;
 };
 
-export type TaskState = "backlog" | "doing" | "done";
+/** A ordem e a ordem das colunas do kanban.
+ *  `inbox` aqui nao e a Inbox de Captures — Capture tem processingState. */
+export type TaskState = "inbox" | "backlog" | "planned" | "doing" | "review" | "done";
+
+export type ResourceKind = "site" | "library" | "image" | "note";
 
 export type Task = {
   id: string;
@@ -54,15 +60,27 @@ export type RegisteredApp = {
   sourceUrl: string | null;
   launchKind: AppLaunchKind | null;
   launchTarget: string | null;
+  /** Capacidade nao declarada e capacidade que o Hermes nao tenta usar. */
+  canOpen: boolean;
+  canRead: boolean;
+  canWrite: boolean;
+  canAutomate: boolean;
   lifecycleState: LifecycleState;
   createdAt: string;
   updatedAt: string;
   lastOpenedAt: string | null;
 };
 
+export type AppCapabilities = {
+  canOpen: boolean;
+  canRead: boolean;
+  canWrite: boolean;
+  canAutomate: boolean;
+};
+
 export type Resource = {
   id: string;
-  kind: "link";
+  kind: ResourceKind;
   title: string;
   url: string;
   note: string;

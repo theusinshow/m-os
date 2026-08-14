@@ -60,6 +60,19 @@ impl AppLaunchKind {
     }
 }
 
+/// Capacidades declaradas de um App.
+///
+/// Agrupadas de proposito: quatro `bool` soltos numa assinatura sao quatro
+/// oportunidades de trocar dois de lugar e o compilador nao reclamar.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppCapabilities {
+    pub can_open: bool,
+    pub can_read: bool,
+    pub can_write: bool,
+    pub can_automate: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisteredApp {

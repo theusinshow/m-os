@@ -379,9 +379,15 @@ impl WorkRepository for SqliteStorage {
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         transaction
             .execute(
-                "INSERT INTO projects (id, name, description, lifecycle_state, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, 'active', ?4, ?4)",
-                params![project.id.to_string(), project.name, project.description, now],
+                "INSERT INTO projects (id, name, description, lifecycle_state, created_at, updated_at, repository)
+                 VALUES (?1, ?2, ?3, 'active', ?4, ?4, ?5)",
+                params![
+                    project.id.to_string(),
+                    project.name,
+                    project.description,
+                    now,
+                    project.repository
+                ],
             )
             .map_err(map_sql_error)?;
         let rowid = transaction.last_insert_rowid();
@@ -395,6 +401,7 @@ impl WorkRepository for SqliteStorage {
         id: ProjectId,
         name: &str,
         description: &str,
+        repository: &str,
     ) -> Result<Project, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
         let connection = self.connection.lock().map_err(map_lock_error)?;
@@ -402,8 +409,10 @@ impl WorkRepository for SqliteStorage {
         delete_project_search(&transaction, id)?;
         let changed = transaction
             .execute(
-                "UPDATE projects SET name = ?1, description = ?2, updated_at = ?3 WHERE id = ?4",
-                params![name, description, now, id.to_string()],
+                "UPDATE projects
+                 SET name = ?1, description = ?2, updated_at = ?3, repository = ?5
+                 WHERE id = ?4",
+                params![name, description, now, id.to_string(), repository],
             )
             .map_err(map_sql_error)?;
         ensure_changed(changed)?;
@@ -1030,7 +1039,7 @@ mod tests {
             .create(NewCapture::create("Refatorar navbar", CaptureSource::Home).unwrap())
             .unwrap();
         let project = storage
-            .create_project(NewProject::create("Minarum", "").unwrap())
+            .create_project(NewProject::create("Minarum", "", "").unwrap())
             .unwrap();
         let task = storage
             .create_task_from_capture(
@@ -1099,7 +1108,7 @@ mod tests {
             .create_workspace(NewWorkspace::create("Engineering", "").unwrap())
             .unwrap();
         let project = storage
-            .create_project(NewProject::create("NexoDoc", "").unwrap())
+            .create_project(NewProject::create("NexoDoc", "", "").unwrap())
             .unwrap();
         let app = storage
             .create_app(

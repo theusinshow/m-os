@@ -15,8 +15,10 @@ type Theme = "dark" | "light";
 type CommandResult = SearchItem | { kind: "function"; function: FunctionDefinition };
 type FunctionIntent = { target: FunctionIntentTarget; key: number };
 
-const stateOrder: TaskState[] = ["backlog", "doing", "done"];
-const stateLabels: Record<TaskState, string> = { backlog: "Backlog", doing: "Doing", done: "Done" };
+// A ordem e a ordem das colunas do kanban. DOING e a unica coluna em sodio:
+// e o estado que importa.
+const stateOrder: TaskState[] = ["inbox", "backlog", "planned", "doing", "review", "done"];
+const stateLabels: Record<TaskState, string> = { inbox: "Inbox", backlog: "Backlog", planned: "Planned", doing: "Doing", review: "Review", done: "Done" };
 const functionCategories: FunctionDefinition["category"][] = ["capture", "work", "memory", "app", "data", "system"];
 const functionCategoryLabels: Record<FunctionDefinition["category"], string> = { capture: "CAPTURE", work: "WORK", memory: "MEMORY", app: "APP", data: "DATA", system: "SYSTEM" };
 const functionRiskLabels: Record<FunctionDefinition["risk"], string> = { low: "baixo", medium: "medio", high: "alto" };
@@ -395,7 +397,7 @@ function RegisteredAppForm({ app, cancel, saved }: { app?: RegisteredApp; cancel
     const target = launchTarget.trim() ? launchTarget : null;
     const source = sourceUrl.trim() ? sourceUrl : null;
     try {
-      saved(app ? await api.updateRegisteredApp(app.id, name, description, source, kind, target) : await api.createRegisteredApp(name, description, source, kind, target));
+      saved(app ? await api.updateRegisteredApp(app.id, name, description, source, kind, target, { canOpen: app.canOpen, canRead: app.canRead, canWrite: app.canWrite, canAutomate: app.canAutomate }) : await api.createRegisteredApp(name, description, source, kind, target));
     } catch (nextError) {
       setError(appError(nextError).message);
       setSaving(false);
@@ -470,8 +472,8 @@ function ResourceForm({ resource, capture, cancel, saved }: { resource?: Resourc
     setSaving(true);
     try {
       const next = resource
-        ? await api.updateResource(resource.id, title, url, note)
-        : await api.createResource(title, url, note, capture?.id ?? null);
+        ? await api.updateResource(resource.id, resource.kind, title, url, note)
+        : await api.createResource("site", title, url, note, capture?.id ?? null);
       saved(next);
     } catch (nextError) {
       setError(appError(nextError).message);

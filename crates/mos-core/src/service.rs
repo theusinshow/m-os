@@ -3,11 +3,11 @@ use std::{path::Path, sync::Arc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AppId, AppLaunchKind, AppRepository, BackupInspection, BackupReceipt, Capture, CaptureId,
-    CaptureRepository, CaptureSource, CoreError, DataMaintenance, LifecycleState, NewCapture,
-    NewProject, NewRegisteredApp, NewTask, NewWorkspace, ProcessingState, Project, ProjectId,
-    RegisteredApp, SearchItem, SearchRequest, Task, TaskId, TaskState, WorkRepository, Workspace,
-    WorkspaceId,
+    AppCapabilities, AppId, AppLaunchKind, AppRepository, BackupInspection, BackupReceipt, Capture,
+    CaptureId, CaptureRepository, CaptureSource, CoreError, DataMaintenance, LifecycleState,
+    NewCapture, NewProject, NewRegisteredApp, NewTask, NewWorkspace, ProcessingState, Project,
+    ProjectId, RegisteredApp, SearchItem, SearchRequest, Task, TaskId, TaskState, WorkRepository,
+    Workspace, WorkspaceId,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -134,6 +134,8 @@ pub struct CreateProjectInput {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default)]
+    pub repository: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -143,6 +145,8 @@ pub struct UpdateProjectInput {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default)]
+    pub repository: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -205,6 +209,16 @@ pub struct UpdateAppInput {
     pub source_url: Option<String>,
     pub launch_kind: Option<AppLaunchKind>,
     pub launch_target: Option<String>,
+    /// Capacidades declaradas. Ausentes no payload significam nao declaradas,
+    /// e capacidade nao declarada e capacidade que o Hermes nao tenta usar.
+    #[serde(default)]
+    pub can_open: bool,
+    #[serde(default)]
+    pub can_read: bool,
+    #[serde(default)]
+    pub can_write: bool,
+    #[serde(default)]
+    pub can_automate: bool,
 }
 
 #[derive(Clone)]
@@ -215,8 +229,10 @@ pub struct AppService {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateResourceInput {
+    pub kind: crate::ResourceKind,
     #[serde(default)]
     pub title: String,
+    #[serde(default)]
     pub url: String,
     #[serde(default)]
     pub note: String,
@@ -228,8 +244,10 @@ pub struct CreateResourceInput {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateResourceInput {
     pub id: String,
+    pub kind: crate::ResourceKind,
     #[serde(default)]
     pub title: String,
+    #[serde(default)]
     pub url: String,
     #[serde(default)]
     pub note: String,
@@ -254,13 +272,13 @@ impl MemoryService {
             .as_deref()
             .map(crate::CaptureId::parse)
             .transpose()?;
-        self.repository
-            .create_resource(crate::NewResource::create_link(
-                &input.title,
-                &input.url,
-                &input.note,
-                source_capture_id,
-            )?)
+        self.repository.create_resource(crate::NewResource::create(
+            input.kind,
+            &input.title,
+            &input.url,
+            &input.note,
+            source_capture_id,
+        )?)
     }
 
     pub fn update_resource(
@@ -268,9 +286,10 @@ impl MemoryService {
         input: UpdateResourceInput,
     ) -> Result<crate::Resource, CoreError> {
         let validated =
-            crate::NewResource::create_link(&input.title, &input.url, &input.note, None)?;
+            crate::NewResource::create(input.kind, &input.title, &input.url, &input.note, None)?;
         self.repository.update_resource(
             crate::ResourceId::parse(&input.id)?,
+            validated.kind,
             &validated.title,
             &validated.url,
             &validated.note,
@@ -376,11 +395,13 @@ impl AppService {
         )?;
         self.repository.update_app(
             AppId::parse(&input.id)?,
-            &validated.name,
-            &validated.description,
-            validated.source_url.as_deref(),
-            validated.launch_kind,
-            validated.launch_target.as_deref(),
+            &validated,
+            AppCapabilities {
+                can_open: input.can_open,
+                can_read: input.can_read,
+                can_write: input.can_write,
+                can_automate: input.can_automate,
+            },
         )
     }
 
@@ -521,16 +542,20 @@ impl WorkService {
     }
 
     pub fn create_project(&self, input: CreateProjectInput) -> Result<Project, CoreError> {
-        self.repository
-            .create_project(NewProject::create(&input.name, &input.description)?)
+        self.repository.create_project(NewProject::create(
+            &input.name,
+            &input.description,
+            &input.repository,
+        )?)
     }
 
     pub fn update_project(&self, input: UpdateProjectInput) -> Result<Project, CoreError> {
-        let validated = NewProject::create(&input.name, &input.description)?;
+        let validated = NewProject::create(&input.name, &input.description, &input.repository)?;
         self.repository.update_project(
             ProjectId::parse(&input.id)?,
             &validated.name,
             &validated.description,
+            &validated.repository,
         )
     }
 

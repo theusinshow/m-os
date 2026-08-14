@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, Project, RegisteredApp, Resource, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, Project, RegisteredApp, Resource, ResourceKind, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -60,11 +60,11 @@ export const api = {
   searchResources(query: string, includeArchived = false) {
     return invoke<Resource[]>("search_resources", { query, includeArchived });
   },
-  createResource(title: string, url: string, note: string, sourceCaptureId: string | null = null) {
-    return invoke<Resource>("create_resource", { input: { title, url, note, sourceCaptureId } });
+  createResource(kind: ResourceKind, title: string, url: string, note: string, sourceCaptureId: string | null = null) {
+    return invoke<Resource>("create_resource", { input: { kind, title, url, note, sourceCaptureId } });
   },
-  updateResource(id: string, title: string, url: string, note: string) {
-    return invoke<Resource>("update_resource", { input: { id, title, url, note } });
+  updateResource(id: string, kind: ResourceKind, title: string, url: string, note: string) {
+    return invoke<Resource>("update_resource", { input: { id, kind, title, url, note } });
   },
   setResourceArchived(id: string, archived: boolean) {
     return invoke<Resource>("set_resource_archived", { id, archived });
@@ -81,11 +81,11 @@ export const api = {
   projects(includeArchived = false) {
     return invoke<Project[]>("list_projects", { includeArchived });
   },
-  createProject(name: string, description: string) {
-    return invoke<Project>("create_project", { input: { name, description } });
+  createProject(name: string, description: string, repository = "") {
+    return invoke<Project>("create_project", { input: { name, description, repository } });
   },
-  updateProject(id: string, name: string, description: string) {
-    return invoke<Project>("update_project", { input: { id, name, description } });
+  updateProject(id: string, name: string, description: string, repository = "") {
+    return invoke<Project>("update_project", { input: { id, name, description, repository } });
   },
   setProjectArchived(id: string, archived: boolean) {
     return invoke<Project>("set_project_archived", { id, archived });
@@ -111,8 +111,8 @@ export const api = {
   createRegisteredApp(name: string, description: string, sourceUrl: string | null, launchKind: AppLaunchKind | null, launchTarget: string | null) {
     return invoke<RegisteredApp>("create_registered_app", { input: { name, description, sourceUrl, launchKind, launchTarget } });
   },
-  updateRegisteredApp(id: string, name: string, description: string, sourceUrl: string | null, launchKind: AppLaunchKind | null, launchTarget: string | null) {
-    return invoke<RegisteredApp>("update_registered_app", { input: { id, name, description, sourceUrl, launchKind, launchTarget } });
+  updateRegisteredApp(id: string, name: string, description: string, sourceUrl: string | null, launchKind: AppLaunchKind | null, launchTarget: string | null, capabilities: AppCapabilities) {
+    return invoke<RegisteredApp>("update_registered_app", { input: { id, name, description, sourceUrl, launchKind, launchTarget, ...capabilities } });
   },
   appCatalog() {
     return invoke<AppCatalogEntry[]>("list_app_catalog");

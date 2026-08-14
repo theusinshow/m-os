@@ -136,6 +136,7 @@ impl ResourceRepository for SqliteStorage {
     fn update_resource(
         &self,
         id: ResourceId,
+        kind: ResourceKind,
         title: &str,
         url: &str,
         note: &str,
@@ -147,9 +148,9 @@ impl ResourceRepository for SqliteStorage {
         let changed = transaction
             .execute(
                 "UPDATE resources
-                 SET title = ?1, url = ?2, note = ?3, updated_at = ?4
+                 SET kind = ?6, title = ?1, url = ?2, note = ?3, updated_at = ?4
                  WHERE id = ?5",
-                params![title, url, note, now, id.to_string()],
+                params![title, url, note, now, id.to_string(), kind.as_str()],
             )
             .map_err(map_sql_error)?;
         ensure_resource_changed(changed)?;
@@ -393,6 +394,7 @@ mod tests {
         let updated = storage
             .update_resource(
                 resource.id,
+                ResourceKind::Library,
                 "Motion docs",
                 "https://motion.dev/docs",
                 "Referencia",

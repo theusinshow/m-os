@@ -1,6 +1,6 @@
 use mos_core::{
-    AppId, AppLaunchKind, AppRepository, CoreError, ErrorCode, LifecycleState, NewRegisteredApp,
-    RegisteredApp, SearchRequest,
+    AppCapabilities, AppId, AppLaunchKind, AppRepository, CoreError, ErrorCode, LifecycleState,
+    NewRegisteredApp, RegisteredApp, SearchRequest,
 };
 use rusqlite::{params, OptionalExtension, Row, Transaction};
 use time::OffsetDateTime;
@@ -194,11 +194,8 @@ impl AppRepository for SqliteStorage {
     fn update_app(
         &self,
         id: AppId,
-        name: &str,
-        description: &str,
-        source_url: Option<&str>,
-        launch_kind: Option<AppLaunchKind>,
-        launch_target: Option<&str>,
+        fields: &NewRegisteredApp,
+        capabilities: AppCapabilities,
     ) -> Result<RegisteredApp, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
         let connection = self.connection.lock().map_err(map_lock_error)?;
@@ -208,16 +205,21 @@ impl AppRepository for SqliteStorage {
             .execute(
                 "UPDATE apps
                  SET name = ?1, description = ?2, source_url = ?3, launch_kind = ?4,
-                     launch_target = ?5, updated_at = ?6
+                     launch_target = ?5, updated_at = ?6, can_open = ?8, can_read = ?9,
+                     can_write = ?10, can_automate = ?11
                  WHERE id = ?7",
                 params![
-                    name,
-                    description,
-                    source_url,
-                    launch_kind.map(AppLaunchKind::as_str),
-                    launch_target,
+                    fields.name,
+                    fields.description,
+                    fields.source_url,
+                    fields.launch_kind.map(AppLaunchKind::as_str),
+                    fields.launch_target,
                     now,
-                    id.to_string()
+                    id.to_string(),
+                    i64::from(capabilities.can_open),
+                    i64::from(capabilities.can_read),
+                    i64::from(capabilities.can_write),
+                    i64::from(capabilities.can_automate),
                 ],
             )
             .map_err(map_sql_error)?;
@@ -449,17 +451,30 @@ mod tests {
             .unwrap();
         assert_eq!(app.name, "M-Finance");
 
+        let fields = NewRegisteredApp::create_with_source(
+            "M Finance",
+            "Contas e faturas",
+            Some("https://github.com/theusinshow/m-finance"),
+            Some(AppLaunchKind::Path),
+            Some("C:\\Apps\\m-finance.exe"),
+        )
+        .unwrap();
         let updated = storage
             .update_app(
                 app.id,
-                "M Finance",
-                "Contas e faturas",
-                Some("https://github.com/theusinshow/m-finance"),
-                Some(AppLaunchKind::Path),
-                Some("C:\\Apps\\m-finance.exe"),
+                &fields,
+                AppCapabilities {
+                    can_open: true,
+                    can_read: true,
+                    ..AppCapabilities::default()
+                },
             )
             .unwrap();
         assert_eq!(updated.launch_kind, Some(AppLaunchKind::Path));
+        assert!(updated.can_open);
+        assert!(updated.can_read);
+        assert!(!updated.can_write, "capacidade nao declarada fica falsa");
+        assert!(!updated.can_automate);
 
         let results = storage
             .search_apps(SearchRequest {
