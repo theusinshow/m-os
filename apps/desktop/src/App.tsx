@@ -6,6 +6,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, appError } from "./api";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
 import { Icon, type IconName } from "./Icon";
+import { MosSymbol } from "./Symbol";
 import type { AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, Project, RegisteredApp, Resource, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 import "./App.css";
 
@@ -978,6 +979,9 @@ function DesktopApp() {
   const [resourceOpenKey, setResourceOpenKey] = useState(0);
   const [functionIntent, setFunctionIntent] = useState<FunctionIntent | null>(null);
   const [undo, setUndo] = useState<UndoAction | null>(null);
+  // Alimenta o indicador da topbar. Ate agora so existia implicito nas
+  // chamadas de api.ts; o design exige que o sistema diga quando esta ocupado.
+  const [busy, setBusy] = useState(false);
   const [bootState, setBootState] = useState<"loading" | "ready" | "error">("loading");
   const [bootMessage, setBootMessage] = useState("");
   const [showBootLoading, setShowBootLoading] = useState(false);
@@ -986,9 +990,14 @@ function DesktopApp() {
   const functionIntentKey = useRef(0);
 
   const refresh = useCallback(async () => {
-    const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status()]);
-    setRecent(nextRecent); setInbox(nextInbox); setArchived(nextArchived); setTrashed(nextTrashed); setProjects(nextProjects); setWorkspaces(nextWorkspaces); setApps(nextApps); setResources(nextResources); setTrashedResources(nextTrashedResources); setTasks(nextTasks); setStatus(nextStatus);
-    setDrawerTask((current) => current ? nextTasks.find((task) => task.id === current.id) ?? null : null);
+    setBusy(true);
+    try {
+      const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status()]);
+      setRecent(nextRecent); setInbox(nextInbox); setArchived(nextArchived); setTrashed(nextTrashed); setProjects(nextProjects); setWorkspaces(nextWorkspaces); setApps(nextApps); setResources(nextResources); setTrashedResources(nextTrashedResources); setTasks(nextTasks); setStatus(nextStatus);
+      setDrawerTask((current) => current ? nextTasks.find((task) => task.id === current.id) ?? null : null);
+    } finally {
+      setBusy(false);
+    }
   }, []);
   const initialize = useCallback(async () => {
     setBootState("loading");
@@ -1042,7 +1051,15 @@ function DesktopApp() {
     else if (target === "apps_register") setPage("apps");
     else setPage("settings");
   }
-  const nav: { page: Page; label: string; icon: IconName; count?: number }[] = [{ page: "home", label: "Home", icon: "home" }, { page: "inbox", label: "Inbox", icon: "inbox", count: inbox.length }, { page: "projects", label: "Projects", icon: "projects" }, { page: "workspaces", label: "Workspaces", icon: "workspaces" }, { page: "apps", label: "Apps", icon: "apps" }, { page: "library", label: "Library", icon: "library" }, { page: "tasks", label: "Tasks", icon: "board" }, { page: "settings", label: "Settings", icon: "settings" }];
+  // Seis destinos, na ordem do design: home · inbox · board · projects · library · apps.
+  // O sistema tem oito paginas e o rail aceita seis. Workspaces entra pelo
+  // Command; Settings fica no rodape do rail, que o README permite.
+  const nav: { page: Page; label: string; icon: IconName; count?: number }[] = [{ page: "home", label: "Home", icon: "home" }, { page: "inbox", label: "Inbox", icon: "inbox", count: inbox.length }, { page: "tasks", label: "Tasks", icon: "board" }, { page: "projects", label: "Projects", icon: "projects" }, { page: "library", label: "Library", icon: "library" }, { page: "apps", label: "Apps", icon: "apps" }];
+  const pageLabels: Record<Page, string> = { home: "Home", inbox: "Inbox", tasks: "Tasks", projects: "Projects", library: "Library", apps: "Apps", workspaces: "Workspaces", settings: "Settings" };
+  const pageMeta = useMemo(() => {
+    if (page !== "home") return pageLabels[page].toUpperCase();
+    return new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date()).toUpperCase().replace(",", " ·");
+  }, [page]);
   const pageContent = useMemo(() => {
     if (page === "home") return <HomePage recent={recent} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} intent={functionIntent ?? undefined} />;
     if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} openResource={openResource} intent={functionIntent ?? undefined} />;
@@ -1061,7 +1078,7 @@ function DesktopApp() {
         ? <section className="page startup-state" role="status"><p>Abrindo dados locais...</p></section>
         : null;
 
-  return <div className="app-shell"><aside className="nav-rail"><div className="symbol">M<span>/</span></div><nav aria-label="Navegação principal">{nav.map((item) => <button key={item.page} aria-current={page === item.page ? "page" : undefined} aria-label={item.label} title={item.label} onClick={() => navigate(item.page)}><Icon name={item.icon} filled={page === item.page} />{item.count ? <span>{item.count}</span> : null}</button>)}</nav><IconButton label="Quick Capture" icon="capture" onClick={() => void api.showQuickCapture()} /></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button></header><main className="content">{content}</main></div>{commandOpen ? <CommandSurface close={() => setCommandOpen(false)} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
+  return <div className="app-shell"><aside className="nav-rail"><div className="rail-symbol" aria-hidden="true"><MosSymbol size={16} /></div><nav aria-label="Navegação principal">{nav.map((item) => <button key={item.page} aria-current={page === item.page ? "page" : undefined} aria-label={item.label} title={item.label} onClick={() => navigate(item.page)}><Icon name={item.icon} filled={page === item.page} />{item.count ? <span>{item.count}</span> : null}</button>)}</nav><div className="rail-footer"><IconButton label="Quick Capture" icon="capture" onClick={() => void api.showQuickCapture()} /><IconButton label="Settings" icon="settings" active={page === "settings"} onClick={() => navigate("settings")} /></div></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button><div className="system-state" aria-live="polite">{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : <span className="micro-label">{pageMeta}</span>}</div></header><main className="content">{content}</main></div>{commandOpen ? <CommandSurface close={() => setCommandOpen(false)} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
 }
 
 export default function App() {

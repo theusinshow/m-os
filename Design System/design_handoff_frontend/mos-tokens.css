@@ -116,6 +116,19 @@
   --radius-none: 0;
   --line: 1px;
   --marker: 2px;
+
+  /* Shell. Valores fixados pelo README do handoff que nao caem na escala de
+     spacing (rail de 40px, simbolo de 26px, topbar de 44px). Ficam como token
+     para nao virarem literal dentro de componente. */
+  --topbar-height: 44px;
+  --rail-item: 40px;
+  --rail-symbol: 26px;
+  --rail-symbol-radius: 5px;
+  --rail-symbol-gap: 24px;
+  --rail-symbol-bar: 16px;
+  --symbol-inline: 13px;
+  --marker-height: 16px;
+  --marker-offset: 12px;
   --focus-ring: 3px;
   --target-min: 24px;
   --content-max: 1100px;

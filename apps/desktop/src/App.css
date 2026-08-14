@@ -136,21 +136,24 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-4);
   width: var(--rail-width);
-  padding: var(--space-3) var(--space-2);
+  padding: var(--space-3) 0;
   background: var(--surface);
   border-right: var(--line) solid var(--border);
 }
 
-.nav-rail .symbol {
+/* Assinatura, nao destino: nao e clicavel e nao recebe foco. */
+.rail-symbol {
   display: grid;
-  height: var(--height-control);
+  width: var(--rail-symbol);
+  height: var(--rail-symbol);
+  margin-bottom: var(--rail-symbol-gap);
   place-items: center;
-  font-weight: 700;
+  color: var(--on-signal);
+  background: var(--signal-fill);
+  border-radius: var(--rail-symbol-radius);
 }
 
-.nav-rail .symbol span,
 .slash,
 .context-path b {
   color: var(--signal-ink);
@@ -160,27 +163,79 @@ button {
 
 .nav-rail nav {
   display: flex;
-  flex: 1;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-1);
 }
 
 .nav-rail button {
   position: relative;
+  width: var(--rail-item);
+  height: var(--rail-item);
+  color: var(--text-system);
 }
 
+/* Ativo e o icone em --text mais a barra. Sem fundo: o accent e sinal, nao
+   preenchimento de container. */
 .nav-rail button[aria-current="page"] {
-  color: var(--signal-ink);
-  background: var(--signal-wash);
+  color: var(--text);
+  background: transparent;
 }
 
 .nav-rail button[aria-current="page"]::before {
   position: absolute;
-  left: calc(var(--space-2) * -1);
+  top: var(--marker-offset);
+  left: 0;
   width: var(--marker);
-  height: var(--height-control-sm);
+  height: var(--marker-height);
   background: var(--signal-fill);
   content: "";
+}
+
+.rail-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: auto;
+}
+
+.mos-symbol {
+  display: block;
+  width: var(--rail-symbol-bar);
+  height: var(--rail-symbol-bar);
+}
+
+.mos-symbol polygon {
+  fill: currentcolor;
+  transform-origin: center;
+}
+
+/* Motion oficial da marca. A barra e simetrica em 180 graus, entao a meia-volta
+   cai exatamente sobre ela mesma: nada entra, nada sai. */
+@keyframes barHalf {
+  0%,
+  22% {
+    transform: rotate(0deg);
+  }
+
+  62%,
+  100% {
+    transform: rotate(180deg);
+  }
+}
+
+/* Trabalhando: o unico spinner do sistema. */
+@keyframes barSpin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(180deg);
+  }
+}
+
+.mos-symbol[data-spinning] polygon {
+  animation: barSpin 900ms linear infinite;
 }
 
 .nav-rail button > span {
@@ -197,13 +252,14 @@ button {
 .main-column {
   display: grid;
   min-width: 0;
-  grid-template-rows: var(--rail-width) minmax(0, 1fr);
+  grid-template-rows: var(--topbar-height) minmax(0, 1fr);
 }
 
 .topbar {
   display: flex;
   align-items: center;
-  padding: 0 var(--content-margin);
+  justify-content: space-between;
+  padding: 0 var(--space-4);
   background: var(--canvas);
   border-bottom: var(--line) solid var(--border);
 }
@@ -212,19 +268,34 @@ button {
   display: flex;
   align-items: center;
   min-width: var(--sidebar-width);
-  min-height: var(--height-control-sm);
+  height: var(--height-control-sm);
   gap: var(--space-2);
   padding: 0 var(--space-2);
   color: var(--text-secondary);
   background: transparent;
-  border: 0;
+  border: var(--line) solid var(--border-strong);
   border-radius: var(--radius);
   text-align: left;
+  transition: border-color var(--dur-instant) var(--ease-state);
 }
 
 .command-trigger:hover {
-  color: var(--text);
-  background: var(--surface);
+  border-color: var(--text-system);
+}
+
+/* Estado de sistema: a barra girando quando ocupado, o meta da pagina quando
+   nao. E o mesmo slot que a ponte com o Hermes vai usar (Spec B). */
+.system-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-system);
+}
+
+.system-state .mos-symbol {
+  width: var(--symbol-inline);
+  height: var(--symbol-inline);
+  color: var(--signal-ink);
 }
 
 .command-trigger > span:nth-child(2) {
