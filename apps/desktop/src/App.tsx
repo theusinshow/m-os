@@ -20,6 +20,10 @@ type FunctionIntent = { target: FunctionIntentTarget; key: number };
 
 // A ordem e a ordem das colunas do kanban. DOING e a unica coluna em sodio:
 // e o estado que importa.
+/* Espelha o teto que list_inbox pede em src-tauri/src/lib.rs:84. Se mudar la, muda
+   aqui: e o que permite a Home admitir que a contagem esta truncada. */
+const INBOX_PAGE = 200;
+
 const stateOrder: TaskState[] = ["inbox", "backlog", "planned", "doing", "review", "done"];
 const stateLabels: Record<TaskState, string> = { inbox: "Inbox", backlog: "Backlog", planned: "Planned", doing: "Doing", review: "Review", done: "Done" };
 const functionCategories: FunctionDefinition["category"][] = ["capture", "work", "memory", "app", "data", "system"];
@@ -244,9 +248,18 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, status, re
     setSavedIds((current) => new Set(current).add(capture.id));
     window.setTimeout(() => setSavedIds((current) => { const next = new Set(current); next.delete(capture.id); return next; }), 900);
   }
-  // Tres dias e o limiar do catalogo (IDEAS.md 155). A conta usa `inbox`, nunca
-  // `recent`, porque recent(limit) e truncado no core e mentiria a contagem.
+  // Tres dias e o limiar do catalogo (IDEAS.md 155).
+  //
+  // Nao existe contagem verdadeira da Inbox no front: list_inbox pede 200
+  // (src-tauri/src/lib.rs:84) e o proprio AppStatus.inboxCount e calculado com o
+  // mesmo teto (lib.rs:685). Pior, a query ordena por captured_at DESC
+  // (repository.rs:105), entao o corte descarta as capturas MAIS ANTIGAS — que sao
+  // exatamente as que este widget existe para denunciar.
+  //
+  // Enquanto o core nao expuser um COUNT real, a saida honesta e admitir o teto:
+  // no limite, mostrar "200+" em vez de "200" e "N+" em vez de "N".
   const staleInbox = inbox.filter((capture) => Date.now() - new Date(capture.capturedAt).getTime() > 3 * 24 * 60 * 60 * 1000).length;
+  const inboxCapped = inbox.length >= INBOX_PAGE;
   const projectName = (id: string | null) => projects.find((project) => project.id === id)?.name;
   const isActiveToday = (project: Project) => new Date(project.updatedAt).toDateString() === new Date().toDateString();
   return <div className="page home-page">
@@ -263,7 +276,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, status, re
       {/* O nome do app nao entra: o icone com a inicial e o atalho ja o
           identificam, e a linha de nomes competiria com as rows ao lado. */}
       <Widget size="2x1"><Panel label="APPS"><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><span className="app-icon" aria-hidden="true">{app.name.trim().charAt(0).toUpperCase()}</span>{index < 9 ? <span className="app-shortcut">⌘{index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
-      <Widget size="1x1"><Panel label="INBOX"><button type="button" className="pulse" onClick={() => openInbox()}><strong className="pulse-count">{inbox.length}</strong><small>{inbox.length === 1 ? "capture por processar" : "captures por processar"}</small>{staleInbox ? <small className="pulse-stale">{staleInbox === 1 ? "1 com mais de 3 dias" : `${staleInbox} com mais de 3 dias`}</small> : null}</button></Panel></Widget>
+      <Widget size="1x1"><Panel label="INBOX"><button type="button" className="pulse" onClick={() => openInbox()}><strong className="pulse-count">{inboxCapped ? `${INBOX_PAGE}+` : inbox.length}</strong><small>{inbox.length === 1 ? "capture por processar" : "captures por processar"}</small>{staleInbox ? <small className="pulse-stale">{staleInbox === 1 && !inboxCapped ? "1 com mais de 3 dias" : `${staleInbox}${inboxCapped ? "+" : ""} com mais de 3 dias`}</small> : null}</button></Panel></Widget>
       <Widget size="1x1"><Panel label="AÇÕES"><div className="quick-actions"><Button variant="outline" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button><Button variant="outline" size="sm" onClick={() => openTasksPage()}>Nova Task</Button><Button variant="outline" size="sm" onClick={() => openProjectsPage()}>Novo Project</Button></div></Panel></Widget>
       <Widget size="1x1"><Panel label="SISTEMA"><SystemHealth status={status} /></Panel></Widget>
     </div>
