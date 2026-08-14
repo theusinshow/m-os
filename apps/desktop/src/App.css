@@ -714,6 +714,81 @@ textarea::placeholder {
   font: var(--text-small);
 }
 
+/* Metadata entre duas reguas. Rotulo em mono porque e dado de sistema; valor
+   em mono so quando o proprio valor e dado de sistema (caminho, repositorio). */
+.fact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin: var(--space-4) 0;
+  padding: var(--space-3) 0;
+  border-top: var(--line) solid var(--border);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.fact-grid dt {
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+
+.fact-grid dd {
+  margin: var(--space-1) 0 0;
+  color: var(--text);
+  font: var(--text-small);
+}
+
+.mono-value {
+  font-family: var(--font-system);
+  word-break: break-all;
+}
+
+.fact-empty {
+  color: var(--text-disabled);
+}
+
+.mono-input {
+  font-family: var(--font-system);
+}
+
+/* Rows densas de 30px. O tracinho nao e decoracao: e a diferenca entre
+   "nao pode" e "ninguem declarou ainda". */
+.capability-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--height-row-dense);
+}
+
+.capability-row + .capability-row {
+  border-top: var(--line) solid var(--border);
+}
+
+.capability-row span[data-granted] {
+  color: var(--text);
+}
+
+.capability-row span:not([data-granted]):not(.micro-label) {
+  color: var(--text-disabled);
+}
+
+.capability-fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin: 0;
+  padding: var(--space-3) 0 0;
+  border: 0;
+  border-top: var(--line) solid var(--border);
+}
+
+.capability-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .workspace-grid {
   display: grid;
   gap: var(--space-6);
