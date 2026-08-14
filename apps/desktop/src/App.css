@@ -47,7 +47,7 @@ button {
    controle nao competir com o conteudo que ele atende. */
 .button {
   min-height: var(--height-control);
-  padding: 0 var(--space-3);
+  padding: 0 var(--space-inset);
   border: 0;
   border-radius: var(--radius);
   font: var(--text-small);
@@ -379,11 +379,13 @@ kbd {
   padding: var(--space-5) 0 var(--space-5);
 }
 
+/* A linha de base fecha o Capture a 16px do texto: e a distancia em que ela
+   sustenta sem virar caixa. */
 .capture-line {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding-bottom: var(--space-3);
+  padding-bottom: var(--space-inset);
   border-bottom: var(--line) solid var(--border-strong);
 }
 
@@ -760,9 +762,11 @@ textarea::placeholder {
 
 /* A barra vertical de 2px em sodio marca tudo que o sistema produziu. E o
    mesmo marcador de selecao: autoria e selecao sao o mesmo gesto visual. */
+/* Recuo de 16px do filete: e o que o desenho usa para o bloco de autoria do
+   sistema, na Inbox e no chat. */
 .hermes-block {
-  margin: var(--space-4) 0;
-  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  margin: var(--space-5) 0;
+  padding-left: var(--space-inset);
   border-left: var(--marker) solid var(--signal-fill);
 }
 
@@ -1299,7 +1303,7 @@ select {
 .app-identity {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-inset);
   margin-top: var(--space-3);
 }
 
@@ -2012,7 +2016,7 @@ select {
   align-items: center;
   min-height: var(--height-control-lg);
   gap: var(--space-4);
-  padding: 0 var(--space-3);
+  padding: 0 var(--space-inset);
   overflow: hidden;
   color: var(--text);
   background: var(--surface-raised);
@@ -2118,9 +2122,11 @@ select {
   height: var(--space-2);
 }
 
+/* 24px em cima e nas laterais, 16px embaixo: o rodape de atalhos fica mais
+   perto da borda que o campo, e o overlay nao vira caixa quadrada. */
 .quick-shell {
   min-height: 100vh;
-  padding: var(--space-4);
+  padding: var(--space-loose) var(--space-loose) var(--space-inset);
   background: var(--surface-raised);
 }
 

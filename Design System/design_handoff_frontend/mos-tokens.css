@@ -113,6 +113,20 @@
      Não fazem parte do handoff. São dimensões operacionais que o app precisa e
      que o pacote não define. Extensão de token é permitida e deve ser explícita
      (DECISIONS.md:448). Nenhuma delas é cor de marca. */
+  /* O degrau que faltava.
+     O README fecha a escala em 4·8·12·20·32·52·84, mas o desenho usa 16px de
+     forma recorrente e deliberada: padding de botao, linha de base do Capture,
+     respiro interno do recibo, recuo do bloco de autoria. Arredondar para 12
+     aperta o controle; para 20, afrouxa. Fica como degrau proprio em vez de
+     renumerar a escala — trocar o sentido de --space-4 faria todos os 20px
+     existentes virarem 16 em silencio. */
+  --space-inset: 16px;
+
+  /* 24px pelo mesmo motivo: recorre no respiro do simbolo no rail, no pe do
+     recibo e no padding do Quick Capture. Estava duplicado em tres tokens de
+     uso unico com nomes que diziam outra coisa. */
+  --space-loose: 24px;
+
   --radius-none: 0;
   --line: 1px;
   --marker: 2px;
@@ -124,7 +138,7 @@
   --rail-item: 40px;
   --rail-symbol: 26px;
   --rail-symbol-radius: 5px;
-  --rail-symbol-gap: 24px;
+  --rail-symbol-gap: var(--space-loose);
   --rail-symbol-bar: 16px;
   --symbol-inline: 13px;
 
@@ -139,7 +153,7 @@
      usa em rotulo de sistema que ainda precisa ser lido como palavra:
      segmento de caminho, filtro, dica de rodape. */
   --tracking-label: 0.1em;
-  --receipt-offset: 24px;
+  --receipt-offset: var(--space-loose);
   --command-type-column: 84px;
   --command-footer: 34px;
   --fillet: 3px;
