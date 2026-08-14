@@ -255,12 +255,22 @@ function InboxPage({ captures, projects, refresh, receipt, openTask, openResourc
     } catch (nextError) { setError(appError(nextError).message); }
   }
 
-  if (!captures.length) return <div className="page"><ContextPath segments={["M", "INBOX"]} /><EmptyState>Inbox limpa.</EmptyState></div>;
+  if (!captures.length) return <div className="page"><ContextPath segments={["M", "INBOX"]} /><EmptyState>Nothing to process. Everything captured has been dealt with.</EmptyState></div>;
   return <div className="split-page">
-    <section className="list-pane"><ContextPath segments={["M", "INBOX"]} /><div className="row-list">{captures.map((capture) => <DataRow key={capture.id} primary={capture.content} secondary={sourceLabel(capture.source)} meta={relativeTime(capture.capturedAt)} selected={capture.id === selectedId} onClick={() => { setSelectedId(capture.id); setTaskForm(false); setResourceForm(false); }} />)}</div></section>
-    {selected ? <article className="detail-pane"><header className="detail-header"><div><span className="micro-label">CAPTURE</span><h1>{selected.content}</h1><p>{sourceLabel(selected.source)} · {relativeTime(selected.capturedAt)}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => void mutate("archive")}>Arquivar</button><button className="danger-text" onClick={() => void mutate("trash")}>Mover para a Lixeira</button></div></details></header>
+    <section className="list-pane">
+      <div className="pane-heading"><ContextPath segments={["M", "INBOX"]} /><span className="micro-label">{captures.length} {captures.length === 1 ? "ITEM" : "ITENS"}</span></div>
+      <div className="row-list">{captures.map((capture) => <DataRow key={capture.id} primary={capture.content} secondary={sourceLabel(capture.source)} meta={relativeTime(capture.capturedAt)} selected={capture.id === selectedId} onClick={() => { setSelectedId(capture.id); setTaskForm(false); setResourceForm(false); }} />)}</div>
+    </section>
+    {selected ? <article className="detail-pane"><header className="detail-header"><div><span className="micro-label">SELECIONADO</span><h1>{selected.content}</h1><div className="chip-line"><span className="chip">{sourceLabel(selected.source)}</span><span className="chip">{relativeTime(selected.capturedAt)}</span></div></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => void mutate("archive")}>Arquivar</button><button className="danger-text" onClick={() => void mutate("trash")}>Mover para a Lixeira</button></div></details></header>
       {error ? <p className="inline-error" role="alert">! {error}</p> : null}
-      {taskForm ? <CaptureTaskForm capture={selected} projects={projects} cancel={() => setTaskForm(false)} onCreated={(task) => { setTaskForm(false); void refresh(); openTask(task); }} /> : resourceForm ? <ResourceForm capture={selected} cancel={() => setResourceForm(false)} saved={(resource) => { setResourceForm(false); void refresh(); openResource(resource); }} /> : <div ref={detailActions} className="detail-actions"><Button variant="primary" onClick={() => { setTaskForm(true); setResourceForm(false); }}>Criar Task</Button><Button variant="secondary" onClick={() => { setTaskForm(false); setResourceForm(true); }}>Salvar como Resource</Button><Button variant="ghost" data-function-action="capture.mark_processed" onClick={() => void mutate("processed")}>Marcar como processada</Button></div>}
+      {/* Moldura pronta, conteudo honesto. A interpretacao do Hermes e a fase 3
+          da integracao; ate la este bloco diz o que e, em vez de fabricar uma
+          interpretacao falsa para a tela parecer completa. */}
+      <section className="hermes-block" aria-label="Interpretação do Hermes">
+        <p className="hermes-empty">Interpretação automática ainda não está ligada. Classifique manualmente abaixo — nada se perde.</p>
+      </section>
+      {taskForm ? <CaptureTaskForm capture={selected} projects={projects} cancel={() => setTaskForm(false)} onCreated={(task) => { setTaskForm(false); void refresh(); openTask(task); }} /> : resourceForm ? <ResourceForm capture={selected} cancel={() => setResourceForm(false)} saved={(resource) => { setResourceForm(false); void refresh(); openResource(resource); }} /> : <div ref={detailActions} className="detail-actions"><Button variant="primary" onClick={() => { setTaskForm(true); setResourceForm(false); }}>Criar Task</Button><Button variant="secondary" onClick={() => { setTaskForm(false); setResourceForm(true); }}>Salvar Resource</Button><Button variant="secondary" data-function-action="capture.mark_processed" onClick={() => void mutate("processed")}>Arquivar</Button></div>}
+      <p className="pane-footnote">J / K percorre · Espaço processa · ⌘Z desfaz</p>
     </article> : null}
   </div>;
 }
@@ -1046,7 +1056,8 @@ function DesktopApp() {
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("m-os-theme", theme); }, [theme]);
   useEffect(() => { const handler = (event: globalThis.KeyboardEvent) => { if (event.ctrlKey && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); } if (event.ctrlKey && event.key.toLowerCase() === "z" && undo) { event.preventDefault(); void undo.run().then(() => { setUndo(null); return refresh(); }); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, [refresh, undo]);
 
-  function showReceipt(action: UndoAction) { setUndo(action); if (undoTimer.current) window.clearTimeout(undoTimer.current); undoTimer.current = window.setTimeout(() => setUndo(null), 8_000); }
+  // ~5s: tempo de ler e decidir desfazer, sem virar mobilia na tela.
+  function showReceipt(action: UndoAction) { setUndo(action); if (undoTimer.current) window.clearTimeout(undoTimer.current); undoTimer.current = window.setTimeout(() => setUndo(null), 5_000); }
   function navigate(page: Page) { setFunctionIntent(null); setPage(page); }
   function openProject(project: Project) { setFunctionIntent(null); setSelectedProjectId(project.id); setPage("projects"); }
   function openWorkspace(workspace: Workspace) { setFunctionIntent(null); setSelectedWorkspaceId(workspace.id); setPage("workspaces"); }

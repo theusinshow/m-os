@@ -135,6 +135,8 @@
   --caret-width: 8px;
   --caret-height: 20px;
   --dot-size: 5px;
+  --receipt-offset: 24px;
+  --fillet: 3px;
   --marker-height: 16px;
   --marker-offset: 12px;
   --focus-ring: 3px;
