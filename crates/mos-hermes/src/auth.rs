@@ -118,12 +118,32 @@ impl Gateway {
         HermesError::Unreachable(error.to_string())
     }
 
+    /// Um status HTTP fora da faixa de sucesso e falha de gateway, nao de
+    /// protocolo. Sem esta checagem, uma pagina de erro de proxy virava
+    /// "o protocolo do Hermes divergiu" — que manda procurar no lugar errado.
+    fn ensure_ok(response: &reqwest::Response, what: &str) -> Result<(), HermesError> {
+        let status = response.status();
+        if status.is_success() {
+            return Ok(());
+        }
+        if status.as_u16() == 401 {
+            return Err(HermesError::Unauthorized("sessao expirada".into()));
+        }
+        Err(HermesError::Gateway(format!(
+            "{what} respondeu {}.",
+            status.as_u16()
+        )))
+    }
+
     pub async fn status(&self) -> Result<GatewayStatus, HermesError> {
-        self.client
+        let response = self
+            .client
             .get(format!("{}/api/status", self.base_url))
             .send()
             .await
-            .map_err(Self::unreachable)?
+            .map_err(Self::unreachable)?;
+        Self::ensure_ok(&response, "/api/status")?;
+        response
             .json()
             .await
             .map_err(|error| HermesError::Protocol(format!("/api/status ilegivel: {error}")))
@@ -177,9 +197,7 @@ impl Gateway {
             .await
             .map_err(Self::unreachable)?;
 
-        if response.status().as_u16() == 401 {
-            return Err(HermesError::Unauthorized("sessao expirada".into()));
-        }
+        Self::ensure_ok(&response, "/api/auth/ws-ticket")?;
 
         let ticket: Ticket = response
             .json()

@@ -149,6 +149,7 @@
   --caret-width: 8px;
   --caret-height: 20px;
   --dot-size: 5px;
+  --checkbox-size: 14px;
   /* Tracking intermediario, entre meta (0.05em) e micro (0.14em). O desenho
      usa em rotulo de sistema que ainda precisa ser lido como palavra:
      segmento de caminho, filtro, dica de rodape. */
@@ -211,6 +212,17 @@
   /* Extensões de implementação — paridade no light. */
   --border-control: #868E93;
   --overlay-backdrop: rgba(20, 24, 26, 0.28);
+
+  /* A hachura precisa da própria definição aqui.
+     No claro, --surface e --surface-raised são ambos #FFFFFF, então a versão
+     do dark viraria branco sobre branco e o tile da Library ficaria um
+     retângulo vazio. Paridade é isto: cada modo tem a sua definição, nenhum é
+     derivado do outro. */
+  --hatch: repeating-linear-gradient(
+    135deg,
+    var(--surface-hover) 0 7px,
+    var(--surface) 7px 15px
+  );
 }
 
 /* ---------- Resets mínimos ---------- */

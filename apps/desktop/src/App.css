@@ -56,13 +56,6 @@ button {
     opacity var(--dur-instant) linear;
 }
 
-/* Destrutivo so existe em outline. Preenchido, ele convidaria ao clique que
-   justamente nao deve ser convidado. */
-.button.danger {
-  color: var(--danger);
-  background: transparent;
-}
-
 .button.primary {
   color: var(--on-signal);
   background: var(--signal-fill);
@@ -98,6 +91,8 @@ button {
   background: transparent;
 }
 
+/* Destrutivo so existe em outline. Preenchido, ele convidaria ao clique que
+   justamente nao deve ser convidado. */
 .button.danger {
   color: var(--danger);
   background: transparent;
@@ -1044,12 +1039,16 @@ textarea::placeholder {
   color: var(--text);
 }
 
+/* Flex, nao grid de duas colunas.
+   A row aceita numero variavel de filhos — marcador, conteudo, progresso,
+   metadata — e com grid de duas colunas o terceiro filho quebrava para uma
+   segunda linha implicita, jogando a metadata para baixo. Acontecia no painel
+   PROJECTS da Home, que tem o ponto, e na lista de Projects, que tem a barra. */
 .data-row {
   position: relative;
-  display: grid;
+  display: flex;
   width: 100%;
   min-height: var(--height-row);
-  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-3);
   padding: 0 var(--space-2);
@@ -1095,6 +1094,7 @@ textarea::placeholder {
 .row-copy {
   display: grid;
   min-width: 0;
+  flex: 1;
   gap: var(--space-1);
 }
 
@@ -1264,15 +1264,43 @@ textarea::placeholder {
   text-transform: uppercase;
 }
 
+/* Campo em repouso: fundo transparente e borda discreta. O campo nao precisa
+   se anunciar — ele se anuncia quando recebe conteudo ou foco. */
 input,
 textarea,
 select {
   min-height: var(--height-input);
   padding: 0 var(--space-3);
   color: var(--text);
-  background: var(--surface);
-  border: var(--line) solid var(--border-control);
+  background: transparent;
+  border: var(--line) solid var(--border);
   border-radius: var(--radius);
+  font: var(--text-small);
+  transition: border-color var(--dur-instant) var(--ease-state);
+}
+
+/* Preenchido acende a borda. E a diferenca entre "aqui cabe algo" e "aqui ja
+   tem algo" sem precisar de rotulo dizendo isso. */
+input:not(:placeholder-shown),
+textarea:not(:placeholder-shown),
+select:valid {
+  border-color: var(--border-strong);
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled {
+  color: var(--text-system);
+  background: var(--surface);
+  border-color: var(--border);
+  cursor: default;
+}
+
+/* Erro tem cor, ao contrario de warning: e o unico estado alem do sinal que
+   pode usar cromatica, e vem sempre acompanhado de frase. */
+input[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: var(--danger);
 }
 
 textarea {
@@ -1604,12 +1632,64 @@ select {
   border-bottom: var(--line) solid var(--border);
 }
 
-.check-control input {
-  width: var(--target-min);
-  min-height: var(--target-min);
+/* Checkbox desenhado, nao o nativo com accent-color: o nativo renderiza a caixa
+   do sistema operacional, que nao tem nada a ver com o resto da interface.
+   14px, radius de elemento pequeno, e os cinco estados da folha.
+   A area de clique continua grande porque o label envolve o input. */
+input[type="checkbox"] {
+  display: grid;
+  width: var(--checkbox-size);
+  min-width: var(--checkbox-size);
+  height: var(--checkbox-size);
+  min-height: var(--checkbox-size);
+  flex: none;
   margin: 0;
-  padding: var(--space-1);
-  accent-color: var(--signal-fill);
+  padding: 0;
+  place-items: center;
+  appearance: none;
+  background: transparent;
+  border: var(--line) solid var(--border-control);
+  border-radius: var(--radius-sm);
+  transition: background var(--dur-state) var(--ease-state),
+    border-color var(--dur-state) var(--ease-state);
+}
+
+input[type="checkbox"]:hover:enabled {
+  border-color: var(--text-secondary);
+}
+
+input[type="checkbox"]:checked {
+  background: var(--signal-fill);
+  border-color: var(--signal-fill);
+}
+
+/* O glifo e desenhado em CSS para nao depender de fonte nem de SVG inline num
+   pseudo-elemento. Herda a cor de tinta sobre sodio. */
+input[type="checkbox"]:checked::after {
+  width: 3px;
+  height: 7px;
+  border: solid var(--on-signal);
+  border-width: 0 2px 2px 0;
+  transform: translateY(-1px) rotate(45deg);
+  content: "";
+}
+
+/* Parcial: barra em vez de marca. Diz "alguns", nao "todos". */
+input[type="checkbox"]:indeterminate {
+  background: var(--text-system);
+  border-color: var(--text-system);
+}
+
+input[type="checkbox"]:indeterminate::after {
+  width: 7px;
+  height: var(--marker);
+  background: var(--on-signal);
+  content: "";
+}
+
+input[type="checkbox"]:disabled {
+  border-color: var(--border);
+  cursor: default;
 }
 
 .command-results {
@@ -1704,7 +1784,13 @@ select {
   color: var(--text-system);
 }
 
-.hermes-thread {
+/* Estas regras sao do modo Hermes DENTRO do Command, e ficam escopadas nele.
+   Sem o escopo, elas colidiam com as da tela do Hermes, que usa os mesmos
+   nomes de classe: o turno do Command herdava max-width e borda que nao eram
+   dele, e o da tela recebia um display: grid que brigava com o layout. Mesmo
+   nome de classe em dois componentes e o tipo de bug que nao aparece em build
+   nem em teste — so na tela. */
+.command-surface .hermes-thread {
   display: grid;
   gap: var(--space-4);
   max-height: calc(var(--height-row-two-line) * 8);
@@ -1712,12 +1798,12 @@ select {
   overflow: auto;
 }
 
-.hermes-turn {
+.command-surface .hermes-turn {
   display: grid;
   gap: var(--space-2);
 }
 
-.hermes-question {
+.command-surface .hermes-question {
   margin: 0;
   color: var(--text-secondary);
   font: var(--text-small);
@@ -1725,7 +1811,7 @@ select {
 
 /* A barra de 2px em sodio marca tudo que o sistema produziu. Nao ha bolha, nao
    ha avatar, nao ha orb: o Hermes e capacidade nativa, nao um convidado. */
-.hermes-answer {
+.command-surface .hermes-answer {
   margin: 0;
   padding-left: var(--space-3);
   border-left: var(--marker) solid var(--signal-fill);
@@ -2090,17 +2176,13 @@ select {
 .amplitude {
   display: flex;
   flex: none;
-  align-items: center;
+  align-items: flex-end;
   gap: var(--space-1);
   height: var(--capture-bar-height);
 }
 
 /* Quatro tracos de alturas diferentes: le como forma de onda parada, nao como
    barra de progresso. Alinhados pela base. */
-.amplitude {
-  align-items: flex-end;
-}
-
 .amplitude i {
   width: var(--line);
   background: var(--text-system);
@@ -2584,4 +2666,58 @@ select {
   margin-right: var(--space-2);
   color: var(--signal-ink);
   font: var(--text-meta);
+}
+
+/* Progresso do Project na row. A barra ocupa largura fixa para que varias rows
+   fiquem comparaveis pelo olho: barras de largura variavel nao se comparam. */
+.row-progress {
+  flex: none;
+  width: 96px;
+  height: var(--marker);
+  background: var(--border);
+}
+
+.row-progress i {
+  display: block;
+  height: 100%;
+  background: var(--signal-fill);
+  transition: width var(--dur-state) var(--ease-state);
+}
+
+.row-progress-count {
+  flex: none;
+  min-width: var(--space-6);
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-align: right;
+}
+
+/* Botao pequeno de criacao, o que fica acima de uma lista. Ele nao e a acao
+   principal da tela — e a porta para uma. 28px e borda que acende em sodio no
+   hover: convida sem competir com o conteudo da lista. */
+.button.sm {
+  min-height: var(--height-control-sm);
+  padding: 0 var(--space-3);
+}
+
+.button.outline.sm:hover {
+  background: transparent;
+  border-color: var(--signal-ink);
+}
+
+.hermes-offline-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+/* Segunda linha de row em mono quando o valor e dado de sistema: origem de
+   captura, tipo de lancamento. Descricao de Project continua em grotesk. */
+.row-copy small[data-system] {
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
 }

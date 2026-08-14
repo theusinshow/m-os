@@ -35,7 +35,13 @@ pub async fn connect(url: &str) -> Result<Channels, HermesError> {
 
     tokio::spawn(async move {
         while let Some(frame) = outgoing_rx.recv().await {
-            if sink.send(Message::text(frame)).await.is_err() {
+            // O terminador vai junto: um servidor que reusa o leitor de linha do
+            // stdio nunca veria o request terminar sem ele.
+            if sink
+                .send(Message::text(format!("{frame}\n")))
+                .await
+                .is_err()
+            {
                 break;
             }
         }
@@ -45,13 +51,46 @@ pub async fn connect(url: &str) -> Result<Channels, HermesError> {
     tokio::spawn(async move {
         while let Some(message) = stream.next().await {
             let forwarded = match message {
-                Ok(Message::Text(text)) => Ok(text.to_string()),
+                // O protocolo e newline-delimited: um frame de texto pode
+                // carregar mais de uma mensagem. Entregar o bloco inteiro ao
+                // parser derrubava TODAS as mensagens do lote como "frame
+                // ilegivel" — e um lote e justamente o que chega quando o
+                // servidor emite varios eventos juntos.
+                Ok(Message::Text(text)) => {
+                    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+                        if incoming_tx.send(Ok(line.to_owned())).await.is_err() {
+                            return;
+                        }
+                    }
+                    continue;
+                }
                 // O gateway so manda texto; binario seria divergencia de
                 // contrato, e vale dizer isso em vez de ignorar em silencio.
                 Ok(Message::Binary(_)) => Err(HermesError::Protocol(
                     "o gateway mandou frame binario, que o contrato nao preve".into(),
                 )),
-                Ok(Message::Close(_)) => break,
+                // O codigo de fechamento carrega o motivo, e jogar fora fazia
+                // uma recusa de credencial (4401) ou de politica (4403) chegar
+                // ao usuario como "o tunel nao esta aberto" — culpando a rede
+                // por um problema de autenticacao.
+                Ok(Message::Close(frame)) => {
+                    if let Some(frame) = frame {
+                        let code: u16 = frame.code.into();
+                        let reported = match code {
+                            4401 => Some(HermesError::Unauthorized(
+                                "o gateway recusou o ticket ao fechar a conexao".into(),
+                            )),
+                            4403 => Some(HermesError::Gateway(
+                                "O gateway recusou a conexao por politica (chat embutido desligado ou origem nao permitida).".into(),
+                            )),
+                            _ => None,
+                        };
+                        if let Some(error) = reported {
+                            let _ = incoming_tx.send(Err(error)).await;
+                        }
+                    }
+                    break;
+                }
                 Ok(_) => continue,
                 Err(error) => Err(classify(error)),
             };
