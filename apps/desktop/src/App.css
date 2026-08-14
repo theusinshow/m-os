@@ -526,16 +526,20 @@ textarea::placeholder {
 
 /* Quatro paineis em grade 2x2. Cada um se resolve sozinho; nenhum depende de
    ler o vizinho. */
+/* auto-fit colapsa as trilhas vazias, entao os paineis dividem entre si toda a
+   largura disponivel em vez de ficarem presos a duas colunas. */
 .home-sections {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(var(--column-min), 1fr));
   gap: var(--space-4);
   padding-top: var(--space-5);
 }
 
+/* auto-fill, nao auto-fit: preserva as trilhas vazias para que um unico
+   workspace continue do tamanho de um chip em vez de esticar pela tela. */
 .context-switcher {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(var(--column-min), 1fr));
   gap: var(--space-3);
   padding: var(--space-3) 0 var(--space-4);
 }
