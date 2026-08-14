@@ -5,7 +5,8 @@
    Dark é o padrão. Light é paridade, não inversão.
    ============================================================ */
 
-/* Font files are bundled by each client. The desktop imports them through Fontsource. */
+/* Fontes são empacotadas pelo cliente. O desktop importa via Fontsource em main.tsx.
+   O desktop não deve depender de rede para renderizar texto. */
 
 :root {
   /* ---------- Tipografia ---------- */
@@ -21,12 +22,12 @@
   --text-meta: 400 11px/1.4 var(--font-system);
   --text-micro: 400 9px/1.4 var(--font-system);
 
-  --tracking-display: 0;
-  --tracking-title: 0;
-  --tracking-capture: 0;
-  --tracking-body: 0;
-  --tracking-meta: 0;
-  --tracking-micro: 0;
+  --tracking-display: -0.034em;
+  --tracking-title: -0.024em;
+  --tracking-capture: -0.022em;
+  --tracking-body: -0.008em;
+  --tracking-meta: 0.05em;
+  --tracking-micro: 0.14em;
 
   /* ---------- Spacing (base 4) ---------- */
   --space-1: 4px;
@@ -38,7 +39,6 @@
   --space-7: 84px;
 
   /* ---------- Geometria ---------- */
-  --radius-none: 0;
   --radius-sm: 2px;   /* elementos de 14-20px */
   --radius: 3px;      /* padrão de todo o sistema */
   --radius-lg: 8px;   /* somente app icon e overlay grande */
@@ -67,20 +67,6 @@
   --height-input: 38px;
   --height-menu-item: 30px;
 
-  /* ---------- Layout e linhas adicionados na implementação ---------- */
-  --line: 1px;
-  --marker: 2px;
-  --focus-ring: 3px;
-  --target-min: 24px;
-  --content-max: 1100px;
-  --column-min: 260px;
-  --list-pane-width: 400px;
-  --z-rail: 10;
-  --z-drawer: 20;
-  --z-backdrop: 30;
-  --z-overlay: 40;
-  --z-receipt: 50;
-
   /* ---------- Motion ---------- */
   --dur-instant: 75ms;    /* hover, press */
   --dur-state: 140ms;     /* check, select */
@@ -102,13 +88,12 @@
   --surface-active: #252C31;
   --border: #1E2429;
   --border-strong: #2A3136;
-  --border-control: #626A70;
 
   --text: #E7EAEC;
   --text-secondary: #8C949A;
-  --text-system: #768086;
+  --text-system: #626A70;
   --text-disabled: #565E63;
-  --text-placeholder: #8C949A;
+  --text-placeholder: #4E565B;
 
   --signal-fill: #E7C24E;   /* preenchimento: igual nos dois modos */
   --signal-ink: #E7C24E;    /* tinta: muda no light */
@@ -123,7 +108,58 @@
   /* warning não tem cor: use --text + ícone + --text-system na borda */
 
   --shadow-overlay: 0 20px 48px rgba(0, 0, 0, 0.5);
+
+  /* ---------- Extensões de implementação ----------
+     Não fazem parte do handoff. São dimensões operacionais que o app precisa e
+     que o pacote não define. Extensão de token é permitida e deve ser explícita
+     (DECISIONS.md:448). Nenhuma delas é cor de marca. */
+  --radius-none: 0;
+  --line: 1px;
+  --marker: 2px;
+
+  /* Shell. Valores fixados pelo README do handoff que nao caem na escala de
+     spacing (rail de 40px, simbolo de 26px, topbar de 44px). Ficam como token
+     para nao virarem literal dentro de componente. */
+  --topbar-height: 44px;
+  --rail-item: 40px;
+  --rail-symbol: 26px;
+  --rail-symbol-radius: 5px;
+  --rail-symbol-gap: 24px;
+  --rail-symbol-bar: 16px;
+  --symbol-inline: 13px;
+
+  /* Capture: a barra e o limiar de entrada, desenhada vertical (e a barra da
+     marca a -22 graus). O caret e de bloco, nao de linha. */
+  --capture-bar-width: 7px;
+  --capture-bar-height: 22px;
+  --caret-width: 8px;
+  --caret-height: 20px;
+  --dot-size: 5px;
+  --receipt-offset: 24px;
+  --command-type-column: 84px;
+  --command-footer: 34px;
+  --fillet: 3px;
+
+  /* Tile da Library sem imagem. Hachura, nunca ilustracao nem icone gigante. */
+  --hatch: repeating-linear-gradient(
+    135deg,
+    var(--surface-raised) 0 7px,
+    var(--surface) 7px 15px
+  );
+  --marker-height: 16px;
+  --marker-offset: 12px;
+  --focus-ring: 3px;
+  --target-min: 24px;
+  --content-max: 1100px;
+  --column-min: 260px;
+  --list-pane-width: 400px;
+  --border-control: #626A70;
   --overlay-backdrop: rgba(10, 12, 14, 0.72);
+  --z-rail: 10;
+  --z-drawer: 20;
+  --z-backdrop: 30;
+  --z-overlay: 40;
+  --z-receipt: 50;
 }
 
 [data-theme='light'] {
@@ -134,13 +170,12 @@
   --surface-active: #E4E8EA;
   --border: #D6DBDE;
   --border-strong: #C9CFD2;
-  --border-control: #868E93;
 
   --text: #14181A;
   --text-secondary: #596166;
-  --text-system: #687075;
+  --text-system: #868E93;
   --text-disabled: #A2A9AD;
-  --text-placeholder: #596166;
+  --text-placeholder: #A2A9AD;
 
   --signal-fill: #E7C24E;
   --signal-ink: #8A6A12;    /* âmbar puro é ilegível como texto no claro */
@@ -154,6 +189,9 @@
   --danger: #B33A2C;
 
   --shadow-overlay: 0 20px 48px rgba(20, 24, 26, 0.14);
+
+  /* Extensões de implementação — paridade no light. */
+  --border-control: #868E93;
   --overlay-backdrop: rgba(20, 24, 26, 0.28);
 }
 
@@ -171,10 +209,9 @@ body {
 
 /* Focus: idêntico em todos os componentes do sistema */
 :focus-visible {
-  outline: var(--marker) solid var(--signal-ink);
-  outline-offset: var(--marker);
+  outline: none;
   border-color: var(--signal-ink);
-  box-shadow: none;
+  box-shadow: 0 0 0 3px var(--signal-ring);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -191,6 +228,9 @@ body {
   * { animation: none !important; }
 }
 
+/* Alto contraste do Windows. Os tokens param de impor cor e devolvem o controle
+   às system colors. Requisito arquitetural aprovado no spike de shell
+   (TECHNICAL-SPIKE-DESKTOP-SHELL.md:55). */
 @media (forced-colors: active) {
   :root,
   [data-theme='light'] {

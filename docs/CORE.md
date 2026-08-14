@@ -243,11 +243,11 @@ Isso provavelmente é uma referência, não uma tarefa.
 
 ## 12. Estado das Tasks
 
-Tasks poderão possuir estados para representar seu progresso.
+Tasks possuem estados para representar seu progresso.
 
-O modelo final ainda não está definido.
+Desde a v0.3 os seis conceitos abaixo estão implementados, nesta ordem — que é também a ordem das colunas do Kanban. Ver `CORE-FOUNDATION.md` para as regras de transição e para a nota sobre a colisão entre `inbox` e a Inbox de Captures.
 
-Possíveis conceitos:
+Conceitos:
 
 - Inbox;
 - Backlog;

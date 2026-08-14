@@ -8,8 +8,8 @@ mod service;
 mod work;
 
 pub use app::{
-    app_catalog, validate_launch_target, validate_source_url, AppCatalogEntry, AppId,
-    AppLaunchKind, NewRegisteredApp, RegisteredApp,
+    app_catalog, validate_launch_target, validate_source_url, AppCapabilities, AppCatalogEntry,
+    AppId, AppLaunchKind, NewRegisteredApp, RegisteredApp,
 };
 pub use capture::{Capture, CaptureId, CaptureSource, LifecycleState, NewCapture, ProcessingState};
 pub use error::{CoreError, ErrorCode};

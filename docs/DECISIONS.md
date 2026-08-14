@@ -436,7 +436,7 @@ Task e marca a Capture como processada na mesma transação.
 
 ### Decisão
 
-`Design System/handoff/mos-tokens.css` é a fonte única de tokens do cliente
+`Design System/design_handoff_frontend/mos-tokens.css` é a fonte única de tokens do cliente
 desktop. Componentes usam primitivas próprias, SVGs próprios e fontes locais.
 Bibliotecas genéricas de UI ou ícones não entram sem uma necessidade concreta.
 
@@ -492,3 +492,71 @@ Introduzir `Resource` com o tipo concreto `link`, contendo título, URL, nota co
 - título, URL e nota participam da Search unificada;
 - encontrar um Resource no Command abre seu detalhe, não executa a URL;
 - Archive e Trash permanecem recuperáveis sem exclusão definitiva.
+
+---
+
+## ADR-022 — O design v0.7 sobrepõe o handoff onde ele supõe um back-end que não existe
+
+**Aceita em:** 2026-08-14, na aplicação da camada visual v0.3.
+
+### Contexto
+
+O pacote `Design System/design_handoff_frontend/` fecha a linguagem visual e afirma, no seu README: *"Nenhuma chamada de `api.ts` muda de assinatura. Nenhuma tabela muda."*
+
+Essa afirmação foi escrita supondo que o back-end já suportava o desenho. Ele não suportava. O Kanban desenhado tem seis colunas contra três estados persistidos; a Library filtra por tipo de Resource contra um único tipo `link`; o painel de App declara quatro capacidades que não existiam; o pane de Project exibe um repositório sem campo correspondente.
+
+### Decisão
+
+Criar no back-end o que o desenho exige, aceitando que assinaturas de `api.ts` e o schema mudem. O README continua valendo integralmente em tudo que é visual — ele perde apenas nesta questão específica, e por instrução explícita do proprietário do produto.
+
+### Consequências
+
+- migration 0007 leva o schema de 6 para 7;
+- `CORE-FOUNDATION.md` foi corrigido junto, em vez de ficar contradizendo o código;
+- a regra "nenhuma dependência nova, nenhum valor fora dos tokens" permanece intacta e verificada;
+- futuros handoffs devem declarar o que exigem do back-end, em vez de assumir suporte.
+
+---
+
+## ADR-023 — Coluna de Kanban é visualização, não semântica
+
+**Aceita em:** 2026-08-14.
+
+### Contexto
+
+`CORE-FOUNDATION.md` excluiu `Planned` e `Review` da v0.1 com justificativas corretas: `Planned` depende de semântica temporal inexistente, `Review` de um fluxo não validado. `ARCHITECTURE-REVIEW.md` recomendou remover `Planned`. O design v0.7 desenhou seis colunas.
+
+### Decisão
+
+Persistir os seis estados. Uma Task em `planned` não promete comportamento temporal e `review` não dispara fluxo algum — são rótulos de posição, e a semântica, se vier, se apoiará em dados já persistidos em vez de exigir migração.
+
+O valor `inbox` é mantido apesar da colisão de nome com a Inbox de Captures, porque mudar o rótulo quebraria o design fechado. Capture tem `processing_state`; Task tem `work_state`. O aviso está no enum, na migration e em `CORE-FOUNDATION.md`.
+
+### Consequências
+
+- revoga a recomendação de `ARCHITECTURE-REVIEW.md` sobre `Planned`;
+- transições passam a ser livres entre estados, porque o Kanban permite arrastar para qualquer coluna;
+- a colisão de nome exige disciplina de leitura e está documentada nos três lugares onde alguém tropeçaria.
+
+---
+
+## ADR-024 — Hermes é superfície, não segundo agente
+
+**Aceita em:** 2026-08-14, na investigação da integração.
+
+### Contexto
+
+Já existe um Hermes (`NousResearch/Hermes-Agent`) rodando em VPS, usado por WhatsApp e pelo dashboard próprio. A alternativa seria o M/OS construir a própria camada de IA.
+
+### Decisão
+
+O M/OS é mais uma superfície do Hermes existente. Ele mantém interface, UX, contexto local e sessão própria; o Hermes mantém modelo, reasoning, skills, tools e execução agentic. O acesso é por túnel SSH para `127.0.0.1:9119`, sem expor porta nova. O contrato factual está em `HERMES-GATEWAY-CONTRACT.md`.
+
+A ponte vive em crate próprio, sem dependência de `mos-storage-sqlite` — "Hermes nunca escreve no SQLite" passa a ser impossibilidade de compilação em vez de regra a lembrar.
+
+### Consequências
+
+- nenhuma skill é duplicada: `/api/ws` delega ao mesmo dispatcher da TUI e do WhatsApp;
+- sessão do M/OS é separada do WhatsApp, mas o agente é o mesmo;
+- `CORE-FOUNDATION.md:33` já estabelecia que Hermes não faz parte do Core; o crate separado torna isso estrutural;
+- ações do M/OS a partir do Hermes (fases 3+) passarão pela camada de aplicação, nunca direto no banco.

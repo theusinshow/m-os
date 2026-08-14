@@ -136,21 +136,24 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-4);
   width: var(--rail-width);
-  padding: var(--space-3) var(--space-2);
+  padding: var(--space-3) 0;
   background: var(--surface);
   border-right: var(--line) solid var(--border);
 }
 
-.nav-rail .symbol {
+/* Assinatura, nao destino: nao e clicavel e nao recebe foco. */
+.rail-symbol {
   display: grid;
-  height: var(--height-control);
+  width: var(--rail-symbol);
+  height: var(--rail-symbol);
+  margin-bottom: var(--rail-symbol-gap);
   place-items: center;
-  font-weight: 700;
+  color: var(--on-signal);
+  background: var(--signal-fill);
+  border-radius: var(--rail-symbol-radius);
 }
 
-.nav-rail .symbol span,
 .slash,
 .context-path b {
   color: var(--signal-ink);
@@ -160,27 +163,79 @@ button {
 
 .nav-rail nav {
   display: flex;
-  flex: 1;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-1);
 }
 
 .nav-rail button {
   position: relative;
+  width: var(--rail-item);
+  height: var(--rail-item);
+  color: var(--text-system);
 }
 
+/* Ativo e o icone em --text mais a barra. Sem fundo: o accent e sinal, nao
+   preenchimento de container. */
 .nav-rail button[aria-current="page"] {
-  color: var(--signal-ink);
-  background: var(--signal-wash);
+  color: var(--text);
+  background: transparent;
 }
 
 .nav-rail button[aria-current="page"]::before {
   position: absolute;
-  left: calc(var(--space-2) * -1);
+  top: var(--marker-offset);
+  left: 0;
   width: var(--marker);
-  height: var(--height-control-sm);
+  height: var(--marker-height);
   background: var(--signal-fill);
   content: "";
+}
+
+.rail-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: auto;
+}
+
+.mos-symbol {
+  display: block;
+  width: var(--rail-symbol-bar);
+  height: var(--rail-symbol-bar);
+}
+
+.mos-symbol polygon {
+  fill: currentcolor;
+  transform-origin: center;
+}
+
+/* Motion oficial da marca. A barra e simetrica em 180 graus, entao a meia-volta
+   cai exatamente sobre ela mesma: nada entra, nada sai. */
+@keyframes barHalf {
+  0%,
+  22% {
+    transform: rotate(0deg);
+  }
+
+  62%,
+  100% {
+    transform: rotate(180deg);
+  }
+}
+
+/* Trabalhando: o unico spinner do sistema. */
+@keyframes barSpin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(180deg);
+  }
+}
+
+.mos-symbol[data-spinning] polygon {
+  animation: barSpin 900ms linear infinite;
 }
 
 .nav-rail button > span {
@@ -197,13 +252,14 @@ button {
 .main-column {
   display: grid;
   min-width: 0;
-  grid-template-rows: var(--rail-width) minmax(0, 1fr);
+  grid-template-rows: var(--topbar-height) minmax(0, 1fr);
 }
 
 .topbar {
   display: flex;
   align-items: center;
-  padding: 0 var(--content-margin);
+  justify-content: space-between;
+  padding: 0 var(--space-4);
   background: var(--canvas);
   border-bottom: var(--line) solid var(--border);
 }
@@ -212,19 +268,34 @@ button {
   display: flex;
   align-items: center;
   min-width: var(--sidebar-width);
-  min-height: var(--height-control-sm);
+  height: var(--height-control-sm);
   gap: var(--space-2);
   padding: 0 var(--space-2);
   color: var(--text-secondary);
   background: transparent;
-  border: 0;
+  border: var(--line) solid var(--border-strong);
   border-radius: var(--radius);
   text-align: left;
+  transition: border-color var(--dur-instant) var(--ease-state);
 }
 
 .command-trigger:hover {
-  color: var(--text);
-  background: var(--surface);
+  border-color: var(--text-system);
+}
+
+/* Estado de sistema: a barra girando quando ocupado, o meta da pagina quando
+   nao. E o mesmo slot que a ponte com o Hermes vai usar (Spec B). */
+.system-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-system);
+}
+
+.system-state .mos-symbol {
+  width: var(--symbol-inline);
+  height: var(--symbol-inline);
+  color: var(--signal-ink);
 }
 
 .command-trigger > span:nth-child(2) {
@@ -277,30 +348,35 @@ kbd {
   color: var(--text);
 }
 
+/* A excecao deliberada do sistema: sem caixa, sem borda. Um Capture nao deve
+   parecer um formulario — deve parecer o comeco de um pensamento. */
 .capture-field {
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-6) 0 var(--space-5);
+  padding: var(--space-5) 0 var(--space-5);
 }
 
 .capture-line {
-  display: grid;
-  grid-template-columns: var(--space-4) minmax(0, 1fr);
-  align-items: start;
-  gap: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
   border-bottom: var(--line) solid var(--border-strong);
 }
 
-.capture-line .slash {
-  padding-top: var(--space-2);
-  font: var(--text-capture);
+/* O limiar de entrada. E a barra da marca, vertical. */
+.capture-bar {
+  flex: none;
+  width: var(--capture-bar-width);
+  height: var(--capture-bar-height);
+  background: var(--signal-fill);
 }
 
 .capture-line textarea {
   width: 100%;
-  min-height: var(--height-control-lg);
+  min-height: var(--capture-bar-height);
   max-height: calc(var(--height-control-lg) * 4);
-  padding: var(--space-2) 0;
+  padding: 0;
   overflow: auto;
   color: var(--text);
   background: transparent;
@@ -311,9 +387,29 @@ kbd {
   resize: none;
 }
 
-.capture-line:focus-within {
-  border-color: var(--signal-ink);
-  box-shadow: 0 var(--marker) 0 var(--signal-ink);
+/* Caret de bloco. steps(1, end) porque um caret pisca, nao esmaece. */
+.capture-caret {
+  flex: none;
+  width: var(--caret-width);
+  height: var(--caret-height);
+  background: var(--text-system);
+  animation: caret 1.1s steps(1, end) infinite;
+}
+
+@keyframes caret {
+  0%,
+  46% {
+    opacity: 1;
+  }
+
+  47%,
+  100% {
+    opacity: 0.15;
+  }
+}
+
+.capture-save {
+  flex: none;
 }
 
 .startup-state {
@@ -383,39 +479,50 @@ textarea::placeholder {
   color: var(--danger);
 }
 
+/* Quatro paineis em grade 2x2. Cada um se resolve sozinho; nenhum depende de
+   ler o vizinho. */
 .home-sections {
   display: grid;
-  gap: var(--space-6);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  padding-top: var(--space-5);
 }
 
 .context-switcher {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--space-2);
-  padding: var(--space-2) 0 var(--space-4);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-3) 0 var(--space-4);
 }
 
 .context-switcher button {
   display: grid;
-  min-height: var(--height-row-two-line);
   align-content: center;
   gap: var(--space-1);
-  padding: 0 var(--space-2);
+  padding: var(--space-3);
   color: var(--text);
   background: transparent;
   border: var(--line) solid var(--border);
   border-radius: var(--radius);
   text-align: left;
+  transition: border-color var(--dur-instant) var(--ease-state),
+    background var(--dur-instant) var(--ease-state);
 }
 
-.context-switcher button:hover,
-.context-switcher button[data-selected] {
-  background: var(--surface-hover);
+.context-switcher button strong {
+  font: var(--text-body);
+  font-weight: 500;
+}
+
+.context-switcher button:hover {
   border-color: var(--border-strong);
 }
 
+/* Ativo e borda em sodio mais um lavado de 6%. O accent marca qual contexto
+   esta valendo — nao decora os outros. */
 .context-switcher button[data-selected] {
-  color: var(--signal-ink);
+  background: color-mix(in srgb, var(--signal-fill) 6%, transparent);
+  border-color: var(--signal-ink);
 }
 
 .context-switcher small {
@@ -426,10 +533,12 @@ textarea::placeholder {
   white-space: nowrap;
 }
 
+/* Panel nu: sem borda, sem fundo. O que o delimita e o rotulo mono e a regua.
+   Nao existe card neste sistema. */
 .panel {
   display: grid;
   gap: 0;
-  border-top: var(--line) solid var(--border);
+  min-width: 0;
 }
 
 .panel-header {
@@ -437,6 +546,7 @@ textarea::placeholder {
   align-items: center;
   justify-content: space-between;
   min-height: var(--height-row);
+  border-bottom: var(--line) solid var(--border);
 }
 
 .panel-header h2,
@@ -446,8 +556,352 @@ textarea::placeholder {
   text-transform: uppercase;
 }
 
+.panel-count {
+  color: var(--text-disabled);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
 .row-list {
   display: grid;
+}
+
+/* Separador de row e 1px de --border, nunca gap. Gap deixaria as rows
+   flutuando; a regua diz que elas pertencem a mesma lista. */
+.row-list > * + * {
+  border-top: var(--line) solid var(--border);
+}
+
+@keyframes rowEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* O unico uso de fundo sodio em row nao selecionada: confirma que a Capture
+   entrou, sem precisar de um toast dizendo a mesma coisa. */
+@keyframes savedWash {
+  from {
+    background: var(--signal-wash);
+  }
+
+  to {
+    background: transparent;
+  }
+}
+
+.data-row[data-entered] {
+  animation: rowEnter var(--dur-move) var(--ease-state);
+}
+
+.data-row[data-saved] {
+  animation: rowEnter var(--dur-move) var(--ease-state), savedWash 900ms var(--ease-state);
+}
+
+/* Sodio = mexido hoje. O resto e neutro: o ponto informa, nao enfeita. */
+.project-dot {
+  flex: none;
+  width: var(--dot-size);
+  height: var(--dot-size);
+  background: var(--border-strong);
+  border-radius: 50%;
+}
+
+.project-dot[data-active] {
+  background: var(--signal-fill);
+}
+
+.app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--height-control-lg), 1fr));
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+}
+
+.app-tile {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.app-icon {
+  display: grid;
+  width: var(--height-control-lg);
+  height: var(--height-control-lg);
+  place-items: center;
+  color: var(--text);
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  font: var(--text-body);
+  font-weight: 700;
+  transition: border-color var(--dur-instant) var(--ease-state);
+}
+
+/* Hover so troca a borda: os icones da familia M/ sao brancos e moldurados,
+   so o sistema usa sodio e massa solida. */
+.app-tile:hover .app-icon {
+  border-color: var(--text-system);
+}
+
+.app-name {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font: var(--text-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shortcut {
+  color: var(--text-disabled);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+.pane-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.pane-footnote {
+  margin: var(--space-4) 0 0;
+  color: var(--text-disabled);
+  font: var(--text-small);
+}
+
+/* Metadata em chip: borda neutra, mono, radius de elemento pequeno. */
+.chip-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+.chip {
+  padding: 0 var(--space-2);
+  color: var(--text-secondary);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+}
+
+/* A barra vertical de 2px em sodio marca tudo que o sistema produziu. E o
+   mesmo marcador de selecao: autoria e selecao sao o mesmo gesto visual. */
+.hermes-block {
+  margin: var(--space-4) 0;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border-left: var(--marker) solid var(--signal-fill);
+}
+
+.hermes-empty {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+/* Metadata entre duas reguas. Rotulo em mono porque e dado de sistema; valor
+   em mono so quando o proprio valor e dado de sistema (caminho, repositorio). */
+.fact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin: var(--space-4) 0;
+  padding: var(--space-3) 0;
+  border-top: var(--line) solid var(--border);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.fact-grid dt {
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+
+.fact-grid dd {
+  margin: var(--space-1) 0 0;
+  color: var(--text);
+  font: var(--text-small);
+}
+
+.mono-value {
+  font-family: var(--font-system);
+  word-break: break-all;
+}
+
+.fact-empty {
+  color: var(--text-disabled);
+}
+
+.mono-input {
+  font-family: var(--font-system);
+}
+
+/* Rows densas de 30px. O tracinho nao e decoracao: e a diferenca entre
+   "nao pode" e "ninguem declarou ainda". */
+.capability-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--height-row-dense);
+}
+
+.capability-row + .capability-row {
+  border-top: var(--line) solid var(--border);
+}
+
+.capability-row span[data-granted] {
+  color: var(--text);
+}
+
+.capability-row span:not([data-granted]):not(.micro-label) {
+  color: var(--text-disabled);
+}
+
+/* Filtros como texto. Ativo em --text, resto em --text-system: a hierarquia
+   e tipografica, nao cromatica. */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: var(--line) solid var(--border);
+}
+
+.filter-group {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.filter-label {
+  padding: 0;
+  color: var(--text-system);
+  background: transparent;
+  border: 0;
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  transition: color var(--dur-instant) var(--ease-state);
+}
+
+.filter-label:hover {
+  color: var(--text-secondary);
+}
+
+.filter-label[data-active] {
+  color: var(--text);
+}
+
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--column-min), 1fr));
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+}
+
+.tile {
+  display: grid;
+  gap: var(--space-1);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+
+/* Sem imagem, o fundo e hachura. Nunca ilustracao, nunca icone gigante: o
+   tile e um lugar reservado para o recurso, nao um desenho sobre ele. */
+.tile-face {
+  position: relative;
+  display: block;
+  aspect-ratio: 4 / 3;
+  background: var(--hatch);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color var(--dur-instant) var(--ease-state);
+}
+
+.tile:hover .tile-face {
+  border-color: var(--border-strong);
+}
+
+.tile[data-selected] .tile-face {
+  border-color: var(--signal-ink);
+}
+
+.tile[data-selected] .tile-face::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--marker);
+  background: var(--signal-fill);
+  content: "";
+}
+
+.tile-kind {
+  position: absolute;
+  bottom: var(--space-2);
+  left: var(--space-2);
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-micro);
+}
+
+.tile-title {
+  padding-top: var(--space-2);
+  overflow: hidden;
+  color: var(--text);
+  font: var(--text-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tile-reason {
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.tile-reason[data-missing] {
+  color: var(--text-disabled);
+}
+
+.tile-origin {
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+}
+
+.capability-fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin: 0;
+  padding: var(--space-3) 0 0;
+  border: 0;
+  border-top: var(--line) solid var(--border);
+}
+
+.capability-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .workspace-grid {
@@ -829,18 +1283,30 @@ select {
   justify-content: space-between;
 }
 
+/* Seis colunas. A grade rola horizontalmente antes de espremer a coluna: um
+   card ilegivel nao e uma coluna. */
 .kanban {
   display: grid;
-  min-width: calc(var(--column-min) * 3);
-  grid-template-columns: repeat(3, minmax(var(--column-min), 1fr));
-  gap: var(--space-4);
+  min-width: calc(var(--column-min) * 6);
+  grid-template-columns: repeat(6, minmax(var(--column-min), 1fr));
+  gap: var(--space-3);
   padding-top: var(--space-5);
 }
 
 .kanban-column {
   min-width: 0;
-  border-top: var(--line) solid var(--border-strong);
+  border-top: var(--line) solid var(--border);
   transition: background var(--dur-instant) linear, border-color var(--dur-instant) linear;
+}
+
+/* DOING e a unica coluna com rotulo e regua em sodio. E o estado que importa:
+   o que esta acontecendo agora, nao o que talvez aconteca. */
+.kanban-column[data-kanban-state="doing"] {
+  border-top-color: var(--signal-fill);
+}
+
+.kanban-column[data-kanban-state="doing"] h2 {
+  color: var(--signal-ink);
 }
 
 .kanban-column[data-drop-target] {
@@ -857,8 +1323,10 @@ select {
 
 .kanban-column h2 {
   margin: 0;
-  font-size: inherit;
-  font-weight: 500;
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
 }
 
 .kanban-column header span,
@@ -923,6 +1391,9 @@ select {
   background: var(--overlay-backdrop);
 }
 
+/* O painel entra a 34% do topo da janela — nao centrado nela. Um overlay
+   centrado empurra o olho para o meio da tela; a 34% ele fica na altura de
+   leitura e o conteudo atras continua legivel. */
 .command-surface,
 .entity-viewer {
   position: absolute;
@@ -931,10 +1402,23 @@ select {
   left: 50%;
   overflow: hidden;
   background: var(--surface-raised);
-  border-radius: var(--radius-lg);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
   box-shadow: var(--shadow-overlay);
-  transform: translate(-50%, -50%);
-  animation: overlay-in var(--dur-enter) var(--ease-enter);
+  transform: translateX(-50%);
+  animation: overlayEnter var(--dur-enter) var(--ease-enter);
+}
+
+@keyframes overlayEnter {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-6px) scale(0.99);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
 }
 
 .command-surface {
@@ -989,11 +1473,13 @@ select {
   padding: var(--space-4);
 }
 
+/* Coluna de tipo com largura fixa: os tipos alinham verticalmente e a lista
+   fica varrivel pelo olho sem ler cada linha. */
 .command-row {
   display: grid;
   width: 100%;
-  min-height: var(--height-row-two-line);
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  min-height: var(--height-row-touch);
+  grid-template-columns: var(--command-type-column) minmax(0, 1fr);
   align-items: center;
   gap: 0 var(--space-3);
   padding: 0 var(--space-4);
@@ -1018,6 +1504,116 @@ select {
   grid-row: 1 / 3;
   color: var(--text-system);
   font: var(--text-meta);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+
+/* Alternador de modo. Visivel no campo, nao escondido num atalho. */
+.command-modes {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-2);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.command-mode {
+  padding: 0;
+  color: var(--text-system);
+  background: transparent;
+  border: 0;
+  font: var(--text-small);
+  transition: color var(--dur-instant) var(--ease-state);
+}
+
+.command-mode[data-active] {
+  color: var(--text);
+}
+
+.command-mode-state {
+  margin-left: auto;
+  color: var(--text-disabled);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+}
+
+.command-mode-state[data-state="online"] {
+  color: var(--text-system);
+}
+
+.hermes-thread {
+  display: grid;
+  gap: var(--space-4);
+  max-height: calc(var(--height-row-two-line) * 8);
+  padding: var(--space-4);
+  overflow: auto;
+}
+
+.hermes-turn {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.hermes-question {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+/* A barra de 2px em sodio marca tudo que o sistema produziu. Nao ha bolha, nao
+   ha avatar, nao ha orb: o Hermes e capacidade nativa, nao um convidado. */
+.hermes-answer {
+  margin: 0;
+  padding-left: var(--space-3);
+  border-left: var(--marker) solid var(--signal-fill);
+  font: var(--text-body);
+  white-space: pre-wrap;
+}
+
+.hermes-reasoning summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.hermes-reasoning p {
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
+  white-space: pre-wrap;
+}
+
+.hermes-offline,
+.hermes-approval p {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+/* Warning nao tem cor: borda neutra, frase, e as duas saidas explicitas. */
+.hermes-approval {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.hermes-running {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--signal-ink);
+}
+
+.command-footer {
+  display: flex;
+  align-items: center;
+  height: var(--command-footer);
+  padding: 0 var(--space-4);
+  color: var(--text-system);
+  border-top: var(--line) solid var(--border);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
 }
 
 .command-row strong {
@@ -1245,27 +1841,70 @@ select {
   font: var(--text-body);
 }
 
+/* Executar, informar, permitir undo — em vez de perguntar "tem certeza?" a
+   cada operacao. O filete em sodio marca que o sistema agiu. */
 .receipt {
   position: fixed;
   z-index: var(--z-receipt);
-  bottom: var(--space-4);
+  bottom: var(--receipt-offset);
   left: calc(var(--rail-width) + var(--space-4));
   display: flex;
   align-items: center;
-  min-height: var(--height-control);
+  min-height: var(--height-control-lg);
   gap: var(--space-4);
   padding: 0 var(--space-3);
   color: var(--text);
   background: var(--surface-raised);
+  border: var(--line) solid var(--border-strong);
+  border-left: var(--fillet) solid var(--signal-fill);
   border-radius: var(--radius);
   box-shadow: var(--shadow-overlay);
+  animation: receiptEnter var(--dur-enter) var(--ease-enter);
+}
+
+@keyframes receiptEnter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.receipt > span {
+  font: var(--text-ui);
 }
 
 .receipt button {
   color: var(--signal-ink);
   background: transparent;
   border: 0;
-  font: inherit;
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+/* Amplitude em repouso: tres tracos apagados. Nao ha icone de microfone, e
+   nao ha animacao enquanto a voz nao existir — um indicador que se mexe sem
+   estar gravando mente sobre o estado do sistema. */
+.amplitude {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--capture-bar-height);
+}
+
+.amplitude i {
+  width: var(--line);
+  height: var(--space-2);
+  background: var(--text-disabled);
+}
+
+.amplitude i:nth-child(2) {
+  height: var(--space-3);
 }
 
 .quick-shell {

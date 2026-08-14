@@ -5,8 +5,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, appError } from "./api";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
+import { hermes, hermesUnavailableLabel, type HermesStatus } from "./hermes";
 import { Icon, type IconName } from "./Icon";
-import type { AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, Project, RegisteredApp, Resource, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import { MosSymbol } from "./Symbol";
+import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, Project, RegisteredApp, Resource, ResourceKind, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 import "./App.css";
 
 type Page = "home" | "inbox" | "projects" | "workspaces" | "apps" | "library" | "tasks" | "settings";
@@ -15,8 +17,10 @@ type Theme = "dark" | "light";
 type CommandResult = SearchItem | { kind: "function"; function: FunctionDefinition };
 type FunctionIntent = { target: FunctionIntentTarget; key: number };
 
-const stateOrder: TaskState[] = ["backlog", "doing", "done"];
-const stateLabels: Record<TaskState, string> = { backlog: "Backlog", doing: "Doing", done: "Done" };
+// A ordem e a ordem das colunas do kanban. DOING e a unica coluna em sodio:
+// e o estado que importa.
+const stateOrder: TaskState[] = ["inbox", "backlog", "planned", "doing", "review", "done"];
+const stateLabels: Record<TaskState, string> = { inbox: "Inbox", backlog: "Backlog", planned: "Planned", doing: "Doing", review: "Review", done: "Done" };
 const functionCategories: FunctionDefinition["category"][] = ["capture", "work", "memory", "app", "data", "system"];
 const functionCategoryLabels: Record<FunctionDefinition["category"], string> = { capture: "CAPTURE", work: "WORK", memory: "MEMORY", app: "APP", data: "DATA", system: "SYSTEM" };
 const functionRiskLabels: Record<FunctionDefinition["risk"], string> = { low: "baixo", medium: "medio", high: "alto" };
@@ -45,8 +49,10 @@ function resourceHost(url: string) {
   }
 }
 
-function Button({ variant = "secondary", children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "outline" | "ghost" | "danger" }) {
-  return <button className={`button ${variant}`} type="button" {...props}>{children}</button>;
+function Button({ variant = "secondary", className = "", children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "outline" | "ghost" | "danger" }) {
+  // className e somado, nunca sobrescrito: espalhar props depois do className
+  // fazia um className de fora apagar "button primary" inteiro.
+  return <button className={`button ${variant} ${className}`.trim()} type="button" {...props}>{children}</button>;
 }
 
 function IconButton({ label, icon, active = false, onClick }: { label: string; icon: IconName; active?: boolean; onClick: () => void }) {
@@ -57,8 +63,8 @@ function ContextPath({ segments }: { segments: string[] }) {
   return <div className="context-path" aria-label={segments.join(" / ")}>{segments.map((segment, index) => <span key={`${segment}-${index}`} className={index === segments.length - 1 ? "current" : undefined}>{index ? <b>/</b> : null}{segment}</span>)}</div>;
 }
 
-function Panel({ label, action, children, className = "" }: { label: string; action?: ReactNode; children: ReactNode; className?: string }) {
-  return <section className={`panel ${className}`} data-panel={label}><header className="panel-header"><h2>{label}</h2>{action}</header>{children}</section>;
+function Panel({ label, count, action, children, className = "" }: { label: string; count?: string; action?: ReactNode; children: ReactNode; className?: string }) {
+  return <section className={`panel ${className}`} data-panel={label}><header className="panel-header"><h2>{label}</h2>{count ? <span className="panel-count">{count}</span> : null}{action}</header>{children}</section>;
 }
 
 function EmptyState({ children }: { children: ReactNode }) {
@@ -89,14 +95,22 @@ function CaptureComposer({ onSaved, focusKey }: { onSaved: (capture: Capture) =>
     }
   }
 
+  // Sem caixa e sem borda: a excecao deliberada do sistema. O caret de bloco so
+  // aparece com o campo vazio, como convite — a partir do primeiro caractere
+  // quem manda e o caret nativo, e dois caretes na tela seria mentira visual.
   return <form className="capture-field" onSubmit={submit}>
-    <div className="capture-line"><span className="slash">/</span><textarea ref={input} aria-label="Conteúdo da captura" value={content} onChange={(event) => setContent(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="What's on your mind?" rows={1} /></div>
-    <div className="capture-footer"><span className={`feedback ${state}`} aria-live="polite">{feedback}</span><Button variant="primary" type="submit" disabled={!content.trim() || state === "saving"}>{state === "saving" ? "Salvando" : "Capturar"}</Button></div>
+    <div className="capture-line">
+      <span className="capture-bar" aria-hidden="true" />
+      <textarea ref={input} aria-label="Conteúdo da captura" value={content} onChange={(event) => setContent(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="What's on your mind?" rows={1} />
+      {content ? null : <span className="capture-caret" aria-hidden="true" />}
+      <Button className="capture-save" variant="primary" type="submit" disabled={!content.trim() || state === "saving"}>{state === "saving" ? "Salvando" : "Salvar ⏎"}</Button>
+    </div>
+    {feedback && state === "error" ? <p className="feedback error" role="alert">{feedback}</p> : null}
   </form>;
 }
 
-function DataRow({ primary, meta, secondary, selected = false, completed = false, onClick, onKeyDown, onPointerDown, draggable, onDragStart, onDragEnd }: { primary: string; meta?: string; secondary?: string; selected?: boolean; completed?: boolean; onClick?: () => void; onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void; onPointerDown?: React.PointerEventHandler<HTMLButtonElement>; draggable?: boolean; onDragStart?: React.DragEventHandler<HTMLButtonElement>; onDragEnd?: React.DragEventHandler<HTMLButtonElement> }) {
-  return <button className="data-row" type="button" aria-current={selected ? "true" : undefined} data-selected={selected || undefined} data-completed={completed || undefined} onClick={onClick} onKeyDown={onKeyDown} onPointerDown={onPointerDown} draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd}><span className="row-copy"><strong>{primary}</strong>{secondary ? <small>{secondary}</small> : null}</span>{meta ? <span className="row-meta">{meta}</span> : null}</button>;
+function DataRow({ primary, meta, secondary, marker, selected = false, completed = false, saved = false, onClick, onKeyDown, onPointerDown, draggable, onDragStart, onDragEnd }: { primary: string; meta?: string; secondary?: string; marker?: ReactNode; selected?: boolean; completed?: boolean; saved?: boolean; onClick?: () => void; onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void; onPointerDown?: React.PointerEventHandler<HTMLButtonElement>; draggable?: boolean; onDragStart?: React.DragEventHandler<HTMLButtonElement>; onDragEnd?: React.DragEventHandler<HTMLButtonElement> }) {
+  return <button className="data-row" type="button" aria-current={selected ? "true" : undefined} data-selected={selected || undefined} data-completed={completed || undefined} data-saved={saved || undefined} onClick={onClick} onKeyDown={onKeyDown} onPointerDown={onPointerDown} draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd}>{marker}<span className="row-copy"><strong>{primary}</strong>{secondary ? <small>{secondary}</small> : null}</span>{meta ? <span className="row-meta">{meta}</span> : null}</button>;
 }
 
 function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
@@ -150,15 +164,24 @@ function HomePage({ recent, projects, tasks, workspaces, apps, refresh, openCapt
       return rightDate.localeCompare(leftDate);
     })
     .slice(0, 5);
+  // Efemero: marca a Capture recem-criada para o savedWash e some. Nao e
+  // estado de dominio, entao nao vale persistir nem subir para o App.
+  const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set());
+  function markSaved(capture: Capture) {
+    setSavedIds((current) => new Set(current).add(capture.id));
+    window.setTimeout(() => setSavedIds((current) => { const next = new Set(current); next.delete(capture.id); return next; }), 900);
+  }
+  const projectName = (id: string | null) => projects.find((project) => project.id === id)?.name;
+  const isActiveToday = (project: Project) => new Date(project.updatedAt).toDateString() === new Date().toDateString();
   return <div className="page home-page">
-    <ContextPath segments={["M/OS", "HOME"]} />
-    <CaptureComposer onSaved={() => void refresh()} focusKey={intent?.target === "home_capture" ? intent.key : undefined} />
+    <ContextPath segments={["M", "HOME"]} />
+    <CaptureComposer onSaved={(capture) => { markSaved(capture); void refresh(); }} focusKey={intent?.target === "home_capture" ? intent.key : undefined} />
     <Panel label="CONTEXTO" action={currentWorkspace ? <Button variant="ghost" onClick={() => setCurrentWorkspaceId("")}>Todos</Button> : undefined}><div className="context-switcher">{activeWorkspaces.map((workspace) => <button key={workspace.id} type="button" data-selected={workspace.id === currentWorkspaceId || undefined} onClick={() => setCurrentWorkspaceId(workspace.id)} onDoubleClick={() => openWorkspace(workspace)}><strong>{workspace.name}</strong><small>{workspace.description || "Workspace"}</small></button>)}{!activeWorkspaces.length ? <EmptyState>Workspaces ativos aparecerão aqui.</EmptyState> : null}</div></Panel>
     <div className="home-sections">
-      <Panel label="EM ANDAMENTO">{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={stateLabels[task.state]} onClick={() => openTask(task)} />) : <EmptyState>Nenhuma Task em andamento.</EmptyState>}</Panel>
-      <Panel label="RECENTES">{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} onClick={() => openCapture(capture)} />) : <EmptyState>Suas Captures recentes aparecerão aqui.</EmptyState>}</Panel>
-      <Panel label="PROJECTS">{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} secondary={project.description || undefined} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <EmptyState>Projects criados aparecerão aqui.</EmptyState> : null}</Panel>
-      <Panel label="APPS">{activeApps.map((app) => <DataRow key={app.id} primary={app.name} secondary={app.description || app.launchTarget || undefined} meta={app.lastOpenedAt ? relativeTime(app.lastOpenedAt) : launchKindLabel(app.launchKind)} onClick={() => openApp(app)} />)}{!activeApps.length ? <EmptyState>Apps cadastrados aparecerão aqui.</EmptyState> : null}</Panel>
+      <Panel label="EM ANDAMENTO" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nothing in progress right now.</EmptyState>}</Panel>
+      <Panel label="RECENTES" count={`INBOX ${recent.length}`}>{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nothing on your mind right now.</EmptyState>}</Panel>
+      <Panel label="PROJECTS" count={scopedProjects.length ? String(scopedProjects.length) : undefined}>{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} aria-hidden="true" />} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <EmptyState>Projects criados aparecerão aqui.</EmptyState> : null}</Panel>
+      <Panel label="APPS" count={activeApps.length ? String(activeApps.length) : undefined}><div className="app-grid">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name}><span className="app-icon" aria-hidden="true">{app.name.trim().charAt(0).toUpperCase()}</span><span className="app-name">{app.name}</span>{index < 9 ? <span className="app-shortcut">⌘{index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <EmptyState>Apps cadastrados aparecerão aqui.</EmptyState> : null}</Panel>
     </div>
   </div>;
 }
@@ -233,12 +256,22 @@ function InboxPage({ captures, projects, refresh, receipt, openTask, openResourc
     } catch (nextError) { setError(appError(nextError).message); }
   }
 
-  if (!captures.length) return <div className="page"><ContextPath segments={["M/OS", "INBOX"]} /><EmptyState>Inbox limpa.</EmptyState></div>;
+  if (!captures.length) return <div className="page"><ContextPath segments={["M", "INBOX"]} /><EmptyState>Nothing to process. Everything captured has been dealt with.</EmptyState></div>;
   return <div className="split-page">
-    <section className="list-pane"><ContextPath segments={["M/OS", "INBOX"]} /><div className="row-list">{captures.map((capture) => <DataRow key={capture.id} primary={capture.content} secondary={sourceLabel(capture.source)} meta={relativeTime(capture.capturedAt)} selected={capture.id === selectedId} onClick={() => { setSelectedId(capture.id); setTaskForm(false); setResourceForm(false); }} />)}</div></section>
-    {selected ? <article className="detail-pane"><header className="detail-header"><div><span className="micro-label">CAPTURE</span><h1>{selected.content}</h1><p>{sourceLabel(selected.source)} · {relativeTime(selected.capturedAt)}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => void mutate("archive")}>Arquivar</button><button className="danger-text" onClick={() => void mutate("trash")}>Mover para a Lixeira</button></div></details></header>
+    <section className="list-pane">
+      <div className="pane-heading"><ContextPath segments={["M", "INBOX"]} /><span className="micro-label">{captures.length} {captures.length === 1 ? "ITEM" : "ITENS"}</span></div>
+      <div className="row-list">{captures.map((capture) => <DataRow key={capture.id} primary={capture.content} secondary={sourceLabel(capture.source)} meta={relativeTime(capture.capturedAt)} selected={capture.id === selectedId} onClick={() => { setSelectedId(capture.id); setTaskForm(false); setResourceForm(false); }} />)}</div>
+    </section>
+    {selected ? <article className="detail-pane"><header className="detail-header"><div><span className="micro-label">SELECIONADO</span><h1>{selected.content}</h1><div className="chip-line"><span className="chip">{sourceLabel(selected.source)}</span><span className="chip">{relativeTime(selected.capturedAt)}</span></div></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => void mutate("archive")}>Arquivar</button><button className="danger-text" onClick={() => void mutate("trash")}>Mover para a Lixeira</button></div></details></header>
       {error ? <p className="inline-error" role="alert">! {error}</p> : null}
-      {taskForm ? <CaptureTaskForm capture={selected} projects={projects} cancel={() => setTaskForm(false)} onCreated={(task) => { setTaskForm(false); void refresh(); openTask(task); }} /> : resourceForm ? <ResourceForm capture={selected} cancel={() => setResourceForm(false)} saved={(resource) => { setResourceForm(false); void refresh(); openResource(resource); }} /> : <div ref={detailActions} className="detail-actions"><Button variant="primary" onClick={() => { setTaskForm(true); setResourceForm(false); }}>Criar Task</Button><Button variant="secondary" onClick={() => { setTaskForm(false); setResourceForm(true); }}>Salvar como Resource</Button><Button variant="ghost" data-function-action="capture.mark_processed" onClick={() => void mutate("processed")}>Marcar como processada</Button></div>}
+      {/* Moldura pronta, conteudo honesto. A interpretacao do Hermes e a fase 3
+          da integracao; ate la este bloco diz o que e, em vez de fabricar uma
+          interpretacao falsa para a tela parecer completa. */}
+      <section className="hermes-block" aria-label="Interpretação do Hermes">
+        <p className="hermes-empty">Interpretação automática ainda não está ligada. Classifique manualmente abaixo — nada se perde.</p>
+      </section>
+      {taskForm ? <CaptureTaskForm capture={selected} projects={projects} cancel={() => setTaskForm(false)} onCreated={(task) => { setTaskForm(false); void refresh(); openTask(task); }} /> : resourceForm ? <ResourceForm capture={selected} cancel={() => setResourceForm(false)} saved={(resource) => { setResourceForm(false); void refresh(); openResource(resource); }} /> : <div ref={detailActions} className="detail-actions"><Button variant="primary" onClick={() => { setTaskForm(true); setResourceForm(false); }}>Criar Task</Button><Button variant="secondary" onClick={() => { setTaskForm(false); setResourceForm(true); }}>Salvar Resource</Button><Button variant="secondary" data-function-action="capture.mark_processed" onClick={() => void mutate("processed")}>Arquivar</Button></div>}
+      <p className="pane-footnote">J / K percorre · Espaço processa · ⌘Z desfaz</p>
     </article> : null}
   </div>;
 }
@@ -246,15 +279,17 @@ function InboxPage({ captures, projects, refresh, receipt, openTask, openResourc
 function ProjectForm({ project, cancel, saved }: { project?: Project; cancel: () => void; saved: (project: Project) => void }) {
   const [name, setName] = useState(project?.name ?? "");
   const [description, setDescription] = useState(project?.description ?? "");
+  const [repository, setRepository] = useState(project?.repository ?? "");
   const [error, setError] = useState("");
   async function submit(event: FormEvent) {
     event.preventDefault();
-    try { saved(project ? await api.updateProject(project.id, name, description) : await api.createProject(name, description)); }
+    try { saved(project ? await api.updateProject(project.id, name, description, repository) : await api.createProject(name, description, repository)); }
     catch (nextError) { setError(appError(nextError).message); }
   }
   return <form className="stack-form" onSubmit={submit}>
     <label><span>NOME</span><input value={name} onChange={(event) => setName(event.currentTarget.value)} autoFocus /></label>
     <label><span>DESCRIÇÃO</span><textarea value={description} onChange={(event) => setDescription(event.currentTarget.value)} rows={4} /></label>
+    <label><span>REPOSITÓRIO</span><input className="mono-input" value={repository} onChange={(event) => setRepository(event.currentTarget.value)} placeholder="usuario/repo ou URL" /></label>
     {error ? <p className="inline-error" role="alert">! {error}</p> : null}
     <div className="form-actions"><Button variant="ghost" onClick={cancel}>Cancelar</Button><Button variant="primary" type="submit" disabled={!name.trim()}>Salvar</Button></div>
   </form>;
@@ -289,8 +324,8 @@ function ProjectsPage({ projects, tasks, initialProjectId, refresh, openTask, in
   const selected = activeProjects.find((project) => project.id === selectedId) ?? null;
   const relatedTasks = tasks.filter((task) => task.projectId === selectedId && task.lifecycleState === "active");
   return <div className="split-page projects-page">
-    <section className="list-pane"><ContextPath segments={["M/OS", "PROJECTS"]} /><div className="list-command"><Button variant="outline" onClick={() => setMode("new")}>Novo Project</Button></div><div className="row-list">{activeProjects.map((project) => <DataRow key={project.id} primary={project.name} secondary={project.description || undefined} meta={`${tasks.filter((task) => task.projectId === project.id && task.lifecycleState === "active").length} TASKS`} selected={project.id === selectedId} onClick={() => { setSelectedId(project.id); setMode("view"); }} />)}</div>{!activeProjects.length && mode !== "new" ? <EmptyState>Crie um Project para reunir trabalho relacionado.</EmptyState> : null}</section>
-    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO PROJECT</span><ProjectForm cancel={() => setMode("view")} saved={(project) => { setSelectedId(project.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <ProjectForm project={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">PROJECT</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setProjectArchived(selected.id, true).then(refresh)}>Arquivar</button></div></details></header>{mode === "task" ? <DirectTaskForm projectId={selected.id} projects={projects} cancel={() => setMode("view")} saved={(task) => { setMode("view"); void refresh(); openTask(task); }} /> : <Panel label="TASKS" action={<Button variant="primary" onClick={() => setMode("task")}>Criar Task</Button>}>{relatedTasks.length ? relatedTasks.map((task) => <DataRow key={task.id} primary={task.title} meta={stateLabels[task.state]} completed={task.state === "done"} onClick={() => openTask(task)} />) : <EmptyState>Nenhuma Task neste Project.</EmptyState>}</Panel>}</>}</> : null}</article>
+    <section className="list-pane"><ContextPath segments={["M", "PROJECTS"]} /><div className="list-command"><Button variant="outline" onClick={() => setMode("new")}>Novo Project</Button></div><div className="row-list">{activeProjects.map((project) => <DataRow key={project.id} primary={project.name} secondary={project.description || undefined} meta={`${tasks.filter((task) => task.projectId === project.id && task.lifecycleState === "active").length} TASKS`} selected={project.id === selectedId} onClick={() => { setSelectedId(project.id); setMode("view"); }} />)}</div>{!activeProjects.length && mode !== "new" ? <EmptyState>Crie um Project para reunir trabalho relacionado.</EmptyState> : null}</section>
+    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO PROJECT</span><ProjectForm cancel={() => setMode("view")} saved={(project) => { setSelectedId(project.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <ProjectForm project={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">PROJECT</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setProjectArchived(selected.id, true).then(refresh)}>Arquivar</button></div></details></header><dl className="fact-grid"><div><dt>REPOSITÓRIO</dt><dd className="mono-value">{selected.repository || <span className="fact-empty">Nenhum associado</span>}</dd></div><div><dt>ATUALIZADO</dt><dd>{relativeTime(selected.updatedAt)}</dd></div></dl>{mode === "task" ? <DirectTaskForm projectId={selected.id} projects={projects} cancel={() => setMode("view")} saved={(task) => { setMode("view"); void refresh(); openTask(task); }} /> : <Panel label="TASKS" action={<Button variant="primary" onClick={() => setMode("task")}>Criar Task</Button>}>{relatedTasks.length ? relatedTasks.map((task) => <DataRow key={task.id} primary={task.title} meta={stateLabels[task.state]} completed={task.state === "done"} onClick={() => openTask(task)} />) : <EmptyState>Nenhuma Task neste Project.</EmptyState>}</Panel>}</>}</> : null}</article>
   </div>;
 }
 
@@ -365,7 +400,7 @@ function WorkspacesPage({ workspaces, projects, apps, initialWorkspaceId, refres
     } catch (nextError) { setMessage(appError(nextError).message); }
   }
   return <div className="split-page workspaces-page">
-    <section className="list-pane"><ContextPath segments={["M/OS", "WORKSPACES"]} /><div className="list-command"><Button variant="outline" onClick={() => setMode("new")}>Novo Workspace</Button></div><div className="row-list">{activeWorkspaces.map((workspace) => <DataRow key={workspace.id} primary={workspace.name} secondary={workspace.description || undefined} meta={relativeTime(workspace.updatedAt)} selected={workspace.id === selectedId} onClick={() => { setSelectedId(workspace.id); setMode("view"); setMessage(""); }} />)}</div>{!activeWorkspaces.length && mode !== "new" ? <EmptyState>Crie contextos amplos como Engineering, Finance ou Learning.</EmptyState> : null}</section>
+    <section className="list-pane"><ContextPath segments={["M", "WORKSPACES"]} /><div className="list-command"><Button variant="outline" onClick={() => setMode("new")}>Novo Workspace</Button></div><div className="row-list">{activeWorkspaces.map((workspace) => <DataRow key={workspace.id} primary={workspace.name} secondary={workspace.description || undefined} meta={relativeTime(workspace.updatedAt)} selected={workspace.id === selectedId} onClick={() => { setSelectedId(workspace.id); setMode("view"); setMessage(""); }} />)}</div>{!activeWorkspaces.length && mode !== "new" ? <EmptyState>Crie contextos amplos como Engineering, Finance ou Learning.</EmptyState> : null}</section>
     <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO WORKSPACE</span><WorkspaceForm cancel={() => setMode("view")} saved={(workspace) => { setSelectedId(workspace.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <WorkspaceForm workspace={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">WORKSPACE</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setWorkspaceArchived(selected.id, true).then(refresh)}>Arquivar</button></div></details></header><div className="workspace-grid"><div data-function-section="workspace.link_project"><Panel label="PROJECTS">{activeProjects.length ? activeProjects.map((project) => <div className="relation-row" key={project.id}><label><input type="checkbox" checked={linkedProjectIds.has(project.id)} onChange={(event) => void toggleProject(project, event.currentTarget.checked)} /><span><strong>{project.name}</strong><small>{project.description || "Sem descrição."}</small></span></label><button type="button" onClick={() => openProject(project)}>Abrir</button></div>) : <EmptyState>Projects ativos aparecerão aqui.</EmptyState>}</Panel></div><div data-function-section="workspace.link_app"><Panel label="APPS">{activeApps.length ? activeApps.map((app) => <div className="relation-row" key={app.id}><label><input type="checkbox" checked={linkedAppIds.has(app.id)} onChange={(event) => void toggleApp(app, event.currentTarget.checked)} /><span><strong>{app.name}</strong><small>{app.description || app.launchTarget || "Sem descrição."}</small></span></label><button type="button" onClick={() => openApp(app)}>Abrir</button></div>) : <EmptyState>Apps ativos aparecerão aqui.</EmptyState>}</Panel></div></div>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
   </div>;
 }
@@ -382,6 +417,9 @@ function RegisteredAppForm({ app, cancel, saved }: { app?: RegisteredApp; cancel
   const [sourceUrl, setSourceUrl] = useState(app?.sourceUrl ?? "");
   const [launchKind, setLaunchKind] = useState<AppLaunchKind | "">((app?.launchKind ?? "") as AppLaunchKind | "");
   const [launchTarget, setLaunchTarget] = useState(app?.launchTarget ?? "");
+  // Um app com alvo de lancamento ja abre — declarar o contrario seria mentir
+  // sobre uma capacidade em uso. Mesma regra da migration 0007.
+  const [capabilities, setCapabilities] = useState<AppCapabilities>(() => app ? { canOpen: app.canOpen, canRead: app.canRead, canWrite: app.canWrite, canAutomate: app.canAutomate } : { canOpen: true, canRead: false, canWrite: false, canAutomate: false });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   async function choosePath(directory: boolean) {
@@ -395,7 +433,7 @@ function RegisteredAppForm({ app, cancel, saved }: { app?: RegisteredApp; cancel
     const target = launchTarget.trim() ? launchTarget : null;
     const source = sourceUrl.trim() ? sourceUrl : null;
     try {
-      saved(app ? await api.updateRegisteredApp(app.id, name, description, source, kind, target) : await api.createRegisteredApp(name, description, source, kind, target));
+      saved(app ? await api.updateRegisteredApp(app.id, name, description, source, kind, target, capabilities) : await api.createRegisteredApp(name, description, source, kind, target));
     } catch (nextError) {
       setError(appError(nextError).message);
       setSaving(false);
@@ -407,6 +445,7 @@ function RegisteredAppForm({ app, cancel, saved }: { app?: RegisteredApp; cancel
     <label><span>ORIGEM</span><input value={sourceUrl} onChange={(event) => setSourceUrl(event.currentTarget.value)} placeholder="https://github.com/..." /></label>
     <label><span>TIPO DE ABERTURA</span><select value={launchKind} onChange={(event) => { setLaunchKind(event.currentTarget.value as AppLaunchKind | ""); if (!event.currentTarget.value) setLaunchTarget(""); }}><option value="">Sem alvo por enquanto</option><option value="url">URL</option><option value="path">Path local</option></select></label>
     {launchKind ? <label><span>ALVO</span>{launchKind === "path" ? <div className="target-picker"><input value={launchTarget} onChange={(event) => setLaunchTarget(event.currentTarget.value)} placeholder={"C:\\Apps\\app.exe"} /><Button variant="outline" onClick={() => void choosePath(false)}>Escolher arquivo</Button><Button variant="ghost" onClick={() => void choosePath(true)}>Escolher pasta</Button></div> : <input value={launchTarget} onChange={(event) => setLaunchTarget(event.currentTarget.value)} placeholder="https://..." />}</label> : null}
+    <fieldset className="capability-fieldset"><legend className="micro-label">CAPACIDADES</legend>{([["canOpen", "OPEN"], ["canRead", "READ"], ["canWrite", "WRITE"], ["canAutomate", "AUTOMATE"]] as const).map(([key, label]) => <label className="capability-check" key={key}><input type="checkbox" checked={capabilities[key]} onChange={(event) => setCapabilities((current) => ({ ...current, [key]: event.currentTarget.checked }))} /><span className="micro-label">{label}</span></label>)}</fieldset>
     {error ? <p className="inline-error" role="alert">! {error}</p> : null}
     <div className="form-actions"><Button variant="ghost" onClick={cancel}>Cancelar</Button><Button variant="primary" type="submit" disabled={!name.trim() || saving}>{saving ? "Salvando" : "Salvar"}</Button></div>
   </form>;
@@ -451,8 +490,8 @@ function AppsPage({ apps, initialAppId, refresh, intent }: { apps: RegisteredApp
     }
   }
   return <div className="split-page apps-page">
-    <section className="list-pane"><ContextPath segments={["M/OS", "APPS"]} /><div className="list-command"><Button variant="outline" onClick={() => setMode("new")}>Novo App</Button>{missingSuggestions.length ? <Button variant="ghost" onClick={() => void addSuggestions()} disabled={creatingSuggestions}>{creatingSuggestions ? "Adicionando" : "Adicionar meus Apps"}</Button> : null}</div><div className="row-list">{visibleApps.map((app) => <DataRow key={app.id} primary={app.name} secondary={app.description || app.launchTarget || undefined} meta={app.lifecycleState === "archived" ? "ARQUIVADO" : launchKindLabel(app.launchKind)} selected={app.id === selectedId} onClick={() => { setSelectedId(app.id); setMode("view"); setMessage(""); }} />)}</div>{!visibleApps.length && mode !== "new" ? <EmptyState>Cadastre as ferramentas que você usa para não depender da memória.</EmptyState> : null}</section>
-    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO APP</span><RegisteredAppForm cancel={() => setMode("view")} saved={(app) => { setSelectedId(app.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <RegisteredAppForm app={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">APP</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setRegisteredAppArchived(selected.id, true).then(refresh)}>Arquivar</button></div></details></header><dl className="app-facts"><div><dt>ORIGEM</dt><dd>{selected.sourceUrl || "Nao definida"}</dd></div><div><dt>ABERTURA</dt><dd>{launchKindLabel(selected.launchKind)}</dd></div><div><dt>ALVO</dt><dd>{selected.launchTarget || "Nao definido"}</dd></div><div><dt>ULTIMA ABERTURA</dt><dd>{selected.lastOpenedAt ? relativeTime(selected.lastOpenedAt) : "Nunca"}</dd></div><div><dt>ATUALIZADO</dt><dd>{relativeTime(selected.updatedAt)}</dd></div></dl><div className="detail-actions"><Button variant="primary" onClick={() => void openApp(selected)} disabled={!selected.launchTarget || selected.lifecycleState !== "active"}>Abrir</Button><Button variant="ghost" onClick={() => setMode("edit")}>Editar</Button></div>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
+    <section className="list-pane"><ContextPath segments={["M", "APPS"]} /><div className="list-command"><Button variant="outline" onClick={() => setMode("new")}>Novo App</Button>{missingSuggestions.length ? <Button variant="ghost" onClick={() => void addSuggestions()} disabled={creatingSuggestions}>{creatingSuggestions ? "Adicionando" : "Adicionar meus Apps"}</Button> : null}</div><div className="row-list">{visibleApps.map((app) => <DataRow key={app.id} primary={app.name} secondary={app.description || app.launchTarget || undefined} meta={app.lifecycleState === "archived" ? "ARQUIVADO" : launchKindLabel(app.launchKind)} selected={app.id === selectedId} onClick={() => { setSelectedId(app.id); setMode("view"); setMessage(""); }} />)}</div>{!visibleApps.length && mode !== "new" ? <EmptyState>Cadastre as ferramentas que você usa para não depender da memória.</EmptyState> : null}</section>
+    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO APP</span><RegisteredAppForm cancel={() => setMode("view")} saved={(app) => { setSelectedId(app.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <RegisteredAppForm app={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">APP</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setRegisteredAppArchived(selected.id, true).then(refresh)}>Arquivar</button></div></details></header><dl className="app-facts"><div><dt>ORIGEM</dt><dd>{selected.sourceUrl || "Nao definida"}</dd></div><div><dt>ABERTURA</dt><dd>{launchKindLabel(selected.launchKind)}</dd></div><div><dt>ALVO</dt><dd>{selected.launchTarget || "Nao definido"}</dd></div><div><dt>ULTIMA ABERTURA</dt><dd>{selected.lastOpenedAt ? relativeTime(selected.lastOpenedAt) : "Nunca"}</dd></div><div><dt>ATUALIZADO</dt><dd>{relativeTime(selected.updatedAt)}</dd></div></dl><div className="detail-actions"><Button variant="primary" onClick={() => void openApp(selected)} disabled={!selected.launchTarget || selected.lifecycleState !== "active"}>Abrir</Button><Button variant="secondary" onClick={() => setMode("edit")}>Editar</Button></div><Panel label="CAPACIDADES" className="capability-panel">{([["OPEN", selected.canOpen], ["READ", selected.canRead], ["WRITE", selected.canWrite], ["AUTOMATE", selected.canAutomate]] as const).map(([label, granted]) => <div className="capability-row" key={label}><span className="micro-label">{label}</span><span data-granted={granted || undefined}>{granted ? "✓" : "—"}</span></div>)}</Panel><p className="pane-footnote">Capacidade não declarada é capacidade que o Hermes não tenta usar.</p>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
   </div>;
 }
 
@@ -462,16 +501,21 @@ function ResourceForm({ resource, capture, cancel, saved }: { resource?: Resourc
   const [url, setUrl] = useState(resource?.url ?? (captureIsUrl ? captureContent : ""));
   const [title, setTitle] = useState(resource?.title ?? "");
   const [note, setNote] = useState(resource?.note ?? (captureIsUrl ? "" : captureContent));
+  // Uma Capture que nao e URL vira Note por padrao: o texto ja e o conteudo.
+  const [kind, setKind] = useState<ResourceKind>(resource?.kind ?? (capture && !captureIsUrl ? "note" : "site"));
+  const needsUrl = kind !== "note";
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!url.trim() || saving) return;
+    if (saving) return;
+    if (needsUrl && !url.trim()) return;
+    if (!needsUrl && !title.trim()) return;
     setSaving(true);
     try {
       const next = resource
-        ? await api.updateResource(resource.id, title, url, note)
-        : await api.createResource(title, url, note, capture?.id ?? null);
+        ? await api.updateResource(resource.id, kind, title, needsUrl ? url : "", note)
+        : await api.createResource(kind, title, needsUrl ? url : "", note, capture?.id ?? null);
       saved(next);
     } catch (nextError) {
       setError(appError(nextError).message);
@@ -480,12 +524,13 @@ function ResourceForm({ resource, capture, cancel, saved }: { resource?: Resourc
   }
   return <form className="stack-form" onSubmit={submit} aria-busy={saving}>
     <fieldset className="form-fields" disabled={saving}>
-      <label><span>URL</span><input type="url" value={url} onChange={(event) => setUrl(event.currentTarget.value)} placeholder="https://..." autoFocus /></label>
-      <label><span>TÍTULO</span><input value={title} onChange={(event) => setTitle(event.currentTarget.value)} placeholder="Opcional · usa a URL quando vazio" /></label>
+      <label><span>TIPO</span><select value={kind} onChange={(event) => setKind(event.currentTarget.value as ResourceKind)}><option value="site">Site</option><option value="library">Library</option><option value="image">Imagem</option><option value="note">Nota</option></select></label>
+      {needsUrl ? <label><span>{kind === "image" ? "ENDEREÇO OU CAMINHO" : "URL"}</span><input value={url} onChange={(event) => setUrl(event.currentTarget.value)} placeholder={kind === "image" ? "https://... ou C:\\imagens\\hero.png" : "https://..."} autoFocus /></label> : null}
+      <label><span>TÍTULO</span><input value={title} onChange={(event) => setTitle(event.currentTarget.value)} placeholder={needsUrl ? "Opcional · usa a URL quando vazio" : "Obrigatório para uma nota"} autoFocus={!needsUrl} /></label>
       <label><span>POR QUÊ?</span><textarea value={note} onChange={(event) => setNote(event.currentTarget.value)} placeholder="O que merece ser lembrado sobre este link?" rows={4} /></label>
       {capture ? <div className="provenance"><span className="micro-label">ORIGEM PRESERVADA</span><span>{capture.content}</span><small>{sourceLabel(capture.source)} · {relativeTime(capture.capturedAt)}</small></div> : null}
       {error ? <p className="inline-error" role="alert">! {error} Os campos continuam aqui.</p> : null}
-      <div className="form-actions"><Button variant="ghost" onClick={cancel}>Cancelar</Button><Button variant="primary" type="submit" disabled={!url.trim() || saving}>{saving ? "Salvando" : "Salvar Resource"}</Button></div>
+      <div className="form-actions"><Button variant="ghost" onClick={cancel}>Cancelar</Button><Button variant="primary" type="submit" disabled={saving || (needsUrl ? !url.trim() : !title.trim())}>{saving ? "Salvando" : "Salvar Resource"}</Button></div>
     </fieldset>
   </form>;
 }
@@ -501,7 +546,12 @@ function LibraryPage({ resources, initialResourceId, initialResourceKey, refresh
   const [pendingAction, setPendingAction] = useState<"open" | "archive" | "trash" | "restore" | null>(null);
   const list = useRef<HTMLDivElement>(null);
   const detail = useRef<HTMLElement>(null);
-  const visibleResources = resources.filter((resource) => resource.lifecycleState === "active" || resource.id === selectedId);
+  // Filtro e apresentacao sao preferencia de leitura, nao dado: vivem aqui e
+  // nao no banco. O alternador GRID/LISTA e do proprio design.
+  const [kindFilter, setKindFilter] = useState<ResourceKind | "all">("all");
+  const [view, setView] = useState<"grid" | "list">("grid");
+  const liveResources = resources.filter((resource) => resource.lifecycleState === "active" || resource.id === selectedId);
+  const visibleResources = kindFilter === "all" ? liveResources : liveResources.filter((resource) => resource.kind === kindFilter || resource.id === selectedId);
   const selected = visibleResources.find((resource) => resource.id === selectedId) ?? null;
 
   useEffect(() => {
@@ -618,9 +668,19 @@ function LibraryPage({ resources, initialResourceId, initialResourceKey, refresh
   return <div className="split-page library-page" data-pane={narrowPane} data-empty={libraryIsEmpty || undefined}>
     <section className="list-pane" aria-labelledby="library-title">
       <h1 id="library-title" className="visually-hidden">Library</h1>
-      <ContextPath segments={["M/OS", "LIBRARY"]} />
+      <div className="pane-heading"><ContextPath segments={["M", "LIBRARY"]} /><span className="micro-label">{liveResources.length} {liveResources.length === 1 ? "ITEM" : "ITENS"}</span></div>
+      {/* Filtros sao texto, nao chip: um chip por tipo viraria cinco caixas
+          competindo com o acervo, que e o que importa nesta tela. */}
+      <div className="filter-bar">
+        <div className="filter-group" role="group" aria-label="Filtrar por tipo">
+          {([["all", "TUDO"], ["site", "SITES"], ["library", "LIBRARIES"], ["image", "IMAGENS"], ["note", "NOTAS"]] as const).map(([value, label]) => <button key={value} type="button" className="filter-label" data-active={kindFilter === value || undefined} aria-pressed={kindFilter === value} onClick={() => setKindFilter(value)}>{label}</button>)}
+        </div>
+        <div className="filter-group" role="group" aria-label="Apresentação">
+          {([["grid", "GRID"], ["list", "LISTA"]] as const).map(([value, label]) => <button key={value} type="button" className="filter-label" data-active={view === value || undefined} aria-pressed={view === value} onClick={() => setView(value)}>{label}</button>)}
+        </div>
+      </div>
       {visibleResources.length ? <div className="list-command"><Button variant="outline" onClick={startNew}>Novo Resource</Button></div> : null}
-      <div ref={list} className="row-list" aria-label="Resources salvos">
+      {view === "grid" ? <div className="tile-grid" aria-label="Resources salvos">{visibleResources.map((resource) => <button key={resource.id} type="button" className="tile" data-selected={resource.id === selectedId || undefined} onClick={() => selectResource(resource)} onDoubleClick={() => { if (resource.url) void api.openResource(resource.id); }}><span className="tile-face" aria-hidden="true"><span className="tile-kind">{resource.kind.toUpperCase()}</span></span><strong className="tile-title">{resource.title}</strong>{/* O motivo e o que torna o acervo recuperavel: ele nunca e omitido. */}<span className="tile-reason" data-missing={resource.note ? undefined : true}>{resource.note || "Sem motivo registrado — abra e diga por que isto merece ser lembrado."}</span><span className="tile-origin">{resourceHost(resource.url) || "LOCAL"}</span></button>)}</div> : <div ref={list} className="row-list" aria-label="Resources salvos">
         {visibleResources.map((resource) => <DataRow
           key={resource.id}
           primary={resource.title}
@@ -645,7 +705,7 @@ function LibraryPage({ resources, initialResourceId, initialResourceKey, refresh
             }
           }}
         />)}
-      </div>
+      </div>}
       {!visibleResources.length && mode !== "new" ? <div className="library-empty"><EmptyState>Guarde um link junto do motivo pelo qual ele merece ser lembrado.</EmptyState><Button variant="primary" onClick={startNew}>Salvar primeiro link</Button></div> : null}
     </section>
     <article
@@ -780,7 +840,7 @@ function BoardPage({ tasks, projects, refresh, openTask, intent }: { tasks: Task
       window.removeEventListener("pointercancel", finishDrag);
     };
   }, [tasks, refresh]);
-  return <div className="page board-page"><div className="board-heading"><ContextPath segments={["M/OS", "TASKS"]} />{!creating ? <Button variant="primary" onClick={() => setCreating(true)}>Criar Task</Button> : null}</div>{creating ? <DirectTaskForm projects={projects} cancel={() => setCreating(false)} saved={() => { setCreating(false); void refresh(); }} /> : null}<div ref={board} className="kanban" tabIndex={-1} aria-label="Kanban de Tasks">{stateOrder.map((state) => { const column = tasks.filter((task) => task.lifecycleState === "active" && task.state === state); const visible = column.slice(0, 20); return <section key={state} className="kanban-column" data-kanban-state={state} data-drop-target={dragOverState === state || undefined} onDragEnter={(event) => { event.preventDefault(); setDragOverState(state); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverState(state); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverState(null); }} onDrop={(event) => { event.preventDefault(); const task = draggedTask(event); finishDrag(); if (task) void move(task, state); }}><header><h2>{stateLabels[state]}</h2><span>{column.length}</span></header><div>{visible.map((task) => <DataRow key={task.id} primary={task.title} secondary={projects.find((project) => project.id === task.projectId)?.name} completed={task.state === "done"} onClick={() => { if (suppressClickTaskId.current === task.id) { suppressClickTaskId.current = null; return; } openTask(task); }} onKeyDown={(event) => keyboardMove(event, task)} onPointerDown={(event) => { if (event.button !== 0) return; pointerDrag.current = { taskId: task.id, x: event.clientX, y: event.clientY, active: false }; }} draggable onDragStart={(event) => { setDraggingTaskId(task.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={finishDrag} />)}{!column.length ? <EmptyState>Nenhuma Task.</EmptyState> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</div></section>; })}</div></div>;
+  return <div className="page board-page"><div className="board-heading"><ContextPath segments={["M", "TASKS"]} />{!creating ? <Button variant="primary" onClick={() => setCreating(true)}>Criar Task</Button> : null}</div>{creating ? <DirectTaskForm projects={projects} cancel={() => setCreating(false)} saved={() => { setCreating(false); void refresh(); }} /> : null}<div ref={board} className="kanban" tabIndex={-1} aria-label="Kanban de Tasks">{stateOrder.map((state) => { const column = tasks.filter((task) => task.lifecycleState === "active" && task.state === state); const visible = column.slice(0, 20); return <section key={state} className="kanban-column" data-kanban-state={state} data-drop-target={dragOverState === state || undefined} onDragEnter={(event) => { event.preventDefault(); setDragOverState(state); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverState(state); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverState(null); }} onDrop={(event) => { event.preventDefault(); const task = draggedTask(event); finishDrag(); if (task) void move(task, state); }}><header><h2>{stateLabels[state]}</h2><span>{column.length}</span></header><div>{visible.map((task) => <DataRow key={task.id} primary={task.title} secondary={projects.find((project) => project.id === task.projectId)?.name} completed={task.state === "done"} onClick={() => { if (suppressClickTaskId.current === task.id) { suppressClickTaskId.current = null; return; } openTask(task); }} onKeyDown={(event) => keyboardMove(event, task)} onPointerDown={(event) => { if (event.button !== 0) return; pointerDrag.current = { taskId: task.id, x: event.clientX, y: event.clientY, active: false }; }} draggable onDragStart={(event) => { setDraggingTaskId(task.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={finishDrag} />)}{!column.length ? <EmptyState>Nenhuma Task.</EmptyState> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</div></section>; })}</div></div>;
 }
 
 function TaskDrawer({ task, projects, close, refresh, openCapture }: { task: Task; projects: Project[]; close: () => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void }) {
@@ -806,6 +866,20 @@ function CaptureViewer({ capture, close }: { capture: Capture; close: () => void
   return <div className="overlay-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}><article ref={dialog} className="entity-viewer" role="dialog" aria-modal="true" tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") close(); }}><header><span className="micro-label">CAPTURE</span><IconButton label="Fechar" icon="close" onClick={close} /></header><h1>{capture.content}</h1><dl><div><dt>ORIGEM</dt><dd>{sourceLabel(capture.source)}</dd></div><div><dt>ESTADO</dt><dd>{capture.lifecycleState === "archived" ? "Arquivada" : capture.processingState === "processed" ? "Processada" : "Na Inbox"}</dd></div><div><dt>CAPTURADA</dt><dd>{new Date(capture.capturedAt).toLocaleString("pt-BR")}</dd></div></dl></article></div>;
 }
 
+type HermesTurn = { question: string; answer: string; reasoning: string };
+
+/** Acumula o delta no turno corrente sem reagrupar nada: o servidor desliga o
+ *  Nagle de proposito para preservar a cadencia. */
+function appendToAnswer(turns: HermesTurn[], text: string): HermesTurn[] {
+  if (!turns.length) return turns;
+  return turns.map((turn, index) => index === turns.length - 1 ? { ...turn, answer: turn.answer + text } : turn);
+}
+
+function appendToReasoning(turns: HermesTurn[], text: string): HermesTurn[] {
+  if (!turns.length) return turns;
+  return turns.map((turn, index) => index === turns.length - 1 ? { ...turn, reasoning: turn.reasoning + text } : turn);
+}
+
 function CommandSurface({ close, openCapture, openTask, openProject, openWorkspace, openApp, openResource, routeFunction }: { close: () => void; openCapture: (capture: Capture) => void; openTask: (task: Task) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; routeFunction: (definition: FunctionDefinition) => void }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CommandResult[]>([]);
@@ -815,7 +889,46 @@ function CommandSurface({ close, openCapture, openTask, openProject, openWorkspa
   const input = useRef<HTMLInputElement>(null);
   const previousFocus = useRef(document.activeElement as HTMLElement | null);
   const searchSequence = useRef(0);
+  // Modo do campo. Tab alterna, e o modo fica visivel no proprio campo em vez
+  // de ser folclore de atalho.
+  const [mode, setMode] = useState<"search" | "hermes">("search");
+  const [hermesStatus, setHermesStatus] = useState<HermesStatus | null>(null);
+  const [turns, setTurns] = useState<HermesTurn[]>([]);
+  const [running, setRunning] = useState(false);
+  const [approval, setApproval] = useState<string | null>(null);
+  const [showReasoning, setShowReasoning] = useState(false);
   useEffect(() => { input.current?.focus(); return () => previousFocus.current?.focus(); }, []);
+  useEffect(() => {
+    void hermes.status().then(setHermesStatus).catch(() => setHermesStatus(null));
+    const subscriptions = [
+      hermes.onState(setHermesStatus),
+      hermes.onEvent((event) => {
+        if (event.outcome === "delta") return setTurns((current) => appendToAnswer(current, event.text));
+        if (event.outcome === "reasoning") return setTurns((current) => appendToReasoning(current, event.text));
+        if (event.outcome === "complete") return setRunning(false);
+        if (event.outcome === "busy") { setRunning(true); return; }
+        if (event.outcome === "approval") return setApproval(event.prompt);
+        if (event.outcome === "failed") { setRunning(false); return setTurns((current) => appendToAnswer(current, `\n${event.message}`)); }
+        // tool e unknown_frame nao interrompem a leitura da resposta.
+      }),
+    ];
+    return () => { subscriptions.forEach((subscription) => void subscription.then((dispose) => dispose())); };
+  }, []);
+  // Conexao preguicosa: so ao entrar no modo Hermes pela primeira vez. Tunel
+  // morto nao pode atrasar o Command.
+  useEffect(() => {
+    if (mode !== "hermes") return;
+    if (hermesStatus && hermesStatus.state === "offline" && hermesStatus.hasCredentials) void hermes.connect().catch(() => undefined);
+  }, [mode, hermesStatus?.state, hermesStatus?.hasCredentials]);
+  async function askHermes() {
+    const text = query.trim();
+    if (!text || running) return;
+    setTurns((current) => [...current, { question: text, answer: "", reasoning: "" }]);
+    setQuery("");
+    setRunning(true);
+    try { await hermes.send(text); }
+    catch (nextError) { setRunning(false); setTurns((current) => appendToAnswer(current, String(nextError))); }
+  }
   async function searchCommand(requestId: number) {
     try {
       const [items, resources, functions] = await Promise.all([api.search(query, includeArchived), api.searchResources(query, includeArchived), api.searchFunctions(query)]);
@@ -853,7 +966,17 @@ function CommandSurface({ close, openCapture, openTask, openProject, openWorkspa
     else openCapture(item.capture);
   }
   function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.nativeEvent.isComposing || !results.length) return;
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === "Tab") {
+      event.preventDefault();
+      setMode((current) => current === "search" ? "hermes" : "search");
+      return;
+    }
+    if (mode === "hermes") {
+      if (event.key === "Enter") { event.preventDefault(); void askHermes(); }
+      return;
+    }
+    if (!results.length) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const direction = event.key === "ArrowDown" ? 1 : -1;
@@ -866,7 +989,34 @@ function CommandSurface({ close, openCapture, openTask, openProject, openWorkspa
   }
   return <div className="overlay-backdrop command-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
     <section className="command-surface" role="dialog" aria-modal="true" aria-label="Command" onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
-      <div className="command-input"><span className="slash">/</span><input ref={input} aria-controls="command-results" value={query} onChange={(event) => setQuery(event.currentTarget.value)} onKeyDown={handleInputKeyDown} placeholder="Buscar ou executar comando" aria-label="Buscar no M/OS" /><IconButton label="Fechar" icon="close" onClick={close} /></div>
+      <div className="command-input"><span className="slash">/</span><input ref={input} aria-controls="command-results" value={query} onChange={(event) => setQuery(event.currentTarget.value)} onKeyDown={handleInputKeyDown} placeholder={mode === "hermes" ? "O que você quer fazer?" : "Buscar ou executar comando"} aria-label={mode === "hermes" ? "Perguntar ao Hermes" : "Buscar no M/OS"} /><IconButton label="Fechar" icon="close" onClick={close} /></div>
+      {/* O modo fica visivel no campo, nao escondido num atalho que so quem
+          leu o rodape descobre. */}
+      <div className="command-modes" role="group" aria-label="Modo">
+        {([["search", "Search"], ["hermes", "Hermes"]] as const).map(([value, label]) => <button key={value} type="button" className="command-mode" data-active={mode === value || undefined} aria-pressed={mode === value} onClick={() => { setMode(value); input.current?.focus(); }}>{label}</button>)}
+        {mode === "hermes" && hermesStatus ? <span className="command-mode-state" data-state={hermesStatus.state}>{hermesStatus.state === "online" ? "ONLINE" : hermesStatus.state === "connecting" ? "CONECTANDO" : "OFFLINE"}</span> : null}
+      </div>
+      {mode === "hermes" ? <div className="hermes-thread" aria-live="polite">
+        {hermesStatus && hermesStatus.state !== "online" ? <p className="hermes-offline">{hermesUnavailableLabel(hermesStatus)}</p> : null}
+        {!turns.length && hermesStatus?.state === "online" ? <EmptyState>Pergunte alguma coisa. É o mesmo Hermes do WhatsApp, numa conversa separada.</EmptyState> : null}
+        {turns.map((turn, index) => <div className="hermes-turn" key={index}>
+          <p className="hermes-question">{turn.question}</p>
+          {/* Barra de 2px em sodio: o marcador de autoria do sistema que o
+              design ja define. Nao ha bolha, nao ha avatar. */}
+          {turn.answer ? <p className="hermes-answer">{turn.answer}</p> : null}
+          {turn.reasoning ? <details className="hermes-reasoning" open={showReasoning} onToggle={(event) => setShowReasoning(event.currentTarget.open)}><summary className="micro-label">RACIOCÍNIO</summary><p>{turn.reasoning}</p></details> : null}
+        </div>)}
+        {approval ? <div className="hermes-approval" role="alertdialog" aria-label="Aprovação do Hermes">
+          <p>{approval}</p>
+          <div className="form-actions">
+            {/* Fechar sem escolher nega: o servidor tambem tem deny como
+                default, e aprovar por omissao seria o pior erro deste caminho. */}
+            <Button variant="ghost" onClick={() => { setApproval(null); void hermes.approve(false); }}>Negar</Button>
+            <Button variant="primary" onClick={() => { setApproval(null); void hermes.approve(true); }}>Aprovar</Button>
+          </div>
+        </div> : null}
+        {running ? <div className="hermes-running"><MosSymbol size={16} spinning /><Button variant="ghost" onClick={() => { setRunning(false); void hermes.interrupt(); }}>Cancelar</Button></div> : null}
+      </div> : <>
       {query ? <label className="check-control"><input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.currentTarget.checked)} /><span>Incluir arquivados</span></label> : null}
       <div id="command-results" className="command-results" aria-label="Resultados" aria-live="polite">
         {error ? <div className="command-error"><p>! {error}</p><Button variant="outline" onClick={() => void searchCommand(++searchSequence.current)}>Tentar novamente</Button></div> : null}
@@ -878,9 +1028,56 @@ function CommandSurface({ close, openCapture, openTask, openProject, openWorkspa
           const context = item.kind === "function" ? `${item.function.id} · risco ${functionRiskLabels[item.function.risk]}` : item.kind === "project" ? item.project.description : item.kind === "workspace" ? item.workspace.description : item.kind === "task" ? item.project?.name : item.kind === "app" ? item.app.description || item.app.launchTarget || "" : item.kind === "resource" ? `${resourceHost(item.resource.url)}${item.resource.note ? ` · ${item.resource.note}` : ""}` : item.project?.name ?? item.capture.content;
           return <button id={`command-result-${index}`} aria-current={index === activeIndex ? "true" : undefined} data-active={index === activeIndex || undefined} key={`${item.kind}-${index}-${title}`} className="command-row" onFocus={() => setActiveIndex(index)} onMouseEnter={() => setActiveIndex(index)} onClick={() => openItem(item)}><span>{type}</span><strong>{title}</strong><small>{context}</small></button>;
         })}
-      </div>
+      </div></>}
+      <div className="command-footer">{mode === "hermes" ? "⏎ PERGUNTA · TAB SEARCH · ESC FECHA" : "↑↓ NAVEGA · ⏎ ABRE · TAB HERMES · ESC FECHA"}</div>
     </section>
   </div>;
+}
+
+function HermesSettings() {
+  const [status, setStatus] = useState<HermesStatus | null>(null);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    void hermes.status().then((next) => { setStatus(next); setBaseUrl(next.baseUrl); }).catch(() => undefined);
+    const subscription = hermes.onState(setStatus);
+    return () => { void subscription.then((dispose) => dispose()); };
+  }, []);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    try {
+      if (baseUrl.trim()) await hermes.setBaseUrl(baseUrl);
+      if (username.trim() && password) await hermes.setCredentials(username, password);
+      // A senha some da memoria do renderer assim que sai daqui. Ela vive no
+      // Credential Manager, e nem o proprio campo a mantem.
+      setPassword("");
+      setMessage("Credencial guardada no Windows Credential Manager.");
+      setStatus(await hermes.status());
+    } catch (error) { setMessage(String(error)); }
+  }
+
+  const stateLabel = status?.state === "online" ? "Conectado" : status?.state === "connecting" ? "Conectando" : "Desconectado";
+  return <Panel label="HERMES">
+    <p className="support-copy">O M/OS é mais uma superfície do Hermes que já roda na sua VPS — a mesma que você usa pelo WhatsApp, numa conversa separada. O acesso é pelo túnel SSH; o M/OS não abre porta nem inicia o túnel.</p>
+    <form className="stack-form" onSubmit={save}>
+      <label><span>ENDEREÇO LOCAL</span><input className="mono-input" value={baseUrl} onChange={(event) => setBaseUrl(event.currentTarget.value)} placeholder="http://127.0.0.1:9119" /></label>
+      <label><span>USUÁRIO</span><input value={username} onChange={(event) => setUsername(event.currentTarget.value)} autoComplete="off" /></label>
+      <label><span>SENHA</span><input type="password" value={password} onChange={(event) => setPassword(event.currentTarget.value)} autoComplete="off" /></label>
+      <div className="form-actions">
+        <Button variant="ghost" onClick={() => void hermes.clearCredentials().then(() => hermes.status()).then(setStatus).catch(() => undefined)}>Remover credencial</Button>
+        <Button variant="primary" type="submit">Salvar</Button>
+      </div>
+    </form>
+    <dl className="fact-grid">
+      <div><dt>ESTADO</dt><dd>{stateLabel}</dd></div>
+      <div><dt>CREDENCIAL</dt><dd>{status?.hasCredentials ? "Configurada" : <span className="fact-empty">Não configurada</span>}</dd></div>
+    </dl>
+    {status?.detail ? <p className="support-copy">{status.detail}</p> : null}
+    {message ? <p className="settings-message" aria-live="polite">{message}</p> : null}
+  </Panel>;
 }
 
 function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrashed, projects, tasks, workspaces, apps, resources, trashedResources, refresh, intent }: { theme: Theme; setTheme: (theme: Theme) => void; status: AppStatus | null; capturesArchived: Capture[]; capturesTrashed: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; trashedResources: Resource[]; refresh: () => Promise<void>; intent?: FunctionIntent }) {
@@ -940,7 +1137,7 @@ function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrash
   const archivedResources = resources.filter((resource) => resource.lifecycleState === "archived");
   const archivedWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "archived");
   const functionsByCategory = functionCategories.map((category) => ({ category, items: functions.filter((item) => item.category === category) })).filter((group) => group.items.length);
-  return <div className="page settings-page"><ContextPath segments={["M/OS", "SETTINGS"]} /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateProgressLabel() ? <p className="support-copy">{updateProgressLabel()}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then(setMessage).catch((error) => setMessage(appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button></div>)}</details></Panel><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}<dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></div>;
+  return <div className="page settings-page"><ContextPath segments={["M", "SETTINGS"]} /><HermesSettings /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateProgressLabel() ? <p className="support-copy">{updateProgressLabel()}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then(setMessage).catch((error) => setMessage(appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button></div>)}</details></Panel><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}<dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></div>;
 }
 
 function QuickCapture() {
@@ -950,7 +1147,17 @@ function QuickCapture() {
   const input = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { input.current?.focus(); const unlisten = listen("window-revealed", () => input.current?.focus()); return () => { void unlisten.then((dispose) => dispose()); }; }, []);
   async function submit(event: FormEvent) { event.preventDefault(); if (!content.trim() || state === "saving") return; setState("saving"); setFeedback("Salvando localmente..."); try { await api.createCapture(content, "quick_capture"); setContent(""); setState("idle"); setFeedback("Salvo na Inbox"); window.setTimeout(() => void api.hideQuickCapture(), 160); } catch (error) { setState("error"); setFeedback(`${appError(error).message} O texto continua aqui.`); } }
-  return <main className="quick-shell"><form className="quick-capture" onSubmit={submit}><div className="capture-line"><span className="slash">/</span><textarea ref={input} value={content} onChange={(event) => setContent(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Escape") void api.hideQuickCapture(); if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} aria-label="Texto da captura" placeholder="What's on your mind?" rows={1} /></div><div className="capture-footer"><span className={`feedback ${state}`} aria-live="polite">{feedback}</span><Button variant="primary" type="submit" disabled={!content.trim() || state === "saving"}>Capturar</Button></div></form></main>;
+  // Os tres tracos de amplitude sao a unica presenca da voz em repouso — sem
+  // icone de microfone. Ficam apagados ate a voz existir (fase adiada).
+  return <main className="quick-shell"><form className="quick-capture" onSubmit={submit}>
+    <div className="capture-line">
+      <span className="capture-bar" aria-hidden="true" />
+      <textarea ref={input} value={content} onChange={(event) => setContent(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Escape") void api.hideQuickCapture(); if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} aria-label="Texto da captura" placeholder="What's on your mind?" rows={1} />
+      {content ? null : <span className="capture-caret" aria-hidden="true" />}
+      <span className="amplitude" aria-hidden="true"><i /><i /><i /></span>
+    </div>
+    <div className="capture-footer"><span className="micro-label">⏎ SALVA E FECHA · ESC CANCELA</span><span className={`feedback ${state}`} aria-live="polite">{state === "error" ? feedback : ""}</span></div>
+  </form></main>;
 }
 
 function DesktopApp() {
@@ -976,6 +1183,9 @@ function DesktopApp() {
   const [resourceOpenKey, setResourceOpenKey] = useState(0);
   const [functionIntent, setFunctionIntent] = useState<FunctionIntent | null>(null);
   const [undo, setUndo] = useState<UndoAction | null>(null);
+  // Alimenta o indicador da topbar. Ate agora so existia implicito nas
+  // chamadas de api.ts; o design exige que o sistema diga quando esta ocupado.
+  const [busy, setBusy] = useState(false);
   const [bootState, setBootState] = useState<"loading" | "ready" | "error">("loading");
   const [bootMessage, setBootMessage] = useState("");
   const [showBootLoading, setShowBootLoading] = useState(false);
@@ -984,9 +1194,14 @@ function DesktopApp() {
   const functionIntentKey = useRef(0);
 
   const refresh = useCallback(async () => {
-    const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status()]);
-    setRecent(nextRecent); setInbox(nextInbox); setArchived(nextArchived); setTrashed(nextTrashed); setProjects(nextProjects); setWorkspaces(nextWorkspaces); setApps(nextApps); setResources(nextResources); setTrashedResources(nextTrashedResources); setTasks(nextTasks); setStatus(nextStatus);
-    setDrawerTask((current) => current ? nextTasks.find((task) => task.id === current.id) ?? null : null);
+    setBusy(true);
+    try {
+      const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status()]);
+      setRecent(nextRecent); setInbox(nextInbox); setArchived(nextArchived); setTrashed(nextTrashed); setProjects(nextProjects); setWorkspaces(nextWorkspaces); setApps(nextApps); setResources(nextResources); setTrashedResources(nextTrashedResources); setTasks(nextTasks); setStatus(nextStatus);
+      setDrawerTask((current) => current ? nextTasks.find((task) => task.id === current.id) ?? null : null);
+    } finally {
+      setBusy(false);
+    }
   }, []);
   const initialize = useCallback(async () => {
     setBootState("loading");
@@ -1016,7 +1231,8 @@ function DesktopApp() {
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("m-os-theme", theme); }, [theme]);
   useEffect(() => { const handler = (event: globalThis.KeyboardEvent) => { if (event.ctrlKey && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); } if (event.ctrlKey && event.key.toLowerCase() === "z" && undo) { event.preventDefault(); void undo.run().then(() => { setUndo(null); return refresh(); }); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, [refresh, undo]);
 
-  function showReceipt(action: UndoAction) { setUndo(action); if (undoTimer.current) window.clearTimeout(undoTimer.current); undoTimer.current = window.setTimeout(() => setUndo(null), 8_000); }
+  // ~5s: tempo de ler e decidir desfazer, sem virar mobilia na tela.
+  function showReceipt(action: UndoAction) { setUndo(action); if (undoTimer.current) window.clearTimeout(undoTimer.current); undoTimer.current = window.setTimeout(() => setUndo(null), 5_000); }
   function navigate(page: Page) { setFunctionIntent(null); setPage(page); }
   function openProject(project: Project) { setFunctionIntent(null); setSelectedProjectId(project.id); setPage("projects"); }
   function openWorkspace(workspace: Workspace) { setFunctionIntent(null); setSelectedWorkspaceId(workspace.id); setPage("workspaces"); }
@@ -1040,7 +1256,15 @@ function DesktopApp() {
     else if (target === "apps_register") setPage("apps");
     else setPage("settings");
   }
-  const nav: { page: Page; label: string; icon: IconName; count?: number }[] = [{ page: "home", label: "Home", icon: "home" }, { page: "inbox", label: "Inbox", icon: "inbox", count: inbox.length }, { page: "projects", label: "Projects", icon: "projects" }, { page: "workspaces", label: "Workspaces", icon: "workspaces" }, { page: "apps", label: "Apps", icon: "apps" }, { page: "library", label: "Library", icon: "library" }, { page: "tasks", label: "Tasks", icon: "board" }, { page: "settings", label: "Settings", icon: "settings" }];
+  // Seis destinos, na ordem do design: home · inbox · board · projects · library · apps.
+  // O sistema tem oito paginas e o rail aceita seis. Workspaces entra pelo
+  // Command; Settings fica no rodape do rail, que o README permite.
+  const nav: { page: Page; label: string; icon: IconName; count?: number }[] = [{ page: "home", label: "Home", icon: "home" }, { page: "inbox", label: "Inbox", icon: "inbox", count: inbox.length }, { page: "tasks", label: "Tasks", icon: "board" }, { page: "projects", label: "Projects", icon: "projects" }, { page: "library", label: "Library", icon: "library" }, { page: "apps", label: "Apps", icon: "apps" }];
+  const pageLabels: Record<Page, string> = { home: "Home", inbox: "Inbox", tasks: "Tasks", projects: "Projects", library: "Library", apps: "Apps", workspaces: "Workspaces", settings: "Settings" };
+  const pageMeta = useMemo(() => {
+    if (page !== "home") return pageLabels[page].toUpperCase();
+    return new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date()).toUpperCase().replace(",", " ·");
+  }, [page]);
   const pageContent = useMemo(() => {
     if (page === "home") return <HomePage recent={recent} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} intent={functionIntent ?? undefined} />;
     if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} openResource={openResource} intent={functionIntent ?? undefined} />;
@@ -1059,7 +1283,7 @@ function DesktopApp() {
         ? <section className="page startup-state" role="status"><p>Abrindo dados locais...</p></section>
         : null;
 
-  return <div className="app-shell"><aside className="nav-rail"><div className="symbol">M<span>/</span></div><nav aria-label="Navegação principal">{nav.map((item) => <button key={item.page} aria-current={page === item.page ? "page" : undefined} aria-label={item.label} title={item.label} onClick={() => navigate(item.page)}><Icon name={item.icon} filled={page === item.page} />{item.count ? <span>{item.count}</span> : null}</button>)}</nav><IconButton label="Quick Capture" icon="capture" onClick={() => void api.showQuickCapture()} /></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button></header><main className="content">{content}</main></div>{commandOpen ? <CommandSurface close={() => setCommandOpen(false)} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
+  return <div className="app-shell"><aside className="nav-rail"><div className="rail-symbol" aria-hidden="true"><MosSymbol size={16} /></div><nav aria-label="Navegação principal">{nav.map((item) => <button key={item.page} aria-current={page === item.page ? "page" : undefined} aria-label={item.label} title={item.label} onClick={() => navigate(item.page)}><Icon name={item.icon} filled={page === item.page} />{item.count ? <span>{item.count}</span> : null}</button>)}</nav><div className="rail-footer"><IconButton label="Quick Capture" icon="capture" onClick={() => void api.showQuickCapture()} /><IconButton label="Settings" icon="settings" active={page === "settings"} onClick={() => navigate("settings")} /></div></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button><div className="system-state" aria-live="polite">{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : <span className="micro-label">{pageMeta}</span>}</div></header><main className="content">{content}</main></div>{commandOpen ? <CommandSurface close={() => setCommandOpen(false)} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
 }
 
 export default function App() {

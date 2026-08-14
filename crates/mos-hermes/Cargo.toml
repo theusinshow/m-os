@@ -1,0 +1,24 @@
+[package]
+name = "mos-hermes"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Ponte entre o M/OS e o Hermes existente"
+
+# NAO acrescentar mos-storage-sqlite aqui.
+#
+# Hermes nao faz parte do Core (CORE-FOUNDATION.md:33) e nunca escreve no banco.
+# A ausencia desta dependencia transforma essa regra em impossibilidade de
+# compilacao, em vez de algo que alguem precisa lembrar de respeitar. Quando as
+# acoes do M/OS chegarem, elas passam pela camada de aplicacao existente.
+[dependencies]
+serde.workspace = true
+serde_json = "1"
+thiserror.workspace = true
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "rustls-tls"] }
+keyring = "3"

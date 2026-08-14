@@ -1,6 +1,6 @@
 use mos_core::{
-    AppId, AppLaunchKind, AppRepository, CoreError, ErrorCode, LifecycleState, NewRegisteredApp,
-    RegisteredApp, SearchRequest,
+    AppCapabilities, AppId, AppLaunchKind, AppRepository, CoreError, ErrorCode, LifecycleState,
+    NewRegisteredApp, RegisteredApp, SearchRequest,
 };
 use rusqlite::{params, OptionalExtension, Row, Transaction};
 use time::OffsetDateTime;
@@ -11,7 +11,7 @@ use crate::{
     SqliteStorage,
 };
 
-pub(crate) const APP_COLUMNS: &str = "id, name, description, source_url, launch_kind, launch_target, lifecycle_state, created_at, updated_at, last_opened_at";
+pub(crate) const APP_COLUMNS: &str = "id, name, description, source_url, launch_kind, launch_target, lifecycle_state, created_at, updated_at, last_opened_at, can_open, can_read, can_write, can_automate";
 
 struct RawApp {
     id: String,
@@ -24,6 +24,10 @@ struct RawApp {
     created_at: String,
     updated_at: String,
     last_opened_at: Option<String>,
+    can_open: i64,
+    can_read: i64,
+    can_write: i64,
+    can_automate: i64,
 }
 
 impl RawApp {
@@ -39,6 +43,10 @@ impl RawApp {
             created_at: row.get(7)?,
             updated_at: row.get(8)?,
             last_opened_at: row.get(9)?,
+            can_open: row.get(10)?,
+            can_read: row.get(11)?,
+            can_write: row.get(12)?,
+            can_automate: row.get(13)?,
         })
     }
 
@@ -54,6 +62,10 @@ impl RawApp {
                 .map(AppLaunchKind::parse)
                 .transpose()?,
             launch_target: self.launch_target,
+            can_open: self.can_open != 0,
+            can_read: self.can_read != 0,
+            can_write: self.can_write != 0,
+            can_automate: self.can_automate != 0,
             lifecycle_state: LifecycleState::parse(&self.lifecycle_state)?,
             created_at: parse_time(&self.created_at)?,
             updated_at: parse_time(&self.updated_at)?,
@@ -66,14 +78,17 @@ impl AppRepository for SqliteStorage {
     fn create_app(&self, app: NewRegisteredApp) -> Result<RegisteredApp, CoreError> {
         let now = format_time(app.created_at)?;
         let id = app.id;
+        // Um app com destino de lancamento ja abre. Declarar can_open falso
+        // seria mentir sobre uma capacidade em uso — mesma regra da migration 0007.
+        let can_open = i64::from(app.launch_target.is_some());
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         transaction
             .execute(
                 "INSERT INTO apps (
                     id, name, description, source_url, launch_kind, launch_target,
-                    lifecycle_state, created_at, updated_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?7)",
+                    lifecycle_state, created_at, updated_at, can_open
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?7, ?8)",
                 params![
                     app.id.to_string(),
                     app.name,
@@ -82,6 +97,7 @@ impl AppRepository for SqliteStorage {
                     app.launch_kind.map(AppLaunchKind::as_str),
                     app.launch_target,
                     now,
+                    can_open,
                 ],
             )
             .map_err(map_sql_error)?;
@@ -146,12 +162,13 @@ impl AppRepository for SqliteStorage {
             } else {
                 let now = format_time(app.created_at)?;
                 let id = app.id;
+                let can_open = i64::from(app.launch_target.is_some());
                 transaction
                     .execute(
                         "INSERT INTO apps (
                             id, name, description, source_url, launch_kind, launch_target,
-                            lifecycle_state, created_at, updated_at
-                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?7)",
+                            lifecycle_state, created_at, updated_at, can_open
+                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?7, ?8)",
                         params![
                             app.id.to_string(),
                             app.name,
@@ -160,6 +177,7 @@ impl AppRepository for SqliteStorage {
                             app.launch_kind.map(AppLaunchKind::as_str),
                             app.launch_target,
                             now,
+                            can_open,
                         ],
                     )
                     .map_err(map_sql_error)?;
@@ -176,11 +194,8 @@ impl AppRepository for SqliteStorage {
     fn update_app(
         &self,
         id: AppId,
-        name: &str,
-        description: &str,
-        source_url: Option<&str>,
-        launch_kind: Option<AppLaunchKind>,
-        launch_target: Option<&str>,
+        fields: &NewRegisteredApp,
+        capabilities: AppCapabilities,
     ) -> Result<RegisteredApp, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
         let connection = self.connection.lock().map_err(map_lock_error)?;
@@ -190,16 +205,21 @@ impl AppRepository for SqliteStorage {
             .execute(
                 "UPDATE apps
                  SET name = ?1, description = ?2, source_url = ?3, launch_kind = ?4,
-                     launch_target = ?5, updated_at = ?6
+                     launch_target = ?5, updated_at = ?6, can_open = ?8, can_read = ?9,
+                     can_write = ?10, can_automate = ?11
                  WHERE id = ?7",
                 params![
-                    name,
-                    description,
-                    source_url,
-                    launch_kind.map(AppLaunchKind::as_str),
-                    launch_target,
+                    fields.name,
+                    fields.description,
+                    fields.source_url,
+                    fields.launch_kind.map(AppLaunchKind::as_str),
+                    fields.launch_target,
                     now,
-                    id.to_string()
+                    id.to_string(),
+                    i64::from(capabilities.can_open),
+                    i64::from(capabilities.can_read),
+                    i64::from(capabilities.can_write),
+                    i64::from(capabilities.can_automate),
                 ],
             )
             .map_err(map_sql_error)?;
@@ -431,17 +451,30 @@ mod tests {
             .unwrap();
         assert_eq!(app.name, "M-Finance");
 
+        let fields = NewRegisteredApp::create_with_source(
+            "M Finance",
+            "Contas e faturas",
+            Some("https://github.com/theusinshow/m-finance"),
+            Some(AppLaunchKind::Path),
+            Some("C:\\Apps\\m-finance.exe"),
+        )
+        .unwrap();
         let updated = storage
             .update_app(
                 app.id,
-                "M Finance",
-                "Contas e faturas",
-                Some("https://github.com/theusinshow/m-finance"),
-                Some(AppLaunchKind::Path),
-                Some("C:\\Apps\\m-finance.exe"),
+                &fields,
+                AppCapabilities {
+                    can_open: true,
+                    can_read: true,
+                    ..AppCapabilities::default()
+                },
             )
             .unwrap();
         assert_eq!(updated.launch_kind, Some(AppLaunchKind::Path));
+        assert!(updated.can_open);
+        assert!(updated.can_read);
+        assert!(!updated.can_write, "capacidade nao declarada fica falsa");
+        assert!(!updated.can_automate);
 
         let results = storage
             .search_apps(SearchRequest {

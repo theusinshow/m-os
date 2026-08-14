@@ -11,9 +11,9 @@ not approved scope.
 
 Before changing interface code, also read:
 
-- `Design System/handoff/AGENTS.md`
-- `Design System/handoff/mos-design-system.md`
-- `Design System/handoff/mos-tokens.css`
+- `Design System/design_handoff_frontend/AGENTS.md`
+- `Design System/design_handoff_frontend/mos-design-system.md`
+- `Design System/design_handoff_frontend/mos-tokens.css`
 
 ## Local checks
 

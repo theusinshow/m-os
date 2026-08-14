@@ -85,6 +85,7 @@ pub trait WorkRepository: Send + Sync {
         id: ProjectId,
         name: &str,
         description: &str,
+        repository: &str,
     ) -> Result<Project, CoreError>;
     fn get_project(&self, id: ProjectId) -> Result<Project, CoreError>;
     fn projects(&self, include_archived: bool) -> Result<Vec<Project>, CoreError>;
@@ -120,14 +121,14 @@ pub trait AppRepository: Send + Sync {
         &self,
         apps: Vec<NewRegisteredApp>,
     ) -> Result<Vec<RegisteredApp>, CoreError>;
+    /// `fields` carrega os campos editaveis ja validados; so `id` e
+    /// `created_at` sao ignorados. Agrupar aqui evita uma assinatura de oito
+    /// parametros onde trocar dois `Option<&str>` de lugar compila em silencio.
     fn update_app(
         &self,
         id: AppId,
-        name: &str,
-        description: &str,
-        source_url: Option<&str>,
-        launch_kind: Option<crate::AppLaunchKind>,
-        launch_target: Option<&str>,
+        fields: &crate::NewRegisteredApp,
+        capabilities: crate::AppCapabilities,
     ) -> Result<RegisteredApp, CoreError>;
     fn get_app(&self, id: AppId) -> Result<RegisteredApp, CoreError>;
     fn apps(&self, include_archived: bool) -> Result<Vec<RegisteredApp>, CoreError>;
@@ -146,6 +147,7 @@ pub trait ResourceRepository: Send + Sync {
     fn update_resource(
         &self,
         id: crate::ResourceId,
+        kind: crate::ResourceKind,
         title: &str,
         url: &str,
         note: &str,

@@ -65,7 +65,7 @@ que podem conter dados pessoais.
 
 ## 7. Design system
 
-O renderer usa `Design System/handoff/mos-tokens.css` como fonte unica para cor,
+O renderer usa `Design System/design_handoff_frontend/mos-tokens.css` como fonte unica para cor,
 tipografia, espacamento, geometria e motion. Schibsted Grotesk e JetBrains Mono
 sao empacotadas localmente. Os componentes usam SVGs proprios e nao dependem de
 biblioteca de icones ou UI kit.

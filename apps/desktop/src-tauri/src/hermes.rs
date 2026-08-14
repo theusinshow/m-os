@@ -1,0 +1,250 @@
+//! Fronteira Tauri da ponte com o Hermes.
+//!
+//! A ponte vive numa task dedicada que possui o socket. Comandos chegam por um
+//! canal; eventos saem por `emit`, reusando o mesmo caminho que o app ja usa
+//! para `capture-changed`. Nenhuma chamada de rede em componente React, e
+//! nenhuma credencial atravessa para o WebView.
+
+use std::sync::{Arc, Mutex};
+
+use mos_hermes::{Bridge, ConnectionState, Credentials, Gateway, HermesError, Outcome};
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
+use tokio::sync::mpsc;
+
+pub const DEFAULT_BASE_URL: &str = "http://127.0.0.1:9119";
+
+/// Ordens que a task da ponte aceita.
+enum Order {
+    Submit(String),
+    Interrupt,
+    Approve(bool),
+    Close,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesStatus {
+    pub state: ConnectionState,
+    pub has_credentials: bool,
+    pub base_url: String,
+    /// Mensagem legivel do ultimo erro. Vazia quando nao ha.
+    pub detail: String,
+}
+
+pub struct HermesState {
+    orders: Mutex<Option<mpsc::Sender<Order>>>,
+    connection: Arc<Mutex<ConnectionState>>,
+    detail: Arc<Mutex<String>>,
+    /// Guardado localmente para `session.resume` na proxima abertura. O
+    /// historico nao vem junto: ele vive no state.db da VPS.
+    session_id: Arc<Mutex<Option<String>>>,
+    base_url: Mutex<String>,
+}
+
+impl Default for HermesState {
+    fn default() -> Self {
+        Self {
+            orders: Mutex::new(None),
+            connection: Arc::new(Mutex::new(ConnectionState::Offline)),
+            detail: Arc::new(Mutex::new(String::new())),
+            session_id: Arc::new(Mutex::new(None)),
+            base_url: Mutex::new(DEFAULT_BASE_URL.to_owned()),
+        }
+    }
+}
+
+fn set<T>(slot: &Mutex<T>, value: T) {
+    if let Ok(mut guard) = slot.lock() {
+        *guard = value;
+    }
+}
+
+fn get<T: Clone>(slot: &Mutex<T>) -> T {
+    slot.lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_else(|error| error.into_inner().clone())
+}
+
+fn announce<R: Runtime>(app: &AppHandle<R>, state: &HermesState) {
+    let status = HermesStatus {
+        state: get(&state.connection),
+        has_credentials: Credentials::exist(),
+        base_url: get(&state.base_url),
+        detail: get(&state.detail),
+    };
+    let _ = app.emit("hermes-state", status);
+}
+
+#[tauri::command]
+pub fn hermes_status(state: State<'_, HermesState>) -> HermesStatus {
+    HermesStatus {
+        state: get(&state.connection),
+        has_credentials: Credentials::exist(),
+        base_url: get(&state.base_url),
+        detail: get(&state.detail),
+    }
+}
+
+/// Nunca devolve a senha. O renderer so aprende que existe credencial.
+#[tauri::command]
+pub fn hermes_set_credentials(username: String, password: String) -> Result<(), String> {
+    Credentials::store(username.trim(), &password).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn hermes_clear_credentials() -> Result<(), String> {
+    Credentials::clear().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn hermes_set_base_url(url: String, state: State<'_, HermesState>) -> Result<(), String> {
+    let trimmed = url.trim();
+    if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+        return Err("O endereco do Hermes deve comecar com http:// ou https://.".into());
+    }
+    set(&state.base_url, trimmed.trim_end_matches('/').to_owned());
+    Ok(())
+}
+
+/// Conexao preguicosa: so acontece quando o usuario entra no modo Hermes pela
+/// primeira vez. Tunel morto nao atrasa o boot do M/OS em nada.
+#[tauri::command]
+pub async fn hermes_connect<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let state = app.state::<HermesState>();
+    if matches!(get(&state.connection), ConnectionState::Online) {
+        return Ok(());
+    }
+
+    let base_url = get(&state.base_url);
+    let resume = get(&state.session_id);
+    let connection = state.connection.clone();
+    let detail = state.detail.clone();
+    let session_slot = state.session_id.clone();
+
+    set(&connection, ConnectionState::Connecting);
+    set(&detail, String::new());
+    announce(&app, &state);
+
+    let channels = match handshake(&base_url).await {
+        Ok(channels) => channels,
+        Err(error) => {
+            set(&connection, ConnectionState::Offline);
+            set(&detail, error.to_string());
+            announce(&app, &state);
+            return Err(error.to_string());
+        }
+    };
+
+    let (order_tx, mut order_rx) = mpsc::channel::<Order>(16);
+    set(&state.orders, Some(order_tx));
+
+    let pump = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut bridge = Bridge::new(channels);
+        if let Err(error) = bridge.open_session(resume.as_deref()).await {
+            set(&detail, error.to_string());
+        }
+
+        loop {
+            tokio::select! {
+                order = order_rx.recv() => {
+                    let outcome = match order {
+                        Some(Order::Submit(text)) => bridge.submit(&text).await,
+                        Some(Order::Interrupt) => bridge.interrupt().await,
+                        Some(Order::Approve(approved)) => bridge.respond_approval(approved).await,
+                        Some(Order::Close) | None => {
+                            let _ = bridge.close().await;
+                            break;
+                        }
+                    };
+                    if let Err(error) = outcome {
+                        set(&detail, error.to_string());
+                        let _ = pump.emit("hermes-event", Outcome::Failed { message: error.to_string() });
+                    }
+                }
+                event = bridge.next() => {
+                    match event {
+                        Some(Ok(outcome)) => { let _ = pump.emit("hermes-event", outcome); }
+                        Some(Err(error)) => {
+                            set(&detail, error.to_string());
+                            let _ = pump.emit("hermes-event", Outcome::Failed { message: error.to_string() });
+                        }
+                        // Socket seco: queda de conexao, nao fim de turno.
+                        None => break,
+                    }
+                }
+            }
+
+            set(&connection, bridge.state());
+            if let Some(id) = bridge.session_id() {
+                set(&session_slot, Some(id.to_owned()));
+            }
+            let state = pump.state::<HermesState>();
+            announce(&pump, &state);
+        }
+
+        set(&connection, ConnectionState::Offline);
+        let state = pump.state::<HermesState>();
+        announce(&pump, &state);
+    });
+
+    Ok(())
+}
+
+/// A ordem do contrato, sem atalho: status, login, ticket, socket.
+async fn handshake(base_url: &str) -> Result<mos_hermes::Channels, HermesError> {
+    let gateway = Gateway::new(base_url)?;
+    let status = gateway.status().await?;
+
+    if status.auth_required {
+        let credentials = Credentials::load()?;
+        let provider = status
+            .auth_providers
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "basic".to_owned());
+        gateway.login(&credentials, &provider).await?;
+    }
+
+    // Cunhado agora porque vale 30 segundos.
+    let ticket = gateway.mint_ticket().await?;
+    mos_hermes::connect(&gateway.websocket_url(&ticket)).await
+}
+
+async fn order<R: Runtime>(app: &AppHandle<R>, order: Order) -> Result<(), String> {
+    let sender = {
+        let state = app.state::<HermesState>();
+        let guard = state.orders.lock().map_err(|_| "estado interno travado")?;
+        guard.clone()
+    };
+    match sender {
+        Some(sender) => sender
+            .send(order)
+            .await
+            .map_err(|_| "A conexao com o Hermes caiu.".to_owned()),
+        None => Err("O Hermes ainda nao esta conectado.".to_owned()),
+    }
+}
+
+#[tauri::command]
+pub async fn hermes_send<R: Runtime>(app: AppHandle<R>, text: String) -> Result<(), String> {
+    order(&app, Order::Submit(text)).await
+}
+
+#[tauri::command]
+pub async fn hermes_interrupt<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    order(&app, Order::Interrupt).await
+}
+
+/// Fechar sem escolher nega. O servidor tambem tem `deny` como default, e
+/// aprovar por omissao seria o pior erro possivel neste caminho.
+#[tauri::command]
+pub async fn hermes_approve<R: Runtime>(app: AppHandle<R>, approved: bool) -> Result<(), String> {
+    order(&app, Order::Approve(approved)).await
+}
+
+#[tauri::command]
+pub async fn hermes_disconnect<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    order(&app, Order::Close).await
+}
