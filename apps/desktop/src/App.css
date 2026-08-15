@@ -1537,25 +1537,56 @@ select {
   padding-top: var(--space-5);
 }
 
+/* As seis colunas lidas como PROGRESSAO DE COMPROMISSO, nao como seis
+   categorias coloridas. Nenhuma cor nova entra: o sistema so tem duas com
+   funcao declarada — sodio para "agora" e --success para "concluido" — mais
+   tres degraus de neutro. Um arco-iris de seis matizes seria exatamente o que
+   UX-PRINCIPLES 14 e 48 proibem: cor sem funcao, competindo com o conteudo.
+
+   A regua e o rotulo carregam a cor; a contagem fica neutra nas seis. Dois
+   carregadores fariam a cor gritar, nenhum a faria invisivel.
+
+   INBOX e BACKLOG  neutro mais fraco   ainda nao e trabalho
+   PLANNED          neutro medio        decidido, nao comecado
+   DOING            sodio               agora — a unica excecao cromatica
+   REVIEW           neutro forte        parado esperando alguem
+   DONE             --success           concluido */
 .kanban-column {
+  --column-rule: var(--border);
+  --column-ink: var(--text-system);
   min-width: 0;
-  border-top: var(--line) solid var(--border);
+  border-top: var(--line) solid var(--column-rule);
   transition: background var(--dur-instant) linear, border-color var(--dur-instant) linear;
 }
 
-/* DOING e a unica coluna com rotulo e regua em sodio. E o estado que importa:
-   o que esta acontecendo agora, nao o que talvez aconteca. */
+.kanban-column[data-kanban-state="planned"] {
+  --column-rule: var(--border-strong);
+  --column-ink: var(--text-secondary);
+}
+
 .kanban-column[data-kanban-state="doing"] {
-  border-top-color: var(--signal-fill);
+  --column-rule: var(--signal-fill);
+  --column-ink: var(--signal-ink);
 }
 
-.kanban-column[data-kanban-state="doing"] h2 {
-  color: var(--signal-ink);
+.kanban-column[data-kanban-state="review"] {
+  --column-rule: var(--border-control);
+  --column-ink: var(--text);
 }
 
+.kanban-column[data-kanban-state="done"] {
+  --column-rule: var(--success);
+  --column-ink: var(--success);
+}
+
+/* O alvo do arrasto sai do sodio. Antes ele usava a mesma cor da coluna DOING,
+   entao arrastar pintava o quadro inteiro de amarelo e a cor perdia o
+   significado que tinha. Agora o alvo se anuncia por PESO, nao por matiz: o
+   fundo sobe um degrau e a regua da propria coluna engrossa para 2px. Cada
+   coluna acende na sua cor, e nao na de outra. */
 .kanban-column[data-drop-target] {
-  background: var(--signal-wash);
-  border-color: var(--signal-fill);
+  background: var(--surface-hover);
+  border-top-width: var(--marker);
 }
 
 .kanban-column > header {
@@ -1567,7 +1598,7 @@ select {
 
 .kanban-column h2 {
   margin: 0;
-  color: var(--text-system);
+  color: var(--column-ink);
   font: var(--text-meta);
   letter-spacing: var(--tracking-micro);
   text-transform: uppercase;
