@@ -1533,7 +1533,16 @@ function DesktopApp() {
     if (page === "library") return <LibraryPage resources={resources} workspaces={workspaces} resourceWorkspaces={resourceWorkspaces} currentWorkspace={currentWorkspace} initialResourceId={selectedResourceId} initialResourceKey={resourceOpenKey} refresh={refresh} receipt={showReceipt} openCapture={setViewedCapture} intent={functionIntent ?? undefined} />;
     if (page === "tasks") return <BoardPage tasks={tasks} projects={projects} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
     return <SettingsPage theme={theme} setTheme={setThemeState} status={status} capturesArchived={archived} capturesTrashed={trashed} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} trashedResources={trashedResources} refresh={refresh} intent={functionIntent ?? undefined} />;
-  }, [page, recent, projects, workspaces, apps, resources, trashedResources, tasks, refresh, inbox, selectedProjectId, selectedWorkspaceId, selectedAppId, selectedResourceId, resourceOpenKey, theme, status, archived, trashed, functionIntent]);
+  // ATENCAO: esta lista e manual e nao ha lint que a verifique. Um estado novo
+  // que chegue as paginas por prop e nao entre aqui fica CONGELADO na tela: o
+  // clique atualiza o estado, o memo devolve a arvore antiga, e nada acontece.
+  //
+  // Foi exatamente o que aconteceu com currentWorkspaceId quando o contexto
+  // subiu para o raiz — trocar de Workspace parou de funcionar. Os outros tres
+  // se salvavam por acidente, porque suas acoes chamam refresh() e o refresh
+  // troca a identidade de workspaces/apps/resources, forcando o recalculo.
+  // Contexto nao chama refresh, entao travava sozinho e para sempre.
+  }, [page, recent, projects, workspaces, apps, resources, trashedResources, tasks, refresh, inbox, selectedProjectId, selectedWorkspaceId, selectedAppId, selectedResourceId, resourceOpenKey, theme, status, archived, trashed, functionIntent, currentWorkspaceId, currentWorkspace, hiddenWidgets, resourceWorkspaces]);
   const content = bootState === "ready"
     ? pageContent
     : bootState === "error"
