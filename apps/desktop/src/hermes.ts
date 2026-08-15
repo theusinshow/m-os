@@ -24,6 +24,15 @@ export type HermesStatus = {
   sessionReady: boolean;
 };
 
+/** Falha da conexao, com o nome da causa. Espelha `HermesFailure` da ponte. */
+export type HermesFailure = {
+  kind: "unreachable" | "unauthorized" | "rate_limited" | "protocol" | "missing_credentials" | "gateway";
+  message: string;
+  /** Só `unreachable` é. Credencial recusada não muda por insistência, e
+   *  rate_limited PIORA — repetir foi o que causou o bloqueio. */
+  retriable: boolean;
+};
+
 /** O que a ponte entrega. Espelha `Outcome` do crate mos-hermes. */
 export type HermesOutcome =
   | { outcome: "delta"; text: string }
@@ -39,7 +48,8 @@ export const hermes = {
   status() {
     return invoke<HermesStatus>("hermes_status");
   },
-  /** Preguicosa: so na primeira vez que o modo Hermes e usado. */
+  /** Rejeita com `HermesFailure`, nunca com string solta: quem chama precisa
+   *  saber SE pode tentar de novo antes de tentar. */
   connect() {
     return invoke<void>("hermes_connect");
   },

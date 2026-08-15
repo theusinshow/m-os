@@ -64,6 +64,33 @@ pub enum HermesError {
     Gateway(String),
 }
 
+impl HermesError {
+    /// Nome estavel da falha, para quem esta do outro lado do IPC decidir o que
+    /// fazer. Sem isto o renderer so recebe a mensagem em texto, e decidir por
+    /// substring seria decidir por acaso.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            HermesError::Unreachable(_) => "unreachable",
+            HermesError::Unauthorized(_) => "unauthorized",
+            HermesError::RateLimited => "rate_limited",
+            HermesError::Protocol(_) => "protocol",
+            HermesError::MissingCredentials => "missing_credentials",
+            HermesError::Gateway(_) => "gateway",
+        }
+    }
+
+    /// Se repetir a MESMA tentativa pode dar certo sozinho.
+    ///
+    /// So a ausencia de transporte e: o tunel abre depois e a proxima tentativa
+    /// encontra o gateway. Credencial recusada nao muda por insistencia, e
+    /// RateLimited piora — repetir e exatamente o que causou o bloqueio. E o
+    /// motivo de este metodo existir: um supervisor que reconecta sozinho
+    /// precisa saber a diferenca antes de tentar de novo.
+    pub fn retriable(&self) -> bool {
+        matches!(self, HermesError::Unreachable(_))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

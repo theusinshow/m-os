@@ -122,10 +122,33 @@ pub fn hermes_set_base_url(url: String, state: State<'_, HermesState>) -> Result
     Ok(())
 }
 
-/// Conexao preguicosa: so acontece quando o usuario entra no modo Hermes pela
-/// primeira vez. Tunel morto nao atrasa o boot do M/OS em nada.
+/// Falha estruturada da conexao. O renderer precisa saber SE pode tentar de
+/// novo, e antes disto so recebia a mensagem em texto — decidir por substring
+/// seria decidir por acaso, num caminho onde errar significa martelar o login e
+/// tomar 429.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesFailure {
+    kind: String,
+    message: String,
+    retriable: bool,
+}
+
+impl From<mos_hermes::HermesError> for HermesFailure {
+    fn from(error: mos_hermes::HermesError) -> Self {
+        Self {
+            kind: error.kind().to_owned(),
+            message: error.to_string(),
+            retriable: error.retriable(),
+        }
+    }
+}
+
+/// Conexao preguicosa na origem: acontecia so quando o usuario entrava no modo
+/// Hermes pela primeira vez. Continua barata — tunel morto nao atrasa o boot —,
+/// mas agora quem chama tambem pode ser o supervisor de reconexao do renderer.
 #[tauri::command]
-pub async fn hermes_connect<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+pub async fn hermes_connect<R: Runtime>(app: AppHandle<R>) -> Result<(), HermesFailure> {
     let state = app.state::<HermesState>();
     // Curto-circuito tambem em Connecting, nao so em Online.
     //
@@ -156,7 +179,7 @@ pub async fn hermes_connect<R: Runtime>(app: AppHandle<R>) -> Result<(), String>
             set(&connection, ConnectionState::Offline);
             set(&detail, error.to_string());
             announce(&app, &state);
-            return Err(error.to_string());
+            return Err(error.into());
         }
     };
 

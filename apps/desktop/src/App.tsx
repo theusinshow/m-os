@@ -6,7 +6,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, appError } from "./api";
 import { DotField } from "./DotField";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
-import { hermes, hermesUnavailableLabel, type HermesConnectionState, type HermesStatus } from "./hermes";
+import { hermes, hermesUnavailableLabel, type HermesConnectionState, type HermesFailure, type HermesStatus } from "./hermes";
 import { HermesPage } from "./HermesPage";
 import { Icon, type IconName } from "./Icon";
 import { MosSymbol } from "./Symbol";
@@ -1507,6 +1507,63 @@ function DesktopApp() {
     return () => { events.forEach((event) => void event.then((dispose) => dispose())); };
   }, [initialize, refresh]);
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("m-os-theme", theme); }, [theme]);
+  /* Supervisor da ponte do Hermes.
+   *
+   * Antes a conexao era preguicosa e unica: uma tentativa, so ao entrar no modo
+   * Hermes, com um ref impedindo a segunda. O freio existia por um motivo real
+   * — sem ele, uma falha anunciava Offline, o efeito se redisparava, e com
+   * senha errada isso martelava o login ate o gateway responder 429 e travar a
+   * conta do dashboard.
+   *
+   * O freio agora e outro, e mais preciso: so a falha de TRANSPORTE e repetida.
+   * `retriable` vem tipado da ponte (HermesError::retriable), entao a decisao
+   * nao depende de ler substring de mensagem. Tunel fechado tenta de novo,
+   * espaçando ate cinco minutos; credencial recusada e rate limit param, e
+   * param para sempre — quem mexe em credencial e o usuario, em Settings, e e
+   * a acao dele que deve destravar a proxima tentativa.
+   *
+   * Sem credencial configurada nao ha nem primeira tentativa. */
+  useEffect(() => {
+    let cancelled = false;
+    let timer = 0;
+    let delay = 5_000;
+    // Trava definitiva. A ponte anuncia Offline em TODA falha, inclusive nas que
+    // nao se deve repetir — sem esta trava o onState abaixo reagendaria mesmo
+    // depois de uma credencial recusada, e o laco do 429 voltaria por outra
+    // porta. Só acao do usuario em Settings destrava, remontando a aplicacao.
+    let stopped = false;
+    async function attempt() {
+      if (cancelled || stopped) return;
+      try {
+        const current = await hermes.status();
+        if (cancelled) return;
+        // Ja online ou a caminho: nada a fazer. Se cair, onState reage.
+        if (current.state !== "offline") { delay = 5_000; return; }
+        if (!current.hasCredentials) return;
+        await hermes.connect();
+        delay = 5_000;
+      } catch (error) {
+        if (cancelled) return;
+        const failure = error as Partial<HermesFailure> | null;
+        if (!failure?.retriable) { stopped = true; return; }
+        delay = Math.min(delay * 2, 300_000);
+        timer = window.setTimeout(() => void attempt(), delay);
+      }
+    }
+    void attempt();
+    const subscription = hermes.onState((next) => {
+      // A queda do socket rearma o supervisor. O timer unico impede que varios
+      // anuncios de Offline em sequencia virem varias tentativas paralelas.
+      if (next.state !== "offline" || stopped) return;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => void attempt(), delay);
+    });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      void subscription.then((dispose) => dispose());
+    };
+  }, []);
   // A chave `m-os-current-workspace-name` deixou de ser escrita: existia so para
   // a Library desenhar o segmento do caminho sem ter o objeto. Com o Workspace
   // chegando por prop, guardar o nome seria uma segunda fonte de verdade.
