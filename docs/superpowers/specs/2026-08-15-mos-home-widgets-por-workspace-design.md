@@ -136,6 +136,12 @@ onde se declara o que pertence a um Workspace. Widget entra na mesma frase que P
 O catálogo vive no front, em `const HOME_WIDGETS = [{ id, label }]` — fonte de verdade única
 dos ids, consumida pela Home e pelo painel.
 
+A capacidade também entra no registro de Functions (`functions.rs`), como
+`workspace.set_widget`, ao lado de `workspace.link_project` e `workspace.link_app`. O
+registro é o que alimenta a busca do Command e o painel FUNCTIONS em Settings: uma
+capacidade que existe na interface e não no registro é uma omissão que faz o produto parecer
+menor do que é.
+
 ### 4.2 Como a Home aplica
 
 `Widget` ganha a prop `id` e devolve `null` quando oculto. A regra fica num lugar só, e a
