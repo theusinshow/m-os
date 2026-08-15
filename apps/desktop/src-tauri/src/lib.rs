@@ -6,11 +6,11 @@ use std::{
 
 use mos_core::{
     AppCatalogEntry, AppLaunchKind, AppService, BackupInspection, BackupReceipt, Capture,
-    CaptureService, CoreError, CreateAppInput, CreateCaptureInput, CreateProjectInput,
-    CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService, FunctionDefinition,
-    HiddenWidget, MemoryService, Project, RegisteredApp, Resource, ResourceWorkspace, SearchItem,
-    Task, TaskState, UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput,
-    UpdateWorkspaceInput, WorkService, Workspace,
+    CaptureService, ConversationService, CoreError, CreateAppInput, CreateCaptureInput,
+    CreateProjectInput, CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService,
+    FunctionDefinition, HiddenWidget, MemoryService, Project, RegisteredApp, Resource,
+    ResourceWorkspace, SearchItem, Task, TaskState, UpdateAppInput, UpdateProjectInput,
+    UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, WorkService, Workspace,
 };
 use mos_storage_sqlite::{SqliteStorage, StorageHealth};
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,7 @@ use tauri::{
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod hermes;
+mod jarvis;
 
 const DEFAULT_CAPTURE_SHORTCUT: &str = "Ctrl+Shift+Space";
 
@@ -30,6 +31,7 @@ struct AppState {
     work: WorkService,
     apps: AppService,
     memory: MemoryService,
+    conversations: ConversationService,
     data: DataService,
     storage: Arc<SqliteStorage>,
     shortcut_status: Mutex<String>,
@@ -1124,6 +1126,7 @@ pub fn run() {
                 work: WorkService::new(storage.clone()),
                 apps: AppService::new(storage.clone()),
                 memory: MemoryService::new(storage.clone()),
+                conversations: ConversationService::new(storage.clone()),
                 data: DataService::new(storage.clone()),
                 storage,
                 shortcut_status: Mutex::new("Registrando...".into()),
@@ -1131,6 +1134,11 @@ pub fn run() {
                 snapshot_status: Arc::new(Mutex::new("Snapshot ainda nao verificado.".into())),
                 settings_path,
             });
+
+            // Reparo de abertura: o app pode ter sido fechado no meio de um
+            // turno, e uma mensagem gravada como `streaming` voltaria
+            // eternamente em curso na tela.
+            let _ = app.state::<AppState>().conversations.settle_unfinished();
 
             let shortcut_status = match app.global_shortcut().register(configured_shortcut.as_str())
             {
@@ -1166,7 +1174,19 @@ pub fn run() {
             hermes::hermes_send,
             hermes::hermes_interrupt,
             hermes::hermes_approve,
+            hermes::hermes_clarify,
+            hermes::hermes_select_conversation,
+            hermes::hermes_load_history,
             hermes::hermes_disconnect,
+            jarvis::conversation_list,
+            jarvis::conversation_current,
+            jarvis::conversation_create,
+            jarvis::conversation_messages,
+            jarvis::conversation_rename,
+            jarvis::conversation_set_archived,
+            jarvis::conversation_delete,
+            jarvis::conversation_search,
+            jarvis::conversation_truncate,
             create_capture,
             get_capture,
             list_recent,

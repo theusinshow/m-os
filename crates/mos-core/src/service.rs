@@ -711,6 +711,7 @@ impl WorkService {
 /// Ele nao conhece a ponte e nao conhece rede. O orquestrador do desktop e quem
 /// traduz `Outcome` em parte de mensagem e chama estes metodos — e e por isso
 /// que `mos-hermes` continua sem `mos-core` e sem SQLite (ADR-024, ADR-025).
+#[derive(Clone)]
 pub struct ConversationService {
     repository: Arc<dyn ConversationRepository>,
 }
