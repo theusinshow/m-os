@@ -1087,6 +1087,11 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
   const [includeArchived, setIncludeArchived] = useState(false);
   const [error, setError] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  // O desfoque de borda so aparece quando ha conteudo abaixo do corte. Sem esta
+  // medida ele seria decoracao: uma nevoa sobre espaco vazio, dizendo que ha
+  // mais quando nao ha. Mede em scroll e resize, sem cronometro e sem RAF.
+  const resultsPane = useRef<HTMLDivElement>(null);
+  const [hasMoreBelow, setHasMoreBelow] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const previousFocus = useRef(document.activeElement as HTMLElement | null);
   const searchSequence = useRef(0);
@@ -1122,6 +1127,17 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
   // connect -> offline -> connect, o mais rapido que o IPC permitisse. Com o
   // tunel aberto e senha errada isso martelava o login, que o gateway responde
   // com 429 — o loop trancaria a conta do dashboard do usuario.
+  useEffect(() => {
+    const pane = resultsPane.current;
+    if (!pane) { setHasMoreBelow(false); return; }
+    const measure = () => setHasMoreBelow(pane.scrollTop + pane.clientHeight < pane.scrollHeight - 1);
+    measure();
+    pane.addEventListener("scroll", measure, { passive: true });
+    const resize = new ResizeObserver(measure);
+    resize.observe(pane);
+    return () => { pane.removeEventListener("scroll", measure); resize.disconnect(); };
+  }, [results.length, mode, error]);
+
   const connectAttempted = useRef(false);
   useEffect(() => {
     if (mode !== "hermes" || connectAttempted.current) return;
@@ -1228,7 +1244,7 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
         {running ? <div className="hermes-running"><MosSymbol size={16} spinning /><Button variant="ghost" onClick={() => { setRunning(false); void hermes.interrupt(); }}>Cancelar</Button></div> : null}
       </div> : <>
       {query ? <label className="check-control"><input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.currentTarget.checked)} /><span>Incluir arquivados</span></label> : null}
-      <div id="command-results" className="command-results" aria-label="Resultados" aria-live="polite">
+      <div ref={resultsPane} id="command-results" className="command-results" aria-label="Resultados" aria-live="polite">
         {error ? <div className="command-error"><p>! {error}</p><Button variant="outline" onClick={() => void searchCommand(++searchSequence.current)}>Tentar novamente</Button></div> : null}
         {!query ? <EmptyState>Digite para buscar.</EmptyState> : null}
         {query && !error && !results.length ? <EmptyState>Nenhum resultado para “{query}”.</EmptyState> : null}
@@ -1238,7 +1254,10 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
           const context = item.kind === "function" ? `${item.function.id} · risco ${functionRiskLabels[item.function.risk]}` : item.kind === "project" ? item.project.description : item.kind === "workspace" ? item.workspace.description : item.kind === "task" ? item.project?.name : item.kind === "app" ? item.app.description || item.app.launchTarget || "" : item.kind === "resource" ? `${resourceHost(item.resource.url)}${item.resource.note ? ` · ${item.resource.note}` : ""}` : item.project?.name ?? item.capture.content;
           return <button id={`command-result-${index}`} aria-current={index === activeIndex ? "true" : undefined} data-active={index === activeIndex || undefined} key={`${item.kind}-${index}-${title}`} className="command-row" onFocus={() => setActiveIndex(index)} onMouseEnter={() => setActiveIndex(index)} onClick={() => openItem(item)}><span>{type}</span><strong>{title}</strong><small>{context}</small></button>;
         })}
-      </div></>}
+      </div>
+      {/* Tres camadas de desfoque crescente, ancoradas acima do rodape. So
+          existem enquanto houver resultado abaixo do corte. */}
+      {hasMoreBelow ? <div className="command-fade" aria-hidden="true"><i /><i /><i /></div> : null}</>}
       <div className="command-footer">{(mode === "hermes" ? ["⏎ PERGUNTA", "TAB SEARCH", "ESC FECHA"] : ["↑↓ NAVEGA", "⏎ ABRE", "/ COMANDO", "TAB HERMES"]).map((hint) => <span key={hint}>{hint}</span>)}</div>
     </section>
   </div>;

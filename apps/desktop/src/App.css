@@ -3051,3 +3051,67 @@ input[type="checkbox"]:disabled {
     display: none;
   }
 }
+
+/* ---------- 4. Gradual Blur — a borda dos resultados ----------
+
+   Adaptado de Animations/GradualBlur. O original empilha cinco divs com
+   backdrop-filter e mascara, e aceita ser aplicado em qualquer borda de
+   qualquer superficie. Aqui sao tres camadas, num lugar so.
+
+   Duas reducoes deliberadas:
+
+   1. TRES camadas em vez de cinco. Cada camada com backdrop-filter e uma
+      composicao extra por frame enquanto a lista rola. Entre 3 e 5 o olho nao
+      distingue o degrau; o compositor distingue.
+   2. So aparece quando ha resultado abaixo do corte (ver command-fade em
+      App.tsx). Nevoa sobre espaco vazio anunciaria conteudo que nao existe —
+      seria decoracao, e pior, decoracao mentirosa.
+
+   Fica no Command e em nenhum outro lugar: e superficie transitoria, montada
+   so enquanto aberta. O mesmo efeito numa lista permanente pagaria composicao
+   o dia inteiro. */
+
+.command-fade {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: var(--command-footer);
+  left: 0;
+  height: var(--space-6);
+  pointer-events: none;
+}
+
+.command-fade i {
+  position: absolute;
+  inset: 0;
+}
+
+/* Cada camada cobre uma faixa e desfoca mais que a anterior. A mascara e o que
+   torna o degrau continuo: sem ela seriam tres faixas visiveis. */
+.command-fade i:nth-child(1) {
+  backdrop-filter: blur(1px);
+  mask-image: linear-gradient(to bottom, transparent, #000 40%);
+}
+
+.command-fade i:nth-child(2) {
+  backdrop-filter: blur(2px);
+  mask-image: linear-gradient(to bottom, transparent 35%, #000 80%);
+}
+
+.command-fade i:nth-child(3) {
+  backdrop-filter: blur(4px);
+  mask-image: linear-gradient(to bottom, transparent 65%, #000);
+}
+
+/* Em alto contraste o desfoque sai e entra uma linha: a informacao "ha mais
+   abaixo" continua, sem depender de efeito optico. */
+@media (forced-colors: active) {
+  .command-fade i {
+    backdrop-filter: none;
+  }
+
+  .command-fade {
+    height: var(--line);
+    background: CanvasText;
+  }
+}
