@@ -1,8 +1,8 @@
-# Tunel do Hermes — mantem 127.0.0.1:9119 apontando para o dashboard da VPS.
+# Tunel do Hermes - mantem 127.0.0.1:9119 apontando para o dashboard da VPS.
 #
 # Por que existe: o dashboard do Hermes escuta somente em localhost na VPS, por
 # decisao do proprio projeto upstream (docker-compose.yml:75 do Hermes-Agent).
-# O M/OS fala com 127.0.0.1:9119, entao sem tunel nao ha transporte — e o app
+# O M/OS fala com 127.0.0.1:9119, entao sem tunel nao ha transporte - e o app
 # mostra Offline, corretamente. Ate agora o tunel era um atalho de Desktop
 # disparado a mao; este script o torna permanente.
 #
@@ -32,7 +32,7 @@ function Test-Port {
 }
 
 while ($true) {
-    # Alguem ja abriu o tunel na mao — o atalho de Desktop ainda existe. Subir um
+    # Alguem ja abriu o tunel na mao - o atalho de Desktop ainda existe. Subir um
     # segundo faria ExitOnForwardFailure derrubar este na hora, e o laco giraria
     # sem parar. Entao cede a vez e volta a olhar.
     if (Test-Port -Number $port) {

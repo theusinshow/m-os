@@ -1,6 +1,6 @@
 # Instala o tunel do Hermes como tarefa agendada no logon.
 #
-# Roda uma vez, no contexto do proprio usuario — nao precisa de admin, porque a
+# Roda uma vez, no contexto do proprio usuario - nao precisa de admin, porque a
 # tarefa nao usa RunLevel Highest nem escreve fora do perfil.
 #
 # Existe como script para tirar a citacao do caminho: registrar a tarefa numa
@@ -55,7 +55,7 @@ try {
     $client.Connect("127.0.0.1", 9119)
     Write-Host "tunel: ABERTO em 127.0.0.1:9119"
 } catch {
-    Write-Host "tunel: ainda fechado — pode levar alguns segundos, ou a VPS esta fora"
+    Write-Host "tunel: ainda fechado - pode levar alguns segundos, ou a VPS esta fora"
 } finally {
     $client.Dispose()
 }
