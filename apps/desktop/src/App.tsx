@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, appError } from "./api";
+import { DotField } from "./DotField";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
 import { hermes, hermesUnavailableLabel, type HermesConnectionState, type HermesStatus } from "./hermes";
 import { HermesPage } from "./HermesPage";
@@ -288,6 +289,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
   const projectName = (id: string | null) => projects.find((project) => project.id === id)?.name;
   const isActiveToday = (project: Project) => new Date(project.updatedAt).toDateString() === new Date().toDateString();
   return <div className="page home-page">
+    <DotField />
     <ContextPath segments={["M", "HOME"]} />
     <CaptureComposer onSaved={(capture) => { markSaved(capture); void refresh(); }} focusKey={intent?.target === "home_capture" ? intent.key : undefined} />
     <Panel label="CONTEXTO" rule action={currentWorkspace ? <Button variant="ghost" onClick={() => setCurrentWorkspaceId("")}>Todos</Button> : undefined}><div className="context-switcher">{activeWorkspaces.map((workspace) => <button key={workspace.id} type="button" data-selected={workspace.id === currentWorkspaceId || undefined} onClick={() => setCurrentWorkspaceId(workspace.id)} onDoubleClick={() => openWorkspace(workspace)}><strong>{workspace.name}</strong><small>{workspace.description || "Workspace"}</small></button>)}{!activeWorkspaces.length ? <EmptyState>Workspaces ativos aparecerão aqui.</EmptyState> : null}</div></Panel>
