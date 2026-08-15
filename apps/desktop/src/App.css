@@ -3221,3 +3221,11 @@ input[type="checkbox"]:disabled {
   outline: var(--line) dashed var(--border-strong);
   outline-offset: calc(var(--line) * -1);
 }
+
+/* A dica de teclado do kanban fica encostada no fim do caminho, nao junto do
+   botao: e informacao sobre o quadro, nao uma acao. margin-right auto empurra
+   o "Criar Task" para a direita e mantem os tres itens numa linha so. */
+.board-hint {
+  margin-right: auto;
+  color: var(--text-system);
+}
