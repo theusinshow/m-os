@@ -3229,3 +3229,43 @@ input[type="checkbox"]:disabled {
   margin-right: auto;
   color: var(--text-system);
 }
+
+/* ---------- Barra de rolagem visivel ----------
+
+   O app nao estilizava barra nenhuma, entao herdava a do Windows 11: overlay
+   que so aparece depois que voce ja esta rolando. Numa superficie longa como
+   Settings isso le como "esta pagina nao rola" — a informacao de que ha mais
+   abaixo simplesmente nao existia ate o usuario tentar.
+
+   Fina e em --border-strong: presente o suficiente para dizer que ha mais,
+   discreta o suficiente para nao competir com o conteudo. Padrao moderno
+   primeiro; o bloco -webkit- cobre o WebView2 que ainda nao entende o padrao. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: var(--space-2);
+  height: var(--space-2);
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--fillet);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--border-control);
+}
+
+/* Em alto contraste a barra volta a ser a do sistema. */
+@media (forced-colors: active) {
+  * {
+    scrollbar-color: auto;
+  }
+}

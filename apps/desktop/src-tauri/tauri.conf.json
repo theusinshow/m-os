@@ -18,7 +18,8 @@
         "height": 760,
         "minWidth": 840,
         "minHeight": 600,
-        "center": true
+        "center": true,
+        "dragDropEnabled": false
       },
       {
         "label": "quick-capture",
