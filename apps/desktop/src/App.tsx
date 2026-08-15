@@ -268,7 +268,14 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, status, re
     <Panel label="CONTEXTO" rule action={currentWorkspace ? <Button variant="ghost" onClick={() => setCurrentWorkspaceId("")}>Todos</Button> : undefined}><div className="context-switcher">{activeWorkspaces.map((workspace) => <button key={workspace.id} type="button" data-selected={workspace.id === currentWorkspaceId || undefined} onClick={() => setCurrentWorkspaceId(workspace.id)} onDoubleClick={() => openWorkspace(workspace)}><strong>{workspace.name}</strong><small>{workspace.description || "Workspace"}</small></button>)}{!activeWorkspaces.length ? <EmptyState>Workspaces ativos aparecerão aqui.</EmptyState> : null}</div></Panel>
     <div className="home-grid">
       <Widget size="2x1"><Panel label="EM ANDAMENTO" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nothing in progress right now.</EmptyState>}</Panel></Widget>
-      <Widget size="2x1"><Panel label="RECENTES" count={`INBOX ${recent.length}`}>{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nothing on your mind right now.</EmptyState>}</Panel></Widget>
+      {/* Sem contagem. O badge dizia `INBOX ${recent.length}` e mentia duas vezes:
+          list_recent nao filtra por processing_state (repository.rs:91), entao a
+          lista traz tambem o que ja foi processado, e o comando pede so 8
+          (src-tauri/src/lib.rs:80), entao o numero parava em 8 por mais cheia que
+          a Inbox estivesse. A contagem verdadeira da Inbox e a do widget INBOX,
+          logo abaixo — duas contagens do mesmo nome que discordam sao pior que
+          nenhuma. */}
+      <Widget size="2x1"><Panel label="RECENTES">{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nothing on your mind right now.</EmptyState>}</Panel></Widget>
       {/* Sem contagem: o desenho so conta o que exige decisao — o que esta em
           andamento e o que espera na Inbox. Project e App voce navega, nao
           processa. */}
