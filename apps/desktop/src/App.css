@@ -18,6 +18,30 @@ button {
   cursor: pointer;
 }
 
+/* Foco visivel em tudo que recebe foco.
+ *
+ * Antes disto o app tinha cinco regras de `:focus-visible` e o resto dependia do
+ * anel padrao do WebView2 — que existe, mas nao e o anel do sistema, nao usa o
+ * sodio e nao tem contraste verificado contra as superficies daqui.
+ *
+ * `outline` e nao `box-shadow` por exigencia de `forced-colors`: em alto
+ * contraste o Windows repinta outline com a cor de sistema, e uma sombra
+ * simplesmente desaparece. `DESIGN-FOUNDATIONS` §18 ja registrava essa regra.
+ *
+ * Componentes que substituem o anel por um tratamento proprio — a regua que
+ * acende no Capture, no Command e no composer do Hermes — vencem por
+ * especificidade, e continuam sendo a excecao deliberada. */
+:focus-visible {
+  outline: var(--marker) solid var(--signal-ink);
+  outline-offset: var(--line);
+}
+
+@media (forced-colors: active) {
+  :focus-visible {
+    outline-color: Highlight;
+  }
+}
+
 .visually-hidden {
   position: absolute;
   width: var(--line);
@@ -492,10 +516,23 @@ kbd {
   font: var(--text-body);
 }
 
+/* Estes dois campos trocam o anel pela regua que ja os fecha: acender a linha
+   de base diz "o foco esta aqui" sem desenhar uma caixa em volta do elemento
+   que o sistema define justamente como o sem-caixa. Sem o par `:focus-within`
+   abaixo, porem, `outline: none` deixava os dois campos sem NENHUMA indicacao —
+   e um deles e o Capture, que e a entrada principal do produto. */
 .capture-line textarea:focus-visible,
 .command-input input:focus-visible {
   outline: none;
   box-shadow: none;
+}
+
+.capture-line:focus-within {
+  border-bottom-color: var(--signal-ink);
+}
+
+.command-input:focus-within {
+  border-bottom-color: var(--signal-ink);
 }
 
 input::placeholder,

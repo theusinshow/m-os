@@ -1,4 +1,4 @@
-import { DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -1541,6 +1541,37 @@ function DesktopApp() {
     window.setTimeout(() => { setCommandOpen(false); setCommandClosing(false); }, 90);
   }
   function showReceipt(action: UndoAction) { setUndo(action); if (undoTimer.current) window.clearTimeout(undoTimer.current); undoTimer.current = window.setTimeout(() => setUndo(null), 5_000); }
+  /* Posicao de leitura por pagina.
+   *
+   * `UX-PRINCIPLES` §37 pede preservar contexto ao navegar — filtros, posicao,
+   * selecao — e a posicao era a que se perdia: voltar para a Inbox depois de
+   * abrir um Project devolvia o topo da lista, e reencontrar onde se estava e
+   * exatamente o custo mental que o produto existe para remover.
+   *
+   * A posicao e guardada continuamente sob a pagina que esta na tela, e nao no
+   * momento do clique, porque `setPage` e chamado de sete lugares diferentes —
+   * salvar em cada um deles seria uma linha para esquecer na oitava. */
+  const contentRef = useRef<HTMLElement>(null);
+  const scrollByPage = useRef(new Map<Page, number>());
+  const shownPage = useRef<Page>(page);
+
+  useEffect(() => {
+    const node = contentRef.current;
+    if (!node) return;
+    const remember = () => scrollByPage.current.set(shownPage.current, node.scrollTop);
+    node.addEventListener("scroll", remember, { passive: true });
+    return () => node.removeEventListener("scroll", remember);
+  }, []);
+
+  // `useLayoutEffect` para restaurar antes da pintura: com `useEffect` a pagina
+  // aparece no topo e pula para a posicao guardada, que e pior que nao guardar.
+  useLayoutEffect(() => {
+    const node = contentRef.current;
+    if (!node) return;
+    shownPage.current = page;
+    node.scrollTop = scrollByPage.current.get(page) ?? 0;
+  }, [page]);
+
   function navigate(page: Page) { setFunctionIntent(null); setPage(page); }
   function openProject(project: Project) { setFunctionIntent(null); setSelectedProjectId(project.id); setPage("projects"); }
   function openWorkspace(workspace: Workspace) { setFunctionIntent(null); setSelectedWorkspaceId(workspace.id); setPage("workspaces"); }
@@ -1613,7 +1644,7 @@ function DesktopApp() {
     vira ansiedade de fundo. A contagem da Inbox aparece na Home e na propria
     tela, onde ela leva a uma acao. */}</button>)}</nav><div className="rail-footer"><IconButton label="Quick Capture" icon="capture" onClick={() => void api.showQuickCapture()} /><IconButton label="Settings" icon="settings" active={page === "settings"} onClick={() => navigate("settings")} /></div></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button>{/* O estado de sistema nao substitui o meta da pagina: os dois convivem, e o
     indicador de ocupado entra antes sem apagar onde voce esta. */}
-<div className="system-state" aria-live="polite">{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content">{content}</main></div>{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
+<div className="system-state" aria-live="polite">{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content" ref={contentRef}>{content}</main></div>{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
 }
 
 export default function App() {

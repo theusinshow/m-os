@@ -46,6 +46,7 @@ Estados possíveis:
 | ADR-028 | A leitura do M/OS pelo Hermes começa por injeção de contexto | Accepted |
 | ADR-029 | Não existem modos de conversa; o Hermes continua dono do reasoning | Accepted |
 | ADR-030 | A superfície Hermes adota a direção Marginália | Accepted |
+| ADR-031 | O rail carrega oito destinos, e o teto de seis vira regra de crescimento | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -841,3 +842,45 @@ A paleta do documento já é a de `mos-tokens.css`. Nenhum literal de cor foi in
 - `Ctrl+/` alterna a coluna de conversas, e `Ctrl+N` cria conversa;
 - a lista agrupa por tempo, porque conversas não são arquivos — a maioria morre no mesmo
   dia e o que sobrevive delas são Tasks e Resources.
+
+---
+
+## ADR-031 — O rail carrega oito destinos, e o teto de seis vira regra de crescimento
+
+**Aceita em:** 2026-08-15, na revisão de layout.
+
+### Contexto
+
+`mos-design-system.md` estabelece: *"Rail 52px, só ícones, máximo 6 destinos"*. O rail tem
+oito — Home, Hermes, Inbox, Tasks, Projects, Workspaces, Library, Apps — mais Quick Capture
+e Settings no rodapé.
+
+A revisão levantou isso como violação. Ela merece decisão registrada em vez de correção
+automática, porque as duas saídas têm custo real.
+
+### Decisão
+
+Manter os oito, e reinterpretar o número como **teto de crescimento**, não como contagem
+histórica: a partir daqui, um destino novo no rail exige retirar um.
+
+O motivo é o propósito da regra. Ela existe para o rail não virar depósito de features — e
+os oito não são features, são os substantivos centrais do produto: `VISION.md` §5 organiza
+o M/OS em CAPTURE, ORGANIZE, CONNECT e ACT, e cada item do rail é uma dessas superfícies.
+Um rail com oito conceitos estáveis não é o problema que a regra descreve.
+
+A alternativa — rebaixar Library e Apps para o `Ctrl+K` — já foi testada com Workspaces e
+falhou. O comentário que acompanha a entrada de Workspaces em `App.tsx` registra o
+resultado: o item ficou *"invisível para quem não conhece o Command"* até ser promovido ao
+rail. Repetir isso com Library e Apps trocaria uma violação de contagem por uma perda de
+descoberta.
+
+Mexer em navegação também tem custo próprio: `UX-PRINCIPLES.md` §41 pede que elementos
+principais não mudem de lugar, porque o usuário desenvolve memória espacial do sistema.
+
+### Consequências
+
+- a regra deixa de ser descumprida em silêncio e passa a ter um limite operante;
+- o próximo destino candidato ao rail chega junto da pergunta "qual sai?";
+- se o rail crescer para nove sem essa troca, a decisão aqui foi ignorada, e não revisada;
+- Quick Capture e Settings continuam fora da contagem: eles não são destinos de conteúdo, e
+  o rodapé do rail é uma zona própria.
