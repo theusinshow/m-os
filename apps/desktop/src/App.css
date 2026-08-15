@@ -38,9 +38,18 @@ button {
   stroke-width: var(--stroke-20);
 }
 
+/* Cada tamanho e um desenho proprio, e cada desenho tem o traco do seu tamanho:
+   1.25 em 20px, 1 em 16px. Reusar o traco de 20 num desenho de 16 poe a linha
+   em meio pixel — que e exatamente o borrao que a regra existe para evitar. */
+.mos-icon[data-size="16"] {
+  stroke-width: var(--stroke-16);
+}
+
+/* Silhueta e preenchimento puro. Mantendo o traco junto, o icone ativo crescia
+   1.25px em relacao ao inativo e a fila do rail perdia o alinhamento optico. */
 .mos-icon[data-filled] {
   fill: currentColor;
-  stroke: currentColor;
+  stroke: none;
 }
 
 /* 13px e nao 14: o rotulo de botao e menor que o texto de interface, para o
@@ -801,10 +810,32 @@ textarea::placeholder {
   color: var(--text);
   background: var(--surface-raised);
   border: var(--line) solid var(--border-strong);
+  /* 8px e o unico lugar do sistema onde o radius passa de 3, junto do overlay
+     grande. E o que faz a moldura ler como icone de aplicativo. */
   border-radius: var(--radius-lg);
   font: var(--text-body);
   font-weight: 700;
   transition: border-color var(--dur-instant) var(--ease-state);
+}
+
+/* Marca de terceiro: preenchida e monocromatica. Ela nao segue o sistema de
+   traco do M/OS porque nao e um icone do M/OS — distorcer um logotipo para
+   caber numa grade de 1.25 seria pior que respeitar a forma dele. */
+.app-mark {
+  fill: currentColor;
+  stroke: none;
+}
+
+/* O monograma e tipografia, entao ganha o tratamento de tipografia: uma letra
+   respira em 17px, duas precisam de tracking negativo para nao virarem sigla. */
+.app-monogram {
+  font: 500 17px/1 var(--font-product);
+  letter-spacing: var(--tracking-title);
+}
+
+.app-monogram[data-len="2"] {
+  font-size: 14px;
+  letter-spacing: -0.03em;
 }
 
 /* Hover so troca a borda: os icones da familia M/ sao brancos e moldurados,
@@ -1499,10 +1530,8 @@ select {
   display: none;
 }
 
-.library-detail-nav .button {
-  align-items: center;
-  gap: var(--space-2);
-}
+/* Sem `gap`: o botao voltou a ser so rotulo, porque icone junto de texto em
+   botao esta na lista do que o design system nao tem. */
 
 .library-empty {
   display: grid;
@@ -2522,14 +2551,17 @@ input[type="checkbox"]:disabled {
   flex: 1;
 }
 
+/* Alvo de 28px com desenho de 16: o minimo de mouse do design foundations, sem
+   o icone de 20 sufocar a moldura. */
 .hermes-rail-head button {
+  display: grid;
+  place-items: center;
+  width: var(--height-control-sm);
+  height: var(--height-control-sm);
   border: var(--line) solid var(--border-strong);
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--signal-ink);
-  font: var(--text-meta);
-  line-height: 1;
-  padding: var(--space-1) var(--space-2);
   cursor: pointer;
 }
 

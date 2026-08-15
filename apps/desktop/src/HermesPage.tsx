@@ -13,7 +13,7 @@ import {
   type MessagePart,
   type ToolRunState,
 } from "./hermes";
-import { Icon } from "./Icon";
+import { Icon, SmallIcon } from "./Icon";
 import { Markdown } from "./markdown";
 import type { Capture, Project, SearchItem, Task } from "./types";
 
@@ -629,7 +629,7 @@ export function HermesPage({ inbox, projects, tasks }: {
       <aside className="hermes-rail" aria-label="Conversas">
         <div className="hermes-rail-head">
           <span className="micro-label">CONVERSAS</span>
-          <button type="button" onClick={() => void newConversation()} title="Nova conversa · Ctrl+N" aria-label="Nova conversa">+</button>
+          <button type="button" onClick={() => void newConversation()} title="Nova conversa · Ctrl+N" aria-label="Nova conversa"><SmallIcon name="plus" /></button>
         </div>
         <input
           className="hermes-rail-search"
@@ -648,8 +648,8 @@ export function HermesPage({ inbox, projects, tasks }: {
                     <span className="hermes-rail-title">{item.title || item.preview || "Conversa vazia"}</span>
                     <span className="hermes-rail-meta">{clockOf(item.updatedAt)} · {item.messageCount} {item.messageCount === 1 ? "MSG" : "MSGS"}</span>
                   </button>
-                  <button type="button" className="hermes-rail-drop" aria-label={`Excluir ${item.title || "conversa"}`} onClick={() => void removeConversation(item.id)}>
-                    <Icon name="trash" />
+                  <button type="button" className="hermes-rail-drop" aria-label={`Excluir ${item.title || "conversa"}`} title="Excluir conversa" onClick={() => void removeConversation(item.id)}>
+                    <SmallIcon name="trash" />
                   </button>
                 </div>
               ))}
