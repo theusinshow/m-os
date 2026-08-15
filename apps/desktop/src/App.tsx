@@ -1553,31 +1553,50 @@ function DesktopApp() {
     // depois de uma credencial recusada, e o laco do 429 voltaria por outra
     // porta. Só acao do usuario em Settings destrava, remontando a aplicacao.
     let stopped = false;
+    // Instante em que a conexao ficou de pe. Serve para distinguir uma sessao
+    // que durou de uma que caiu no nascimento — sem essa distincao a espera
+    // nunca crescia no caso pior.
+    let onlineSince = 0;
+    // A espera cresce a CADA agendamento, e nao so quando connect() lanca.
+    //
+    // Este era o defeito que produzia o laco: hermes_connect devolve Ok assim
+    // que o handshake passa, e a sessao pode morrer logo depois. Nesse caminho
+    // o catch nunca roda, a espera ficava em 5s, e o app refazia o login
+    // inteiro a cada cinco segundos — ate o gateway responder 429.
+    function schedule() {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => void attempt(), delay);
+      delay = Math.min(delay * 2, 300_000);
+    }
     async function attempt() {
       if (cancelled || stopped) return;
       try {
         const current = await hermes.status();
         if (cancelled) return;
         // Ja online ou a caminho: nada a fazer. Se cair, onState reage.
-        if (current.state !== "offline") { delay = 5_000; return; }
+        if (current.state !== "offline") return;
         if (!current.hasCredentials) return;
         await hermes.connect();
-        delay = 5_000;
       } catch (error) {
         if (cancelled) return;
         const failure = error as Partial<HermesFailure> | null;
         if (!failure?.retriable) { stopped = true; return; }
-        delay = Math.min(delay * 2, 300_000);
-        timer = window.setTimeout(() => void attempt(), delay);
+        schedule();
       }
     }
     void attempt();
     const subscription = hermes.onState((next) => {
       // A queda do socket rearma o supervisor. O timer unico impede que varios
       // anuncios de Offline em sequencia virem varias tentativas paralelas.
+      if (next.state === "online") { onlineSince = Date.now(); return; }
       if (next.state !== "offline" || stopped) return;
-      window.clearTimeout(timer);
-      timer = window.setTimeout(() => void attempt(), delay);
+      // So uma conexao que se sustentou merece recomecar a contagem do zero.
+      // Um minuto de pe significa que o problema anterior passou; cair em
+      // seguida significa que nao passou, e insistir no mesmo ritmo e o que
+      // vira martelo.
+      if (onlineSince && Date.now() - onlineSince > 60_000) delay = 5_000;
+      onlineSince = 0;
+      schedule();
     });
     return () => {
       cancelled = true;
