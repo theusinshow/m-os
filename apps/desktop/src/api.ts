@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, Project, RegisteredApp, Resource, ResourceKind, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, Project, RegisteredApp, Resource, ResourceKind, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -152,6 +152,12 @@ export const api = {
   },
   setAppWorkspace(appId: string, workspaceId: string, linked: boolean) {
     return invoke<void>("set_app_workspace", { appId, workspaceId, linked });
+  },
+  hiddenWidgets() {
+    return invoke<HiddenWidget[]>("list_hidden_widgets");
+  },
+  setWorkspaceWidget(widgetId: string, workspaceId: string, visible: boolean) {
+    return invoke<void>("set_workspace_widget", { widgetId, workspaceId, visible });
   },
   markRegisteredAppOpened(id: string) {
     return invoke<RegisteredApp>("mark_registered_app_opened", { id });

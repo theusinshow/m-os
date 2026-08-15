@@ -32,6 +32,12 @@ export type Workspace = {
   updatedAt: string;
 };
 
+/** Uma entrada significa OCULTO — ausencia e o padrao visivel. Ver migration 0008. */
+export type HiddenWidget = {
+  workspaceId: string;
+  widgetId: string;
+};
+
 /** A ordem e a ordem das colunas do kanban.
  *  `inbox` aqui nao e a Inbox de Captures — Capture tem processingState. */
 export type TaskState = "inbox" | "backlog" | "planned" | "doing" | "review" | "done";

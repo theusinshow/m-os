@@ -8,9 +8,9 @@ use mos_core::{
     AppCatalogEntry, AppLaunchKind, AppService, BackupInspection, BackupReceipt, Capture,
     CaptureService, CoreError, CreateAppInput, CreateCaptureInput, CreateProjectInput,
     CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService, FunctionDefinition,
-    MemoryService, Project, RegisteredApp, Resource, SearchItem, Task, TaskState, UpdateAppInput,
-    UpdateProjectInput, UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, WorkService,
-    Workspace,
+    HiddenWidget, MemoryService, Project, RegisteredApp, Resource, SearchItem, Task, TaskState,
+    UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput,
+    WorkService, Workspace,
 };
 use mos_storage_sqlite::{SqliteStorage, StorageHealth};
 use serde::{Deserialize, Serialize};
@@ -414,6 +414,30 @@ fn set_app_workspace(
 ) -> Result<(), CoreError> {
     state.work.set_app_workspace(app_id, workspace_id, linked)?;
     notify_data_changed(&app, "app-workspace");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(())
+}
+
+#[tauri::command]
+fn list_hidden_widgets(state: tauri::State<'_, AppState>) -> Result<Vec<HiddenWidget>, CoreError> {
+    state.work.hidden_widgets()
+}
+
+/// A interface fala em visivel; a tabela guarda o oculto. A inversao acontece
+/// aqui, num lugar so — espalha-la pelos componentes seria garantir que um dia
+/// dois deles discordem sobre o que a ausencia de linha significa.
+#[tauri::command]
+fn set_workspace_widget(
+    workspace_id: &str,
+    widget_id: &str,
+    visible: bool,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CoreError> {
+    state
+        .work
+        .set_widget_hidden(workspace_id, widget_id, !visible)?;
+    notify_data_changed(&app, "workspace-widget");
     schedule_snapshot(&state.data, &state.snapshot_status, &app);
     Ok(())
 }
@@ -1079,6 +1103,8 @@ pub fn run() {
             list_app_workspaces,
             set_project_workspace,
             set_app_workspace,
+            set_workspace_widget,
+            list_hidden_widgets,
             create_project,
             update_project,
             get_project,
