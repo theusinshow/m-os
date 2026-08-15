@@ -2458,381 +2458,947 @@ input[type="checkbox"]:disabled {
     transition-duration: var(--dur-instant) !important;
   }
 }
-
 /* ============================================================
-   HERMES — tela inteira (M-OS Hermes - Chat Completo v0.1)
+   HERMES — AI Workspace (M-OS Hermes - Design Direction v1)
+
+   O dispositivo e a MARGEM (§03, decisao A): tudo que o sistema FAZ — buscar,
+   ler, citar, executar — mora numa coluna estreita a esquerda; tudo que ele DIZ
+   mora na coluna de leitura. Nunca se misturam, nunca viram card. E por isso
+   que atividade de ferramenta nao empurra a prosa.
+
+   O reconhecimento e tipografico: voce fala em 21px, ele responde em 15px. A
+   diferenca de escala separa os interlocutores sem cor, borda, bolha ou avatar.
+   Sodio so aparece quando ha estado.
    ============================================================ */
 
 .hermes-page {
   display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
   min-width: 0;
   height: 100%;
-  grid-template-columns: minmax(0, 1fr) auto;
+  overflow: hidden;
 }
 
-.hermes-main {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
+.hermes-page:not([data-rail]) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Ordem de sacrificio, sempre a mesma: conversas, depois inspector, depois
+   margem (§19). A coluna de leitura nunca e sacrificada. */
+@media (max-width: 1279px) {
+  .hermes-page {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hermes-rail {
+    position: absolute;
+    z-index: 20;
+    width: 260px;
+    height: 100%;
+    background: var(--surface);
+    box-shadow: var(--shadow-overlay);
+  }
+}
+
+/* ---------- Plano 2 · conversas ---------- */
+
+.hermes-rail {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
   border-right: var(--line) solid var(--border);
 }
 
-.hermes-topline,
-.hermes-scope {
+.hermes-rail-head {
   display: flex;
   align-items: center;
-  flex-shrink: 0;
   gap: var(--space-2);
+  height: var(--topbar-height);
+  padding: 0 var(--space-3) 0 var(--space-4);
   border-bottom: var(--line) solid var(--border);
 }
 
-.hermes-topline {
-  height: var(--topbar-height);
-  justify-content: space-between;
-  padding: 0 var(--space-4);
+.hermes-rail-head .micro-label {
+  flex: 1;
 }
 
-.hermes-topline-end {
+.hermes-rail-head button {
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--signal-ink);
+  font: var(--text-meta);
+  line-height: 1;
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+
+.hermes-rail-head button:hover {
+  border-color: var(--signal-ink);
+}
+
+.hermes-rail-search {
+  height: var(--height-input);
+  padding: 0 var(--space-4);
+  border: 0;
+  border-bottom: var(--line) solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: var(--text-meta);
+}
+
+.hermes-rail-search::placeholder {
+  color: var(--text-placeholder);
+}
+
+.hermes-rail-list {
+  overflow-y: auto;
+  padding: var(--space-3) 0 var(--space-4);
+}
+
+.hermes-rail-group {
+  padding: 0 var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.hermes-rail-group .micro-label {
+  display: block;
+  padding: 0 var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.hermes-rail-row {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  /* 2px em sodio a esquerda marca a conversa aberta. Sem preenchimento de
+     fundo: a selecao e uma marca, nao uma faixa. */
+  border-left: var(--marker) solid transparent;
 }
 
-/* A barra de escopo existe desde ja porque o desenho a define como parte da
-   moldura, e ela diz o que o Hermes esta enxergando. Enquanto ele nao le o
-   M/OS, ela declara isso em vez de mostrar filtros que nao filtram. */
-.hermes-scope {
-  height: var(--command-footer);
-  padding: 0 var(--content-margin);
+.hermes-rail-row[data-active] {
+  border-left-color: var(--signal-ink);
 }
 
-.hermes-scope-label {
+.hermes-rail-row:hover {
+  background: var(--surface-hover);
+}
+
+.hermes-rail-open {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--space-2) var(--space-2) var(--space-2) 10px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hermes-rail-title {
+  overflow: hidden;
   color: var(--text-secondary);
+  font: 400 13.5px/1.3 var(--font-product);
+  letter-spacing: var(--tracking-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hermes-rail-row[data-active] .hermes-rail-title {
+  color: var(--text);
+}
+
+.hermes-rail-meta {
+  color: var(--text-disabled);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-meta);
+}
+
+.hermes-rail-drop {
+  display: grid;
+  place-items: center;
+  width: var(--height-control-sm);
+  height: var(--height-control-sm);
+  border: 0;
+  background: transparent;
+  color: var(--text-disabled);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.hermes-rail-row:hover .hermes-rail-drop,
+.hermes-rail-drop:focus-visible {
+  opacity: 1;
+}
+
+.hermes-rail-drop:hover {
+  color: var(--danger);
+}
+
+/* ---------- Plano 3 · leitura ---------- */
+
+.hermes-main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* A regua VENDO responde a uma pergunta so: o que o Hermes esta vendo agora. */
+.hermes-seeing {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--topbar-height);
+  padding: 0 var(--space-4);
+  border-bottom: var(--line) solid var(--border);
+  overflow-x: auto;
+}
+
+.hermes-seeing-spacer {
+  flex: 1;
+}
+
+.hermes-seeing form input,
+.hermes-title {
+  max-width: 220px;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: var(--text-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.hermes-title:hover {
+  color: var(--text);
+}
+
+.hermes-seeing form input {
+  border-bottom: var(--line) solid var(--signal-ink);
+  cursor: text;
+}
+
+/* Chip: borda solida e manual, tracejada e automatico. Sem cor extra, sem
+   icone, sem legenda (§06). */
+.hermes-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  padding: 3px var(--space-2);
+  border: var(--line) solid var(--signal-ink);
+  border-radius: var(--radius-sm);
+  color: var(--signal-ink);
   font: var(--text-meta);
   letter-spacing: var(--tracking-meta);
 }
 
-.hermes-scope-empty,
-.hermes-quiet {
-  color: var(--text-system);
-  font: var(--text-small);
+.hermes-chip[data-origin="automatic"] {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
 }
 
-.hermes-quiet {
-  max-width: 62ch;
-  margin: var(--space-2) 0 0;
+.hermes-chip-kind {
+  opacity: 0.7;
+}
+
+.hermes-chip-label {
+  max-width: 22ch;
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hermes-chip button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
 }
 
 .hermes-thread-area {
-  flex: 1;
   min-height: 0;
-  padding: var(--space-5) var(--content-margin) var(--space-2);
   overflow-y: auto;
+  padding: var(--space-6) var(--space-4) var(--space-5);
 }
 
-.hermes-empty-thread {
-  max-width: 680px;
-  animation: viewEnter var(--dur-context) var(--ease-enter);
-}
-
-.hermes-suggestions {
-  display: flex;
-  flex-direction: column;
-  margin-top: var(--space-4);
-}
-
-/* Sugestao e pergunta de verdade sobre dado de verdade: numero em sodio,
-   frase em 21px. A borda superior acende no hover, sem fundo. */
-.hermes-suggestion {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
-  padding: var(--space-4) 0;
-  color: var(--text);
-  background: transparent;
-  border: 0;
-  border-top: var(--line) solid var(--border-strong);
-  font: var(--text-capture);
-  letter-spacing: var(--tracking-capture);
-  text-align: left;
-  transition: border-color var(--dur-instant) var(--ease-state);
-}
-
-.hermes-suggestion:last-of-type {
-  border-bottom: var(--line) solid var(--border-strong);
-}
-
-.hermes-suggestion:hover:enabled {
-  border-color: var(--signal-ink);
-}
-
-.hermes-suggestion:disabled {
-  color: var(--text-disabled);
-}
-
-.hermes-suggestion-index {
-  flex: none;
-  color: var(--signal-ink);
-  font: var(--text-meta);
+/* Em ultrawide a thread nao estica: sobra canvas dos dois lados. Uma linha de
+   200 caracteres nao e um recurso (§19). */
+.hermes-thread {
+  max-width: calc(108px + var(--space-loose) + 62ch);
+  margin: 0 auto;
 }
 
 .hermes-turn {
-  max-width: 700px;
-  padding-bottom: var(--space-5);
-  margin-bottom: var(--space-5);
-  border-bottom: var(--line) solid var(--border);
-  animation: turnEnter var(--dur-context) var(--ease-enter);
+  display: grid;
+  grid-template-columns: 108px minmax(0, 62ch);
+  gap: var(--space-loose);
+  /* 26px entre turnos. Sem separador: o gutter ja separa (§03). */
+  margin-bottom: 26px;
 }
 
-@keyframes turnEnter {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
+/* Abaixo de 1280 a margem colapsa para uma linha superior e a thread vira a
+   gramatica B — sem sacrificar a coluna de leitura (§19). */
+@media (max-width: 1279px) {
+  .hermes-turn {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
   }
 
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-/* O filete cresce de cima para baixo enquanto a resposta chega. */
-@keyframes filet {
-  from {
-    transform: scaleY(0);
-  }
-
-  to {
-    transform: scaleY(1);
+  .hermes-gutter {
+    flex-direction: row;
+    align-items: baseline;
+    gap: var(--space-3);
+    text-align: left;
   }
 }
 
-.hermes-page .hermes-question {
+.hermes-gutter {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  color: var(--text-disabled);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-meta);
+  text-align: right;
+}
+
+.hermes-turn[data-role="assistant"] .hermes-gutter-who {
+  color: var(--signal-ink);
+}
+
+.hermes-steps {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hermes-steps li {
+  color: var(--text-disabled);
+}
+
+.hermes-steps li[data-state="running"] {
+  color: var(--signal-ink);
+  animation: hermesTick 1.2s ease-in-out infinite;
+}
+
+.hermes-steps li[data-state="error"] {
+  color: var(--danger);
+}
+
+@keyframes hermesTick {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* "pensando" — nenhum texto falso, nenhum "digitando..." (§17). */
+.hermes-thinking {
+  color: var(--signal-ink);
+  animation: hermesTick 1.2s ease-in-out infinite;
+}
+
+/* Recibo de uma linha, que se expande no clique. O detalhe tecnico nunca e
+   despejado na thread (§08). */
+.hermes-receipt {
+  border: 0;
+  border-bottom: var(--line) dashed var(--border-strong);
+  background: transparent;
+  color: var(--text-disabled);
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+.hermes-receipt:hover {
+  color: var(--signal-ink);
+}
+
+.hermes-said {
+  min-width: 0;
+}
+
+/* Voce fala em 21px. */
+.hermes-question {
   margin: 0;
   color: var(--text);
   font: var(--text-capture);
   letter-spacing: var(--tracking-capture);
-  line-height: 1.35;
 }
 
-.hermes-answer-row {
-  display: flex;
-  gap: var(--space-4);
-  margin-top: var(--space-4);
-}
-
-.hermes-filet {
-  flex: none;
-  width: var(--marker);
-  background: var(--signal-fill);
-  transform-origin: top;
-  animation: filet var(--dur-context) var(--ease-enter);
-}
-
-.hermes-answer-body {
-  min-width: 0;
-  flex: 1;
-}
-
-.hermes-page .hermes-answer {
-  margin: 0;
-  padding: 0;
-  border: 0;
+/* Ele responde em 15px. */
+.hermes-said .md {
   color: var(--text);
   font: var(--text-body);
-  line-height: 1.6;
+  letter-spacing: var(--tracking-body);
+  text-wrap: pretty;
+}
+
+.hermes-streaming {
+  margin: 0;
+  color: var(--text);
+  font: var(--text-body);
+  letter-spacing: var(--tracking-body);
+  text-wrap: pretty;
   white-space: pre-wrap;
 }
 
-.hermes-page .hermes-approval {
-  max-width: 700px;
-  margin-bottom: var(--space-5);
-}
-
-.hermes-approval-actions {
-  display: flex;
-  gap: var(--space-2);
-}
-
-.hermes-composer {
-  position: relative;
-  flex-shrink: 0;
-  padding: var(--space-3) var(--content-margin) var(--space-4);
-  border-top: var(--line) solid var(--border);
-}
-
-.hermes-modes {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  font: var(--text-meta);
-  letter-spacing: var(--tracking-label);
-}
-
-.hermes-mode {
-  padding: 2px var(--space-1);
-  color: var(--text-system);
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-sm);
-  font: inherit;
-  letter-spacing: inherit;
-  transition: background var(--dur-state) var(--ease-state), color var(--dur-state) var(--ease-state);
-}
-
-.hermes-mode[data-active] {
-  color: var(--on-signal);
+.hermes-caret {
+  display: inline-block;
+  width: 7px;
+  height: 15px;
+  margin-left: 2px;
   background: var(--signal-fill);
+  vertical-align: text-bottom;
+  animation: hermesCaret 1.1s steps(1, end) infinite;
 }
 
-/* Modo sem lastro fica visivelmente indisponivel em vez de sumir: o desenho
-   tem tres, e esconder dois faria parecer que so existe um. */
-.hermes-mode:disabled {
-  color: var(--text-disabled);
-  cursor: not-allowed;
+@keyframes hermesCaret {
+  0%, 46% { opacity: 1; }
+  47%, 100% { opacity: 0.12; }
 }
 
-.hermes-mode-rule {
-  color: var(--border-strong);
+.hermes-system-line {
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
 }
 
-.hermes-mode-hint {
-  color: var(--text-disabled);
+.hermes-failed {
+  margin: var(--space-2) 0 0;
+  color: var(--danger);
+  font: var(--text-small);
 }
 
-.hermes-mode-spacer {
-  flex: 1;
-}
-
-.hermes-field {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
+.hermes-reasoning {
   margin-top: var(--space-3);
-  padding-top: var(--space-3);
-  border-top: var(--line) solid var(--border-strong);
 }
 
-.hermes-field-input {
+.hermes-reasoning summary {
+  color: var(--text-disabled);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  cursor: pointer;
+}
+
+.hermes-reasoning p {
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
+  white-space: pre-wrap;
+}
+
+/* Acoes em mono 10px, no hover do turno. Nunca icones flutuantes (§03). */
+.hermes-actions {
   display: flex;
-  min-width: 0;
-  flex: 1;
-  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+  opacity: 0;
+  transition: opacity var(--dur-instant) var(--ease-state);
 }
 
-.hermes-field-input input {
-  min-width: 0;
-  flex: 1;
+.hermes-turn:hover .hermes-actions,
+.hermes-actions:focus-within {
+  opacity: 1;
+}
+
+.hermes-actions button {
+  border: 0;
+  background: transparent;
+  color: var(--text-disabled);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
   padding: 0;
-  color: var(--text);
-  background: transparent;
-  border: 0;
-  font: var(--text-capture);
-  letter-spacing: var(--tracking-capture);
+  cursor: pointer;
 }
 
-.hermes-field-input input:focus-visible {
-  outline: none;
-  box-shadow: none;
-}
-
-/* Mencao: o acervo local aparece antes de o Hermes responder, porque buscar
-   Project e Resource e leitura — cabe na fase atual. */
-.hermes-mentions {
-  position: absolute;
-  bottom: 100%;
-  left: var(--content-margin);
-  width: var(--drawer-width);
-  padding: var(--space-1);
-  background: var(--surface);
-  border: var(--line) solid var(--border-strong);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-overlay);
-  animation: rowEnter var(--dur-state) var(--ease-enter);
-}
-
-.hermes-mention {
-  display: flex;
-  width: 100%;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding: var(--space-2);
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-sm);
-  text-align: left;
-}
-
-.hermes-mention:hover {
-  background: var(--surface-raised);
-}
-
-.hermes-mention-kind {
+.hermes-actions button:hover {
   color: var(--signal-ink);
-  font: var(--text-meta);
 }
 
-.hermes-mention-name {
+.hermes-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+/* ---------- Pergunta e permissao ---------- */
+
+.hermes-ask {
+  display: grid;
+  gap: var(--space-3);
+  grid-column: 1 / -1;
+  padding: var(--space-4);
+  border: var(--line) solid var(--border-strong);
+  border-left: var(--marker) solid var(--signal-ink);
+  background: var(--surface);
+  margin-bottom: 26px;
+}
+
+.hermes-ask p {
+  margin: 0;
+  color: var(--text);
+  font: var(--text-body);
+}
+
+.hermes-ask-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.hermes-ask button,
+.hermes-ask-choices button {
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+
+.hermes-ask button:hover {
+  border-color: var(--signal-ink);
+  color: var(--signal-ink);
+}
+
+.hermes-ask button[data-primary] {
+  border-color: var(--signal-fill);
+  background: var(--signal-fill);
+  color: var(--on-signal);
+}
+
+.hermes-ask form {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.hermes-ask form input {
   flex: 1;
+  height: var(--height-control-sm);
+  padding: 0 var(--space-2);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--text);
   font: var(--text-ui);
 }
 
-.hermes-mention-meta {
+/* ---------- Vazio ---------- */
+
+.hermes-empty {
+  padding-top: var(--space-5);
+}
+
+.hermes-empty-title {
+  margin: 0 0 var(--space-4);
+  color: var(--text);
+  font: 400 28px/1.2 var(--font-product);
+  letter-spacing: -0.028em;
+}
+
+.hermes-suggestions {
+  display: grid;
+  max-width: 480px;
+}
+
+.hermes-suggestions button {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: 11px 0;
+  border: 0;
+  border-top: var(--line) solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  font: var(--text-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.hermes-suggestions button:last-child {
+  border-bottom: var(--line) solid var(--border-strong);
+}
+
+.hermes-suggestions button span {
+  color: var(--signal-ink);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-meta);
+}
+
+.hermes-suggestions button:hover:enabled {
+  color: var(--signal-ink);
+}
+
+.hermes-suggestions button:disabled {
   color: var(--text-disabled);
-  font: var(--text-meta);
+  cursor: not-allowed;
 }
 
-.hermes-page .hermes-offline {
-  margin: var(--space-3) 0 0;
+.hermes-quiet {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
 }
 
-.hermes-page .hermes-running {
-  margin-top: var(--space-3);
-}
-
-.hermes-drawer {
-  display: flex;
-  width: var(--drawer-width);
-  flex-direction: column;
+.hermes-jump {
+  justify-self: center;
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
   background: var(--surface);
-  animation: viewEnter var(--dur-enter) var(--ease-enter);
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  cursor: pointer;
 }
 
-.hermes-drawer-head {
+/* ---------- Composer · trilho (§04, decisao A) ----------
+   O campo nao e um objeto, e uma linha do sistema. Nada aparece antes de
+   existir: chips sobem como uma regua acima da regua. */
+
+.hermes-composer {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+.hermes-trilho {
   display: flex;
-  height: var(--topbar-height);
-  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: calc(108px + var(--space-loose) + 62ch);
+  width: 100%;
+  margin: 0 auto;
+  padding-top: 14px;
+  border-top: var(--line) solid var(--signal-ink);
+}
+
+/* A barra de sodio e o unico elemento que muda por estado: cheia, apagada. */
+.hermes-bar {
+  flex: none;
+  width: 6px;
+  height: 22px;
+  background: var(--signal-fill);
+}
+
+.hermes-trilho[data-running] {
+  border-top-color: var(--border-strong);
+}
+
+.hermes-trilho[data-running] .hermes-bar,
+.hermes-trilho[data-offline] .hermes-bar {
+  background: var(--border-strong);
+}
+
+.hermes-trilho[data-offline] {
+  border-top-color: var(--border-strong);
+}
+
+.hermes-trilho textarea {
+  flex: 1;
+  min-width: 0;
+  max-height: 40vh;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: var(--text-capture);
+  letter-spacing: var(--tracking-capture);
+  resize: none;
+  field-sizing: content;
+}
+
+.hermes-trilho textarea::placeholder {
+  color: var(--text-placeholder);
+}
+
+.hermes-trilho textarea:focus {
+  outline: none;
+}
+
+.hermes-mode {
+  flex: none;
+  color: var(--text-disabled);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  cursor: help;
+}
+
+/* Enviar so ganha preenchimento sodio quando ha conteudo valido (§04). */
+.hermes-send {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.hermes-send:enabled {
+  border-color: var(--signal-fill);
+  background: var(--signal-fill);
+  color: var(--on-signal);
+}
+
+.hermes-send:disabled {
+  cursor: not-allowed;
+}
+
+/* Parar substitui enviar no mesmo lugar. Nunca aparece um sexto botao. */
+.hermes-stop {
+  flex: none;
+  padding: 5px 9px;
+  border: var(--line) solid var(--signal-ink);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--signal-ink);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  cursor: pointer;
+}
+
+.hermes-mentions {
+  display: grid;
+  max-width: calc(108px + var(--space-loose) + 62ch);
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--space-1);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.hermes-mentions button {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hermes-mentions button[data-active] {
+  background: var(--surface-hover);
+}
+
+.hermes-mention-kind {
+  color: var(--signal-ink);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-meta);
+}
+
+.hermes-mention-name {
+  flex: 1;
+  overflow: hidden;
+  color: var(--text);
+  font: 400 13.5px/1.3 var(--font-product);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hermes-offline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: calc(108px + var(--space-loose) + 62ch);
+  width: 100%;
+  margin: 0 auto;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.hermes-offline button {
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--signal-ink);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+
+/* ---------- Markdown ----------
+   Tabela sem grade, code inline em mono 13px, bloco de codigo com borda simples
+   e sem chrome (§03). */
+
+.md > *:first-child {
+  margin-top: 0;
+}
+
+.md-paragraph {
+  margin: 0 0 var(--space-3);
+}
+
+.md-heading {
+  margin: var(--space-4) 0 var(--space-2);
+  color: var(--text);
+  font: 500 17px/1.25 var(--font-product);
+  letter-spacing: -0.018em;
+}
+
+.md-list {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-4);
+}
+
+.md-list li {
+  margin-bottom: var(--space-1);
+}
+
+.md-list li[data-depth="1"] { margin-left: var(--space-4); }
+.md-list li[data-depth="2"] { margin-left: var(--space-5); }
+.md-list li[data-depth="3"] { margin-left: var(--space-6); }
+
+.md-quote {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-3);
+  border-left: var(--marker) solid var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.md-quote p {
+  margin: 0;
+}
+
+.md-rule {
+  height: var(--line);
+  margin: var(--space-4) 0;
+  border: 0;
+  background: var(--border);
+}
+
+.md-link {
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+}
+
+.md-link:hover {
+  color: var(--signal-ink);
+}
+
+.md-code {
+  color: var(--text-secondary);
+  font: 400 13px var(--font-system);
+}
+
+.md-codeblock {
+  margin: 0 0 var(--space-3);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.md-codeblock-head {
+  display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--space-4);
+  padding: var(--space-2) var(--space-3);
   border-bottom: var(--line) solid var(--border);
 }
 
-.hermes-drawer-body {
-  flex: 1;
-  min-height: 0;
-  padding: var(--space-4);
-  overflow-y: auto;
+.md-codeblock-head button {
+  border: 0;
+  background: transparent;
+  color: var(--text-disabled);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  padding: 0;
+  cursor: pointer;
 }
 
-.hermes-drawer-section {
-  display: block;
-  margin-top: var(--space-5);
-}
-
-.hermes-cited {
-  margin-top: var(--space-3);
-}
-
-.hermes-cited-kind {
-  flex: none;
-  margin-right: var(--space-2);
+.md-codeblock-head button:hover:enabled {
   color: var(--signal-ink);
-  font: var(--text-meta);
 }
 
-/* Progresso do Project na row. A barra ocupa largura fixa para que varias rows
+.md-codeblock-head button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.md-pre {
+  margin: 0;
+  overflow-x: auto;
+  padding: var(--space-3);
+  color: var(--text);
+  font: 400 13px/1.6 var(--font-system);
+}
+
+/* Realce com tres classes semanticas. Nao existe tema de dez cores: o design
+   system restringe cor a funcao (ADR-026). */
+.hl-comment { color: var(--text-disabled); }
+.hl-literal { color: var(--text-secondary); }
+.hl-keyword { color: var(--signal-ink); }
+
+.md-table-scroll {
+  overflow-x: auto;
+  margin: 0 0 var(--space-3);
+}
+
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.md-table th {
+  padding-bottom: var(--space-2);
+  border-bottom: var(--line) solid var(--border-strong);
+  color: var(--text-disabled);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-meta);
+  text-align: left;
+}
+
+.md-table td {
+  padding: 10px var(--space-3) 10px 0;
+  border-bottom: var(--line) solid var(--border);
+  color: var(--text);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hermes-caret,
+  .hermes-thinking,
+  .hermes-steps li[data-state="running"] {
+    animation: none;
+  }
+}
+/* Barra de progresso de linha, com largura fixa para que duas linhas vizinhas
    fiquem comparaveis pelo olho: barras de largura variavel nao se comparam. */
 .row-progress {
   flex: none;

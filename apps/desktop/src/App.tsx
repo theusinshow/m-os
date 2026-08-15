@@ -6,7 +6,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, appError } from "./api";
 import { DotField } from "./DotField";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
-import { hermes, hermesUnavailableLabel, type HermesConnectionState, type HermesFailure, type HermesStatus } from "./hermes";
+import { hermes, type HermesConnectionState, type HermesFailure, type HermesStatus } from "./hermes";
 import { HermesPage } from "./HermesPage";
 import { Icon, type IconName } from "./Icon";
 import { MosSymbol } from "./Symbol";
@@ -1083,20 +1083,16 @@ function CaptureViewer({ capture, close }: { capture: Capture; close: () => void
   return <div className="overlay-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}><article ref={dialog} className="entity-viewer" role="dialog" aria-modal="true" tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") close(); }}><header><span className="micro-label">CAPTURE</span><IconButton label="Fechar" icon="close" onClick={close} /></header><h1>{capture.content}</h1><dl><div><dt>ORIGEM</dt><dd>{sourceLabel(capture.source)}</dd></div><div><dt>ESTADO</dt><dd>{capture.lifecycleState === "archived" ? "Arquivada" : capture.processingState === "processed" ? "Processada" : "Na Inbox"}</dd></div><div><dt>CAPTURADA</dt><dd>{new Date(capture.capturedAt).toLocaleString("pt-BR")}</dd></div></dl></article></div>;
 }
 
-type HermesTurn = { question: string; answer: string; reasoning: string };
-
-/** Acumula o delta no turno corrente sem reagrupar nada: o servidor desliga o
- *  Nagle de proposito para preservar a cadencia. */
-function appendToAnswer(turns: HermesTurn[], text: string): HermesTurn[] {
-  if (!turns.length) return turns;
-  return turns.map((turn, index) => index === turns.length - 1 ? { ...turn, answer: turn.answer + text } : turn);
-}
-
-function appendToReasoning(turns: HermesTurn[], text: string): HermesTurn[] {
-  if (!turns.length) return turns;
-  return turns.map((turn, index) => index === turns.length - 1 ? { ...turn, reasoning: turn.reasoning + text } : turn);
-}
-
+/* O Command NAO tem mais modo Hermes.
+ *
+ * Ele e esta tela assinavam `hermes-event` no mesmo barramento global, e o
+ * Command monta POR CIMA da pagina — com as duas abertas, os deltas da mesma
+ * resposta se dividiam entre dois estados independentes. Alem do defeito, eram
+ * duas implementacoes da mesma thread.
+ *
+ * A divisao agora segue `UX-PRINCIPLES.md` §13: o Command encontra e executa, a
+ * pagina Hermes conversa. Quem quer perguntar vai para a pagina — que e onde a
+ * conversa fica guardada. */
 function CommandSurface({ close, closing = false, openCapture, openTask, openProject, openWorkspace, openApp, openResource, routeFunction }: {
   closing?: boolean; close: () => void; openCapture: (capture: Capture) => void; openTask: (task: Task) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; routeFunction: (definition: FunctionDefinition) => void }) {
   const [query, setQuery] = useState("");
@@ -1112,38 +1108,7 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
   const input = useRef<HTMLInputElement>(null);
   const previousFocus = useRef(document.activeElement as HTMLElement | null);
   const searchSequence = useRef(0);
-  // Modo do campo. Tab alterna, e o modo fica visivel no proprio campo em vez
-  // de ser folclore de atalho.
-  const [mode, setMode] = useState<"search" | "hermes">("search");
-  const [hermesStatus, setHermesStatus] = useState<HermesStatus | null>(null);
-  const [turns, setTurns] = useState<HermesTurn[]>([]);
-  const [running, setRunning] = useState(false);
-  const [approval, setApproval] = useState<string | null>(null);
-  const [showReasoning, setShowReasoning] = useState(false);
   useEffect(() => { input.current?.focus(); return () => previousFocus.current?.focus(); }, []);
-  useEffect(() => {
-    void hermes.status().then(setHermesStatus).catch(() => setHermesStatus(null));
-    const subscriptions = [
-      hermes.onState(setHermesStatus),
-      hermes.onEvent((event) => {
-        if (event.outcome === "delta") return setTurns((current) => appendToAnswer(current, event.text));
-        if (event.outcome === "reasoning") return setTurns((current) => appendToReasoning(current, event.text));
-        if (event.outcome === "complete") return setRunning(false);
-        if (event.outcome === "busy") { setRunning(true); return; }
-        if (event.outcome === "approval") return setApproval(event.prompt);
-        if (event.outcome === "failed") { setRunning(false); return setTurns((current) => appendToAnswer(current, `\n${event.message}`)); }
-        // tool e unknown_frame nao interrompem a leitura da resposta.
-      }),
-    ];
-    return () => { subscriptions.forEach((subscription) => void subscription.then((dispose) => dispose())); };
-  }, []);
-  // Conexao preguicosa: UMA tentativa ao entrar no modo Hermes.
-  //
-  // O ref existe para nao repetir. Sem ele, o efeito reagia a hermesStatus.state,
-  // e como uma falha de conexao anuncia Offline, o proprio efeito se redisparava:
-  // connect -> offline -> connect, o mais rapido que o IPC permitisse. Com o
-  // tunel aberto e senha errada isso martelava o login, que o gateway responde
-  // com 429 — o loop trancaria a conta do dashboard do usuario.
   useEffect(() => {
     const pane = resultsPane.current;
     if (!pane) { setHasMoreBelow(false); return; }
@@ -1153,25 +1118,8 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
     const resize = new ResizeObserver(measure);
     resize.observe(pane);
     return () => { pane.removeEventListener("scroll", measure); resize.disconnect(); };
-  }, [results.length, mode, error]);
+  }, [results.length, error]);
 
-  const connectAttempted = useRef(false);
-  useEffect(() => {
-    if (mode !== "hermes" || connectAttempted.current) return;
-    if (hermesStatus?.state === "offline" && hermesStatus.hasCredentials) {
-      connectAttempted.current = true;
-      void hermes.connect().catch(() => undefined);
-    }
-  }, [mode, hermesStatus?.state, hermesStatus?.hasCredentials]);
-  async function askHermes() {
-    const text = query.trim();
-    if (!text || running) return;
-    setTurns((current) => [...current, { question: text, answer: "", reasoning: "" }]);
-    setQuery("");
-    setRunning(true);
-    try { await hermes.send(text); }
-    catch (nextError) { setRunning(false); setTurns((current) => appendToAnswer(current, String(nextError))); }
-  }
   async function searchCommand(requestId: number) {
     try {
       const [items, resources, functions] = await Promise.all([api.search(query, includeArchived), api.searchResources(query, includeArchived), api.searchFunctions(query)]);
@@ -1210,15 +1158,8 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
   }
   function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.nativeEvent.isComposing) return;
-    if (event.key === "Tab") {
-      event.preventDefault();
-      setMode((current) => current === "search" ? "hermes" : "search");
-      return;
-    }
-    if (mode === "hermes") {
-      if (event.key === "Enter") { event.preventDefault(); void askHermes(); }
-      return;
-    }
+    // `Tab` volta a mover foco estrutural (`DESIGN-FOUNDATIONS.md` §12). Ele
+    // trocava de modo, e o modo deixou de existir aqui.
     if (!results.length) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -1231,35 +1172,8 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
     }
   }
   return <div className="overlay-backdrop command-backdrop" data-closing={closing || undefined} onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
-    <section className="command-surface" data-mode={mode} data-running={running || undefined} role="dialog" aria-modal="true" aria-label="Command" onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
-      <div className="command-input"><span className="slash">/</span><input ref={input} aria-controls="command-results" value={query} onChange={(event) => setQuery(event.currentTarget.value)} onKeyDown={handleInputKeyDown} placeholder={mode === "hermes" ? "O que você quer fazer?" : "Buscar ou executar comando"} aria-label={mode === "hermes" ? "Perguntar ao Hermes" : "Buscar no M/OS"} /><span className="micro-label">ESC FECHA</span></div>
-      {/* O modo fica visivel no campo, nao escondido num atalho que so quem
-          leu o rodape descobre. */}
-      <div className="command-modes" role="group" aria-label="Modo">
-        {([["search", "Search"], ["hermes", "Hermes"]] as const).map(([value, label]) => <button key={value} type="button" className="command-mode" data-active={mode === value || undefined} aria-pressed={mode === value} onClick={() => { setMode(value); input.current?.focus(); }}>{label}</button>)}
-        {mode === "hermes" && hermesStatus ? <span className="command-mode-state" data-state={hermesStatus.state}>{hermesStatus.state === "online" ? (hermesStatus.sessionReady ? "ONLINE" : "ABRINDO SESSÃO") : hermesStatus.state === "connecting" ? "CONECTANDO" : "OFFLINE"}</span> : null}
-      </div>
-      {mode === "hermes" ? <div className="hermes-thread" aria-live="polite">
-        {hermesStatus && hermesStatus.state !== "online" ? <p className="hermes-offline">{hermesUnavailableLabel(hermesStatus)}</p> : null}
-        {!turns.length && hermesStatus?.state === "online" ? <EmptyState>Pergunte alguma coisa. É o mesmo Hermes do WhatsApp, numa conversa separada.</EmptyState> : null}
-        {turns.map((turn, index) => <div className="hermes-turn" key={index}>
-          <p className="hermes-question">{turn.question}</p>
-          {/* Barra de 2px em sodio: o marcador de autoria do sistema que o
-              design ja define. Nao ha bolha, nao ha avatar. */}
-          {turn.answer ? <p className="hermes-answer">{turn.answer}</p> : null}
-          {turn.reasoning ? <details className="hermes-reasoning" open={showReasoning} onToggle={(event) => setShowReasoning(event.currentTarget.open)}><summary className="micro-label">RACIOCÍNIO</summary><p>{turn.reasoning}</p></details> : null}
-        </div>)}
-        {approval ? <div className="hermes-approval" role="alertdialog" aria-label="Aprovação do Hermes">
-          <p>{approval}</p>
-          <div className="form-actions">
-            {/* Fechar sem escolher nega: o servidor tambem tem deny como
-                default, e aprovar por omissao seria o pior erro deste caminho. */}
-            <Button variant="ghost" onClick={() => { setApproval(null); void hermes.approve(false); }}>Negar</Button>
-            <Button variant="primary" onClick={() => { setApproval(null); void hermes.approve(true); }}>Aprovar</Button>
-          </div>
-        </div> : null}
-        {running ? <div className="hermes-running"><MosSymbol size={16} spinning /><Button variant="ghost" onClick={() => { setRunning(false); void hermes.interrupt(); }}>Cancelar</Button></div> : null}
-      </div> : <>
+    <section className="command-surface" role="dialog" aria-modal="true" aria-label="Command" onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
+      <div className="command-input"><span className="slash">/</span><input ref={input} aria-controls="command-results" value={query} onChange={(event) => setQuery(event.currentTarget.value)} onKeyDown={handleInputKeyDown} placeholder="Buscar ou executar comando" aria-label="Buscar no M/OS" /><span className="micro-label">ESC FECHA</span></div>
       {query ? <label className="check-control"><input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.currentTarget.checked)} /><span>Incluir arquivados</span></label> : null}
       <div ref={resultsPane} id="command-results" className="command-results" aria-label="Resultados" aria-live="polite">
         {error ? <div className="command-error"><p>! {error}</p><Button variant="outline" onClick={() => void searchCommand(++searchSequence.current)}>Tentar novamente</Button></div> : null}
@@ -1274,8 +1188,8 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
       </div>
       {/* Tres camadas de desfoque crescente, ancoradas acima do rodape. So
           existem enquanto houver resultado abaixo do corte. */}
-      {hasMoreBelow ? <div className="command-fade" aria-hidden="true"><i /><i /><i /></div> : null}</>}
-      <div className="command-footer">{(mode === "hermes" ? ["⏎ PERGUNTA", "TAB SEARCH", "ESC FECHA"] : ["↑↓ NAVEGA", "⏎ ABRE", "/ COMANDO", "TAB HERMES"]).map((hint) => <span key={hint}>{hint}</span>)}</div>
+      {hasMoreBelow ? <div className="command-fade" aria-hidden="true"><i /><i /><i /></div> : null}
+      <div className="command-footer">{["↑↓ NAVEGA", "⏎ ABRE", "/ COMANDO", "ESC FECHA"].map((hint) => <span key={hint}>{hint}</span>)}</div>
     </section>
   </div>;
 }

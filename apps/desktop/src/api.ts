@@ -78,6 +78,10 @@ export const api = {
   openResource(id: string) {
     return invoke<void>("open_resource", { id });
   },
+  /** Link vindo de uma resposta do Hermes. O backend recusa o que nao for http(s). */
+  openExternalUrl(url: string) {
+    return invoke<void>("open_external_url", { url });
+  },
   deleteCapture(id: string) {
     return invoke<void>("delete_capture", { id });
   },

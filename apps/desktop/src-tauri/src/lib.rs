@@ -316,6 +316,18 @@ fn restore_resource(
     Ok(resource)
 }
 
+/// Abre um link que veio dentro de uma resposta do Hermes.
+///
+/// Passa pelo mesmo caminho nativo dos Resources, e nao pelo WebView: navegar
+/// dentro da janela transformaria o M/OS num navegador com privilegio de
+/// aplicacao. `open_external_target` ja recusa o que nao for http(s), o que
+/// importa aqui mais do que em qualquer outro chamador — este alvo foi escrito
+/// por um modelo, e `ShellExecuteW` abriria feliz um caminho local.
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), CoreError> {
+    open_external_target(AppLaunchKind::Url, url.trim())
+}
+
 #[tauri::command]
 fn open_resource(id: &str, state: tauri::State<'_, AppState>) -> Result<(), CoreError> {
     let resource = state.memory.resource(id)?;
@@ -1187,6 +1199,7 @@ pub fn run() {
             jarvis::conversation_delete,
             jarvis::conversation_search,
             jarvis::conversation_truncate,
+            open_external_url,
             create_capture,
             get_capture,
             list_recent,

@@ -45,6 +45,7 @@ Estados possíveis:
 | ADR-027 | Nada sai para o Hermes sem chip visível e registro do que foi enviado | Accepted |
 | ADR-028 | A leitura do M/OS pelo Hermes começa por injeção de contexto | Accepted |
 | ADR-029 | Não existem modos de conversa; o Hermes continua dono do reasoning | Accepted |
+| ADR-030 | A superfície Hermes adota a direção Marginália | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -774,3 +775,69 @@ Expor controle de esforço exigirá emendar ADR-024 e não é feito por decisão
   sequestrado para trocar modo dentro de um campo de texto;
 - o composer fica com uma intenção só, coerente com `UX-PRINCIPLES.md` §13;
 - se o usuário quiser controle de esforço, existe caminho, e ele passa por ADR.
+
+### Emenda de 2026-08-15 — o slot fica, o ciclo não
+
+`M-OS Hermes - Design Direction v1` §07 chegou depois desta decisão e especifica os quatro
+modos como texto mono à direita do campo, trocados por `Tab` **no campo vazio** (§18). A
+frase que resolve a tensão está no próprio documento: *"o modo é a única promessa que o
+sistema faz sobre o que vai acontecer com seus dados"*.
+
+Sendo uma promessa sobre dados, ela não pode ser uma etiqueta decorativa. Hoje existe uma
+promessa verdadeira e verificável, e ela é garantida pela arquitetura em vez de por
+intenção: `mos-hermes` não compila com acesso ao banco, e não existe nenhuma ferramenta de
+escrita no M/OS. O composer passa a exibir essa promessa — **`NÃO ESCREVE`** — no slot e na
+tipografia que o design define.
+
+O ciclo de quatro entra quando houver mais de uma promessa para fazer, o que acontece em
+P4 com `ACT`. `Tab` continua livre até lá: sem segundo modo, não há o que alternar, e a
+tensão entre `Tab`-troca-modo e `Tab`-move-foco fica para ser resolvida com um caso real.
+
+Isto preserva o layout, o vocabulário e a intenção do design sem exibir três promessas que
+o sistema não pode cumprir.
+
+---
+
+## ADR-030 — A superfície Hermes adota a direção Marginália
+
+**Aceita em:** 2026-08-15, com o handoff de `M-OS Hermes - Design Direction v1`.
+
+### Contexto
+
+O documento testou duas gramáticas de thread e escolheu **A, Marginália**: um gutter de
+108px à esquerda da coluna de leitura de 62ch. O princípio é uma separação de papéis, não
+uma preferência de layout: *tudo que o sistema faz — buscar, ler, citar, executar — mora na
+margem; tudo que ele diz mora na coluna de leitura.*
+
+A implementação anterior misturava os dois: execução de ferramenta era renderizada como
+linha dentro da prosa, empurrando a resposta para baixo a cada passo.
+
+### Decisão
+
+Adotar Marginália como a estrutura da superfície, com as decisões que a acompanham:
+
+- **thread** — gutter 108px + prosa 62ch fixos; 26px entre turnos, sem separador;
+- **reconhecimento tipográfico** — pergunta em 21px, resposta em 15px. Sem bolha, avatar,
+  orbe ou gradiente;
+- **composer Trilho** (§04, decisão A) — sem caixa, régua superior, barra de sódio de 6px
+  à esquerda como único elemento que muda por estado; enviar só ganha preenchimento com
+  conteúdo válido; parar substitui enviar no mesmo lugar;
+- **tool activity na margem** (§08, decisão A) — passos durante, recibo de uma linha
+  depois, detalhe técnico nunca despejado na thread;
+- **chip de contexto** (§06) — borda sólida é manual, tracejada é automático. Sem cor
+  extra, sem ícone, sem legenda, o que também satisfaz "nada só por cor";
+- **ordem de sacrifício responsivo** (§19) — conversas, depois inspector, depois margem. A
+  coluna de leitura nunca é sacrificada, e em ultrawide sobra canvas em vez de linha longa;
+- **`Esc` interrompe de qualquer foco** dentro do Hermes (§20), nunca dependendo de
+  alcançar um botão.
+
+A paleta do documento já é a de `mos-tokens.css`. Nenhum literal de cor foi introduzido.
+
+### Consequências
+
+- ferramenta deixa de empurrar a prosa, que era o defeito estrutural da versão anterior;
+- o inspector (plano 4) fica desenhado e **não implementado** em P0: fontes, memória e
+  artifact dividem esse painel e nenhum deles existe ainda;
+- `Ctrl+/` alterna a coluna de conversas, e `Ctrl+N` cria conversa;
+- a lista agrupa por tempo, porque conversas não são arquivos — a maioria morre no mesmo
+  dia e o que sobrevive delas são Tasks e Resources.
