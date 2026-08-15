@@ -47,6 +47,7 @@ Estados possíveis:
 | ADR-029 | Não existem modos de conversa; o Hermes continua dono do reasoning | Accepted |
 | ADR-030 | A superfície Hermes adota a direção Marginália | Accepted |
 | ADR-031 | O rail carrega oito destinos, e o teto de seis vira regra de crescimento | Accepted |
+| ADR-032 | Os Apps próprios entram no monorepo, com profundidade decidida por app | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -884,3 +885,61 @@ principais não mudem de lugar, porque o usuário desenvolve memória espacial d
 - se o rail crescer para nove sem essa troca, a decisão aqui foi ignorada, e não revisada;
 - Quick Capture e Settings continuam fora da contagem: eles não são destinos de conteúdo, e
   o rodapé do rail é uma zona própria.
+
+---
+
+## ADR-032 — Os Apps próprios entram no monorepo, com profundidade decidida por app
+
+**Aceita em:** 2026-08-15, por decisão do proprietário do produto.
+
+### Contexto
+
+`ARCHITECTURE.md` §20 lista **"monorepo com todos os Apps independentes"** entre os itens
+explicitamente não adotados, e `PRODUCT.md` §12 estabelece que um App pode continuar
+completamente independente do código do M/OS. Esta decisão reverte esse ponto, a pedido do
+proprietário, com o objetivo de ter **um lugar só para editar**.
+
+Levantamento dos três primeiros Apps:
+
+| App | Stack | Dados | Arquivos TS |
+|---|---|---|---:|
+| CronoCAD | Tauri 2 + React + Vite | SQLite local (`plugin-sql`) | 98 |
+| M-Finance | Next.js + Drizzle | Postgres remoto (`DATABASE_URL`) | 165 |
+| Coded Atlas | Next.js 15 + React 19 | filesystem do servidor + rotas `/api` | 91 |
+
+Os três não são o mesmo problema, e tratá-los como se fossem é o erro que esta ADR evita.
+
+### Decisão
+
+**O código dos três passa a viver em `apps/`, importado com histórico** (`git subtree`), e
+os repositórios de origem são arquivados. Existe uma fonte de verdade.
+
+**A profundidade da integração é decidida por App, pela natureza dele:**
+
+- **CronoCAD → superfície nativa do M/OS.** Ele já é Tauri 2 com SQLite local: mesma shell,
+  mesma linguagem, mesmo modelo de persistência. Absorvê-lo não custa nada que ele já não
+  pague, e ele é a base natural da Fase 4 (Time) do `ROADMAP.md`.
+- **M-Finance → continua web.** O valor dele inclui abrir pelo celular, e `ROADMAP.md`
+  §18.2 já dizia, antes desta conversa: *"Não transformar o M/OS em duplicação do
+  M-Finance"* — o que ele pede é resumo, acesso rápido e consulta pelo Hermes. Absorvê-lo
+  exigiria ou rede no caminho crítico, contra o driver 4 da `ARCHITECTURE.md`, ou migrar
+  Postgres para SQLite e perder o acesso móvel.
+- **Coded Atlas → continua web.** Ele depende de runtime Node para gerar assets e mexer no
+  filesystem por rotas `/api`. Dentro do renderer do Tauri isso não roda; exigiria um
+  sidecar Node ou reescrever o pipeline em Rust, e nenhum dos dois se paga agora.
+
+Os três compartilham o design system do M/OS. Isso é o que cumpre "combinar com o M/OS"
+sem exigir que os três virem a mesma coisa.
+
+### Consequências
+
+- `ARCHITECTURE.md` §20 perde o item de monorepo; os demais continuam valendo;
+- `PRODUCT.md` §13 (Atalho → Contexto → Integração → Automação) continua descrevendo bem a
+  relação: CronoCAD sobe para Integração, os outros dois ficam em Contexto;
+- o histórico de cada App é preservado, então `git log` continua respondendo por que uma
+  linha existe;
+- trabalho não publicado nos checkouts de origem precisa ser resgatado **antes** do
+  arquivamento — a importação do Coded Atlas já trouxe um delta que vivia só na árvore de
+  trabalho;
+- o M/OS passa a ter apps web no repositório sem ter, ainda, workspace npm; isso entra
+  quando houver dependência compartilhada de verdade, e não antes.
