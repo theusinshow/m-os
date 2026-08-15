@@ -1468,6 +1468,29 @@ select {
   white-space: pre-wrap;
 }
 
+/* Segue o mesmo ritmo do bloco de cima: mesma respiracao vertical, mesma
+   regua. Contexto e motivo sao dois campos do mesmo registro, nao duas secoes. */
+.resource-context {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-5) 0;
+  border-bottom: var(--line) solid var(--border);
+}
+
+.resource-context div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+
+.resource-context label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
 .library-page .provenance {
   margin-top: var(--space-5);
 }
