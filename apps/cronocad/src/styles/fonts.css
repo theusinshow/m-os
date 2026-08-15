@@ -1,0 +1,65 @@
+/**
+ * Fontes empacotadas localmente (Fontshare — licenca gratuita), servidas do
+ * proprio app para funcionar 100% offline e respeitar a CSP (`font-src 'self'`).
+ * Satoshi = corpo/interface; Panchang = display/titulos (design language).
+ */
+
+/* ---------- Satoshi (corpo) ---------- */
+@font-face {
+  font-family: "Satoshi";
+  src: url("/fonts/satoshi-300.woff2") format("woff2");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Satoshi";
+  src: url("/fonts/satoshi-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Satoshi";
+  src: url("/fonts/satoshi-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Satoshi";
+  src: url("/fonts/satoshi-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---------- Panchang (display) ---------- */
+@font-face {
+  font-family: "Panchang";
+  src: url("/fonts/panchang-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Panchang";
+  src: url("/fonts/panchang-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Panchang";
+  src: url("/fonts/panchang-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Panchang";
+  src: url("/fonts/panchang-800.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}

@@ -1,0 +1,91 @@
+@import "./tokens.css";
+@import "./fonts.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Numeros tabulares para tempo e dinheiro (alinhamento estavel) */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Foco = identidade + acessibilidade: sempre no sinal, angular. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+    border-radius: 0;
+  }
+
+  ::selection {
+    background: var(--color-accent-muted);
+    color: var(--color-text);
+  }
+
+  /* Titulos em Panchang com tracking apertado (assinatura tipografica). */
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+
+  /* Scrollbar discreta */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border-strong);
+    border-radius: 999px;
+    border: 2px solid var(--color-bg);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* Impressao pelo sistema (secao 13): imprime apenas o conteudo, sem navegacao. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  html,
+  body,
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .app-shell {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .app-main {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+}
