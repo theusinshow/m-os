@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Coded Atlas — design tokens
+   Neutros frios (tintados, nunca #000/#fff). Um acento cobre, usado só em
+   estados ativos, links, foco e passo atual. Status reservado a estado.
+   ───────────────────────────────────────────────────────────────────────── */
+@theme {
+  /* Acento — cobre/âmbar (conceito atlas/cartografia, foge do clichê dev) */
+  --color-accent:        oklch(0.72 0.115 62);
+  --color-accent-bright: oklch(0.80 0.115 66);
+  --color-accent-dim:    oklch(0.55 0.085 60);
+
+  /* Status semântico */
+  --color-ok:   oklch(0.76 0.14 158);
+  --color-bad:  oklch(0.68 0.19 25);
+  --color-warn: oklch(0.81 0.12 80);
+
+  /* Superfícies frias tintadas (hue ~260) */
+  --color-base:      oklch(0.165 0.006 265);
+  --color-surface:   oklch(0.205 0.007 265);
+  --color-surface-2: oklch(0.245 0.008 265);
+  --color-line:      oklch(0.30 0.008 265);
+  --color-line-soft: oklch(0.245 0.008 265);
+}
+
+:root {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+  --font-mono:
+    ui-monospace, "SFMono-Regular", "JetBrains Mono", "Cascadia Code",
+    "Menlo", "Consolas", monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+  font-family: var(--font-sans);
+  /* Tabular-friendly, crisp rendering */
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background: var(--color-base);
+  color: oklch(0.97 0.004 265); /* texto primário — branco gelo alto contraste */
+}
+
+/* Scrollbar discreta tintada */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-surface-2); }
+
+/* Seleção em cobre discreto */
+::selection {
+  background: oklch(0.72 0.115 62 / 0.30);
+  color: oklch(0.98 0.004 265);
+}
+
+/* Foco em cobre — visível, consistente no app inteiro */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 1px;
+}
+
+/* Grid técnico de fundo — utilitário reusável */
+.bg-grid {
+  background-image:
+    linear-gradient(oklch(1 0 0 / 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(1 0 0 / 0.02) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Marcador triangular da marca (detalhe técnico) */
+.tri {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid currentColor;
+}
+
+@keyframes atlas-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+.animate-atlas-pulse { animation: atlas-pulse 1.4s ease-in-out infinite; }
+
+/* Respeita quem pede menos movimento: corta scroll suave, animações e
+   transições. O passo ativo do progresso vira opacidade fixa (não pisca). */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-atlas-pulse { opacity: 0.7; }
+}
