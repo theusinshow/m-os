@@ -2854,3 +2854,115 @@ input[type="checkbox"]:disabled {
   letter-spacing: var(--tracking-meta);
   text-transform: uppercase;
 }
+
+/* ============================================================
+   CAMADA DE ACABAMENTO — rodada React Bits (2026-08-15)
+   ============================================================
+
+   AVISO DE CONFLITO. Este bloco contraria a fundacao vigente:
+
+     DESIGN-FOUNDATIONS.md secao 13: "sem bounce, elastic, particulas ou glow"
+     DESIGN-FOUNDATIONS.md secao 2:  "cor com funcao, nunca como atmosfera"
+     UX-PRINCIPLES.md secao 16:      evitar "glow excessivo", "animacoes de particulas"
+     mos-tokens.css:258:             "Nenhum transform animado. So opacidade."
+
+   O conflito foi levantado antes da implementacao e o dono do produto manteve
+   o pedido. Fica registrado aqui para que quem ler depois nao trate como
+   descuido, e para que a revogacao formal (ADR) possa ser escrita sabendo
+   exatamente o que ja depende dela.
+
+   TUDO nesta rodada e derivado de React Bits em INTENCAO, nao em codigo: os
+   componentes originais trazem GSAP, InertiaPlugin (plugin pago) ou WebGL via
+   ogl, com requestAnimationFrame permanente. Numa janela desktop sempre aberta
+   isso e consumo em idle sem contrapartida, entao cada efeito foi reescrito com
+   os tokens do sistema. Nenhuma dependencia nova foi instalada.
+
+   Regra desta camada: anima-se OPACIDADE. Nada aqui anima layout, e nada aqui
+   e a unica forma de comunicar um estado — todo estado continua tendo rotulo,
+   texto ou aria correspondente. Remover este bloco inteiro deixa a aplicacao
+   integralmente utilizavel, que e o criterio de acessibilidade acordado.
+
+   prefers-reduced-motion ja e coberto por mos-tokens.css:259, que aplica
+   `* { animation: none !important }` — os efeitos abaixo degradam para o
+   estado estatico, e nenhum deles depende do movimento para significar.
+   ============================================================ */
+
+/* ---------- 1. Border Glow — estado de processamento ----------
+
+   Adaptado de Components/BorderGlow. O original acende a borda conforme a
+   proximidade e o angulo do ponteiro: e decoracao reativa ao mouse. Aqui a
+   borda acende por ESTADO, que e o unico uso que sobrevive a pergunta "isso
+   comunica ou so decora".
+
+   O que ele resolve de verdade: hoje `state === "saving"` so troca o rotulo do
+   botao para "Salvando". Numa captura local isso dura poucos milissegundos,
+   mas quando o disco engasga o usuario fica sem sinal nenhum de que o sistema
+   esta trabalhando — e Capture e justamente o fluxo onde a duvida "funcionou?"
+   custa mais caro. */
+
+.capture-line {
+  position: relative;
+}
+
+/* A luz mora na linha de base que ja existe, e nao numa caixa nova: o Capture
+   e a excecao sem borda do sistema, e criar moldura so para acender seria
+   redesenhar o elemento mais importante da Home para mostrar um efeito. */
+.capture-line::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: calc(var(--line) * -1);
+  left: 0;
+  height: var(--line);
+  background: var(--signal-ink);
+  box-shadow: 0 0 8px 0 var(--signal-ring);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-state) var(--ease-state);
+}
+
+.capture-field[data-state="saving"] .capture-line::after {
+  opacity: 1;
+  animation: edgeBreath 1200ms var(--ease-state) infinite alternate;
+}
+
+/* Respiracao entre 55% e 100%: nunca apaga. Apagar de todo leria como piscar,
+   e piscar em interface e alarme — o oposto do que "estou trabalhando" diz. */
+@keyframes edgeBreath {
+  from {
+    opacity: 0.55;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/* O mesmo estado, na superficie do Command, enquanto o Hermes responde. A
+   borda inteira porque ali a superficie E a moldura: ela ja tem border e
+   overflow hidden, entao a luz assenta no contorno sem elemento novo.
+
+   Convive com o simbolo girando que ja existe em .hermes-running: o simbolo
+   diz "ocupado" para quem olha o rodape, a borda diz o mesmo para quem esta
+   lendo a resposta no meio da tela. Nenhum dos dois e a unica pista. */
+.command-surface[data-running] {
+  border-color: var(--signal-ring);
+}
+
+.command-surface::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border: var(--line) solid var(--signal-ink);
+  border-radius: inherit;
+  box-shadow: inset 0 0 12px -4px var(--signal-ring);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-state) var(--ease-state);
+}
+
+.command-surface[data-running]::after {
+  opacity: 0.5;
+  animation: edgeBreath 1600ms var(--ease-state) infinite alternate;
+}

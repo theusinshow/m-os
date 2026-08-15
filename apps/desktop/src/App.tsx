@@ -179,7 +179,7 @@ function CaptureComposer({ onSaved, focusKey }: { onSaved: (capture: Capture) =>
   // do texto. Com placeholder nativo o caret so poderia ficar na borda do
   // campo, que e onde ele estava antes desta correcao. Some ao focar: dali em
   // diante quem manda e o caret nativo, e dois caretes seriam mentira visual.
-  return <form className="capture-field" onSubmit={submit}>
+  return <form className="capture-field" data-state={state} onSubmit={submit}>
     <div className="capture-line">
       <span className="capture-bar" aria-hidden="true" />
       <div className="capture-input">
@@ -1196,7 +1196,7 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
     }
   }
   return <div className="overlay-backdrop command-backdrop" data-closing={closing || undefined} onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
-    <section className="command-surface" role="dialog" aria-modal="true" aria-label="Command" onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
+    <section className="command-surface" data-mode={mode} data-running={running || undefined} role="dialog" aria-modal="true" aria-label="Command" onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
       <div className="command-input"><span className="slash">/</span><input ref={input} aria-controls="command-results" value={query} onChange={(event) => setQuery(event.currentTarget.value)} onKeyDown={handleInputKeyDown} placeholder={mode === "hermes" ? "O que você quer fazer?" : "Buscar ou executar comando"} aria-label={mode === "hermes" ? "Perguntar ao Hermes" : "Buscar no M/OS"} /><span className="micro-label">ESC FECHA</span></div>
       {/* O modo fica visivel no campo, nao escondido num atalho que so quem
           leu o rodape descobre. */}
