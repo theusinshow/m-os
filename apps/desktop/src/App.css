@@ -3162,3 +3162,38 @@ input[type="checkbox"]:disabled {
    caractere — exatamente o que UX-PRINCIPLES secao 83 adverte ("uma animacao
    bonita na primeira vez pode ser irritante na centesima"). O painel inteiro
    entra uma vez; o conteudo dentro dele so troca. */
+
+/* ---------- 6. Correcao de tema claro ----------
+
+   Halo nao funciona sobre branco. No claro --signal-ink e #8A6A12, ambar
+   escuro, porque o ambar puro seria ilegivel como texto — e o halo de uma cor
+   escura sobre fundo claro nao le como luz emitida, le como mancha ou sombra
+   suja. Luz precisa de fundo escuro para existir.
+
+   Entao no tema claro os mesmos estados trocam de meio, nao de significado: a
+   borda fica solida e mais presente em vez de brilhar. A informacao e a mesma,
+   dita no material que o fundo aceita. E o mesmo raciocinio que o proprio
+   handoff usou ao trocar a cor do sodio no claro em vez de insistir nela. */
+
+[data-theme="light"] .capture-line::after {
+  box-shadow: none;
+  height: var(--marker);
+}
+
+[data-theme="light"] .command-surface::after {
+  box-shadow: none;
+}
+
+[data-theme="light"] .command-surface[data-running]::after {
+  opacity: 0.8;
+}
+
+/* O wash lateral cai pela metade no claro: sobre branco, 18% de ambar vira
+   papel amarelado — a superficie parece suja em vez de iluminada. */
+[data-theme="light"] .command-surface::before {
+  opacity: 0;
+}
+
+[data-theme="light"] .command-surface[data-mode="hermes"]::before {
+  opacity: 0.45;
+}
