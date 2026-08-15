@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 
 use crate::{
     map_lock_error, map_sql_error,
-    repository::{format_time, parse_time, to_fts_query},
+    repository::{format_time, guard_deletable, parse_time, to_fts_query},
     SqliteStorage,
 };
 
@@ -281,6 +281,18 @@ impl ResourceRepository for SqliteStorage {
             .map_err(map_sql_error)? as usize;
         transaction.commit().map_err(map_sql_error)?;
         Ok(count)
+    }
+
+    fn delete_resource(&self, id: ResourceId) -> Result<(), CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        guard_deletable(&transaction, "resources", &id.to_string(), "Resource")?;
+        delete_resource_search(&transaction, id)?;
+        transaction
+            .execute("DELETE FROM resources WHERE id = ?1", [id.to_string()])
+            .map_err(map_sql_error)?;
+        transaction.commit().map_err(map_sql_error)?;
+        Ok(())
     }
 
     fn set_resource_workspace(

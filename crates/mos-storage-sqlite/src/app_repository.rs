@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 
 use crate::{
     map_lock_error, map_sql_error,
-    repository::{format_time, parse_time, to_fts_query},
+    repository::{format_time, guard_deletable, parse_time, to_fts_query},
     SqliteStorage,
 };
 
@@ -331,6 +331,18 @@ impl AppRepository for SqliteStorage {
             .map(|row| row.map_err(map_sql_error)?.into_app())
             .collect();
         apps
+    }
+
+    fn delete_app(&self, id: AppId) -> Result<(), CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        guard_deletable(&transaction, "apps", &id.to_string(), "App")?;
+        delete_app_search(&transaction, id)?;
+        transaction
+            .execute("DELETE FROM apps WHERE id = ?1", [id.to_string()])
+            .map_err(map_sql_error)?;
+        transaction.commit().map_err(map_sql_error)?;
+        Ok(())
     }
 
     fn rebuild_app_search(&self) -> Result<usize, CoreError> {

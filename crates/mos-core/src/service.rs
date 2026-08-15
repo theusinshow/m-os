@@ -92,6 +92,10 @@ impl CaptureService {
             .set_lifecycle_state(CaptureId::parse(id)?, LifecycleState::Active)
     }
 
+    pub fn delete_capture(&self, id: &str) -> Result<(), CoreError> {
+        self.repository.delete_capture(CaptureId::parse(id)?)
+    }
+
     pub fn rebuild_search(&self) -> Result<usize, CoreError> {
         self.repository.rebuild_search()
     }
@@ -317,6 +321,10 @@ impl MemoryService {
             .set_resource_lifecycle(crate::ResourceId::parse(id)?, lifecycle)
     }
 
+    pub fn delete_resource(&self, id: &str) -> Result<(), CoreError> {
+        self.repository.delete_resource(crate::ResourceId::parse(id)?)
+    }
+
     pub fn set_resource_workspace(
         &self,
         resource_id: &str,
@@ -458,6 +466,10 @@ impl AppService {
         })
     }
 
+    pub fn delete_app(&self, id: &str) -> Result<(), CoreError> {
+        self.repository.delete_app(AppId::parse(id)?)
+    }
+
     pub fn rebuild_search(&self) -> Result<usize, CoreError> {
         self.repository.rebuild_app_search()
     }
@@ -556,6 +568,18 @@ impl WorkService {
             WorkspaceId::parse(workspace_id)?,
             linked,
         )
+    }
+
+    pub fn delete_task(&self, id: &str) -> Result<(), CoreError> {
+        self.repository.delete_task(TaskId::parse(id)?)
+    }
+
+    pub fn delete_project(&self, id: &str) -> Result<(), CoreError> {
+        self.repository.delete_project(ProjectId::parse(id)?)
+    }
+
+    pub fn delete_workspace(&self, id: &str) -> Result<(), CoreError> {
+        self.repository.delete_workspace(WorkspaceId::parse(id)?)
     }
 
     pub fn set_widget_hidden(

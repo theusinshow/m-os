@@ -78,6 +78,24 @@ export const api = {
   openResource(id: string) {
     return invoke<void>("open_resource", { id });
   },
+  deleteCapture(id: string) {
+    return invoke<void>("delete_capture", { id });
+  },
+  deleteTask(id: string) {
+    return invoke<void>("delete_task", { id });
+  },
+  deleteProject(id: string) {
+    return invoke<void>("delete_project", { id });
+  },
+  deleteWorkspace(id: string) {
+    return invoke<void>("delete_workspace", { id });
+  },
+  deleteRegisteredApp(id: string) {
+    return invoke<void>("delete_registered_app", { id });
+  },
+  deleteResource(id: string) {
+    return invoke<void>("delete_resource", { id });
+  },
   resourceWorkspaces() {
     return invoke<ResourceWorkspace[]>("list_resource_workspaces");
   },

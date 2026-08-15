@@ -38,6 +38,10 @@ pub trait CaptureRepository: Send + Sync {
         state: LifecycleState,
     ) -> Result<Capture, CoreError>;
     fn rebuild_search(&self) -> Result<usize, CoreError>;
+    /// Exclusao definitiva. Recusa o que ainda esta ativo: arquivar primeiro e a
+    /// regra, e ela existe para que nenhum apagamento aconteca por engano no
+    /// meio do uso normal.
+    fn delete_capture(&self, id: CaptureId) -> Result<(), CoreError>;
 }
 
 pub trait WorkRepository: Send + Sync {
@@ -79,6 +83,10 @@ pub trait WorkRepository: Send + Sync {
         workspace_id: WorkspaceId,
         linked: bool,
     ) -> Result<(), CoreError>;
+    /// Exclusao definitiva. As tres recusam o que ainda esta ativo.
+    fn delete_task(&self, id: TaskId) -> Result<(), CoreError>;
+    fn delete_project(&self, id: ProjectId) -> Result<(), CoreError>;
+    fn delete_workspace(&self, id: WorkspaceId) -> Result<(), CoreError>;
     fn set_widget_hidden(
         &self,
         workspace_id: WorkspaceId,
@@ -147,6 +155,8 @@ pub trait AppRepository: Send + Sync {
     fn mark_app_opened(&self, id: AppId) -> Result<RegisteredApp, CoreError>;
     fn search_apps(&self, request: SearchRequest) -> Result<Vec<RegisteredApp>, CoreError>;
     fn rebuild_app_search(&self) -> Result<usize, CoreError>;
+    /// Exclusao definitiva. Recusa o que ainda esta ativo.
+    fn delete_app(&self, id: AppId) -> Result<(), CoreError>;
 }
 
 pub trait ResourceRepository: Send + Sync {
@@ -176,6 +186,8 @@ pub trait ResourceRepository: Send + Sync {
         linked: bool,
     ) -> Result<(), CoreError>;
     fn resource_workspaces(&self) -> Result<Vec<crate::ResourceWorkspace>, CoreError>;
+    /// Exclusao definitiva. Recusa o que ainda esta ativo.
+    fn delete_resource(&self, id: crate::ResourceId) -> Result<(), CoreError>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

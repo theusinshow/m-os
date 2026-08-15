@@ -441,6 +441,84 @@ fn set_app_workspace(
     Ok(())
 }
 
+/* Exclusao definitiva. Seis comandos com a mesma forma, e a mesma regra imposta
+   no repositorio: so apaga o que ja esta arquivado ou na lixeira.
+
+   Nao existe undo aqui, e por isso a confirmacao mora na interface. Depois de
+   apagar, o snapshot agendado nao serve de socorro: ele e posterior ao
+   apagamento. O socorro e o backup anterior, em DADOS E PORTABILIDADE. */
+#[tauri::command]
+fn delete_capture(
+    id: &str,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CoreError> {
+    state.captures.delete_capture(id)?;
+    notify_data_changed(&app, "capture-deleted");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_task(
+    id: &str,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CoreError> {
+    state.work.delete_task(id)?;
+    notify_data_changed(&app, "task-deleted");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_project(
+    id: &str,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CoreError> {
+    state.work.delete_project(id)?;
+    notify_data_changed(&app, "project-deleted");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_workspace(
+    id: &str,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CoreError> {
+    state.work.delete_workspace(id)?;
+    notify_data_changed(&app, "workspace-deleted");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_registered_app(
+    id: &str,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CoreError> {
+    state.apps.delete_app(id)?;
+    notify_data_changed(&app, "app-deleted");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_resource(
+    id: &str,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CoreError> {
+    state.memory.delete_resource(id)?;
+    notify_data_changed(&app, "resource-deleted");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(())
+}
+
 #[tauri::command]
 fn list_hidden_widgets(state: tauri::State<'_, AppState>) -> Result<Vec<HiddenWidget>, CoreError> {
     state.work.hidden_widgets()
@@ -1130,6 +1208,12 @@ pub fn run() {
             set_app_workspace,
             set_workspace_widget,
             list_hidden_widgets,
+            delete_capture,
+            delete_task,
+            delete_project,
+            delete_workspace,
+            delete_registered_app,
+            delete_resource,
             create_project,
             update_project,
             get_project,

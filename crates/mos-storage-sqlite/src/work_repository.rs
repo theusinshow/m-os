@@ -13,8 +13,8 @@ use crate::{
     app_repository::{query_apps, APP_COLUMNS},
     map_lock_error, map_sql_error,
     repository::{
-        ensure_changed, format_time, parse_time, query_capture, to_fts_query, RawCapture,
-        CAPTURE_COLUMNS,
+        ensure_changed, format_time, guard_deletable, parse_time, query_capture, to_fts_query,
+        RawCapture, CAPTURE_COLUMNS,
     },
     SqliteStorage,
 };
@@ -371,6 +371,48 @@ impl WorkRepository for SqliteStorage {
                 )
                 .map_err(map_sql_error)?;
         }
+        Ok(())
+    }
+
+    fn delete_task(&self, id: TaskId) -> Result<(), CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        guard_deletable(&transaction, "tasks", &id.to_string(), "Task")?;
+        delete_task_search(&transaction, id)?;
+        transaction
+            .execute("DELETE FROM tasks WHERE id = ?1", [id.to_string()])
+            .map_err(map_sql_error)?;
+        transaction.commit().map_err(map_sql_error)?;
+        Ok(())
+    }
+
+    /// As Tasks do Project sobrevivem: `tasks.project_id` e ON DELETE SET NULL
+    /// (0007_v03_design.sql:30). Apagar um Project nao pode levar trabalho junto
+    /// — ele deixa de ter contexto, o que ja e perda suficiente.
+    fn delete_project(&self, id: ProjectId) -> Result<(), CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        guard_deletable(&transaction, "projects", &id.to_string(), "Project")?;
+        delete_project_search(&transaction, id)?;
+        transaction
+            .execute("DELETE FROM projects WHERE id = ?1", [id.to_string()])
+            .map_err(map_sql_error)?;
+        transaction.commit().map_err(map_sql_error)?;
+        Ok(())
+    }
+
+    /// Os vinculos caem por cascata declarada nas migrations: project_workspaces,
+    /// app_workspaces, resource_workspaces e workspace_hidden_widgets. Nenhum
+    /// Project, App ou Resource e apagado — some so a lente.
+    fn delete_workspace(&self, id: WorkspaceId) -> Result<(), CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        guard_deletable(&transaction, "workspaces", &id.to_string(), "Workspace")?;
+        delete_workspace_search(&transaction, id)?;
+        transaction
+            .execute("DELETE FROM workspaces WHERE id = ?1", [id.to_string()])
+            .map_err(map_sql_error)?;
+        transaction.commit().map_err(map_sql_error)?;
         Ok(())
     }
 
@@ -1207,6 +1249,59 @@ mod tests {
             .workspace_projects(workspace.id, false)
             .unwrap()
             .is_empty());
+    }
+
+    /// A regra de exclusao: nada ativo e apagado, e o vinculo cai junto sem
+    /// levar o vinculado.
+    #[test]
+    fn delete_refuses_active_and_only_removes_the_lens() {
+        let (_directory, storage) = storage();
+        let workspace = storage
+            .create_workspace(NewWorkspace::create("Engineering", "").unwrap())
+            .unwrap();
+        let project = storage
+            .create_project(NewProject::create("NexoDoc", "", "").unwrap())
+            .unwrap();
+        storage
+            .set_project_workspace(project.id, workspace.id, true)
+            .unwrap();
+
+        // Ativo recusa.
+        assert!(storage.delete_workspace(workspace.id).is_err());
+        assert_eq!(storage.workspaces(false).unwrap().len(), 1);
+
+        // Arquivado aceita.
+        storage
+            .set_workspace_lifecycle(workspace.id, LifecycleState::Archived)
+            .unwrap();
+        storage.delete_workspace(workspace.id).unwrap();
+        assert!(storage.workspaces(true).unwrap().is_empty());
+
+        // O Project sobreviveu: sumiu a lente, nao o trabalho.
+        assert_eq!(storage.projects(false).unwrap().len(), 1);
+    }
+
+    /// Apagar um Project nao pode levar Task junto — a FK e SET NULL, e a Task
+    /// so perde o contexto.
+    #[test]
+    fn deleting_a_project_keeps_its_tasks() {
+        let (_directory, storage) = storage();
+        let project = storage
+            .create_project(NewProject::create("Minarum", "", "").unwrap())
+            .unwrap();
+        let task = storage
+            .create_task(NewTask::create("Refatorar navbar", "", Some(project.id)).unwrap())
+            .unwrap();
+
+        storage
+            .set_project_lifecycle(project.id, LifecycleState::Archived)
+            .unwrap();
+        storage.delete_project(project.id).unwrap();
+
+        let tasks = storage.tasks(false).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, task.id);
+        assert_eq!(tasks[0].project_id, None);
     }
 
     #[test]

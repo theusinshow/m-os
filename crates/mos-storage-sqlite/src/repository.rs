@@ -210,6 +210,44 @@ impl CaptureRepository for SqliteStorage {
         query_capture(&connection, id)
     }
 
+    /// Capture que virou Task ou Resource NAO e apagavel. A FK ja recusaria
+    /// (ON DELETE RESTRICT em 0007_v03_design.sql:31 e :94), mas o erro do
+    /// SQLite diria "FOREIGN KEY constraint failed" — que nao ajuda ninguem.
+    /// Aqui a recusa explica o motivo real: a proveniencia daquele item
+    /// derivado deixaria de existir.
+    fn delete_capture(&self, id: CaptureId) -> Result<(), CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        guard_deletable(&transaction, "captures", &id.to_string(), "Capture")?;
+        let derived: i64 = transaction
+            .query_row(
+                "SELECT (SELECT count(*) FROM tasks WHERE source_capture_id = ?1)
+                      + (SELECT count(*) FROM resources WHERE source_capture_id = ?1)",
+                [id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(map_sql_error)?;
+        if derived > 0 {
+            return Err(CoreError::new(
+                ErrorCode::InvalidTransition,
+                "Esta Capture deu origem a uma Task ou Resource. Exclua o item derivado antes.",
+                false,
+            ));
+        }
+        transaction
+            .execute(
+                "INSERT INTO capture_search(capture_search, rowid, content)
+                 SELECT 'delete', rowid, content FROM captures WHERE id = ?1",
+                [id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        transaction
+            .execute("DELETE FROM captures WHERE id = ?1", [id.to_string()])
+            .map_err(map_sql_error)?;
+        transaction.commit().map_err(map_sql_error)?;
+        Ok(())
+    }
+
     fn rebuild_search(&self) -> Result<usize, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         rebuild_search_projection(&connection)
@@ -251,6 +289,41 @@ fn collect_rows(
 ) -> Result<Vec<Capture>, CoreError> {
     rows.map(|row| row.map_err(map_sql_error)?.into_capture())
         .collect()
+}
+
+/// A regra de exclusao do M/OS, num lugar so: **nada ativo e apagado**.
+///
+/// Arquivar primeiro nao e burocracia — e o que garante que nenhuma exclusao
+/// definitiva aconteca no meio do uso normal, sem que o item tenha passado
+/// antes por um estado onde ja estava fora do caminho.
+///
+/// `table` vem sempre de literal do proprio crate, nunca de entrada do usuario:
+/// e o unico motivo pelo qual interpolar o nome na SQL e aceitavel aqui.
+pub(crate) fn guard_deletable(
+    transaction: &rusqlite::Transaction<'_>,
+    table: &str,
+    id: &str,
+    label: &str,
+) -> Result<(), CoreError> {
+    let lifecycle: Option<String> = transaction
+        .query_row(
+            &format!("SELECT lifecycle_state FROM {table} WHERE id = ?1"),
+            [id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(map_sql_error)?;
+    let lifecycle = lifecycle.ok_or_else(|| {
+        CoreError::new(ErrorCode::NotFound, format!("{label} nao encontrado."), false)
+    })?;
+    if lifecycle == "active" {
+        return Err(CoreError::new(
+            ErrorCode::InvalidTransition,
+            format!("{label} ativo nao pode ser excluido. Arquive antes."),
+            false,
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn ensure_changed(changed: usize) -> Result<(), CoreError> {
