@@ -390,12 +390,13 @@ A ponte. Aqui acontece a única inversão de sinal do sistema: a interface fala 
 - Modify: `apps/desktop/src-tauri/src/lib.rs:7-14` (import), `:419` (comandos novos, após `set_app_workspace`), `:1081` (registro no `invoke_handler`)
 - Modify: `apps/desktop/src/types.ts` (tipo `HiddenWidget`)
 - Modify: `apps/desktop/src/api.ts:153` (dois métodos, após `setAppWorkspace`)
-- Modify: `apps/desktop/src/App.tsx:1293` (estado no raiz), `:1313` (o `refresh`)
 - Test: nenhum — a camada Tauri não tem teste no projeto
 
 **Interfaces:**
 - Consumes: `WorkService::set_widget_hidden`, `WorkService::hidden_widgets` e `HiddenWidget` da Task 1. `notify_data_changed(&AppHandle, &str)` (`lib.rs:792`) e `schedule_snapshot(&DataService, &Arc<Mutex<String>>, &AppHandle)` (`lib.rs:796`).
-- Produces: `api.hiddenWidgets(): Promise<HiddenWidget[]>` e `api.setWorkspaceWidget(widgetId, workspaceId, visible): Promise<void>`; o tipo `HiddenWidget = { workspaceId: string; widgetId: string }`; e a variável `hiddenWidgets: HiddenWidget[]` no componente raiz, já carregada pelo `refresh`. Tasks 3 e 4 consomem os três.
+- Produces: `api.hiddenWidgets(): Promise<HiddenWidget[]>` e `api.setWorkspaceWidget(widgetId, workspaceId, visible): Promise<void>`, mais o tipo `HiddenWidget = { workspaceId: string; widgetId: string }`. Tasks 3 e 4 consomem os dois.
+
+> **Correcao aplicada durante a execucao.** Este passo carregava tambem o dado no componente raiz. Nao compila: `noUnusedLocals` recusa um estado que ninguem le, e o primeiro leitor so aparece na Task 3. A carga foi movida para la, junto do primeiro consumidor.
 
 - [ ] **Step 1: Escrever os comandos**
 
@@ -475,9 +476,41 @@ Em `apps/desktop/src/api.ts`, após `setAppWorkspace` (termina em `:155`):
 
 `HiddenWidget` entra no `import type { ... } from "./types"` da linha 4, em ordem alfabética — entre `FunctionDefinition` e `Project`.
 
-- [ ] **Step 6: Carregar o dado no componente raiz**
+- [ ] **Step 6: Verificar o build do front**
 
-O dado precisa existir antes das duas telas que o consomem, e o lugar dele é o mesmo de todos os outros: o `refresh` que já carrega o app inteiro.
+```bash
+cd apps/desktop && npm run build
+```
+
+Esperado: `✓ built in <2s`, sem erro de TypeScript.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add apps/desktop/src-tauri/src/lib.rs apps/desktop/src/types.ts apps/desktop/src/api.ts
+git commit -m "feat(api): comandos de visibilidade de widget por Workspace"
+```
+
+---
+
+### Task 3: Painel WIDGETS na página Workspaces
+
+O lugar onde se configura. Reusa o `.relation-row` e o `.workspace-grid` que já existem — nenhum CSS novo.
+
+**Files:**
+- Modify: `apps/desktop/src/App.tsx:1293` (estado no raiz), `:1313` (o `refresh`)
+- Modify: `apps/desktop/src/App.tsx:116` (catálogo `HOME_WIDGETS`, antes de `ScopedEmptyState`)
+- Modify: `apps/desktop/src/App.tsx:457` (props de `WorkspacesPage`), `:483` (`refreshLinks`), `:509` (função `toggleWidget`), `:512` (o `.workspace-grid`)
+- Modify: `apps/desktop/src/App.tsx:1409` (chamada de `WorkspacesPage`)
+- Test: nenhum
+
+**Interfaces:**
+- Consumes: `api.setWorkspaceWidget` e o tipo `HiddenWidget` da Task 2. `Panel({ label, count, action, rule, children, className })` (`App.tsx:76`). `appError` e `EmptyState`, já usados no arquivo.
+- Produces: `const HOME_WIDGETS: { id: string; label: string }[]` e a variável `hiddenWidgets: HiddenWidget[]` no componente raiz, carregada pelo `refresh` — a Task 4 consome as duas, sem alterá-las.
+
+- [ ] **Step 1: Carregar o dado no componente raiz**
+
+O lugar dele é o mesmo de todos os outros: o `refresh` que já carrega o app inteiro. Vem nesta task, e não na anterior, porque `noUnusedLocals` recusa um estado que ninguém lê — a carga e o primeiro leitor têm que viajar no mesmo commit.
 
 Em `apps/desktop/src/App.tsx:1293`, junto dos outros estados do componente raiz:
 
@@ -489,38 +522,7 @@ No `refresh` (`:1313`), acrescentar `api.hiddenWidgets()` **no fim** do array do
 
 `HiddenWidget` entra no `import type { ... } from "./types"` do topo de `App.tsx`.
 
-- [ ] **Step 7: Verificar o build do front**
-
-```bash
-cd apps/desktop && npm run build
-```
-
-Esperado: `✓ built in <2s`, sem erro de TypeScript. Nesta etapa `hiddenWidgets` ainda não é lido por ninguém — o `tsc` não reclama de estado não usado, mas se reclamar de variável não usada, é sinal de que o setter ficou de fora.
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add apps/desktop/src-tauri/src/lib.rs apps/desktop/src/types.ts apps/desktop/src/api.ts apps/desktop/src/App.tsx
-git commit -m "feat(api): comandos de visibilidade de widget por Workspace"
-```
-
----
-
-### Task 3: Painel WIDGETS na página Workspaces
-
-O lugar onde se configura. Reusa o `.relation-row` e o `.workspace-grid` que já existem — nenhum CSS novo.
-
-**Files:**
-- Modify: `apps/desktop/src/App.tsx:116` (catálogo `HOME_WIDGETS`, antes de `ScopedEmptyState`)
-- Modify: `apps/desktop/src/App.tsx:457` (props de `WorkspacesPage`), `:483` (`refreshLinks`), `:509` (função `toggleWidget`), `:512` (o `.workspace-grid`)
-- Modify: `apps/desktop/src/App.tsx:1409` (chamada de `WorkspacesPage`)
-- Test: nenhum
-
-**Interfaces:**
-- Consumes: `api.setWorkspaceWidget` e o tipo `HiddenWidget` da Task 2. `Panel({ label, count, action, rule, children, className })` (`App.tsx:76`). `appError` e `EmptyState`, já usados no arquivo.
-- Produces: `const HOME_WIDGETS: { id: string; label: string }[]` — a Task 4 consome a mesma constante, sem alterá-la.
-
-- [ ] **Step 1: Criar o catálogo**
+- [ ] **Step 2: Criar o catálogo**
 
 Em `apps/desktop/src/App.tsx`, antes de `function ScopedEmptyState` (`:117`):
 
@@ -540,7 +542,7 @@ const HOME_WIDGETS: { id: string; label: string }[] = [
 ];
 ```
 
-- [ ] **Step 2: Receber os ocultos em WorkspacesPage**
+- [ ] **Step 3: Receber os ocultos em WorkspacesPage**
 
 Na assinatura em `App.tsx:457`, acrescentar `hiddenWidgets` à desestruturação e ao tipo. A lista passa a ser:
 
@@ -548,9 +550,9 @@ Na assinatura em `App.tsx:457`, acrescentar `hiddenWidgets` à desestruturação
 function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWorkspaceId, refresh, openProject, openApp, intent }: { workspaces: Workspace[]; projects: Project[]; apps: RegisteredApp[]; hiddenWidgets: HiddenWidget[]; initialWorkspaceId: string; refresh: () => Promise<void>; openProject: (project: Project) => void; openApp: (app: RegisteredApp) => void; intent?: FunctionIntent }) {
 ```
 
-Na chamada em `App.tsx:1409`, acrescentar `hiddenWidgets={hiddenWidgets}` logo após `apps={apps}`. A variável já existe no componente raiz desde a Task 2, Step 6.
+Na chamada em `App.tsx:1409`, acrescentar `hiddenWidgets={hiddenWidgets}` logo após `apps={apps}`. A variável vem do Step 1 desta mesma task.
 
-- [ ] **Step 3: Derivar o conjunto oculto e escrever o toggle**
+- [ ] **Step 4: Derivar o conjunto oculto e escrever o toggle**
 
 Junto de `linkedAppIds` (`App.tsx:482`), acrescentar:
 
@@ -573,7 +575,7 @@ E após `toggleApp` (termina em `:509`):
 
 `refresh` (o global, que recarrega tudo) e não `refreshLinks`: o dado dos ocultos vem do componente raiz, não do estado local desta página.
 
-- [ ] **Step 4: Acrescentar o painel**
+- [ ] **Step 5: Acrescentar o painel**
 
 Em `App.tsx:512`, dentro de `<div className="workspace-grid">`, depois do `<div data-function-section="workspace.link_app">…</div>` e antes do `</div>` que fecha a grade:
 
@@ -585,7 +587,7 @@ Duas diferenças em relação aos painéis vizinhos, ambas propositais: a caixa 
 
 O `data-function-section` aponta para a função que a Task 5 registra. Até lá ele não resolve para nada, e isso não quebra nada: o seletor só é usado quando um intent chega.
 
-- [ ] **Step 5: Verificar o build**
+- [ ] **Step 6: Verificar o build**
 
 ```bash
 cd apps/desktop && npm run build
@@ -593,7 +595,7 @@ cd apps/desktop && npm run build
 
 Esperado: `✓ built in <2s`, sem erro.
 
-- [ ] **Step 6: Verificar no app**
+- [ ] **Step 7: Verificar no app**
 
 Subir o app com `npm run tauri dev` e, na página Workspaces:
 
@@ -603,7 +605,7 @@ Subir o app com `npm run tauri dev` e, na página Workspaces:
 4. Selecionar outro Workspace: os sete aparecem marcados. A escolha é por Workspace.
 5. A Home **ainda não muda**. É esperado: aplicá-la é a Task 4.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add apps/desktop/src/App.tsx
@@ -620,7 +622,7 @@ git commit -m "feat(ui): painel WIDGETS escolhe o que a Home mostra por Workspac
 - Test: nenhum
 
 **Interfaces:**
-- Consumes: `HOME_WIDGETS` da Task 3 (sem alterá-la), `api.hiddenWidgets()` e o tipo `HiddenWidget` da Task 2, `ScopedEmptyState`/`EmptyState` e a classe `.scoped-empty` (`App.css:1226`), já existentes.
+- Consumes: `HOME_WIDGETS` e a variável `hiddenWidgets` da Task 3 (sem alterá-las), e o tipo `HiddenWidget` da Task 2, `ScopedEmptyState`/`EmptyState` e a classe `.scoped-empty` (`App.css:1226`), já existentes.
 - Produces: nada consumido por tasks posteriores.
 
 - [ ] **Step 1: Widget aceita id e sabe sumir**
