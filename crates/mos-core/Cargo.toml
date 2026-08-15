@@ -8,6 +8,10 @@ rust-version.workspace = true
 
 [dependencies]
 serde.workspace = true
+# O corpo de uma parte de mensagem e persistido como JSON (ADR-025), e quem
+# valida a forma e o dominio — nao o adapter de SQLite e nao o renderer. Sem
+# isso a validacao cairia no unico lugar que nao pode te-la.
+serde_json = "1"
 thiserror.workspace = true
 time.workspace = true
 uuid.workspace = true

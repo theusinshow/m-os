@@ -1,5 +1,6 @@
 mod app;
 mod capture;
+mod conversation;
 mod error;
 mod functions;
 mod ports;
@@ -12,23 +13,28 @@ pub use app::{
     AppId, AppLaunchKind, NewRegisteredApp, RegisteredApp,
 };
 pub use capture::{Capture, CaptureId, CaptureSource, LifecycleState, NewCapture, ProcessingState};
+pub use conversation::{
+    validate_title, ContextEntity, ContextOrigin, Conversation, ConversationId,
+    ConversationSummary, Message, MessageId, MessagePart, MessagePartId, MessageRole,
+    MessageStatus, NewConversation, NewMessage, PartBody, ToolRunState,
+};
 pub use error::{CoreError, ErrorCode};
 pub use functions::{
     function_registry, search_functions, FunctionCategory, FunctionConfirmation,
     FunctionDefinition, FunctionRisk,
 };
 pub use ports::{
-    AppRepository, BackupInspection, BackupReceipt, CaptureRepository, DataMaintenance,
-    ResourceRepository, SearchRequest, WorkRepository,
+    AppRepository, BackupInspection, BackupReceipt, CaptureRepository, ConversationRepository,
+    DataMaintenance, ResourceRepository, SearchRequest, WorkRepository,
 };
 pub use resource::{
     validate_resource_url, NewResource, Resource, ResourceId, ResourceKind, ResourceWorkspace,
 };
 pub use service::{
-    AppService, CaptureService, CreateAppInput, CreateCaptureInput, CreateProjectInput,
-    CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService, MemoryService,
-    UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput,
-    WorkService,
+    AppService, CaptureService, ConversationService, CreateAppInput, CreateCaptureInput,
+    CreateProjectInput, CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService,
+    MemoryService, UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput,
+    UpdateWorkspaceInput, WorkService,
 };
 pub use work::{
     validate_widget_id, HiddenWidget, NewProject, NewTask, NewWorkspace, Project, ProjectId,

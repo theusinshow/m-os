@@ -3,11 +3,13 @@ use std::{path::Path, sync::Arc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AppCapabilities, AppId, AppLaunchKind, AppRepository, BackupInspection, BackupReceipt, Capture,
-    CaptureId, CaptureRepository, CaptureSource, CoreError, DataMaintenance, HiddenWidget,
-    LifecycleState, NewCapture, NewProject, NewRegisteredApp, NewTask, NewWorkspace,
-    ProcessingState, Project, ProjectId, RegisteredApp, SearchItem, SearchRequest, Task, TaskId,
-    TaskState, WorkRepository, Workspace, WorkspaceId,
+    validate_title, AppCapabilities, AppId, AppLaunchKind, AppRepository, BackupInspection,
+    BackupReceipt, Capture, CaptureId, CaptureRepository, CaptureSource, Conversation,
+    ConversationId, ConversationRepository, ConversationSummary, CoreError, DataMaintenance,
+    HiddenWidget, LifecycleState, Message, MessageId, MessageStatus, NewCapture, NewConversation,
+    NewMessage, NewProject, NewRegisteredApp, NewTask, NewWorkspace, PartBody, ProcessingState,
+    Project, ProjectId, RegisteredApp, SearchItem, SearchRequest, Task, TaskId, TaskState,
+    WorkRepository, Workspace, WorkspaceId,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -322,7 +324,8 @@ impl MemoryService {
     }
 
     pub fn delete_resource(&self, id: &str) -> Result<(), CoreError> {
-        self.repository.delete_resource(crate::ResourceId::parse(id)?)
+        self.repository
+            .delete_resource(crate::ResourceId::parse(id)?)
     }
 
     pub fn set_resource_workspace(
@@ -700,5 +703,161 @@ impl WorkService {
 
     pub fn rebuild_search(&self) -> Result<usize, CoreError> {
         self.repository.rebuild_all_search()
+    }
+}
+
+/// Servico da conversa do Hermes.
+///
+/// Ele nao conhece a ponte e nao conhece rede. O orquestrador do desktop e quem
+/// traduz `Outcome` em parte de mensagem e chama estes metodos — e e por isso
+/// que `mos-hermes` continua sem `mos-core` e sem SQLite (ADR-024, ADR-025).
+pub struct ConversationService {
+    repository: Arc<dyn ConversationRepository>,
+}
+
+impl ConversationService {
+    pub fn new(repository: Arc<dyn ConversationRepository>) -> Self {
+        Self { repository }
+    }
+
+    pub fn create(&self) -> Result<Conversation, CoreError> {
+        self.repository
+            .create_conversation(NewConversation::create())
+    }
+
+    pub fn get(&self, id: &str) -> Result<Conversation, CoreError> {
+        self.repository.get_conversation(ConversationId::parse(id)?)
+    }
+
+    pub fn list(&self, include_archived: bool) -> Result<Vec<ConversationSummary>, CoreError> {
+        self.repository.conversations(include_archived, 200)
+    }
+
+    /// A conversa mais recente, ou uma nova quando nao ha nenhuma.
+    ///
+    /// E o que a tela abre. Sem isto o app precisaria escolher entre comecar
+    /// sempre do zero — perdendo a continuidade que a ADR-025 existe para dar —
+    /// ou deixar o renderer decidir qual conversa e a corrente, que e regra de
+    /// aplicacao e nao de apresentacao.
+    pub fn current_or_new(&self) -> Result<Conversation, CoreError> {
+        match self.repository.conversations(false, 1)?.first() {
+            Some(summary) => self.repository.get_conversation(summary.id),
+            None => self.create(),
+        }
+    }
+
+    pub fn rename(&self, id: &str, title: &str) -> Result<Conversation, CoreError> {
+        let title = validate_title(title)?;
+        self.repository
+            .set_conversation_title(ConversationId::parse(id)?, &title)
+    }
+
+    /// Guarda o vinculo com a sessao da VPS.
+    pub fn bind_session(
+        &self,
+        id: &str,
+        hermes_session_id: Option<&str>,
+    ) -> Result<Conversation, CoreError> {
+        self.repository
+            .set_conversation_session(ConversationId::parse(id)?, hermes_session_id)
+    }
+
+    pub fn set_archived(&self, id: &str, archived: bool) -> Result<Conversation, CoreError> {
+        self.repository.set_conversation_lifecycle(
+            ConversationId::parse(id)?,
+            if archived {
+                LifecycleState::Archived
+            } else {
+                LifecycleState::Active
+            },
+        )
+    }
+
+    pub fn delete(&self, id: &str) -> Result<(), CoreError> {
+        self.repository
+            .delete_conversation(ConversationId::parse(id)?)
+    }
+
+    pub fn messages(&self, id: &str) -> Result<Vec<Message>, CoreError> {
+        self.repository.messages(ConversationId::parse(id)?)
+    }
+
+    pub fn append_user_message(&self, id: &str, text: &str) -> Result<Message, CoreError> {
+        let conversation_id = ConversationId::parse(id)?;
+        self.repository
+            .append_message(NewMessage::user(conversation_id, text)?)
+    }
+
+    /// Acrescenta partes a uma mensagem do usuario ja gravada.
+    ///
+    /// Serve para os chips de contexto: eles sao registrados junto da pergunta,
+    /// e o registro precisa dizer o que EFETIVAMENTE foi enviado (ADR-027) —
+    /// o que so se sabe depois de montar o bloco.
+    pub fn attach_parts(
+        &self,
+        message_id: &str,
+        status: MessageStatus,
+        parts: Vec<PartBody>,
+    ) -> Result<Message, CoreError> {
+        self.repository
+            .finish_message(MessageId::parse(message_id)?, status, parts)
+    }
+
+    pub fn start_answer(&self, id: &str) -> Result<Message, CoreError> {
+        let conversation_id = ConversationId::parse(id)?;
+        self.repository
+            .append_message(NewMessage::pending_assistant(conversation_id))
+    }
+
+    /// Fecha a resposta com o que chegou.
+    ///
+    /// Uma escrita por mensagem, nunca por delta: sob `synchronous=FULL` um
+    /// INSERT por token seria um fsync por token (ADR-017).
+    pub fn finish_answer(
+        &self,
+        message_id: &str,
+        status: MessageStatus,
+        parts: Vec<PartBody>,
+    ) -> Result<Message, CoreError> {
+        self.repository
+            .finish_message(MessageId::parse(message_id)?, status, parts)
+    }
+
+    pub fn note(&self, id: &str, text: &str) -> Result<Message, CoreError> {
+        let conversation_id = ConversationId::parse(id)?;
+        self.repository
+            .append_message(NewMessage::system(conversation_id, text))
+    }
+
+    /// Descarta uma mensagem e tudo que veio depois. Regenerate e edicao.
+    pub fn truncate_from(&self, message_id: &str) -> Result<(), CoreError> {
+        self.repository.truncate_from(MessageId::parse(message_id)?)
+    }
+
+    /// Substitui a conversa local pelo historico da VPS.
+    pub fn replace_with_history(
+        &self,
+        id: &str,
+        messages: Vec<NewMessage>,
+    ) -> Result<(), CoreError> {
+        self.repository
+            .replace_messages(ConversationId::parse(id)?, messages)
+    }
+
+    pub fn search(&self, query: &str) -> Result<Vec<ConversationSummary>, CoreError> {
+        self.repository.search_conversations(SearchRequest {
+            query: query.trim().to_owned(),
+            include_archived: false,
+            limit: 50,
+        })
+    }
+
+    /// Reparo de abertura: mensagem que ficou em curso vira interrompida.
+    pub fn settle_unfinished(&self) -> Result<usize, CoreError> {
+        self.repository.settle_unfinished_messages()
+    }
+
+    pub fn rebuild_search(&self) -> Result<usize, CoreError> {
+        self.repository.rebuild_conversation_search()
     }
 }

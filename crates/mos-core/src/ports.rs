@@ -190,6 +190,79 @@ pub trait ResourceRepository: Send + Sync {
     fn delete_resource(&self, id: crate::ResourceId) -> Result<(), CoreError>;
 }
 
+/// Persistencia da conversa do Hermes (ADR-025).
+///
+/// Este trait vive no Core, e nao em `mos-hermes`, de proposito: a ponte
+/// continua sem conhecer o banco, e a traducao entre `Outcome` e parte de
+/// mensagem acontece no orquestrador do desktop — o unico lugar onde ponte e
+/// dominio se encontram.
+pub trait ConversationRepository: Send + Sync {
+    fn create_conversation(
+        &self,
+        conversation: crate::NewConversation,
+    ) -> Result<crate::Conversation, CoreError>;
+    fn get_conversation(&self, id: crate::ConversationId)
+        -> Result<crate::Conversation, CoreError>;
+    fn conversations(
+        &self,
+        include_archived: bool,
+        limit: usize,
+    ) -> Result<Vec<crate::ConversationSummary>, CoreError>;
+    fn set_conversation_title(
+        &self,
+        id: crate::ConversationId,
+        title: &str,
+    ) -> Result<crate::Conversation, CoreError>;
+    /// Guarda o vinculo com a sessao da VPS. E o que faltava em disco: sem ele
+    /// `session.resume` nunca rodava entre aberturas do app.
+    fn set_conversation_session(
+        &self,
+        id: crate::ConversationId,
+        hermes_session_id: Option<&str>,
+    ) -> Result<crate::Conversation, CoreError>;
+    fn set_conversation_lifecycle(
+        &self,
+        id: crate::ConversationId,
+        lifecycle: LifecycleState,
+    ) -> Result<crate::Conversation, CoreError>;
+    fn delete_conversation(&self, id: crate::ConversationId) -> Result<(), CoreError>;
+
+    fn append_message(&self, message: crate::NewMessage) -> Result<crate::Message, CoreError>;
+    fn messages(&self, id: crate::ConversationId) -> Result<Vec<crate::Message>, CoreError>;
+    /// Fecha uma mensagem substituindo as partes e o estado.
+    ///
+    /// E assim que o streaming termina: uma escrita por mensagem, nunca por
+    /// delta. Um INSERT por token sob `synchronous=FULL` seria um fsync por
+    /// token (ADR-017).
+    fn finish_message(
+        &self,
+        id: crate::MessageId,
+        status: crate::MessageStatus,
+        parts: Vec<crate::PartBody>,
+    ) -> Result<crate::Message, CoreError>;
+    /// Apaga uma mensagem e tudo que veio depois dela na conversa.
+    ///
+    /// Regenerate e editar-e-reenviar precisam disso: a resposta antiga e o que
+    /// veio atras dela deixam de valer quando a pergunta muda.
+    fn truncate_from(&self, message_id: crate::MessageId) -> Result<(), CoreError>;
+    /// Troca a conversa inteira pelo que veio da VPS.
+    fn replace_messages(
+        &self,
+        id: crate::ConversationId,
+        messages: Vec<crate::NewMessage>,
+    ) -> Result<(), CoreError>;
+    fn search_conversations(
+        &self,
+        request: SearchRequest,
+    ) -> Result<Vec<crate::ConversationSummary>, CoreError>;
+    /// Fecha mensagens que ficaram `pending` ou `streaming`.
+    ///
+    /// O app pode ter sido fechado no meio de um turno, e sem isto a resposta
+    /// voltaria eternamente em curso na proxima abertura.
+    fn settle_unfinished_messages(&self) -> Result<usize, CoreError>;
+    fn rebuild_conversation_search(&self) -> Result<usize, CoreError>;
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupReceipt {

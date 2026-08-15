@@ -314,7 +314,11 @@ pub(crate) fn guard_deletable(
         .optional()
         .map_err(map_sql_error)?;
     let lifecycle = lifecycle.ok_or_else(|| {
-        CoreError::new(ErrorCode::NotFound, format!("{label} nao encontrado."), false)
+        CoreError::new(
+            ErrorCode::NotFound,
+            format!("{label} nao encontrado."),
+            false,
+        )
     })?;
     if lifecycle == "active" {
         return Err(CoreError::new(

@@ -1,5 +1,6 @@
 mod app_repository;
 mod backup;
+mod conversation_repository;
 mod repository;
 mod resource_repository;
 mod work_repository;
@@ -15,7 +16,7 @@ use mos_core::{CoreError, ErrorCode};
 use rusqlite::{Connection, MAIN_DB};
 use serde::Serialize;
 
-const SCHEMA_VERSION: u32 = 9;
+const SCHEMA_VERSION: u32 = 10;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -25,6 +26,7 @@ const MIGRATION_006: &str = include_str!("../migrations/0006_resources.sql");
 const MIGRATION_007: &str = include_str!("../migrations/0007_v03_design.sql");
 const MIGRATION_008: &str = include_str!("../migrations/0008_workspace_widgets.sql");
 const MIGRATION_009: &str = include_str!("../migrations/0009_resource_workspaces.sql");
+const MIGRATION_010: &str = include_str!("../migrations/0010_conversations.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -200,6 +202,11 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
             .execute_batch(MIGRATION_009)
             .map_err(map_sql_error)?;
     }
+    if current <= 9 {
+        connection
+            .execute_batch(MIGRATION_010)
+            .map_err(map_sql_error)?;
+    }
     Ok(())
 }
 
@@ -227,6 +234,7 @@ fn ensure_search_projection(connection: &Connection) -> Result<(), CoreError> {
         ("apps", "app_search"),
         ("workspaces", "workspace_search"),
         ("resources", "resource_search"),
+        ("message_parts", "message_search"),
     ] {
         let source_count: i64 = connection
             .query_row(&format!("SELECT count(*) FROM {source}"), [], |row| {
@@ -347,7 +355,7 @@ mod tests {
 
         assert_eq!(health.journal_mode.to_lowercase(), "wal");
         assert_eq!(health.synchronous, "FULL");
-        assert_eq!(health.schema_version, 9);
+        assert_eq!(health.schema_version, 10);
         assert_eq!(health.integrity, "ok");
     }
 
@@ -376,7 +384,7 @@ mod tests {
         drop(connection);
 
         let storage = SqliteStorage::open(&database, &backups).unwrap();
-        assert_eq!(storage.health().unwrap().schema_version, 9);
+        assert_eq!(storage.health().unwrap().schema_version, 10);
         assert_eq!(CaptureRepository::recent(&storage, 10).unwrap().len(), 1);
         assert_eq!(
             fs::read_dir(&backups)
@@ -458,7 +466,7 @@ mod tests {
         drop(connection);
 
         let storage = SqliteStorage::open(&database, &backups).unwrap();
-        assert_eq!(storage.health().unwrap().schema_version, 9);
+        assert_eq!(storage.health().unwrap().schema_version, 10);
         assert_eq!(storage.health().unwrap().integrity, "ok");
 
         let connection = Connection::open(&database).unwrap();
@@ -584,7 +592,7 @@ mod tests {
 
         let storage = SqliteStorage::open(&database, &backups).unwrap();
 
-        assert_eq!(storage.health().unwrap().schema_version, 9);
+        assert_eq!(storage.health().unwrap().schema_version, 10);
         let apps = storage.apps(false).unwrap();
         assert_eq!(apps.len(), 1);
         assert_eq!(apps[0].name, "Motion");

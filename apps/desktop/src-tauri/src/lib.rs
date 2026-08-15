@@ -442,11 +442,11 @@ fn set_app_workspace(
 }
 
 /* Exclusao definitiva. Seis comandos com a mesma forma, e a mesma regra imposta
-   no repositorio: so apaga o que ja esta arquivado ou na lixeira.
+no repositorio: so apaga o que ja esta arquivado ou na lixeira.
 
-   Nao existe undo aqui, e por isso a confirmacao mora na interface. Depois de
-   apagar, o snapshot agendado nao serve de socorro: ele e posterior ao
-   apagamento. O socorro e o backup anterior, em DADOS E PORTABILIDADE. */
+Nao existe undo aqui, e por isso a confirmacao mora na interface. Depois de
+apagar, o snapshot agendado nao serve de socorro: ele e posterior ao
+apagamento. O socorro e o backup anterior, em DADOS E PORTABILIDADE. */
 #[tauri::command]
 fn delete_capture(
     id: &str,
