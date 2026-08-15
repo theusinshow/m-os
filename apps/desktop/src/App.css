@@ -3197,3 +3197,27 @@ input[type="checkbox"]:disabled {
 [data-theme="light"] .command-surface[data-mode="hermes"]::before {
   opacity: 0.45;
 }
+
+/* ---------- Feedback do cartao arrastado ----------
+
+   O estado draggingTaskId existia desde que o kanban foi escrito, mas nunca
+   chegava ao DOM: era criado, atualizado nos dois caminhos de arrasto e lido
+   so como fallback do id. A coluna de destino acendia; o cartao na mao do
+   usuario nao mudava em nada.
+
+   O tratamento e de origem, nao de sombra: o cartao que saiu perde peso e
+   ganha a borda tracejada de "isto esta em transito", enquanto a coluna de
+   destino ja acende em sodio. Sem transform e sem escala — o cartao nao pode
+   mudar de tamanho debaixo do cursor durante o arrasto nativo, porque o
+   navegador ja desenha a previa por conta propria e as duas competiriam. */
+
+.data-row[data-dragging] {
+  color: var(--text-secondary);
+  background: var(--surface-hover);
+  opacity: 0.55;
+}
+
+.kanban-column .data-row[data-dragging] {
+  outline: var(--line) dashed var(--border-strong);
+  outline-offset: calc(var(--line) * -1);
+}
