@@ -148,40 +148,55 @@ impl Bridge {
         self.send(Request::session_close(id, &session_id)).await
     }
 
-    /// Consome o proximo frame. `None` significa socket encerrado — queda de
-    /// conexao, nao fim de turno.
+    /// Consome frames ate ter algo para entregar.
+    ///
+    /// `None` significa UMA coisa so: o socket fechou.
+    ///
+    /// Antes significava duas — "socket fechou" e "este quadro nao produz saida
+    /// visivel" — e as duas colidiam no primeiro quadro da conexao. O servidor
+    /// emite `gateway.ready` no aceite; `absorb` o traduzia para `None`; e o
+    /// laco da ponte no app, que trata `None` como queda, encerrava a conexao
+    /// no exato instante em que ela era confirmada. Reconectava, recebia ready
+    /// de novo, encerrava de novo: o Hermes nunca chegou a funcionar, e o
+    /// sintoma era um laco Conectando -> Desconectado sem fim.
+    ///
+    /// Agora quadro sem saida visivel apenas continua a leitura.
     pub async fn next(&mut self) -> Option<Result<Outcome, HermesError>> {
-        let frame = match self.channels.incoming.recv().await {
-            Some(Ok(frame)) => frame,
-            // Erro de frame nao derruba a conexao: um frame ilegivel ou binario
-            // nao fecha o socket, e marcar Offline aqui travava o estado para
-            // sempre — so `gateway.ready` volta a promover para Online, e ele
-            // so chega uma vez, no aceite.
-            Some(Err(error)) => return Some(Err(error)),
-            // Canal seco: o socket fechou de verdade.
-            None => {
-                self.state = ConnectionState::Offline;
-                return None;
-            }
-        };
-
-        let event = match HermesEvent::parse(&frame) {
-            Err(error) => return Some(Err(error)),
-            Ok(event) => event,
-        };
-
-        // Resume rejeitado: a sessao sumiu da VPS, ou o gateway nao conhece o
-        // metodo. Abrir uma nova em vez de deixar o Hermes inutilizavel.
-        if let HermesEvent::Rejected { id, .. } = &event {
-            if id.is_some() && *id == self.pending_resume {
-                if let Err(error) = self.create_after_failed_resume().await {
-                    return Some(Err(error));
+        loop {
+            let frame = match self.channels.incoming.recv().await {
+                Some(Ok(frame)) => frame,
+                // Erro de frame nao derruba a conexao: um frame ilegivel ou
+                // binario nao fecha o socket, e marcar Offline aqui travava o
+                // estado para sempre — so `gateway.ready` volta a promover para
+                // Online, e ele so chega uma vez, no aceite.
+                Some(Err(error)) => return Some(Err(error)),
+                // Canal seco: o socket fechou de verdade.
+                None => {
+                    self.state = ConnectionState::Offline;
+                    return None;
                 }
-                return None;
+            };
+
+            let event = match HermesEvent::parse(&frame) {
+                Err(error) => return Some(Err(error)),
+                Ok(event) => event,
+            };
+
+            // Resume rejeitado: a sessao sumiu da VPS, ou o gateway nao conhece
+            // o metodo. Abrir uma nova em vez de deixar o Hermes inutilizavel.
+            if let HermesEvent::Rejected { id, .. } = &event {
+                if id.is_some() && *id == self.pending_resume {
+                    if let Err(error) = self.create_after_failed_resume().await {
+                        return Some(Err(error));
+                    }
+                    continue;
+                }
+            }
+
+            if let Some(outcome) = self.absorb(event, &frame) {
+                return Some(outcome);
             }
         }
-
-        self.absorb(event, &frame)
     }
 
     fn absorb(&mut self, event: HermesEvent, frame: &str) -> Option<Result<Outcome, HermesError>> {
@@ -273,8 +288,37 @@ mod tests {
         let mut bridge = Bridge::new(channels);
         assert_eq!(bridge.state(), ConnectionState::Connecting);
 
+        // `next()` nao devolve nada para o ready — ele apenas promove o estado e
+        // segue lendo. Fechar o canal em seguida e o que faz a chamada retornar,
+        // e o estado ja tem de estar Online quando isso acontece.
         push.send(Ok(READY.into())).await.unwrap();
+        drop(push);
         assert!(bridge.next().await.is_none());
+        assert_eq!(bridge.state(), ConnectionState::Offline);
+    }
+
+    /// A regressao que derrubava o Hermes inteiro.
+    ///
+    /// `gateway.ready` e o PRIMEIRO quadro da conexao e nao produz saida
+    /// visivel. Enquanto `next()` devolvia `None` para ele, o laco da ponte no
+    /// app — que trata `None` como queda de socket — encerrava a conexao no
+    /// instante em que ela era confirmada, reconectava, e repetia para sempre.
+    /// O chat nunca chegou a funcionar.
+    ///
+    /// Quadro sem saida visivel deve apenas continuar a leitura.
+    #[tokio::test]
+    async fn ready_does_not_end_the_stream() {
+        let (channels, _sent, push) = fake_channels();
+        let mut bridge = Bridge::new(channels);
+
+        push.send(Ok(READY.into())).await.unwrap();
+        push.send(Ok(SESSION.into())).await.unwrap();
+        push.send(Ok(delta("oi"))).await.unwrap();
+
+        // A primeira saida visivel e o delta: ready e o resultado da sessao sao
+        // absorvidos no caminho, sem interromper a leitura.
+        let outcome = bridge.next().await.expect("o socket nao pode ter fechado");
+        assert!(matches!(outcome, Ok(Outcome::Delta { .. })));
         assert_eq!(bridge.state(), ConnectionState::Online);
     }
 
@@ -284,6 +328,7 @@ mod tests {
         let mut bridge = Bridge::new(channels);
 
         push.send(Ok(SESSION.into())).await.unwrap();
+        drop(push);
         assert!(bridge.next().await.is_none());
         assert_eq!(bridge.session_id(), Some("a1b2c3d4"));
     }
@@ -315,7 +360,10 @@ mod tests {
     async fn a_dropped_socket_is_a_connection_loss_not_an_end_of_turn() {
         let (channels, _sent, push) = fake_channels();
         let mut bridge = Bridge::new(channels);
+        // O ready nao retorna sozinho — ele promove e a leitura segue. Um delta
+        // atras dele da a `next()` algo para devolver.
         push.send(Ok(READY.into())).await.unwrap();
+        push.send(Ok(delta("x"))).await.unwrap();
         bridge.next().await;
         assert_eq!(bridge.state(), ConnectionState::Online);
 
@@ -407,6 +455,7 @@ mod tests {
         .unwrap();
 
         // A rejeicao e absorvida — nao vira Failed na cara do usuario...
+        drop(push);
         assert!(bridge.next().await.is_none());
         // ...e uma sessao nova e aberta no lugar.
         let created = sent.recv().await.unwrap();
@@ -419,10 +468,9 @@ mod tests {
     async fn a_frame_error_does_not_latch_the_connection_offline() {
         let (channels, _sent, push) = fake_channels();
         let mut bridge = Bridge::new(channels);
+        // Ready e o erro numa chamada so: o ready e absorvido no caminho e a
+        // leitura continua ate o primeiro quadro com saida visivel.
         push.send(Ok(READY.into())).await.unwrap();
-        bridge.next().await;
-        assert_eq!(bridge.state(), ConnectionState::Online);
-
         push.send(Err(HermesError::Protocol("frame binario".into())))
             .await
             .unwrap();
