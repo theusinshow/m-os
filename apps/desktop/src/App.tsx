@@ -132,14 +132,16 @@ const HOME_WIDGETS: { id: string; label: string }[] = [
   { id: "system_health", label: "SISTEMA" },
 ];
 
-function ScopedEmptyState({ total, workspace, noun, onLink }: { total: number; workspace: Workspace | null; noun: "app" | "project"; onLink: () => void }) {
+function ScopedEmptyState({ total, workspace, noun, onLink, linkLabel = "Vincular" }: { total: number; workspace: Workspace | null; noun: "app" | "project" | "resource"; onLink: () => void; linkLabel?: string }) {
   if (total === 0 || !workspace) {
-    return <EmptyState>{noun === "app" ? "Apps cadastrados aparecerão aqui." : "Projects criados aparecerão aqui."}</EmptyState>;
+    return <EmptyState>{noun === "app" ? "Apps cadastrados aparecerão aqui." : noun === "resource" ? "Referências salvas aparecerão aqui." : "Projects criados aparecerão aqui."}</EmptyState>;
   }
   const counted = noun === "app"
     ? `${total} ${total === 1 ? "app cadastrado" : "apps cadastrados"}`
-    : `${total} ${total === 1 ? "Project criado" : "Projects criados"}`;
-  return <div className="scoped-empty"><EmptyState>{`${counted}, nenhum em ${workspace.name}.`}</EmptyState><Button variant="outline" size="sm" onClick={onLink}>Vincular</Button></div>;
+    : noun === "resource"
+      ? `${total} ${total === 1 ? "resource salvo" : "resources salvos"}`
+      : `${total} ${total === 1 ? "Project criado" : "Projects criados"}`;
+  return <div className="scoped-empty"><EmptyState>{`${counted}, nenhum em ${workspace.name}.`}</EmptyState><Button variant="outline" size="sm" onClick={onLink}>{linkLabel}</Button></div>;
 }
 
 function CaptureComposer({ onSaved, focusKey }: { onSaved: (capture: Capture) => void; focusKey?: number }) {
@@ -705,12 +707,23 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
   // nao no banco. O alternador GRID/LISTA e do proprio design.
   const [kindFilter, setKindFilter] = useState<ResourceKind | "all">("all");
   const [view, setView] = useState<"grid" | "list">("grid");
-  // O workspace escolhido na Home nomeia o segmento do meio do caminho.
-  const workspaceSegment = currentWorkspace?.name.toUpperCase() ?? null;
+  // Ligado por padrao quando ha contexto: o caminho anuncia o recorte, entao a
+  // lista tem que cumpri-lo. Sem contexto ativo o estado nao tem efeito.
+  const [scoped, setScoped] = useState(true);
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const linkedWorkspaceIds = new Set(resourceWorkspaces.filter((link) => link.resourceId === selectedId).map((link) => link.workspaceId));
+  // O `currentWorkspace !== null` repetido abaixo nao e redundancia: o tsc nao
+  // estreita um objeto a partir de um boolean derivado guardado em variavel.
+  const scoping = scoped && currentWorkspace !== null;
+  // O caminho so anuncia o recorte quando ele esta de fato aplicado. Anunciar
+  // sem aplicar foi o que este ciclo veio corrigir.
+  const workspaceSegment = scoping && currentWorkspace ? currentWorkspace.name.toUpperCase() : null;
+  const scopedResourceIds = new Set(currentWorkspace ? resourceWorkspaces.filter((link) => link.workspaceId === currentWorkspace.id).map((link) => link.resourceId) : []);
   const liveResources = resources.filter((resource) => resource.lifecycleState === "active" || resource.id === selectedId);
-  const visibleResources = kindFilter === "all" ? liveResources : liveResources.filter((resource) => resource.kind === kindFilter || resource.id === selectedId);
+  // O selecionado nunca some da lista, mesmo fora do recorte: ele esta aberto ao
+  // lado, e sumir da lista o que esta aberto e desorientador.
+  const contextResources = scoping ? liveResources.filter((resource) => scopedResourceIds.has(resource.id) || resource.id === selectedId) : liveResources;
+  const visibleResources = kindFilter === "all" ? contextResources : contextResources.filter((resource) => resource.kind === kindFilter || resource.id === selectedId);
   const selected = visibleResources.find((resource) => resource.id === selectedId) ?? null;
 
   useEffect(() => {
@@ -840,10 +853,16 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
       <h1 id="library-title" className="visually-hidden">Library</h1>
       {/* O caminho carrega o workspace ativo quando existe: M / WEB-DESIGN /
           LIBRARY. E o que diz de qual acervo voce esta olhando. */}
-      <div className="pane-heading"><ContextPath segments={workspaceSegment ? ["M", workspaceSegment, "LIBRARY"] : ["M", "LIBRARY"]} /><span className="micro-label">{liveResources.length} {liveResources.length === 1 ? "ITEM" : "ITENS"}</span></div>
+      <div className="pane-heading"><ContextPath segments={workspaceSegment ? ["M", workspaceSegment, "LIBRARY"] : ["M", "LIBRARY"]} /><span className="micro-label">{contextResources.length} {contextResources.length === 1 ? "ITEM" : "ITENS"}</span></div>
       {/* Filtros sao texto, nao chip: um chip por tipo viraria cinco caixas
           competindo com o acervo, que e o que importa nesta tela. */}
       <div className="filter-bar">
+        {/* Trocar de contexto continua sendo coisa da Home; aqui so se decide se
+            o contexto vigente se aplica. Sem contexto ativo o grupo nao aparece:
+            botao que nao muda nada e pior que botao nenhum. */}
+        {currentWorkspace ? <div className="filter-group" role="group" aria-label="Filtrar por contexto">
+          {([[true, "NESTE CONTEXTO"], [false, "TUDO"]] as const).map(([value, label]) => <button key={label} type="button" className="filter-label" data-active={scoped === value || undefined} aria-pressed={scoped === value} onClick={() => setScoped(value)}>{label}</button>)}
+        </div> : null}
         <div className="filter-group" role="group" aria-label="Filtrar por tipo">
           {([["all", "TUDO"], ["site", "SITES"], ["library", "LIBRARIES"], ["image", "IMAGENS"], ["note", "NOTAS"]] as const).map(([value, label]) => <button key={value} type="button" className="filter-label" data-active={kindFilter === value || undefined} aria-pressed={kindFilter === value} onClick={() => setKindFilter(value)}>{label}</button>)}
         </div>
@@ -878,7 +897,11 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
           }}
         />)}
       </div>}
-      {!visibleResources.length && mode !== "new" ? <div className="library-empty"><EmptyState>Guarde um link junto do motivo pelo qual ele merece ser lembrado.</EmptyState><Button variant="primary" onClick={startNew}>Salvar primeiro link</Button></div> : null}
+      {/* Dois vazios diferentes. Acervo vazio pede o primeiro link; recorte
+          vazio com acervo cheio e o estado de TODO Workspace no dia seguinte a
+          migration, e precisa dizer que o acervo esta intacto em vez de parecer
+          perda de dado. */}
+      {!visibleResources.length && mode !== "new" ? (scoping && liveResources.length ? <div className="library-empty"><ScopedEmptyState total={liveResources.length} workspace={currentWorkspace} noun="resource" onLink={() => setScoped(false)} linkLabel="Ver tudo" /></div> : <div className="library-empty"><EmptyState>Guarde um link junto do motivo pelo qual ele merece ser lembrado.</EmptyState><Button variant="primary" onClick={startNew}>Salvar primeiro link</Button></div>) : null}
     </section>
     <article
       ref={detail}
