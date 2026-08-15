@@ -126,6 +126,7 @@ const HOME_WIDGETS: { id: string; label: string }[] = [
   { id: "recent", label: "RECENTES" },
   { id: "projects", label: "PROJECTS" },
   { id: "apps", label: "APPS" },
+  { id: "recent_resources", label: "RECURSOS" },
   { id: "inbox_pulse", label: "INBOX" },
   { id: "quick_actions", label: "AÇÕES" },
   { id: "system_health", label: "SISTEMA" },
@@ -218,7 +219,7 @@ function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
   return nextIndex;
 }
 
-function HomePage({ recent, inbox, projects, tasks, workspaces, apps, status, hiddenWidgets, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openInbox, openTasksPage, openProjectsPage, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openInbox: () => void; openTasksPage: () => void; openProjectsPage: () => void; intent?: FunctionIntent }) {
+function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, status, hiddenWidgets, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openProjectsPage, openLibraryPage, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openProjectsPage: () => void; openLibraryPage: () => void; intent?: FunctionIntent }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState(() => localStorage.getItem("m-os-current-workspace") ?? "");
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
@@ -281,6 +282,9 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, status, hi
   // sem Workspace nao ha escolha a aplicar.
   const hiddenIds = useMemo(() => new Set(currentWorkspaceId ? hiddenWidgets.filter((entry) => entry.workspaceId === currentWorkspaceId).map((entry) => entry.widgetId) : []), [hiddenWidgets, currentWorkspaceId]);
   const allWidgetsHidden = HOME_WIDGETS.every((widget) => hiddenIds.has(widget.id));
+  // resources(true) traz arquivado junto — a Home so mostra o acervo vivo. A ordem
+  // ja vem do banco por updated_at DESC (resource_repository.rs:185).
+  const activeResources = resources.filter((resource) => resource.lifecycleState === "active");
   const projectName = (id: string | null) => projects.find((project) => project.id === id)?.name;
   const isActiveToday = (project: Project) => new Date(project.updatedAt).toDateString() === new Date().toDateString();
   return <div className="page home-page">
@@ -308,6 +312,11 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, status, hi
       {/* O nome do app nao entra: o icone com a inicial e o atalho ja o
           identificam, e a linha de nomes competiria com as rows ao lado. */}
       <Widget id="apps" hidden={hiddenIds.has("apps")} size="2x1"><Panel label="APPS"><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><span className="app-icon" aria-hidden="true">{app.name.trim().charAt(0).toUpperCase()}</span>{index < 9 ? <span className="app-shortcut">⌘{index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
+      {/* Sem escopo de Workspace, e sem fingir que tem: Resource nao se vincula a
+          Workspace — o schema so tem project_workspaces e app_workspaces. Por isso
+          o vazio aqui e o vazio simples, e nao o ScopedEmptyState dos vizinhos, que
+          insinuaria um recorte inexistente. */}
+      <Widget id="recent_resources" hidden={hiddenIds.has("recent_resources")} size="2x1"><Panel label="RECURSOS" action={activeResources.length > 5 ? <Button variant="ghost" onClick={() => openLibraryPage()}>Ver todos</Button> : undefined}>{activeResources.length ? activeResources.slice(0, 5).map((resource) => <DataRow key={resource.id} primary={resource.title} secondary={resourceHost(resource.url)} meta={relativeTime(resource.updatedAt)} onClick={() => openResource(resource)} />) : <EmptyState>Referências salvas aparecerão aqui.</EmptyState>}</Panel></Widget>
       <Widget id="inbox_pulse" hidden={hiddenIds.has("inbox_pulse")} size="1x1"><Panel label="INBOX"><button type="button" className="pulse" onClick={() => openInbox()}><strong className="pulse-count">{inboxCapped ? `${INBOX_PAGE}+` : inbox.length}</strong><small>{inbox.length === 1 ? "capture por processar" : "captures por processar"}</small>{staleInbox ? <small className="pulse-stale">{staleInbox === 1 && !inboxCapped ? "1 com mais de 3 dias" : `${staleInbox}${inboxCapped ? "+" : ""} com mais de 3 dias`}</small> : null}</button></Panel></Widget>
       <Widget id="quick_actions" hidden={hiddenIds.has("quick_actions")} size="1x1"><Panel label="AÇÕES"><div className="quick-actions"><Button variant="outline" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button><Button variant="outline" size="sm" onClick={() => openTasksPage()}>Nova Task</Button><Button variant="outline" size="sm" onClick={() => openProjectsPage()}>Novo Project</Button></div></Panel></Widget>
       <Widget id="system_health" hidden={hiddenIds.has("system_health")} size="1x1"><Panel label="SISTEMA"><SystemHealth status={status} /></Panel></Widget>
@@ -1446,7 +1455,7 @@ function DesktopApp() {
   }, [page]);
   const pageContent = useMemo(() => {
     if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} />;
-    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} status={status} hiddenWidgets={hiddenWidgets} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openProjectsPage={() => setPage("projects")} intent={functionIntent ?? undefined} />;
+    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} status={status} hiddenWidgets={hiddenWidgets} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} intent={functionIntent ?? undefined} />;
     if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} openResource={openResource} intent={functionIntent ?? undefined} />;
     if (page === "projects") return <ProjectsPage projects={projects} tasks={tasks} initialProjectId={selectedProjectId} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
     if (page === "workspaces") return <WorkspacesPage workspaces={workspaces} projects={projects} apps={apps} hiddenWidgets={hiddenWidgets} initialWorkspaceId={selectedWorkspaceId} refresh={refresh} openProject={openProject} openApp={openRegisteredApp} intent={functionIntent ?? undefined} />;
