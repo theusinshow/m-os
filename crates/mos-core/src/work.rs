@@ -121,6 +121,15 @@ pub struct Workspace {
     pub updated_at: OffsetDateTime,
 }
 
+/// Um item desta lista significa OCULTO — ausencia e o padrao visivel.
+/// Ver a migration 0008 para o porque da inversao.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenWidget {
+    pub workspace_id: WorkspaceId,
+    pub widget_id: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct NewWorkspace {
     pub id: WorkspaceId,
@@ -227,6 +236,28 @@ pub enum SearchItem {
     App {
         app: RegisteredApp,
     },
+}
+
+/// Espelha o CHECK da migration 0008: minuscula inicial, depois minuscula,
+/// digito ou `_`. O core valida forma, nao vocabulario — quem conhece o catalogo
+/// de widgets e o front, em HOME_WIDGETS.
+pub fn validate_widget_id(value: &str) -> Result<String, CoreError> {
+    let value = value.trim();
+    let valid = !value.is_empty()
+        && value.len() <= 40
+        && value.starts_with(|character: char| character.is_ascii_lowercase())
+        && value.chars().all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_'
+        });
+    if valid {
+        Ok(value.to_owned())
+    } else {
+        Err(CoreError::new(
+            ErrorCode::InvalidInput,
+            "ID de widget invalido.",
+            false,
+        ))
+    }
 }
 
 fn required(value: &str, message: &str) -> Result<String, CoreError> {

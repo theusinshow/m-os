@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AppCapabilities, AppId, AppLaunchKind, AppRepository, BackupInspection, BackupReceipt, Capture,
-    CaptureId, CaptureRepository, CaptureSource, CoreError, DataMaintenance, LifecycleState,
-    NewCapture, NewProject, NewRegisteredApp, NewTask, NewWorkspace, ProcessingState, Project,
-    ProjectId, RegisteredApp, SearchItem, SearchRequest, Task, TaskId, TaskState, WorkRepository,
-    Workspace, WorkspaceId,
+    CaptureId, CaptureRepository, CaptureSource, CoreError, DataMaintenance, HiddenWidget,
+    LifecycleState, NewCapture, NewProject, NewRegisteredApp, NewTask, NewWorkspace,
+    ProcessingState, Project, ProjectId, RegisteredApp, SearchItem, SearchRequest, Task, TaskId,
+    TaskState, WorkRepository, Workspace, WorkspaceId,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -539,6 +539,20 @@ impl WorkService {
             WorkspaceId::parse(workspace_id)?,
             linked,
         )
+    }
+
+    pub fn set_widget_hidden(
+        &self,
+        workspace_id: &str,
+        widget_id: &str,
+        hidden: bool,
+    ) -> Result<(), CoreError> {
+        self.repository
+            .set_widget_hidden(WorkspaceId::parse(workspace_id)?, widget_id, hidden)
+    }
+
+    pub fn hidden_widgets(&self) -> Result<Vec<HiddenWidget>, CoreError> {
+        self.repository.hidden_widgets()
     }
 
     pub fn create_project(&self, input: CreateProjectInput) -> Result<Project, CoreError> {

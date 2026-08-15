@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::{
-    AppId, Capture, CaptureId, CoreError, LifecycleState, NewCapture, NewProject, NewRegisteredApp,
-    NewTask, NewWorkspace, ProcessingState, Project, ProjectId, RegisteredApp, SearchItem, Task,
-    TaskId, TaskState, Workspace, WorkspaceId,
+    AppId, Capture, CaptureId, CoreError, HiddenWidget, LifecycleState, NewCapture, NewProject,
+    NewRegisteredApp, NewTask, NewWorkspace, ProcessingState, Project, ProjectId, RegisteredApp,
+    SearchItem, Task, TaskId, TaskState, Workspace, WorkspaceId,
 };
 
 #[derive(Clone, Debug)]
@@ -79,6 +79,13 @@ pub trait WorkRepository: Send + Sync {
         workspace_id: WorkspaceId,
         linked: bool,
     ) -> Result<(), CoreError>;
+    fn set_widget_hidden(
+        &self,
+        workspace_id: WorkspaceId,
+        widget_id: &str,
+        hidden: bool,
+    ) -> Result<(), CoreError>;
+    fn hidden_widgets(&self) -> Result<Vec<HiddenWidget>, CoreError>;
     fn create_project(&self, project: NewProject) -> Result<Project, CoreError>;
     fn update_project(
         &self,

@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use mos_core::{
-    AppId, Capture, CaptureId, CaptureRepository, CoreError, ErrorCode, LifecycleState, NewProject,
-    NewTask, NewWorkspace, Project, ProjectId, RegisteredApp, SearchItem, SearchRequest, Task,
-    TaskId, TaskState, WorkRepository, Workspace, WorkspaceId,
+    validate_widget_id, AppId, Capture, CaptureId, CaptureRepository, CoreError, ErrorCode,
+    HiddenWidget, LifecycleState, NewProject, NewTask, NewWorkspace, Project, ProjectId,
+    RegisteredApp, SearchItem, SearchRequest, Task, TaskId, TaskState, WorkRepository, Workspace,
+    WorkspaceId,
 };
 use rusqlite::{params, OptionalExtension, Row, Transaction};
 use time::OffsetDateTime;
@@ -371,6 +372,62 @@ impl WorkRepository for SqliteStorage {
                 .map_err(map_sql_error)?;
         }
         Ok(())
+    }
+
+    fn set_widget_hidden(
+        &self,
+        workspace_id: WorkspaceId,
+        widget_id: &str,
+        hidden: bool,
+    ) -> Result<(), CoreError> {
+        let widget_id = validate_widget_id(widget_id)?;
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        if hidden {
+            let now = format_time(OffsetDateTime::now_utc())?;
+            connection
+                .execute(
+                    "INSERT OR IGNORE INTO workspace_hidden_widgets (workspace_id, widget_id, created_at)
+                     VALUES (?1, ?2, ?3)",
+                    params![workspace_id.to_string(), widget_id, now],
+                )
+                .map_err(map_sql_error)?;
+        } else {
+            connection
+                .execute(
+                    "DELETE FROM workspace_hidden_widgets
+                     WHERE workspace_id = ?1 AND widget_id = ?2",
+                    params![workspace_id.to_string(), widget_id],
+                )
+                .map_err(map_sql_error)?;
+        }
+        Ok(())
+    }
+
+    /// Devolve todos os pares de uma vez. No teto sao sete linhas por Workspace,
+    /// e uma chamada so deixa a troca de contexto na Home filtrar em memoria em
+    /// vez de ir ao core a cada clique.
+    fn hidden_widgets(&self) -> Result<Vec<HiddenWidget>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let mut statement = connection
+            .prepare(
+                "SELECT workspace_id, widget_id FROM workspace_hidden_widgets
+                 ORDER BY workspace_id, widget_id",
+            )
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(map_sql_error)?;
+        let mut hidden = Vec::new();
+        for row in rows {
+            let (workspace_id, widget_id) = row.map_err(map_sql_error)?;
+            hidden.push(HiddenWidget {
+                workspace_id: WorkspaceId::parse(&workspace_id)?,
+                widget_id,
+            });
+        }
+        Ok(hidden)
     }
 
     fn create_project(&self, project: NewProject) -> Result<Project, CoreError> {
@@ -1150,5 +1207,87 @@ mod tests {
             .workspace_projects(workspace.id, false)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn hidden_widget_is_per_workspace_and_repeating_the_call_is_idempotent() {
+        let (_directory, storage) = storage();
+        let engineering = storage
+            .create_workspace(NewWorkspace::create("Engineering", "").unwrap())
+            .unwrap();
+        let finance = storage
+            .create_workspace(NewWorkspace::create("Finance", "").unwrap())
+            .unwrap();
+
+        storage
+            .set_widget_hidden(engineering.id, "inbox_pulse", true)
+            .unwrap();
+        storage
+            .set_widget_hidden(engineering.id, "inbox_pulse", true)
+            .unwrap();
+
+        let hidden = storage.hidden_widgets().unwrap();
+        assert_eq!(hidden.len(), 1);
+        assert_eq!(hidden[0].workspace_id, engineering.id);
+        assert_eq!(hidden[0].widget_id, "inbox_pulse");
+
+        storage
+            .set_widget_hidden(engineering.id, "inbox_pulse", false)
+            .unwrap();
+        storage
+            .set_widget_hidden(engineering.id, "inbox_pulse", false)
+            .unwrap();
+        assert!(storage.hidden_widgets().unwrap().is_empty());
+
+        storage
+            .set_widget_hidden(finance.id, "system_health", true)
+            .unwrap();
+        let hidden = storage.hidden_widgets().unwrap();
+        assert_eq!(hidden.len(), 1);
+        assert_eq!(hidden[0].workspace_id, finance.id);
+    }
+
+    #[test]
+    fn widget_id_outside_the_allowed_shape_is_refused() {
+        let (_directory, storage) = storage();
+        let workspace = storage
+            .create_workspace(NewWorkspace::create("Engineering", "").unwrap())
+            .unwrap();
+
+        for invalid in ["", "  ", "Inbox Pulse", "inbox-pulse", "1inbox"] {
+            assert!(
+                storage
+                    .set_widget_hidden(workspace.id, invalid, true)
+                    .is_err(),
+                "aceitou o id invalido {invalid:?}"
+            );
+        }
+        assert!(storage.hidden_widgets().unwrap().is_empty());
+    }
+
+    /// Nao existe delete de Workspace no produto — arquivar e o caminho. O DELETE
+    /// cru aqui prova que a FK esta ativa: se `foreign_keys=ON` se perder em
+    /// `configure_connection` (lib.rs:103), a linha sobrevive e este teste falha.
+    #[test]
+    fn deleting_the_workspace_takes_its_hidden_widgets() {
+        let (_directory, storage) = storage();
+        let workspace = storage
+            .create_workspace(NewWorkspace::create("Engineering", "").unwrap())
+            .unwrap();
+        storage
+            .set_widget_hidden(workspace.id, "system_health", true)
+            .unwrap();
+
+        storage
+            .connection
+            .lock()
+            .unwrap()
+            .execute(
+                "DELETE FROM workspaces WHERE id = ?1",
+                params![workspace.id.to_string()],
+            )
+            .unwrap();
+
+        assert!(storage.hidden_widgets().unwrap().is_empty());
     }
 }

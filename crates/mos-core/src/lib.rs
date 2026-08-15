@@ -29,6 +29,6 @@ pub use service::{
     WorkService,
 };
 pub use work::{
-    NewProject, NewTask, NewWorkspace, Project, ProjectId, SearchItem, Task, TaskId, TaskState,
-    Workspace, WorkspaceId,
+    validate_widget_id, HiddenWidget, NewProject, NewTask, NewWorkspace, Project, ProjectId,
+    SearchItem, Task, TaskId, TaskState, Workspace, WorkspaceId,
 };
