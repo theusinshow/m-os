@@ -169,6 +169,13 @@ pub trait ResourceRepository: Send + Sync {
     ) -> Result<crate::Resource, CoreError>;
     fn search_resources(&self, request: SearchRequest) -> Result<Vec<crate::Resource>, CoreError>;
     fn rebuild_resource_search(&self) -> Result<usize, CoreError>;
+    fn set_resource_workspace(
+        &self,
+        resource_id: crate::ResourceId,
+        workspace_id: crate::WorkspaceId,
+        linked: bool,
+    ) -> Result<(), CoreError>;
+    fn resource_workspaces(&self) -> Result<Vec<crate::ResourceWorkspace>, CoreError>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

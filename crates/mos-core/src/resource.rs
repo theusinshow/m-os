@@ -86,6 +86,14 @@ pub struct Resource {
     pub updated_at: OffsetDateTime,
 }
 
+/// Um par significa: este Resource pertence a este contexto.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceWorkspace {
+    pub resource_id: ResourceId,
+    pub workspace_id: crate::WorkspaceId,
+}
+
 #[derive(Clone, Debug)]
 pub struct NewResource {
     pub id: ResourceId,

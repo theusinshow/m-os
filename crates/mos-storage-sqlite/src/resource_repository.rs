@@ -1,6 +1,6 @@
 use mos_core::{
     CoreError, ErrorCode, LifecycleState, NewResource, Resource, ResourceId, ResourceKind,
-    ResourceRepository, SearchRequest,
+    ResourceRepository, ResourceWorkspace, SearchRequest, WorkspaceId,
 };
 use rusqlite::{params, OptionalExtension, Row, Transaction};
 use time::OffsetDateTime;
@@ -282,6 +282,61 @@ impl ResourceRepository for SqliteStorage {
         transaction.commit().map_err(map_sql_error)?;
         Ok(count)
     }
+
+    fn set_resource_workspace(
+        &self,
+        resource_id: ResourceId,
+        workspace_id: WorkspaceId,
+        linked: bool,
+    ) -> Result<(), CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        if linked {
+            let now = format_time(OffsetDateTime::now_utc())?;
+            connection
+                .execute(
+                    "INSERT OR IGNORE INTO resource_workspaces (resource_id, workspace_id, created_at)
+                     VALUES (?1, ?2, ?3)",
+                    params![resource_id.to_string(), workspace_id.to_string(), now],
+                )
+                .map_err(map_sql_error)?;
+        } else {
+            connection
+                .execute(
+                    "DELETE FROM resource_workspaces
+                     WHERE resource_id = ?1 AND workspace_id = ?2",
+                    params![resource_id.to_string(), workspace_id.to_string()],
+                )
+                .map_err(map_sql_error)?;
+        }
+        Ok(())
+    }
+
+    /// Todos os pares numa chamada. O filtro da Library responde no instante em
+    /// que o contexto muda; uma consulta por Workspace faria cada troca de
+    /// contexto ir ao core, e a troca deixaria de ser instantanea.
+    fn resource_workspaces(&self) -> Result<Vec<ResourceWorkspace>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let mut statement = connection
+            .prepare(
+                "SELECT resource_id, workspace_id FROM resource_workspaces
+                 ORDER BY workspace_id, created_at DESC",
+            )
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(map_sql_error)?;
+        let mut links = Vec::new();
+        for row in rows {
+            let (resource_id, workspace_id) = row.map_err(map_sql_error)?;
+            links.push(ResourceWorkspace {
+                resource_id: ResourceId::parse(&resource_id)?,
+                workspace_id: WorkspaceId::parse(&workspace_id)?,
+            });
+        }
+        Ok(links)
+    }
 }
 
 fn insert_resource_search(transaction: &Transaction<'_>, rowid: i64) -> Result<(), CoreError> {
@@ -359,7 +414,7 @@ fn ensure_resource_changed(changed: usize) -> Result<(), CoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mos_core::{CaptureRepository, CaptureSource, NewCapture};
+    use mos_core::{CaptureRepository, CaptureSource, NewCapture, NewWorkspace, WorkRepository};
 
     fn storage() -> (tempfile::TempDir, SqliteStorage) {
         let directory = tempfile::tempdir().unwrap();
@@ -437,5 +492,97 @@ mod tests {
             )
             .is_err());
         assert_eq!(storage.resources(false).unwrap().len(), 1);
+    }
+
+    fn workspace(storage: &SqliteStorage, name: &str) -> mos_core::Workspace {
+        storage
+            .create_workspace(NewWorkspace::create(name, "").unwrap())
+            .unwrap()
+    }
+
+    fn site(storage: &SqliteStorage, title: &str) -> Resource {
+        storage
+            .create_resource(
+                NewResource::create(ResourceKind::Site, title, "https://motion.dev", "", None)
+                    .unwrap(),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn resource_workspace_link_is_idempotent_and_isolated() {
+        let (_directory, storage) = storage();
+        let design = workspace(&storage, "Web Design");
+        let finance = workspace(&storage, "Finance");
+        let motion = site(&storage, "Motion");
+
+        storage
+            .set_resource_workspace(motion.id, design.id, true)
+            .unwrap();
+        storage
+            .set_resource_workspace(motion.id, design.id, true)
+            .unwrap();
+
+        let links = storage.resource_workspaces().unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].resource_id, motion.id);
+        assert_eq!(links[0].workspace_id, design.id);
+
+        // O mesmo Resource pode servir a dois contextos.
+        storage
+            .set_resource_workspace(motion.id, finance.id, true)
+            .unwrap();
+        assert_eq!(storage.resource_workspaces().unwrap().len(), 2);
+
+        // Desvincular apaga so o par pedido, e repetir nao e erro.
+        storage
+            .set_resource_workspace(motion.id, finance.id, false)
+            .unwrap();
+        storage
+            .set_resource_workspace(motion.id, finance.id, false)
+            .unwrap();
+        let links = storage.resource_workspaces().unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].workspace_id, design.id);
+    }
+
+    /// As duas cascatas. Nao existe delete de Resource nem de Workspace no
+    /// produto — arquivar e o caminho —, entao o DELETE cru prova que as FKs
+    /// estao ativas: se `foreign_keys=ON` se perder em `configure_connection`
+    /// (lib.rs:103), as linhas sobrevivem e este teste falha.
+    #[test]
+    fn deleting_either_side_takes_the_link() {
+        let (_directory, storage) = storage();
+        let design = workspace(&storage, "Web Design");
+        let motion = site(&storage, "Motion");
+        let easing = site(&storage, "Easings");
+        storage
+            .set_resource_workspace(motion.id, design.id, true)
+            .unwrap();
+        storage
+            .set_resource_workspace(easing.id, design.id, true)
+            .unwrap();
+
+        storage
+            .connection
+            .lock()
+            .unwrap()
+            .execute(
+                "DELETE FROM resources WHERE id = ?1",
+                params![motion.id.to_string()],
+            )
+            .unwrap();
+        assert_eq!(storage.resource_workspaces().unwrap().len(), 1);
+
+        storage
+            .connection
+            .lock()
+            .unwrap()
+            .execute(
+                "DELETE FROM workspaces WHERE id = ?1",
+                params![design.id.to_string()],
+            )
+            .unwrap();
+        assert!(storage.resource_workspaces().unwrap().is_empty());
     }
 }

@@ -317,6 +317,23 @@ impl MemoryService {
             .set_resource_lifecycle(crate::ResourceId::parse(id)?, lifecycle)
     }
 
+    pub fn set_resource_workspace(
+        &self,
+        resource_id: &str,
+        workspace_id: &str,
+        linked: bool,
+    ) -> Result<(), CoreError> {
+        self.repository.set_resource_workspace(
+            crate::ResourceId::parse(resource_id)?,
+            crate::WorkspaceId::parse(workspace_id)?,
+            linked,
+        )
+    }
+
+    pub fn resource_workspaces(&self) -> Result<Vec<crate::ResourceWorkspace>, CoreError> {
+        self.repository.resource_workspaces()
+    }
+
     pub fn search(
         &self,
         query: &str,

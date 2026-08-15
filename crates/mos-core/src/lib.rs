@@ -21,7 +21,9 @@ pub use ports::{
     AppRepository, BackupInspection, BackupReceipt, CaptureRepository, DataMaintenance,
     ResourceRepository, SearchRequest, WorkRepository,
 };
-pub use resource::{validate_resource_url, NewResource, Resource, ResourceId, ResourceKind};
+pub use resource::{
+    validate_resource_url, NewResource, Resource, ResourceId, ResourceKind, ResourceWorkspace,
+};
 pub use service::{
     AppService, CaptureService, CreateAppInput, CreateCaptureInput, CreateProjectInput,
     CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService, MemoryService,
