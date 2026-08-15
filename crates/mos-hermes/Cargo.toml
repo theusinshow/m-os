@@ -25,4 +25,8 @@ tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "rustls-tls"] }
-keyring = "3"
+# A feature de plataforma NAO e opcional. Sem ela o keyring 3 usa o keystore
+# falso: set_password devolve Ok, o valor vive so na memoria daquele Entry, e a
+# leitura seguinte nao acha nada. O sintoma era a credencial do Hermes ser
+# "guardada com sucesso" e o app continuar dizendo que nao havia credencial.
+keyring = { version = "3", features = ["windows-native"] }
