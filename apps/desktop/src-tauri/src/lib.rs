@@ -8,9 +8,9 @@ use mos_core::{
     AppCatalogEntry, AppLaunchKind, AppService, BackupInspection, BackupReceipt, Capture,
     CaptureService, CoreError, CreateAppInput, CreateCaptureInput, CreateProjectInput,
     CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService, FunctionDefinition,
-    HiddenWidget, MemoryService, Project, RegisteredApp, Resource, SearchItem, Task, TaskState,
-    UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput,
-    WorkService, Workspace,
+    HiddenWidget, MemoryService, Project, RegisteredApp, Resource, ResourceWorkspace, SearchItem,
+    Task, TaskState, UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput,
+    UpdateWorkspaceInput, WorkService, Workspace,
 };
 use mos_storage_sqlite::{SqliteStorage, StorageHealth};
 use serde::{Deserialize, Serialize};
@@ -243,6 +243,29 @@ fn search_resources(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Resource>, CoreError> {
     state.memory.search(query, include_archived, 50)
+}
+
+#[tauri::command]
+fn list_resource_workspaces(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<ResourceWorkspace>, CoreError> {
+    state.memory.resource_workspaces()
+}
+
+#[tauri::command]
+fn set_resource_workspace(
+    resource_id: &str,
+    workspace_id: &str,
+    linked: bool,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CoreError> {
+    state
+        .memory
+        .set_resource_workspace(resource_id, workspace_id, linked)?;
+    notify_data_changed(&app, "resource-workspace");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1087,6 +1110,8 @@ pub fn run() {
             get_resource,
             list_resources,
             list_trashed_resources,
+            list_resource_workspaces,
+            set_resource_workspace,
             search_resources,
             set_resource_archived,
             trash_resource,

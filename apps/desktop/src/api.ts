@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, Project, RegisteredApp, Resource, ResourceKind, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -77,6 +77,12 @@ export const api = {
   },
   openResource(id: string) {
     return invoke<void>("open_resource", { id });
+  },
+  resourceWorkspaces() {
+    return invoke<ResourceWorkspace[]>("list_resource_workspaces");
+  },
+  setResourceWorkspace(resourceId: string, workspaceId: string, linked: boolean) {
+    return invoke<void>("set_resource_workspace", { resourceId, workspaceId, linked });
   },
   projects(includeArchived = false) {
     return invoke<Project[]>("list_projects", { includeArchived });

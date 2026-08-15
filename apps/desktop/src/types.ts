@@ -96,6 +96,12 @@ export type Resource = {
   updatedAt: string;
 };
 
+/** Um par significa: este Resource pertence a este contexto. */
+export type ResourceWorkspace = {
+  resourceId: string;
+  workspaceId: string;
+};
+
 export type AppCatalogEntry = {
   id: string;
   name: string;
