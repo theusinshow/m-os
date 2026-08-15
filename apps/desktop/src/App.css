@@ -2966,3 +2966,50 @@ input[type="checkbox"]:disabled {
   opacity: 0.5;
   animation: edgeBreath 1600ms var(--ease-state) infinite alternate;
 }
+
+/* ---------- 2. Side Rays — o Hermes ativo ----------
+
+   Adaptado de Backgrounds/SideRays. O original e um fragment shader em WebGL
+   via ogl, com requestAnimationFrame permanente. Duas razoes para nao usar o
+   componente:
+
+   1. custo. Abrir o Command criaria um contexto WebGL a cada Ctrl+K, e o
+      Command precisa ser instantaneo — e a superficie mais frequente do
+      teclado depois do Capture;
+   2. o efeito pedido e subliminar. Pagar compilacao de shader por algo que,
+      por especificacao, o usuario nao deve notar, e o pior negocio possivel.
+
+   Dois gradientes conicos ancorados nas laterais entregam a mesma leitura:
+   luz que entra pelas bordas, mais forte no alto, dissolvendo antes do centro.
+   Estatico — nenhum frame por segundo. A unica animacao e a transicao de
+   entrada quando o modo muda, que e justamente o momento que o efeito existe
+   para narrar.
+
+   Cor: --signal-wash, o mesmo sodio do foco, a 16% de alpha. Nada de roxo,
+   nada de ciano, nada que anuncie "IA" com o vocabulario de outra pessoa. */
+
+.command-surface::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background:
+    radial-gradient(120% 80% at 0% 0%, var(--signal-wash), transparent 58%),
+    radial-gradient(120% 80% at 100% 0%, var(--signal-wash), transparent 58%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-context) var(--ease-state);
+}
+
+/* Search fica exatamente como estava: a superficie neutra e o estado base, e
+   e a ausencia do efeito que da valor a presenca dele. */
+.command-surface[data-mode="hermes"]::before {
+  opacity: 1;
+}
+
+/* O conteudo sobe acima da luz. Sem isto o wash lavaria o texto do campo, que
+   e o oposto de subliminar. */
+.command-surface > * {
+  position: relative;
+  z-index: 1;
+}
