@@ -494,9 +494,14 @@ function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWork
       setMode("new");
       return;
     }
-    if (intent.target === "workspaces_link_project" || intent.target === "workspaces_link_app") {
+    const sections: Partial<Record<FunctionIntentTarget, string>> = {
+      workspaces_link_project: "workspace.link_project",
+      workspaces_link_app: "workspace.link_app",
+      workspaces_set_widget: "workspace.set_widget",
+    };
+    const relation = sections[intent.target];
+    if (relation) {
       setMode("view");
-      const relation = intent.target === "workspaces_link_project" ? "workspace.link_project" : "workspace.link_app";
       window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-function-section='${relation}'] input`)?.focus());
     }
   }, [intent?.key]);

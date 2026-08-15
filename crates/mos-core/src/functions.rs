@@ -144,6 +144,14 @@ pub fn function_registry() -> Vec<FunctionDefinition> {
             FunctionConfirmation::None,
         ),
         function(
+            "workspace.set_widget",
+            "Escolher widgets da Home",
+            "Mostra ou oculta um widget da Home dentro de uma lente de contexto.",
+            FunctionCategory::Work,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
             "app.register",
             "Registrar App",
             "Adiciona um App conhecido ao registro local.",
@@ -260,6 +268,13 @@ mod tests {
         assert!(search_functions("GitHub", 10)
             .iter()
             .any(|item| item.id == "system.update_check"));
+    }
+
+    #[test]
+    fn widget_visibility_is_a_declared_function() {
+        assert!(function_registry()
+            .iter()
+            .any(|item| item.id == "workspace.set_widget"));
     }
 
     #[test]
