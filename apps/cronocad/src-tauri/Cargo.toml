@@ -1,3 +1,16 @@
+# Raiz de workspace propria.
+#
+# Ao entrar no monorepo, este pacote passou a ter um Cargo.toml de workspace
+# acima dele — e um pacote Rust dentro de um workspace sem estar declarado nele
+# para de compilar. A tabela vazia interrompe a subida da arvore e mantem o
+# CronoCAD construindo sozinho, com o proprio conjunto de dependencias, ate a
+# absorcao da fase 3 da ADR-032.
+#
+# E aqui, e nao so no `exclude` da raiz, porque `exclude` depende de o pacote
+# estar exatamente onde a raiz espera: dentro de um git worktree aninhado, cargo
+# passa reto pela raiz do worktree e encontra a do checkout principal.
+[workspace]
+
 [package]
 name = "cronocad"
 version = "0.1.0"

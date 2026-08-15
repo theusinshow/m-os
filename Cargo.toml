@@ -7,6 +7,18 @@ members = [
     "crates/mos-storage-sqlite",
 ]
 
+# O CronoCAD entrou no monorepo com o proprio `src-tauri`, e um pacote Rust
+# dentro de um workspace sem estar declarado nele para de compilar: cargo sobe a
+# arvore, encontra este manifesto e recusa com "believes it's in a workspace
+# when it's not".
+#
+# Fica em `exclude`, e nao em `members`, porque ele ainda e uma aplicacao
+# separada com o proprio conjunto de dependencias — outros plugins do Tauri,
+# outras versoes. Vira-lo membro agora forcaria resolucao compartilhada e
+# quebraria um dos dois lados por um ganho que so existe depois da absorcao
+# (ADR-032, fase 3).
+exclude = ["apps/cronocad/src-tauri"]
+
 [workspace.package]
 version = "0.2.0"
 edition = "2021"
