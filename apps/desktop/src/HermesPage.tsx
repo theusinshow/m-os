@@ -662,16 +662,20 @@ export function HermesPage({ inbox, projects, tasks }: {
     <div className="hermes-main">
       <div className="hermes-seeing">
         <span className="micro-label">VENDO</span>
-        {contexts.length ? contexts.map((context) => (
-          <Chip
-            key={context.id}
-            entity={context.entity}
-            label={context.label}
-            origin={context.origin}
-            onRemove={() => setContexts((current) => current.filter((entry) => entry.id !== context.id))}
-          />
-        )) : <span className="hermes-quiet">nada anexado — mencione com <b>@</b></span>}
-        <span className="hermes-seeing-spacer" />
+        {/* So os chips rolam. Com a regua inteira rolando, o estado da conexao
+            saia de vista quando havia contexto demais — e ele e justamente o
+            que precisa estar sempre visivel. */}
+        <div className="hermes-seeing-chips">
+          {contexts.length ? contexts.map((context) => (
+            <Chip
+              key={context.id}
+              entity={context.entity}
+              label={context.label}
+              origin={context.origin}
+              onRemove={() => setContexts((current) => current.filter((entry) => entry.id !== context.id))}
+            />
+          )) : <span className="hermes-quiet">nada anexado — mencione com <b>@</b></span>}
+        </div>
         {renaming ? (
           <form onSubmit={(event) => { event.preventDefault(); void renameConversation(new FormData(event.currentTarget).get("title") as string); }}>
             <input name="title" defaultValue={conversation?.title ?? ""} aria-label="Título da conversa" autoFocus />

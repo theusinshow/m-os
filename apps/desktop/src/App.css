@@ -1786,9 +1786,15 @@ select {
   animation: overlayExit var(--dur-exit) var(--ease-exit) forwards;
 }
 
+/* O teto desconta o proprio deslocamento do overlay.
+ *
+ * `100vh - --space-7` ignorava que o painel comeca a 34% do topo: somando os
+ * dois, o rodape do Command caia abaixo da janela. Como `#root` e
+ * `overflow: hidden` e o backdrop e `position: fixed`, o que passa do fim da
+ * tela nao clipa nem rola — simplesmente fica inalcancavel. */
 .command-surface {
   width: min(var(--overlay-command), calc(100vw - var(--space-6)));
-  max-height: calc(100vh - var(--space-7));
+  max-height: calc(100vh - var(--overlay-top) - var(--space-6));
 }
 
 .command-input {
@@ -2071,8 +2077,15 @@ input[type="checkbox"]:disabled {
   white-space: nowrap;
 }
 
+/* O visualizador de Capture nao tinha teto nem regiao de rolagem, so
+   `overflow: hidden` herdado do overlay. Uma Capture longa — que e o caso
+   normal, porque Capture guarda o pensamento inteiro — crescia para baixo, saia
+   da janela e o fim dela ficava sem como ser lido: o documento nao rola, o
+   backdrop e fixo, e o proprio painel escondia o excesso. */
 .entity-viewer {
   width: min(var(--overlay-capture), calc(100vw - var(--space-6)));
+  max-height: calc(100vh - var(--overlay-top) - var(--space-6));
+  overflow: auto;
   padding: var(--space-5);
 }
 
@@ -2519,9 +2532,11 @@ input[type="checkbox"]:disabled {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  /* Vira gaveta abaixo de 1280, entao usa o degrau de gaveta da escala. Um 20
+     literal acerta o valor de hoje e erra no dia em que a escala mudar. */
   .hermes-rail {
     position: absolute;
-    z-index: 20;
+    z-index: var(--z-drawer);
     width: 260px;
     height: 100%;
     background: var(--surface);
@@ -2684,11 +2699,22 @@ input[type="checkbox"]:disabled {
   height: var(--topbar-height);
   padding: 0 var(--space-4);
   border-bottom: var(--line) solid var(--border);
-  overflow-x: auto;
 }
 
-.hermes-seeing-spacer {
+/* A rolagem horizontal fica confinada aos chips. Titulo e estado de conexao
+   ficam ancorados no fim da regua e nao saem de vista. */
+.hermes-seeing-chips {
+  display: flex;
   flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.hermes-seeing-chips::-webkit-scrollbar {
+  display: none;
 }
 
 .hermes-seeing form input,
@@ -2773,7 +2799,14 @@ input[type="checkbox"]:disabled {
   display: grid;
   grid-template-columns: 108px minmax(0, 62ch);
   gap: var(--space-loose);
-  /* 26px entre turnos. Sem separador: o gutter ja separa (§03). */
+  /* 22px dentro do turno, 26px entre turnos (§03). Sem separador: o gutter ja
+     separa. No modelo, pergunta e resposta sao mensagens separadas — entao o
+     par se forma pelo ritmo, com o respiro depois da pergunta menor que o
+     respiro depois da resposta. */
+  margin-bottom: 22px;
+}
+
+.hermes-turn[data-role="assistant"] {
   margin-bottom: 26px;
 }
 
@@ -3110,6 +3143,11 @@ input[type="checkbox"]:disabled {
   padding: var(--space-3) var(--space-4) var(--space-4);
 }
 
+/* A regua e o indicador de foco, e nao decoracao.
+ *
+ * Em repouso ela e neutra; no foco vira sodio (§04: REPOUSO x FOCO). Deixa-la
+ * sempre em sodio gastava o unico sinal disponivel e, junto com o `outline:
+ * none` do campo, o composer focado ficava indistinguivel do composer parado. */
 .hermes-trilho {
   display: flex;
   align-items: center;
@@ -3118,7 +3156,12 @@ input[type="checkbox"]:disabled {
   width: 100%;
   margin: 0 auto;
   padding-top: 14px;
-  border-top: var(--line) solid var(--signal-ink);
+  border-top: var(--line) solid var(--border-strong);
+  transition: border-color var(--dur-instant) linear;
+}
+
+.hermes-trilho:focus-within {
+  border-top-color: var(--signal-ink);
 }
 
 /* A barra de sodio e o unico elemento que muda por estado: cheia, apagada. */
@@ -3129,7 +3172,10 @@ input[type="checkbox"]:disabled {
   background: var(--signal-fill);
 }
 
-.hermes-trilho[data-running] {
+/* Gerando: a regua nao acende nem com foco. O campo aceita texto, mas o envio
+   nao esta disponivel, e prometer o contrario seria pior que nao sinalizar. */
+.hermes-trilho[data-running],
+.hermes-trilho[data-running]:focus-within {
   border-top-color: var(--border-strong);
 }
 
@@ -3413,15 +3459,9 @@ input[type="checkbox"]:disabled {
   color: var(--text);
 }
 
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
+/* `.visually-hidden` ja existe no topo do arquivo. Redeclarar aqui criava duas
+   definicoes da mesma classe, com tecnicas diferentes de ocultacao — e a que
+   valia era a ultima do arquivo, por ordem, e nao por escolha. */
 
 @media (prefers-reduced-motion: reduce) {
   .hermes-caret,
