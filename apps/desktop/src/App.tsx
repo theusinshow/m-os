@@ -9,7 +9,7 @@ import { hermes, hermesUnavailableLabel, type HermesConnectionState, type Hermes
 import { HermesPage } from "./HermesPage";
 import { Icon, type IconName } from "./Icon";
 import { MosSymbol } from "./Symbol";
-import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, Project, RegisteredApp, Resource, ResourceKind, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, HiddenWidget, Project, RegisteredApp, Resource, ResourceKind, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 import "./App.css";
 
 type Page = "home" | "hermes" | "inbox" | "projects" | "workspaces" | "apps" | "library" | "tasks" | "settings";
@@ -114,6 +114,20 @@ function SystemHealth({ status }: { status: AppStatus | null }) {
 /* O vazio de um painel com escopo tem duas causas que a mensagem antiga confundia:
    nada cadastrado, ou nada vinculado ao Workspace ativo. Sem separar as duas, a Home
    afirma que o usuario nao tem apps enquanto esconde os que ele tem. */
+/* Fonte de verdade unica dos ids de widget. Os ids VAO PARA O BANCO: renomear
+   um deles apaga em silencio a escolha de quem tinha ocultado o widget, porque
+   a linha guardada deixa de casar com qualquer widget do catalogo. O rotulo
+   pode mudar a vontade; o id, nunca. */
+const HOME_WIDGETS: { id: string; label: string }[] = [
+  { id: "now", label: "EM ANDAMENTO" },
+  { id: "recent", label: "RECENTES" },
+  { id: "projects", label: "PROJECTS" },
+  { id: "apps", label: "APPS" },
+  { id: "inbox_pulse", label: "INBOX" },
+  { id: "quick_actions", label: "AÇÕES" },
+  { id: "system_health", label: "SISTEMA" },
+];
+
 function ScopedEmptyState({ total, workspace, noun, onLink }: { total: number; workspace: Workspace | null; noun: "app" | "project"; onLink: () => void }) {
   if (total === 0 || !workspace) {
     return <EmptyState>{noun === "app" ? "Apps cadastrados aparecerão aqui." : "Projects criados aparecerão aqui."}</EmptyState>;
@@ -454,7 +468,7 @@ function WorkspaceForm({ workspace, cancel, saved }: { workspace?: Workspace; ca
   </form>;
 }
 
-function WorkspacesPage({ workspaces, projects, apps, initialWorkspaceId, refresh, openProject, openApp, intent }: { workspaces: Workspace[]; projects: Project[]; apps: RegisteredApp[]; initialWorkspaceId: string; refresh: () => Promise<void>; openProject: (project: Project) => void; openApp: (app: RegisteredApp) => void; intent?: FunctionIntent }) {
+function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWorkspaceId, refresh, openProject, openApp, intent }: { workspaces: Workspace[]; projects: Project[]; apps: RegisteredApp[]; hiddenWidgets: HiddenWidget[]; initialWorkspaceId: string; refresh: () => Promise<void>; openProject: (project: Project) => void; openApp: (app: RegisteredApp) => void; intent?: FunctionIntent }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const activeProjects = projects.filter((project) => project.lifecycleState === "active");
   const activeApps = apps.filter((app) => app.lifecycleState === "active");
@@ -480,6 +494,7 @@ function WorkspacesPage({ workspaces, projects, apps, initialWorkspaceId, refres
   const selected = activeWorkspaces.find((workspace) => workspace.id === selectedId) ?? null;
   const linkedProjectIds = new Set(workspaceProjects.map((project) => project.id));
   const linkedAppIds = new Set(workspaceApps.map((app) => app.id));
+  const hiddenWidgetIds = new Set(hiddenWidgets.filter((entry) => entry.workspaceId === selectedId).map((entry) => entry.widgetId));
   const refreshLinks = useCallback(async () => {
     if (!selectedId) {
       setWorkspaceProjects([]);
@@ -507,9 +522,22 @@ function WorkspacesPage({ workspaces, projects, apps, initialWorkspaceId, refres
       await refreshLinks();
     } catch (nextError) { setMessage(appError(nextError).message); }
   }
+  // `refresh` e nao `refreshLinks`: o dado dos ocultos vem do componente raiz,
+  // nao do estado local desta pagina.
+  async function toggleWidget(widget: { id: string; label: string }, visible: boolean) {
+    if (!selected) return;
+    try {
+      await api.setWorkspaceWidget(widget.id, selected.id, visible);
+      setMessage(visible ? "Widget visível na Home." : "Widget oculto na Home.");
+      await refresh();
+    } catch (nextError) { setMessage(appError(nextError).message); }
+  }
   return <div className="split-page workspaces-page">
     <section className="list-pane"><ContextPath segments={["M", "WORKSPACES"]} /><div className="list-command"><Button variant="outline" size="sm" onClick={() => setMode("new")}>Novo Workspace</Button></div><div className="row-list">{activeWorkspaces.map((workspace) => <DataRow key={workspace.id} primary={workspace.name} secondary={workspace.description || undefined} meta={relativeTime(workspace.updatedAt)} selected={workspace.id === selectedId} onClick={() => { setSelectedId(workspace.id); setMode("view"); setMessage(""); }} />)}</div>{!activeWorkspaces.length && mode !== "new" ? <EmptyState>Crie contextos amplos como Engineering, Finance ou Learning.</EmptyState> : null}</section>
-    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO WORKSPACE</span><WorkspaceForm cancel={() => setMode("view")} saved={(workspace) => { setSelectedId(workspace.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <WorkspaceForm workspace={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">WORKSPACE</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setWorkspaceArchived(selected.id, true).then(refresh)}>Arquivar</button></div></details></header><div className="workspace-grid"><div data-function-section="workspace.link_project"><Panel label="PROJECTS">{activeProjects.length ? activeProjects.map((project) => <div className="relation-row" key={project.id}><label><input type="checkbox" checked={linkedProjectIds.has(project.id)} onChange={(event) => void toggleProject(project, event.currentTarget.checked)} /><span><strong>{project.name}</strong><small>{project.description || "Sem descrição."}</small></span></label><button type="button" onClick={() => openProject(project)}>Abrir</button></div>) : <EmptyState>Projects ativos aparecerão aqui.</EmptyState>}</Panel></div><div data-function-section="workspace.link_app"><Panel label="APPS">{activeApps.length ? activeApps.map((app) => <div className="relation-row" key={app.id}><label><input type="checkbox" checked={linkedAppIds.has(app.id)} onChange={(event) => void toggleApp(app, event.currentTarget.checked)} /><span><strong>{app.name}</strong><small>{app.description || app.launchTarget || "Sem descrição."}</small></span></label><button type="button" onClick={() => openApp(app)}>Abrir</button></div>) : <EmptyState>Apps ativos aparecerão aqui.</EmptyState>}</Panel></div></div>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
+    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO WORKSPACE</span><WorkspaceForm cancel={() => setMode("view")} saved={(workspace) => { setSelectedId(workspace.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <WorkspaceForm workspace={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">WORKSPACE</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setWorkspaceArchived(selected.id, true).then(refresh)}>Arquivar</button></div></details></header><div className="workspace-grid"><div data-function-section="workspace.link_project"><Panel label="PROJECTS">{activeProjects.length ? activeProjects.map((project) => <div className="relation-row" key={project.id}><label><input type="checkbox" checked={linkedProjectIds.has(project.id)} onChange={(event) => void toggleProject(project, event.currentTarget.checked)} /><span><strong>{project.name}</strong><small>{project.description || "Sem descrição."}</small></span></label><button type="button" onClick={() => openProject(project)}>Abrir</button></div>) : <EmptyState>Projects ativos aparecerão aqui.</EmptyState>}</Panel></div><div data-function-section="workspace.link_app"><Panel label="APPS">{activeApps.length ? activeApps.map((app) => <div className="relation-row" key={app.id}><label><input type="checkbox" checked={linkedAppIds.has(app.id)} onChange={(event) => void toggleApp(app, event.currentTarget.checked)} /><span><strong>{app.name}</strong><small>{app.description || app.launchTarget || "Sem descrição."}</small></span></label><button type="button" onClick={() => openApp(app)}>Abrir</button></div>) : <EmptyState>Apps ativos aparecerão aqui.</EmptyState>}</Panel></div>{/* Caixa marcada significa VISIVEL: a interface fala em visivel, so a
+                    tabela guarda o oculto. Sem botao Abrir — widget nao e entidade
+                    que se abre. */}
+      <div data-function-section="workspace.set_widget"><Panel label="WIDGETS">{HOME_WIDGETS.map((widget) => <div className="relation-row" key={widget.id}><label><input type="checkbox" checked={!hiddenWidgetIds.has(widget.id)} onChange={(event) => void toggleWidget(widget, event.currentTarget.checked)} /><span><strong>{widget.label}</strong><small>Widget da Home.</small></span></label></div>)}</Panel></div></div>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
   </div>;
 }
 
@@ -1295,6 +1323,7 @@ function DesktopApp() {
   const [trashedResources, setTrashedResources] = useState<Resource[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<AppStatus | null>(null);
+  const [hiddenWidgets, setHiddenWidgets] = useState<HiddenWidget[]>([]);
   const [commandOpen, setCommandOpen] = useState(false);
   // O overlay continua montado durante os 90ms de saida. Desmontar na hora
   // cortaria a animacao pela metade, que e pior que nao ter animacao.
@@ -1321,8 +1350,8 @@ function DesktopApp() {
   const refresh = useCallback(async () => {
     setBusy(true);
     try {
-      const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status()]);
-      setRecent(nextRecent); setInbox(nextInbox); setArchived(nextArchived); setTrashed(nextTrashed); setProjects(nextProjects); setWorkspaces(nextWorkspaces); setApps(nextApps); setResources(nextResources); setTrashedResources(nextTrashedResources); setTasks(nextTasks); setStatus(nextStatus);
+      const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus, nextHiddenWidgets] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status(), api.hiddenWidgets()]);
+      setRecent(nextRecent); setInbox(nextInbox); setArchived(nextArchived); setTrashed(nextTrashed); setProjects(nextProjects); setWorkspaces(nextWorkspaces); setApps(nextApps); setResources(nextResources); setTrashedResources(nextTrashedResources); setTasks(nextTasks); setStatus(nextStatus); setHiddenWidgets(nextHiddenWidgets);
       setDrawerTask((current) => current ? nextTasks.find((task) => task.id === current.id) ?? null : null);
     } finally {
       setBusy(false);
@@ -1405,7 +1434,7 @@ function DesktopApp() {
     if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} status={status} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openProjectsPage={() => setPage("projects")} intent={functionIntent ?? undefined} />;
     if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} openResource={openResource} intent={functionIntent ?? undefined} />;
     if (page === "projects") return <ProjectsPage projects={projects} tasks={tasks} initialProjectId={selectedProjectId} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
-    if (page === "workspaces") return <WorkspacesPage workspaces={workspaces} projects={projects} apps={apps} initialWorkspaceId={selectedWorkspaceId} refresh={refresh} openProject={openProject} openApp={openRegisteredApp} intent={functionIntent ?? undefined} />;
+    if (page === "workspaces") return <WorkspacesPage workspaces={workspaces} projects={projects} apps={apps} hiddenWidgets={hiddenWidgets} initialWorkspaceId={selectedWorkspaceId} refresh={refresh} openProject={openProject} openApp={openRegisteredApp} intent={functionIntent ?? undefined} />;
     if (page === "apps") return <AppsPage apps={apps} initialAppId={selectedAppId} refresh={refresh} intent={functionIntent ?? undefined} />;
     if (page === "library") return <LibraryPage resources={resources} initialResourceId={selectedResourceId} initialResourceKey={resourceOpenKey} refresh={refresh} receipt={showReceipt} openCapture={setViewedCapture} intent={functionIntent ?? undefined} />;
     if (page === "tasks") return <BoardPage tasks={tasks} projects={projects} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
