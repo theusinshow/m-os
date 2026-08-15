@@ -404,6 +404,23 @@ export function HermesPage({ inbox, projects, tasks }: {
 
   useEffect(() => () => { if (frame.current) window.cancelAnimationFrame(frame.current); }, []);
 
+  /**
+   * Reidrata da VPS quando o M/OS nao tem a conversa, mas a sessao existe.
+   *
+   * O caso real e restaurar um backup anterior, ou abrir num M/OS que ainda nao
+   * tinha conversa local: o vinculo `hermes_session_id` sobrevive e o conteudo
+   * esta la. Com mensagens locais nao se pede nada — elas sao a verdade que a
+   * tela desenha, e sobrescreve-las com a projecao da VPS perderia as partes
+   * que so o M/OS conhece, como o registro de contexto enviado.
+   */
+  const rehydrated = useRef("");
+  useEffect(() => {
+    if (!status?.sessionReady || !conversationId) return;
+    if (messages.length || rehydrated.current === conversationId) return;
+    rehydrated.current = conversationId;
+    void hermes.loadHistory().catch(() => undefined);
+  }, [status?.sessionReady, conversationId, messages.length]);
+
   useEffect(() => {
     const node = thread.current;
     if (!node || !pinnedBottom) return;

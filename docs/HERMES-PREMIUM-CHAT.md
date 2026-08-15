@@ -1,9 +1,33 @@
 # Hermes Premium Chat — auditoria e plano de evolução
 
-**Status:** auditoria concluída, plano aguardando aprovação
+**Status:** auditoria concluída · **P0 implementado** · P1–P5 aguardando aprovação
 **Data:** 2026-08-15
 **Escopo:** evolução da superfície Hermes para AI Workspace do M/OS
-**Não autoriza implementação.** Nenhuma fase abaixo entra em código antes de aprovação explícita.
+
+> **Nota de leitura.** As seções 1 a 10 descrevem o estado encontrado na auditoria, e são
+> mantidas como registro do que havia. O que mudou desde então está em §11 (roadmap, com o
+> P0 marcado) e no resumo abaixo. Onde a implementação contradisse a auditoria, o texto diz
+> isso em vez de ser reescrito para parecer que sempre soube.
+
+## Estado da implementação
+
+P0 foi implementado e verificado. As decisões que ele exigiu estão registradas como
+ADR-025 a ADR-030 em `DECISIONS.md`, e o desenho seguido é
+`M-OS Hermes - Design Direction v1` (ADR-030).
+
+| Camada | O que mudou |
+|---|---|
+| `mos-hermes` | `clarify.request` e `sudo.request` tratados; `status.update`, `session.history` e `session.title` deixam de ser descartados |
+| `mos-core` | módulo `conversation` — Conversation, Message, MessagePart, ConversationService |
+| `mos-storage-sqlite` | migration 0010; busca por trigger, só sobre partes de texto |
+| `src-tauri` | `jarvis.rs` — orquestra ponte, conversa e contexto; grava por mensagem, nunca por delta |
+| renderer | superfície única na direção Marginália; Markdown próprio; ações por mensagem; chips com registro do que foi enviado |
+
+**O único item de P0 deliberadamente adiado é o Capability Service** — ver §11.
+
+---
+
+**As fases seguintes não entram em código antes de aprovação explícita.**
 
 Documentos-mãe: `VISION.md`, `PRODUCT.md`, `UX-PRINCIPLES.md`, `DESIGN-FOUNDATIONS.md`,
 `ARCHITECTURE.md`, `DECISIONS.md` (ADR-024), `HERMES-GATEWAY-CONTRACT.md`,
@@ -351,13 +375,15 @@ thread.
 
 Três tabelas. Local, em `mos-core` + `mos-storage-sqlite`.
 
+> **Implementado sem `pinned` e sem `temporary`.** Os dois pertencem a P2 (fixar conversa,
+> chat temporário) e nenhum tem uso em P0. Uma coluna booleana que não faz nada é a mesma
+> antecipação que ADR-012 proíbe, e acrescentá-la depois é uma migration de cinco linhas.
+
 ```text
 Conversation
   id                TEXT PK
   title             TEXT              -- vazio até session.title responder
   hermes_session_id TEXT NULL         -- o vínculo com a VPS, agora em disco
-  temporary         INTEGER           -- 0/1; temporary não gera memória (P2)
-  pinned            INTEGER
   lifecycle_state   TEXT              -- active | archived | trashed
   created_at        TEXT
   updated_at        TEXT
@@ -529,22 +555,29 @@ rápido — ele só deixa de tentar ser um chat pequeno dentro de um overlay.
 
 ### 7.2 Layout da página
 
+> **Superado por `M-OS Hermes - Design Direction v1` (ADR-030), que chegou depois desta
+> auditoria.** O esboço abaixo fica como registro; o que foi construído é a direção
+> **Marginália**, e ela é melhor pelo motivo que a auditoria não tinha: a separação não é
+> de colunas, é de papéis.
+
 ```text
-┌────────────┬────────────────────────────────────┬──────────────┐
-│ CONVERSAS  │  thread                            │  ARTIFACT    │
-│            │                                    │  (P2, só     │
-│ recentes   │                                    │  quando      │
-│ busca      │  ┌──────────────────────────────┐  │  existir)    │
-│            │  │ chips de contexto            │  │              │
-│            │  │ composer                     │  │              │
-│            │  └──────────────────────────────┘  │              │
-└────────────┴────────────────────────────────────┴──────────────┘
-   240px              minmax(0, 1fr)                   380px
+RAIL 52px   CONVERSAS 260px   THREAD minmax(0,1fr)      INSPECTOR 380px
+navegação   histórico         ┌──────────────────┐      fontes · contexto
+            busca             │ gutter │ prosa   │      memória · artifact
+            nova conversa     │ 108px  │ 62ch    │      (P2 — não existe ainda)
+                              └──────────────────┘
 ```
 
-A coluna de conversas só aparece acima de `1120px`, seguindo a regra do inspector em
-`DESIGN-FOUNDATIONS.md` §6. Abaixo disso, vira overlay por ação. O Artifact substitui a
-coluna de conversas quando os dois competem — nunca três colunas em tela estreita.
+Tudo que o sistema **faz** — buscar, ler, citar, executar — mora no gutter de 108px. Tudo
+que ele **diz** mora na coluna de leitura de 62ch. É por isso que atividade de ferramenta
+não empurra a prosa: ela nunca esteve nela.
+
+O reconhecimento é tipográfico, não gráfico: a pergunta é 21px, a resposta é 15px. A
+diferença de escala separa os interlocutores sem bolha, avatar, borda ou cor.
+
+Ordem de sacrifício em telas estreitas, sempre a mesma: conversas, depois inspector, depois
+margem. **A coluna de leitura nunca é sacrificada** — em ultrawide sobra canvas dos dois
+lados, porque uma linha de 200 caracteres não é um recurso.
 
 ### 7.3 Chips de contexto
 
@@ -595,6 +628,18 @@ modos com um só funcionando piora a situação. O Hermes escolhe skill sozinho,
 Se o usuário quiser controle de esforço, isso é uma **emenda formal a ADR-024** (o M/OS
 passaria a opinar sobre reasoning), não uma decisão de UI. Fica registrado como decisão em
 aberto, não como plano.
+
+> **Revisado em 2026-08-15, com o handoff do design.**
+> `M-OS Hermes - Design Direction v1` §07 especifica os quatro modos e define o que eles
+> são: *"a única promessa que o sistema faz sobre o que vai acontecer com seus dados"*.
+>
+> Isso muda a conclusão pela metade. O slot existe e vale a pena — o que não pode existir
+> são promessas que o sistema não cumpre. Hoje há uma promessa verdadeira, e ela é
+> garantida pela arquitetura em vez de por intenção: `mos-hermes` não compila com acesso
+> ao banco. O composer exibe **`NÃO ESCREVE`** no slot e na tipografia do design.
+>
+> O ciclo de quatro entra quando houver mais de uma promessa a fazer, o que acontece em P4
+> com `ACT`. Ver ADR-029, emenda.
 
 ### 7.6 Microinterações
 
@@ -763,31 +808,48 @@ superfície. Some junto com o seletor de modos (§7.5).
 Cada fase tem um gate. Nenhuma começa antes de a anterior passar. Sem estimativa de prazo,
 por decisão de `ROADMAP.md` §1.
 
-### P0 — Premium Chat Foundation
+### P0 — Premium Chat Foundation · IMPLEMENTADO
 
 Objetivo: **a experiência de conversar fica impecável.** Nada de agente onipotente.
 
-1. Corrigir `clarify.request` e `sudo.request` (defeito vivo, §1.3)
-2. Superfície única: Command perde o modo Hermes (§7.1)
-3. Modelo Conversation / Message / MessagePart + migration (§5.2)
-4. `session_id` persistido; `session.resume` volta a funcionar entre aberturas
-5. Reidratação por `session.history`
-6. Renderização de Markdown, tabela, código com highlight e Copy Code
-7. Composer multiline real (`<textarea>`), Enter/Shift+Enter honestos
-8. Stop · Retry · Regenerate · Edit e reenviar · Copy · timestamps
-9. Conversas: nova, renomear, título automático (`session.title`), arquivar, excluir, buscar
-10. Render básico de tool run com os seis estados (§7.4)
-11. Streaming interrompido: preserva texto, nomeia a causa, oferece Retry
-12. Capability Service com os três estados (§6.1)
-13. Arquitetura de context chips + `context_ref` persistido (§5.3) — **com o `@` levando
-    contexto de verdade**, resolvendo §1.4
-14. Arquitetura de anexo definida (sem implementar anexo)
-15. Correções de performance do §9.2
-16. Correções de acessibilidade do §10
-17. Remoção do seletor de modos (§7.5)
+- [x] 1. Corrigir `clarify.request` e `sudo.request` (defeito vivo, §1.3)
+- [x] 2. Superfície única: Command perde o modo Hermes (§7.1)
+- [x] 3. Modelo Conversation / Message / MessagePart + migration (§5.2)
+- [x] 4. `session_id` persistido; `session.resume` volta a funcionar entre aberturas
+- [x] 5. Reidratação por `session.history` — pedida só quando não há conversa local
+- [x] 6. Renderização de Markdown, tabela, código com realce e Copy Code
+- [x] 7. Composer multiline real (`<textarea>`), Enter/Shift+Enter honestos
+- [x] 8. Stop · Retry · Regenerate · Edit e reenviar · Copy · timestamps
+- [x] 9. Conversas: nova, renomear, título automático (`session.title`), excluir, buscar
+- [x] 10. Render de tool run com os seis estados, na margem (§7.4, ADR-030)
+- [x] 11. Streaming interrompido: preserva texto, nomeia a causa, oferece Retry
+- [ ] 12. **Capability Service — adiado para P1.** Ver a nota abaixo.
+- [x] 13. Context chips + `context_ref` persistido, **com o `@` levando contexto de
+      verdade** — resolve §1.4
+- [x] 14. Arquitetura de anexo definida (ADR-025: entra como `kind` de parte, vira tabela
+      própria em P1 quando ganhar lifecycle)
+- [x] 15. Correções de performance do §9.2
+- [x] 16. Correções de acessibilidade do §10
+- [x] 17. Seletor de modos: substituído pela promessa que o sistema cumpre (ADR-029, emenda)
 
-**Gate P0:** os dez quality gates de `DESIGN-FOUNDATIONS.md` §16 aplicados à superfície
-Hermes, mais os cenários de falha do §12 deste documento.
+**Por que o Capability Service saiu do P0.** A justificativa dele em §6.1 é impedir a UI de
+adivinhar o que o gateway faz. Acontece que nenhuma feature de P0 adivinha: todas usam
+métodos que o `HERMES-GATEWAY-CONTRACT.md` verificou ao vivo, e nenhuma se habilita ou
+desabilita por capacidade. Construir agora um serviço de descoberta sem consumidor seria
+exatamente a infraestrutura especulativa que ADR-012 proíbe.
+
+O primeiro consumidor real aparece em P1, com anexos: `file.attach` e `image.attach_bytes`
+existem no checkout mas nunca foram exercitados desta instalação, e habilitar o botão de
+anexo sem perguntar seria a adivinhação que §6.1 quer evitar. O serviço entra junto dele.
+
+**Gate P0 — verificado:** `cargo fmt --check`, `cargo clippy -D warnings`,
+`cargo test --workspace` (122 testes), `tsc --noEmit` e `npm run build`, todos limpos.
+Zero literal de cor novo. `mos-hermes` continua sem `mos-core` e sem `mos-storage-sqlite`.
+
+**Gate P0 — pendente de execução em tela:** os dez quality gates de
+`DESIGN-FOUNDATIONS.md` §16 (screenshots em três larguras, scaling 100/125/150%, tema
+claro e High Contrast, Narrator, contraste programático) e os cenários de falha do §12
+que exigem o túnel aberto. Nenhum deles pode ser declarado a partir do código.
 
 ### P1 — Context + Multimodal
 
