@@ -1296,11 +1296,32 @@ function HermesSettings() {
     event.preventDefault();
     try {
       if (baseUrl.trim()) await hermes.setBaseUrl(baseUrl);
-      if (username.trim() && password) await hermes.setCredentials(username, password);
-      // A senha some da memoria do renderer assim que sai daqui. Ela vive no
-      // Credential Manager, e nem o proprio campo a mantem.
-      setPassword("");
-      setMessage("Credencial guardada no Windows Credential Manager.");
+      // O provider `basic` do Hermes exige usuario E senha (o config.yaml
+      // declara username como required). Antes, faltando um dos dois, a
+      // chamada simplesmente nao acontecia — e a mensagem de sucesso aparecia
+      // mesmo assim, afirmando ter guardado o que nunca foi guardado. Quem
+      // preenchia so a senha clicava em Salvar, lia "Credencial guardada" e
+      // ficava Offline para sempre, sem nada na tela explicando.
+      const wantsCredential = username.trim().length > 0 || password.length > 0;
+      if (wantsCredential && !(username.trim() && password)) {
+        setMessage(username.trim()
+          ? "Falta a senha. O Hermes exige usuário e senha."
+          : "Falta o usuário. O Hermes exige usuário e senha — normalmente o mesmo login do dashboard.");
+        return;
+      }
+      if (wantsCredential) {
+        await hermes.setCredentials(username, password);
+        // A senha some da memoria do renderer assim que sai daqui. Ela vive no
+        // Credential Manager, e nem o proprio campo a mantem.
+        setPassword("");
+        setMessage("Credencial guardada no Windows Credential Manager.");
+        // Conectar agora. O supervisor do raiz desiste em silencio quando nao ha
+        // credencial, e nada o reagenda: sem este empurrao, guardar a senha nao
+        // produziria efeito nenhum ate reabrir o app.
+        void hermes.connect().catch(() => undefined);
+      } else {
+        setMessage("Endereço salvo.");
+      }
       setStatus(await hermes.status());
     } catch (error) { setMessage(String(error)); }
   }
