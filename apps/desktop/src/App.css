@@ -3115,3 +3115,50 @@ input[type="checkbox"]:disabled {
     background: CanvasText;
   }
 }
+
+/* ---------- 5. Animated Content — transicoes que explicam ----------
+
+   Adaptado de Animations/AnimatedContent em intencao. O componente original
+   depende de GSAP mais o plugin ScrollTrigger e dispara por entrada no
+   viewport durante o scroll — vocabulario de pagina longa. O M/OS quase nao
+   rola: aqui o que muda de estado e o MODO e o CONTEXTO, nao a posicao do
+   scroll. Trazer 60KB de biblioteca para animar opacidade seria pagar caro por
+   uma tradução que nao serve.
+
+   Este bloco define `viewEnter`, que o arquivo ja invocava em dois lugares
+   (.hermes-empty-thread e o drawer) sem nunca ter declarado. Ate agora as duas
+   regras eram nulas em silencio: `animation` com nome inexistente nao e erro
+   de CSS, so nao acontece nada. */
+
+@keyframes viewEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* A troca Search <-> Hermes. Os dois lados sao subarvores diferentes, entao
+   cada troca monta um painel novo e a animacao roda uma vez por troca — nunca
+   a cada tecla digitada.
+
+   --dur-context existe nos tokens descrito como "troca de workspace". Mudar de
+   Search para Hermes e a mesma classe de evento: a superficie continua a
+   mesma, o que muda e a lente. Usar o mesmo tempo e o que faz as duas leituras
+   parecerem o mesmo sistema. */
+.command-results,
+.command-surface .hermes-thread {
+  animation: viewEnter var(--dur-context) var(--ease-enter);
+}
+
+/* As LINHAS de resultado nao animam, e a ausencia e a decisao.
+
+   Buscar e digitar: a lista se refaz a cada tecla. Animar cada linha
+   transformaria a acao mais repetida do Command numa apresentacao a cada
+   caractere — exatamente o que UX-PRINCIPLES secao 83 adverte ("uma animacao
+   bonita na primeira vez pode ser irritante na centesima"). O painel inteiro
+   entra uma vez; o conteudo dentro dele so troca. */
