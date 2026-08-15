@@ -1,0 +1,55 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1781535709499,
+      "tag": "0000_outgoing_wither",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781879469161,
+      "tag": "0001_flawless_lorna_dane",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781880364024,
+      "tag": "0002_closed_shocker",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781885241607,
+      "tag": "0003_sharp_thena",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782227728763,
+      "tag": "0004_rapid_hellcat",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782492751443,
+      "tag": "0005_odd_ben_urich",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782499790129,
+      "tag": "0006_ambiguous_shinko_yamashiro",
+      "breakpoints": true
+    }
+  ]
+}

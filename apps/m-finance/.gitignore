@@ -1,0 +1,13 @@
+node_modules
+.next
+out
+build
+.env
+.env*.local
+drizzle
+*.log
+*.tsbuildinfo
+next-env.d.ts
+
+# Impeccable critique snapshots (local)
+.impeccable/

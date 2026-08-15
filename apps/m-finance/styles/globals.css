@@ -1,0 +1,224 @@
+@import url("https://api.fontshare.com/v2/css?f[]=panchang@500,600,700&f[]=satoshi@400,500,700,900&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --color-background-primary: #020A06;
+  --color-background-secondary: #091009;
+  --color-background-card: #091009;
+  --color-background-hover: #0D150F;
+  --color-background-elevated: #0B120D;
+  --color-text-primary: #F5F2ED;
+  --color-text-secondary: #E8E4DE;
+  --color-text-muted: #8A8780;
+  --color-text-inverse: #020A06;
+  --color-accent: #FB3640;
+  --color-accent-hover: #ff4b54;
+  --color-accent-soft: rgba(251, 54, 64, 0.12);
+  --color-accent-border: rgba(251, 54, 64, 0.35);
+  /* Deeper red reserved for FILLED CTAs so light text reads at >=4.5:1.
+     The vivid --color-accent stays the brand mark for borders, badges, glows. */
+  --color-accent-strong: #C9202D;
+  --color-accent-strong-hover: #B31C28;
+  --color-status-positive: #54D18A;
+  --color-status-fair: #D8B45A;
+  --color-status-tight: #D98245;
+  --color-status-negative: #FB3640;
+  --color-border-subtle: rgba(245, 242, 237, 0.08);
+  --color-border-default: rgba(245, 242, 237, 0.14);
+  --color-border-strong: rgba(245, 242, 237, 0.24);
+  --font-sans: var(--font-satoshi), Satoshi, "Segoe UI", system-ui, sans-serif;
+  --font-display: var(--font-panchang), Satoshi, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Menlo", monospace;
+}
+
+:root {
+  color-scheme: dark;
+  --font-satoshi: "Satoshi";
+  --font-panchang: "Panchang";
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: #020A06;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    linear-gradient(135deg, rgba(251, 54, 64, 0.07) 0%, transparent 26%),
+    linear-gradient(180deg, rgba(245, 242, 237, 0.03) 0, transparent 1px),
+    linear-gradient(90deg, rgba(245, 242, 237, 0.022) 0, transparent 1px),
+    linear-gradient(180deg, #020A06 0%, #030C07 100%);
+  background-size: auto, 100% 100%, 44px 44px, 44px 44px, auto;
+  color: #F5F2ED;
+  font-family: var(--font-sans);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+a,
+summary {
+  touch-action: manipulation;
+}
+
+button:not(:disabled),
+a[href],
+summary {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+::selection {
+  background: rgba(251, 54, 64, 0.32);
+  color: #F5F2ED;
+}
+
+.focus-ring {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.focus-ring:focus-visible {
+  outline-color: rgba(251, 54, 64, 0.8);
+  box-shadow: 0 0 0 4px rgba(251, 54, 64, 0.18);
+}
+
+/* ---------------------------------------------------------------------------
+   Coded by M — geometric + motion layer
+   Triangular language, notched surfaces, restrained choreography.
+--------------------------------------------------------------------------- */
+
+/* Financial figures — JetBrains Mono with tabular, slashed-zero numerals so
+   columns of money align and 0/O never get confused. The data is the hero. */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: "tnum" 1, "zero" 1;
+  letter-spacing: -0.01em;
+}
+
+/* Signature notched corner (sliced top-right, like the brand button system). */
+.clip-notch {
+  clip-path: polygon(0 0, calc(100% - 0.7rem) 0, 100% 0.7rem, 100% 100%, 0 100%);
+}
+.clip-notch-lg {
+  clip-path: polygon(0 0, calc(100% - 1.1rem) 0, 100% 1.1rem, 100% 100%, 0 100%);
+}
+
+/* clip-path also clips the outer focus ring, so clipped controls get an
+   inset ring that stays visible inside the notched shape. */
+.clip-notch:focus-visible,
+.clip-notch-lg:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgba(245, 242, 237, 0.85);
+}
+
+/* Sheen sweep — a single diagonal light pass on hover/confirm. */
+.sheen {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-130%) skewX(-18deg);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(245, 242, 237, 0.14) 48%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+.sheen:hover::after,
+.sheen:focus-visible::after {
+  animation: sheen-sweep 720ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes sheen-sweep {
+  to {
+    transform: translateX(130%) skewX(-18deg);
+  }
+}
+
+/* Reveal-on-enter — set by the <Reveal> client wrapper via .is-visible. */
+.reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition:
+    opacity 560ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 560ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+  will-change: opacity, transform;
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* Triangle marker — brand glyph used for active nav + status. */
+.tri-mark {
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+}
+
+/* Ambient triangulated texture for surfaces (very low contrast). */
+.brand-grid {
+  background-image:
+    linear-gradient(115deg, rgba(251, 54, 64, 0.05) 0%, transparent 30%),
+    linear-gradient(rgba(245, 242, 237, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(245, 242, 237, 0.022) 1px, transparent 1px);
+  background-size: auto, 44px 44px, 44px 44px;
+}
+
+/* Soft floating loop for hero ornaments. */
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+.float-y { animation: float-y 7s ease-in-out infinite; }
+.spin-slow { animation: spin-slow 26s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .sheen::after {
+    display: none;
+  }
+}
