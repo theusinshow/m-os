@@ -51,3 +51,10 @@ export const caseDraftPath = (slug: string) =>
 
 export const publicPath = (slug: string, ...parts: string[]) =>
   "/" + path.posix.join("generated", slug, ...parts);
+
+// Sessão autenticada — vive FORA de public/ (contém cookies de login ativos,
+// que jamais podem ser servidos na web).
+export const authStateDir = () => path.join(process.cwd(), "auth");
+
+export const authStatePath = (slug: string) =>
+  path.join(authStateDir(), `${slug}.json`);

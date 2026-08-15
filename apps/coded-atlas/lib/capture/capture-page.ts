@@ -8,6 +8,7 @@ import type { DeviceCapture, PageCapture, ProjectInput, ViewportConfig } from ".
 import { dismissOverlays } from "./dismiss-overlays";
 import { waitForPageStability } from "./wait-for-stability";
 import { scrollToBottom } from "./scroll-to-bottom";
+import { authContextOptions } from "./auth-state";
 
 /** Resolve uma entrada (path "/sobre" ou URL completa) para URL absoluta. */
 export function resolvePageUrl(entry: string, baseUrl: string): string {
@@ -38,6 +39,7 @@ async function captureOneDevice(
     viewport: { width: viewport.width, height: viewport.height },
     deviceScaleFactor: viewport.deviceScaleFactor,
     userAgent: config.userAgent,
+    ...(await authContextOptions(slug)), // entra logado se houver sessão
   });
   const page = await context.newPage();
   try {

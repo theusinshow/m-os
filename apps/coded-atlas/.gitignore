@@ -34,3 +34,6 @@ next-env.d.ts
 # Coded Atlas — generated output (manter a pasta; ignorar o conteúdo)
 /public/generated/*
 !/public/generated/.gitkeep
+
+# Coded Atlas — sessões autenticadas (contêm cookies de login; nunca versionar)
+/auth/

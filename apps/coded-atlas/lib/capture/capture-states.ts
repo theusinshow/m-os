@@ -7,6 +7,7 @@ import { slugify } from "../validation/slugify";
 import type { ProjectInput, StateCapture, StateInput } from "../types";
 import { dismissOverlays } from "./dismiss-overlays";
 import { waitForPageStability } from "./wait-for-stability";
+import { authContextOptions } from "./auth-state";
 
 /**
  * Captura um estado de interação (v1.5): abre a página principal em desktop,
@@ -27,6 +28,7 @@ export async function captureState(
     viewport: { width: vp.width, height: vp.height },
     deviceScaleFactor: vp.deviceScaleFactor,
     userAgent: config.userAgent,
+    ...(await authContextOptions(input.slug)), // entra logado se houver sessão
   });
   const page = await context.newPage();
 
