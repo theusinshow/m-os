@@ -606,10 +606,11 @@ textarea::placeholder {
   text-align: left;
 }
 
-.pulse-count {
-  font: var(--text-display);
-  letter-spacing: var(--tracking-display);
-  color: var(--text);
+/* O `.pulse-count` saiu: o numero de 48px virou o numero no centro do anel, e
+   manter a regra deixaria uma classe orfa esperando alguem reusar por engano
+   a tipografia que o widget nao usa mais. */
+.pulse .mos-ring-figure {
+  margin-bottom: var(--space-2);
 }
 
 .pulse small {
@@ -3974,4 +3975,61 @@ input[type="checkbox"]:disabled {
   * {
     scrollbar-color: auto;
   }
+}
+
+/* ============================================================
+   WIDGETS VISUAIS — layout
+   A geometria e o movimento vivem em `packages/design-system/widgets.css`,
+   compartilhados entre as aplicações. Aqui fica só o arranjo dentro do card.
+   ============================================================ */
+
+.widget-week {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.widget-week-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.widget-week-head .micro-label:first-child {
+  flex: 1;
+}
+
+.widget-week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.widget-week-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Hoje ganha o sódio no rótulo — é o único lugar do widget onde a cor marca
+   posição no tempo, e ela não compete com o anel porque é texto de 9px. */
+.widget-week-day .micro-label[data-today] {
+  color: var(--signal-ink);
+}
+
+.widget-density {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.widget-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.widget-progress-copy {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
 }

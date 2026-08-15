@@ -1,0 +1,183 @@
+/* ============================================================
+   M/OS — família de widgets v0.1
+   Fonte: `M-OS Widgets - Visuais e Animados v0.1`.
+
+   Duas famílias sustentam todos os widgets: o ANEL (proporção de uma coisa só)
+   e a DENSIDADE (tempo como área ocupada, nunca como tabela de horas).
+
+   Orçamento de movimento, as quatro regras do desenho:
+
+   1. Um loop por tela. Só o que está acontecendo agora repete; todo o resto
+      anima na entrada e congela no valor final.
+   2. Movimento carrega dado. O arco cresce porque o número cresceu — não há
+      shimmer, float nem parallax.
+   3. Cascata de 40ms, teto de 8. Passando de oito elementos, o resto entra
+      junto, senão o último item de uma grade grande chegaria meio segundo
+      depois do primeiro.
+   4. `reduced-motion` não é degradação: os anéis nascem no valor final e nada
+      da informação depende da animação ter acontecido.
+   ============================================================ */
+
+/* ---------- Anel ----------
+   Uma keyframe só para todos os tamanhos: o `from` lê a circunferência do
+   próprio elemento. O desenho trazia cinco keyframes, uma por raio, o que
+   obrigaria a criar uma sexta a cada tamanho novo. */
+@keyframes mos-ring-draw {
+  from {
+    stroke-dashoffset: var(--ring-circumference);
+  }
+}
+
+.mos-ring {
+  /* Começa às 12h, sentido horário. */
+  transform: rotate(-90deg);
+  flex: none;
+}
+
+/* Arco de 270°, com a abertura no pé — a variante de tempo. */
+.mos-ring[data-arc="270"] {
+  transform: rotate(135deg);
+}
+
+.mos-ring-track {
+  fill: none;
+  stroke: var(--border);
+}
+
+/* Dia futuro: trilho tracejado. O vazio à direita é a informação. */
+.mos-ring-track[data-future] {
+  stroke-dasharray: 2 4;
+}
+
+.mos-ring-value {
+  fill: none;
+  /* Ponta reta, sempre. Cap arredondado mente sobre o valor em anéis pequenos
+     e amolece a geometria do sistema. */
+  stroke-linecap: butt;
+  stroke: var(--signal-fill);
+  animation: mos-ring-draw var(--dur-enter) var(--ease-enter) both;
+  animation-delay: var(--ring-delay, 0ms);
+}
+
+/* Sódio a 55% e 30%: a escala de profundidade dos anéis segmentados e
+   concêntricos. Nenhuma cor nova entra — é o mesmo sódio, rebaixado. */
+.mos-ring-value[data-depth="2"] {
+  stroke: color-mix(in srgb, var(--signal-fill) 55%, transparent);
+}
+
+.mos-ring-value[data-depth="3"] {
+  stroke: color-mix(in srgb, var(--signal-fill) 30%, transparent);
+}
+
+/* Agora e hoje NUNCA são sódio: o sódio está reservado para carga. São um
+   traço branco de 2px, e é a mesma marca no arco, nas colunas e no mês. */
+.mos-ring-now {
+  fill: none;
+  stroke: var(--text);
+  stroke-linecap: butt;
+}
+
+.mos-ring-figure {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+
+.mos-ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  text-align: center;
+}
+
+/* O número é conteúdo; a unidade é metadata. */
+.mos-ring-number {
+  color: var(--text);
+  font: 700 28px/1 var(--font-product);
+  letter-spacing: var(--tracking-title);
+  font-variant-numeric: tabular-nums;
+}
+
+.mos-ring-figure[data-size="44"] .mos-ring-number {
+  font: 500 13px/1 var(--font-product);
+}
+
+.mos-ring-unit {
+  color: var(--text-system);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+}
+
+/* ---------- Densidade ----------
+   Tempo como área ocupada. A célula não tem número grande nem barra: a
+   quantidade é a própria opacidade do preenchimento. */
+.mos-density {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.mos-density-head {
+  color: var(--text-placeholder);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  text-align: center;
+}
+
+.mos-density-cell {
+  display: grid;
+  place-items: center;
+  height: 30px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  color: var(--text-disabled);
+  font: 400 9px/1 var(--font-system);
+  animation: mos-fade var(--dur-state) linear both;
+  animation-delay: var(--ring-delay, 0ms);
+}
+
+@keyframes mos-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Quatro degraus de carga. A escala é do sódio, e só dela. */
+.mos-density-cell[data-load="1"] { background: color-mix(in srgb, var(--signal-fill) 14%, var(--surface-hover)); }
+.mos-density-cell[data-load="2"] { background: color-mix(in srgb, var(--signal-fill) 34%, var(--surface-hover)); }
+.mos-density-cell[data-load="3"] { background: color-mix(in srgb, var(--signal-fill) 62%, var(--surface-hover)); color: var(--on-signal); }
+.mos-density-cell[data-load="4"] { background: var(--signal-fill); color: var(--on-signal); }
+
+/* Passado a 45%, como o desenho pede. */
+.mos-density-cell[data-past] {
+  opacity: 0.45;
+}
+
+/* Hoje: o traço branco de 2px, nunca sódio. */
+.mos-density-cell[data-today] {
+  border-bottom: var(--marker) solid var(--text);
+  opacity: 1;
+}
+
+.mos-density-cell[data-outside] {
+  background: transparent;
+  color: var(--text-placeholder);
+  opacity: 0.4;
+}
+
+/* ---------- Reduced motion ----------
+   Não é degradação: o anel nasce no valor final. `animation: none` sozinho
+   deixaria o `stroke-dashoffset` no valor inline, que já é o final — então o
+   resultado é exatamente o desenho, parado. */
+@media (prefers-reduced-motion: reduce) {
+  .mos-ring-value,
+  .mos-density-cell {
+    animation: none;
+  }
+}

@@ -49,6 +49,7 @@ Estados possíveis:
 | ADR-031 | O rail carrega oito destinos, e o teto de seis vira regra de crescimento | Accepted |
 | ADR-032 | Os Apps próprios entram no monorepo, com profundidade decidida por app | Accepted |
 | ADR-033 | A unificação troca o valor por trás do nome, não o componente | Accepted |
+| ADR-034 | A família de widgets entra pela geometria, e só onde há dado | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -1014,3 +1015,72 @@ sobrevive ao daltonismo, o que matiz não faz.
   referenciava, carregando a paleta antiga — quem editasse ali não veria efeito nenhum;
 - o que NÃO foi feito: revisão tela a tela. Componente que fixou cor ou espaçamento fora
   do vocabulário continua fora, e só aparece olhando cada superfície.
+
+---
+
+## ADR-034 — A família de widgets entra pela geometria, e só onde há dado
+
+**Aceita em:** 2026-08-15, com o handoff `M-OS Widgets - Visuais e Animados v0.1`.
+
+### Contexto
+
+A Home era uma grade de listas: tudo texto alinhado à esquerda. O desenho propõe doze
+widgets que trocam parte disso por geometria — anéis, arcos e densidade — para que a
+leitura aconteça em meio segundo, antes de qualquer leitura de palavra.
+
+Duas famílias sustentam os doze: **o anel**, que mostra a proporção de uma coisa só, e a
+**densidade**, que mostra tempo como área ocupada e nunca como tabela de horas.
+
+### Decisão
+
+As duas famílias entram como linguagem compartilhada, em
+`packages/design-system/widgets.css`, e não como componente de uma tela. Elas ficam
+disponíveis para as quatro aplicações do monorepo pelo mesmo import dos tokens.
+
+O orçamento de movimento do desenho vira regra: um loop por tela, movimento que carrega
+dado, cascata de 40ms com teto de oito, e `reduced-motion` que nasce no valor final em vez
+de degradar.
+
+Três regras de desenho que o código impõe em vez de confiar em quem usa: ponta reta
+sempre, porque cap arredondado mente sobre o valor em anéis pequenos; início às 12h no
+sentido horário; e **zero não desenha nada**, porque um traço de comprimento zero com
+sub-pixel vira um ponto solto de sódio.
+
+E uma regra de cor que atravessa as duas famílias: **o sódio é reservado para carga**.
+Agora e hoje são sempre um traço branco de 2px — no arco, nas colunas e na grade do mês.
+
+### O corte: cinco dos doze não foram construídos
+
+| Widget | Dado que ele exige | Existe? |
+|---|---|---|
+| W03 Week Rings | Task concluída por dia | sim |
+| W07 Densidade | atividade por dia | sim |
+| Progresso | Task concluída sobre total | sim |
+| Inbox | proporção envelhecendo | sim |
+| W01 Focus · W02 Capacity | tempo rastreado por projeto | **não** — CronoCAD, ADR-032 fase 3 |
+| W04 Next Up · W06 Day Arc | calendário e lembretes | **não** — Fase 4 do ROADMAP |
+| W05 Habits | domínio de hábitos | **não** — não existe |
+
+Os sete que ficaram de fora não são um atraso de implementação: são widgets que só podem
+existir depois que o dado existir. Um anel bonito preenchido com número inventado é pior
+que a ausência — ele ensina a confiar numa medida que o sistema não tem.
+
+### Duas adaptações declaradas
+
+A densidade do mês mede **atividade registrada** — Task criada, Task concluída, Capture — e
+não "eventos", que viriam de um calendário inexistente. O rótulo diz "registros" em vez de
+fingir agenda.
+
+E ela não aplica o passado a 45% que o desenho pede. Aquilo faz sentido no arco do dia,
+onde o passado é contexto e o próximo evento é o assunto; na grade do mês o passado É o
+conteúdo, e apagá-lo apagaria o widget.
+
+### Consequências
+
+- a Home ganha três widgets novos e o da Inbox troca o número cru de 48px por anel;
+- `--space-*` e a escala de cor continuam sendo os únicos valores usados: nenhuma cor nova
+  entrou, e os degraus de profundidade são o mesmo sódio rebaixado a 55% e 30%;
+- os widgets restantes chegam junto do dado — Focus e Capacity na absorção do CronoCAD,
+  Next Up e Day Arc na Fase 4;
+- a linguagem está disponível para CronoCAD, M-Finance e Coded Atlas, que a importam junto
+  dos tokens; aplicá-la lá é trabalho de cada superfície, não deste corte.
