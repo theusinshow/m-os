@@ -15,7 +15,7 @@ export type TrendDatum = {
 
 const SERIES = [
   { key: "receita", name: "Receita", color: COLORS.positive },
-  { key: "comprometido", name: "Comprometido", color: COLORS.tight },
+  { key: "comprometido", name: "Comprometido", color: COLORS.muted },
   { key: "sobra", name: "Sobra", color: COLORS.accent },
 ] as const;
 

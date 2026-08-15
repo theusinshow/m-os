@@ -1,41 +1,61 @@
-@import url("https://api.fontshare.com/v2/css?f[]=panchang@500,600,700&f[]=satoshi@400,500,700,900&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+/* Tipografia do M/OS. Substitui Panchang e Satoshi, que eram a identidade
+   antiga do M-Finance. Aqui o carregamento é por rede porque isto é um app
+   web — no desktop o M/OS empacota as fontes, e não depende de rede para
+   desenhar texto. */
+@import url("https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
 
-@theme {
-  --color-background-primary: #020A06;
-  --color-background-secondary: #091009;
-  --color-background-card: #091009;
-  --color-background-hover: #0D150F;
-  --color-background-elevated: #0B120D;
-  --color-text-primary: #F5F2ED;
-  --color-text-secondary: #E8E4DE;
-  --color-text-muted: #8A8780;
-  --color-text-inverse: #020A06;
-  --color-accent: #FB3640;
-  --color-accent-hover: #ff4b54;
-  --color-accent-soft: rgba(251, 54, 64, 0.12);
-  --color-accent-border: rgba(251, 54, 64, 0.35);
-  /* Deeper red reserved for FILLED CTAs so light text reads at >=4.5:1.
-     The vivid --color-accent stays the brand mark for borders, badges, glows. */
-  --color-accent-strong: #C9202D;
-  --color-accent-strong-hover: #B31C28;
-  --color-status-positive: #54D18A;
-  --color-status-fair: #D8B45A;
-  --color-status-tight: #D98245;
-  --color-status-negative: #FB3640;
-  --color-border-subtle: rgba(245, 242, 237, 0.08);
-  --color-border-default: rgba(245, 242, 237, 0.14);
-  --color-border-strong: rgba(245, 242, 237, 0.24);
-  --font-sans: var(--font-satoshi), Satoshi, "Segoe UI", system-ui, sans-serif;
-  --font-display: var(--font-panchang), Satoshi, "Segoe UI", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Menlo", monospace;
+/* Tokens do M/OS. Precisa vir antes do `@theme`, que deriva deles. */
+@import "../../../packages/design-system/all.css";
+
+/* `@theme inline` e não `@theme`: com `inline`, as utilidades geradas apontam
+   para o valor da variável em vez de copiá-lo. É o que faz o tema seguir os
+   tokens em vez de congelar uma cópia deles no build.
+
+   Nenhum componente do M-Finance foi tocado: `bg-background-card` continua
+   sendo `bg-background-card`. O que mudou é o que esse nome vale. */
+@theme inline {
+  --color-background-primary: var(--canvas);
+  --color-background-secondary: var(--surface);
+  --color-background-card: var(--surface);
+  --color-background-hover: var(--surface-hover);
+  --color-background-elevated: var(--surface-raised);
+  --color-text-primary: var(--text);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-system);
+  --color-text-inverse: var(--on-signal);
+
+  /* O acento vermelho vira o sódio. Era a decisão mais visível do M-Finance e
+     é a que mais separava ele do M/OS: o sistema tem um acento só. */
+  --color-accent: var(--signal-ink);
+  --color-accent-hover: var(--signal-hover);
+  --color-accent-soft: var(--signal-wash);
+  --color-accent-border: var(--signal-ring);
+  /* O par `strong` existia porque texto claro sobre o vermelho vivo não batia
+     4.5:1. Sobre o sódio o problema é o oposto — ele pede texto ESCURO — então
+     o preenchimento usa o sódio e a tinta sobre ele é `--on-signal`. */
+  --color-accent-strong: var(--signal-fill);
+  --color-accent-strong-hover: var(--signal-press);
+
+  /* Dinheiro entrando e saindo continua colorido: é a informação, não
+     decoração. Os intermediários descem para a escala de texto, senão o app
+     teria quatro cores competindo com o único acento do sistema. */
+  --color-status-positive: var(--success);
+  --color-status-negative: var(--danger);
+  --color-status-fair: var(--text-secondary);
+  --color-status-tight: var(--text-system);
+
+  --color-border-subtle: var(--border);
+  --color-border-default: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --font-sans: var(--font-product);
+  --font-display: var(--font-product);
+  --font-mono: var(--font-system);
 }
 
 :root {
   color-scheme: dark;
-  --font-satoshi: "Satoshi";
-  --font-panchang: "Panchang";
 }
 
 * {
@@ -44,21 +64,24 @@
 
 html {
   min-height: 100%;
-  background: #020A06;
+  background: var(--canvas);
   scroll-behavior: smooth;
 }
 
+/* Fundo chapado, sem gradiente.
+ *
+ * O fundo antigo empilhava quatro camadas: um brilho vermelho na diagonal e
+ * uma grade de 44px. `UX-PRINCIPLES` §14 pede interface visualmente silenciosa,
+ * e o design system lista gradiente em superfície entre o que não existe — a
+ * estética vem de proporção, tipografia e ritmo, não de atmosfera no fundo. */
 body {
   min-height: 100vh;
   margin: 0;
-  background:
-    linear-gradient(135deg, rgba(251, 54, 64, 0.07) 0%, transparent 26%),
-    linear-gradient(180deg, rgba(245, 242, 237, 0.03) 0, transparent 1px),
-    linear-gradient(90deg, rgba(245, 242, 237, 0.022) 0, transparent 1px),
-    linear-gradient(180deg, #020A06 0%, #030C07 100%);
-  background-size: auto, 100% 100%, 44px 44px, 44px 44px, auto;
-  color: #F5F2ED;
-  font-family: var(--font-sans);
+  background: var(--canvas);
+  color: var(--text);
+  font-family: var(--font-product);
+  letter-spacing: var(--tracking-body);
+  -webkit-font-smoothing: antialiased;
 }
 
 a {
@@ -90,8 +113,8 @@ button:disabled {
 }
 
 ::selection {
-  background: rgba(251, 54, 64, 0.32);
-  color: #F5F2ED;
+  background: var(--signal-ring);
+  color: var(--text);
 }
 
 .focus-ring {
@@ -100,8 +123,8 @@ button:disabled {
 }
 
 .focus-ring:focus-visible {
-  outline-color: rgba(251, 54, 64, 0.8);
-  box-shadow: 0 0 0 4px rgba(251, 54, 64, 0.18);
+  outline-color: var(--signal-ink);
+  box-shadow: 0 0 0 4px var(--signal-ring);
 }
 
 /* ---------------------------------------------------------------------------
@@ -184,13 +207,15 @@ button:disabled {
   clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
 }
 
-/* Ambient triangulated texture for surfaces (very low contrast). */
+/* A grade some.
+ *
+ * Era uma textura ambiente com brilho de acento na diagonal. O design system
+ * lista gradiente em superfície e glow entre o que não existe, e
+ * `UX-PRINCIPLES` §14 pede que a estética venha de proporção, tipografia e
+ * ritmo — não de atmosfera. A classe fica, vazia de decoração, para não quebrar
+ * o markup que a referencia. */
 .brand-grid {
-  background-image:
-    linear-gradient(115deg, rgba(251, 54, 64, 0.05) 0%, transparent 30%),
-    linear-gradient(rgba(245, 242, 237, 0.022) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(245, 242, 237, 0.022) 1px, transparent 1px);
-  background-size: auto, 44px 44px, 44px 44px;
+  background-image: none;
 }
 
 /* Soft floating loop for hero ornaments. */

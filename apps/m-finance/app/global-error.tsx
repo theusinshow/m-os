@@ -32,15 +32,15 @@ export default function GlobalError({
               maxWidth: "28rem",
               borderRadius: "0.75rem",
               border: "1px solid rgba(245, 242, 237, 0.08)",
-              background: "#091009",
+              background: "#101316",
               padding: "1.5rem",
-              color: "#F5F2ED",
+              color: "#E7EAEC",
             }}
           >
             <h2 style={{ fontSize: "1.125rem", fontWeight: 600, margin: 0 }}>
               Erro inesperado
             </h2>
-            <p style={{ marginTop: "0.5rem", fontSize: "0.875rem", color: "#8A8780", lineHeight: 1.5 }}>
+            <p style={{ marginTop: "0.5rem", fontSize: "0.875rem", color: "#8C949A", lineHeight: 1.5 }}>
               O M Finance encontrou um problema e precisa recarregar.
             </p>
             <button
@@ -50,8 +50,8 @@ export default function GlobalError({
                 marginTop: "1.25rem",
                 minHeight: "2.75rem",
                 padding: "0 1rem",
-                background: "#FB3640",
-                color: "#020A06",
+                background: "#E7C24E",
+                color: "#0A0C0E",
                 fontWeight: 600,
                 border: "none",
                 borderRadius: "0.375rem",

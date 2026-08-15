@@ -1,6 +1,36 @@
 @import "./tokens.css";
 @import "./fonts.css";
 
+/* O M/OS entra DEPOIS e vence por ordem de cascata.
+ *
+ * `tokens.css` acima continua no repositório de propósito: ele documenta a
+ * identidade que o CronoCAD tinha sozinho — fundo esverdeado, sinal vermelho,
+ * Panchang e Satoshi, raio zero. Apagá-lo perderia o registro de por que as
+ * classes se chamam o que se chamam.
+ *
+ * O que muda é só o VALOR por trás de cada nome. Nenhum componente foi tocado:
+ * `bg-surface` continua sendo `bg-surface`, e passa a desenhar a superfície do
+ * M/OS. Ver ADR-033. */
+@import "../../../../packages/design-system/all.css";
+
+/* O CronoCAD retoma a PRÓPRIA escala de espaçamento.
+ *
+ * Unificar aparência não é unificar layout. A escala dele é linear de 4 em 4
+ * (0.25rem a 3rem); a do M/OS é 4·8·12·20·32·52·84, pensada para a densidade
+ * das superfícies do M/OS. Deixar o import vencer mudaria `--space-4` de 16px
+ * para 20px e `--space-6` de 24px para 52px — ou seja, todo layout do App, de
+ * uma vez, sem ninguém ter pedido e sem eu conseguir ver o resultado.
+ *
+ * Cor, tipografia e raio vêm do M/OS; medida continua sendo dele. */
+:root {
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

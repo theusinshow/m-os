@@ -84,7 +84,10 @@ export function TriangleField({
       ctx.lineTo(-t.size * 0.55, t.size * 0.42);
       ctx.closePath();
       if (t.accent) {
-        ctx.strokeStyle = `rgba(251, 54, 64, ${0.18 + t.depth * 0.45})`;
+        // Sódio, não o vermelho da marca antiga. Canvas não lê custom
+        // property, então o valor de `--signal-fill` vem literal aqui — mesma
+        // exceção documentada em `lib/ui/colors.ts`.
+        ctx.strokeStyle = `rgba(231, 194, 78, ${0.18 + t.depth * 0.45})`;
         ctx.lineWidth = 1.1;
         ctx.stroke();
       } else {

@@ -1,0 +1,4 @@
+/* Ponto de entrada único: tokens do M/OS mais a tradução dos vocabulários dos
+   Apps. A ordem importa — `aliases.css` deriva de `tokens.css`. */
+@import "./tokens.css";
+@import "./aliases.css";

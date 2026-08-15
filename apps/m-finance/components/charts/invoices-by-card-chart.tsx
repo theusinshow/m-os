@@ -36,7 +36,7 @@ export function InvoicesByCardChart({ data }: { data: InvoiceCardDatum[] }) {
           <Bar dataKey="value" name="Fatura" radius={[4, 4, 0, 0]}>
             {sorted.map((entry) => (
               // PJ cards in the warm fair tone, personal in brand red, matching the cards UI.
-              <Cell fill={entry.isBusiness ? COLORS.fair : COLORS.accent} key={entry.name} />
+              <Cell fill={entry.isBusiness ? COLORS.textSecondary : COLORS.accent} key={entry.name} />
             ))}
           </Bar>
         </BarChart>

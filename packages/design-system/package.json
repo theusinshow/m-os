@@ -1,0 +1,17 @@
+{
+  "name": "@m-os/design-system",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Tokens do M/OS e a tradução dos vocabulários dos Apps do monorepo.",
+  "type": "module",
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./aliases.css": "./aliases.css",
+    "./all.css": "./all.css"
+  },
+  "files": [
+    "tokens.css",
+    "aliases.css",
+    "all.css"
+  ]
+}

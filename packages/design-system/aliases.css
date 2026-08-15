@@ -1,0 +1,108 @@
+/* ============================================================
+   M/OS — tradução de vocabulários
+
+   Os Apps que entraram no monorepo já tinham nomes semânticos próprios para
+   cor: o CronoCAD fala `--color-surface`, o Coded Atlas fala `--color-base`, e
+   os dois tinham paletas diferentes por trás desses nomes.
+
+   Este arquivo não repinta componente nenhum. Ele redefine o que cada nome
+   VALE, apontando todos para os tokens do M/OS. É a diferença entre reescrever
+   centenas de componentes e trocar a fonte de luz da sala: o código de cada App
+   continua dizendo `bg-surface`, e passa a desenhar a superfície do M/OS.
+
+   Importar SEMPRE depois de `tokens.css` — estes valores derivam dele.
+   ============================================================ */
+
+:root {
+  /* ---------- Tipografia e geometria ----------
+     Os Apps nomeiam a família de fonte de outro jeito. Sem traduzir isto, o
+     CronoCAD continuaria em Panchang e Satoshi, e o Atlas na pilha de sistema —
+     e a unificação pararia na cor, que é a metade menos reconhecível. */
+  --font-sans: var(--font-product);
+  --font-display: var(--font-product);
+  --font-mono: var(--font-system);
+
+  /* O CronoCAD tem `--radius-md`, que não existe no M/OS. Sem esta linha ele
+     ficaria com `sm` e `lg` do M/OS e `md` no zero antigo — arestas e cantos
+     arredondados no mesmo componente. */
+  --radius-md: var(--radius);
+
+  /* ---------- CronoCAD ----------
+     Vocabulário de `apps/cronocad/src/styles/tokens.css`, mapeado 1:1 onde
+     havia equivalente direto. */
+  --color-bg: var(--canvas);
+  --color-bg-subtle: var(--surface);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-text: var(--text);
+  --color-text-muted: var(--text-secondary);
+  --color-text-subtle: var(--text-system);
+  --color-text-inverted: var(--on-signal);
+
+  --color-accent: var(--signal-ink);
+  --color-accent-hover: var(--signal-hover);
+  --color-accent-muted: var(--signal-wash);
+  --color-accent-contrast: var(--on-signal);
+
+  /* Estados do cronômetro. `running` é o único que ganha o sódio: no M/OS a
+     cor primária significa "agora", e um cronômetro rodando é exatamente isso.
+     Pausado e parado descem para a escala de texto, porque deixar três estados
+     coloridos faria o sódio perder o significado que ele carrega no resto do
+     sistema. */
+  --color-state-running: var(--signal-ink);
+  --color-state-paused: var(--text-system);
+  --color-state-stopped: var(--text-disabled);
+
+  --color-danger: var(--danger);
+  --color-danger-muted: color-mix(in oklab, var(--danger) 16%, transparent);
+  --color-success: var(--success);
+  /* Warning não tem cor no M/OS: é `--text` mais ícone e frase. Manter um
+     amarelo aqui competiria com o sódio, que é o único acento do sistema. */
+  --color-warning: var(--text);
+
+  /* ---------- Coded Atlas ----------
+     O Atlas usa Tailwind 4 e declara o tema em `@theme`; estes nomes existem
+     para o CSS fora do tema e para manter os dois vocabulários no mesmo lugar. */
+  --color-accent-bright: var(--signal-hover);
+  --color-accent-dim: var(--signal-press);
+  --color-ok: var(--success);
+  --color-bad: var(--danger);
+  --color-warn: var(--text);
+  --color-base: var(--canvas);
+  --color-surface-2: var(--surface-raised);
+  --color-line: var(--border);
+  --color-line-soft: var(--surface-hover);
+
+  /* ---------- M-Finance ----------
+     A paleta dele era verde-escura com acento vermelho, escrita em hex direto
+     no `tailwind.config.ts`. O config passa a apontar para cá. */
+  --color-bg-primary: var(--canvas);
+  --color-bg-secondary: var(--surface);
+  --color-bg-card: var(--surface);
+  --color-bg-hover: var(--surface-hover);
+  --color-bg-elevated: var(--surface-raised);
+
+  --color-text-primary: var(--text);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-system);
+  --color-text-inverse: var(--on-signal);
+
+  --color-accent-soft: var(--signal-wash);
+  --color-accent-border: var(--signal-ring);
+
+  /* Status financeiro. `positive` e `negative` mantêm cor porque dinheiro
+     entrando e saindo é a informação, não decoração — e são os dois únicos
+     estados semânticos que o M/OS já define. Os intermediários descem para a
+     escala de texto pelo mesmo motivo dos estados do cronômetro. */
+  --color-status-positive: var(--success);
+  --color-status-negative: var(--danger);
+  --color-status-fair: var(--text-secondary);
+  --color-status-tight: var(--text-system);
+
+  --color-border-subtle: var(--border);
+  --color-border-default: var(--border);
+}

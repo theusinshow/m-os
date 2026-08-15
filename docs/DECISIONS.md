@@ -48,6 +48,7 @@ Estados possíveis:
 | ADR-030 | A superfície Hermes adota a direção Marginália | Accepted |
 | ADR-031 | O rail carrega oito destinos, e o teto de seis vira regra de crescimento | Accepted |
 | ADR-032 | Os Apps próprios entram no monorepo, com profundidade decidida por app | Accepted |
+| ADR-033 | A unificação troca o valor por trás do nome, não o componente | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -943,3 +944,73 @@ sem exigir que os três virem a mesma coisa.
   trabalho;
 - o M/OS passa a ter apps web no repositório sem ter, ainda, workspace npm; isso entra
   quando houver dependência compartilhada de verdade, e não antes.
+
+---
+
+## ADR-033 — A unificação troca o valor por trás do nome, não o componente
+
+**Aceita em:** 2026-08-15, na unificação do design system (ADR-032, fase 2).
+
+### Contexto
+
+Os três Apps chegaram ao monorepo com vocabulários e paletas próprios:
+
+| App | Tailwind | Vocabulário | Identidade |
+|---|---|---|---|
+| CronoCAD | 3, via `tailwind.config.js` | `--color-surface`, `--color-accent` | fundo esverdeado, sinal vermelho, Panchang + Satoshi, raio 0 |
+| M-Finance | 4, via `@theme` | `--color-background-card`, `--color-accent` | verde profundo, acento vermelho, gradientes e grade |
+| Coded Atlas | 4, via `@theme` | `--color-base`, `--color-line` | neutros frios em hue 265, acento cobre |
+
+Reescrever componente a componente seriam ~350 arquivos, e cada um deles uma chance de
+errar sem poder conferir na tela.
+
+### Decisão
+
+Um pacote, `packages/design-system`, com três arquivos: `tokens.css` (a fundação do M/OS),
+`aliases.css` (a tradução dos vocabulários) e `all.css` (os dois, na ordem certa).
+
+**A unificação acontece em `aliases.css`, e ela não repinta componente nenhum.** Ela
+redefine o que cada nome VALE. O código de cada App continua dizendo `bg-surface`,
+`bg-background-card`, `text-accent` — e passa a desenhar as superfícies do M/OS. É a
+diferença entre repintar a sala e trocar a lâmpada.
+
+Nos dois Apps em Tailwind 4 o tema usa `@theme inline`, e não `@theme`: com `inline`, as
+utilidades apontam para o valor da variável em vez de copiá-lo, então o tema segue os
+tokens em vez de congelar uma cópia no build.
+
+### O limite: aparência é unificada, medida não
+
+O CronoCAD tem escala de espaçamento própria, linear de 4 em 4. A do M/OS é
+4·8·12·20·32·52·84, pensada para a densidade das superfícies dele. Deixar o import vencer
+mudaria `--space-4` de 16px para 20px e `--space-6` de 24px para 52px — todo o layout do
+App, de uma vez, sem ninguém ter pedido.
+
+Ele retoma a própria escala depois do import. **Cor, tipografia e raio vêm do M/OS; medida
+continua sendo de cada App.** Unificar aparência não é unificar layout, e tratar as duas
+como a mesma coisa é como esta unificação quebraria.
+
+### A exceção autorizada ao "nenhuma cor hardcoded"
+
+Recharts e widgets de canvas/SVG não leem custom property. `apps/m-finance/lib/ui/colors.ts`
+e o canvas de `triangle-field.tsx` carregam hex literal — e é deliberado que a exceção
+viva em dois lugares nomeados, em vez de espalhada.
+
+A paleta categórica de gráfico virou **rampa de claridade**, não sequência de matizes: o
+sistema tem um acento só, e inventar cinco matizes devolveria pela porta do gráfico a
+paleta que o design system recusa na interface. Diferenciar por luminosidade também
+sobrevive ao daltonismo, o que matiz não faz.
+
+### Consequências
+
+- os tokens passam a ser lidos de `packages/design-system`; a pasta `Design System/`
+  continua sendo o arquivo da entrega do designer, e é dela que um handoff novo é
+  transposto para o pacote — isto estende ADR-019 sem contrariá-la;
+- `apps/cronocad/src/styles/tokens.css` fica no repositório de propósito: ele registra a
+  identidade que o App tinha sozinho, e explica por que as classes se chamam o que se
+  chamam;
+- decoração saiu junto — gradiente de fundo, brilho de acento e grade ambiente no
+  M-Finance, contra o que `UX-PRINCIPLES` §14 e a lista do design system já pediam;
+- `apps/m-finance/tailwind.config.ts` foi removido: era Tailwind 3 vestigial, que nada
+  referenciava, carregando a paleta antiga — quem editasse ali não veria efeito nenhum;
+- o que NÃO foi feito: revisão tela a tela. Componente que fixou cor ou espaçamento fora
+  do vocabulário continua fora, e só aparece olhando cada superfície.

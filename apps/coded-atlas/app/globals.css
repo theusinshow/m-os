@@ -1,36 +1,44 @@
+@import url("https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
+
+/* Tokens do M/OS. Precisa vir antes do `@theme`, que deriva deles. */
+@import "../../../packages/design-system/all.css";
 
 /* ─────────────────────────────────────────────────────────────────────────
    Coded Atlas — design tokens
    Neutros frios (tintados, nunca #000/#fff). Um acento cobre, usado só em
    estados ativos, links, foco e passo atual. Status reservado a estado.
    ───────────────────────────────────────────────────────────────────────── */
-@theme {
-  /* Acento — cobre/âmbar (conceito atlas/cartografia, foge do clichê dev) */
-  --color-accent:        oklch(0.72 0.115 62);
-  --color-accent-bright: oklch(0.80 0.115 66);
-  --color-accent-dim:    oklch(0.55 0.085 60);
+/* `@theme inline` e não `@theme`: com `inline`, as utilidades geradas apontam
+   para o valor da variável em vez de copiá-lo — é o que faz o tema seguir os
+   tokens do M/OS em vez de congelar uma cópia no build.
+
+   Nenhum componente foi tocado: `bg-surface` continua `bg-surface`. */
+@theme inline {
+  /* O acento cobre vira o sódio. O M/OS tem um acento só, e duas tintas
+     âmbar-adjacentes lado a lado leriam como erro de calibragem. */
+  --color-accent:        var(--signal-ink);
+  --color-accent-bright: var(--signal-hover);
+  --color-accent-dim:    var(--signal-press);
 
   /* Status semântico */
-  --color-ok:   oklch(0.76 0.14 158);
-  --color-bad:  oklch(0.68 0.19 25);
-  --color-warn: oklch(0.81 0.12 80);
+  --color-ok:   var(--success);
+  --color-bad:  var(--danger);
+  /* Warning não tem cor no M/OS: é texto mais ícone e frase. */
+  --color-warn: var(--text);
 
-  /* Superfícies frias tintadas (hue ~260) */
-  --color-base:      oklch(0.165 0.006 265);
-  --color-surface:   oklch(0.205 0.007 265);
-  --color-surface-2: oklch(0.245 0.008 265);
-  --color-line:      oklch(0.30 0.008 265);
-  --color-line-soft: oklch(0.245 0.008 265);
+  /* As superfícies frias tintadas em hue 265 dão lugar às do M/OS, que partem
+     de neutro puro e recebem cromaticidade mínima. */
+  --color-base:      var(--canvas);
+  --color-surface:   var(--surface);
+  --color-surface-2: var(--surface-raised);
+  --color-line:      var(--border);
+  --color-line-soft: var(--surface-hover);
 }
 
 :root {
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, Helvetica, Arial, sans-serif;
-  --font-mono:
-    ui-monospace, "SFMono-Regular", "JetBrains Mono", "Cascadia Code",
-    "Menlo", "Consolas", monospace;
+  --font-sans: var(--font-product);
+  --font-mono: var(--font-system);
 }
 
 html {
@@ -42,8 +50,9 @@ html {
 }
 
 body {
-  background: var(--color-base);
-  color: oklch(0.97 0.004 265); /* texto primário — branco gelo alto contraste */
+  background: var(--canvas);
+  color: var(--text);
+  letter-spacing: var(--tracking-body);
 }
 
 /* Scrollbar discreta tintada */
@@ -55,10 +64,10 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-surface-2); }
 
-/* Seleção em cobre discreto */
+/* Seleção em sódio discreto */
 ::selection {
-  background: oklch(0.72 0.115 62 / 0.30);
-  color: oklch(0.98 0.004 265);
+  background: var(--signal-ring);
+  color: var(--text);
 }
 
 /* Foco em cobre — visível, consistente no app inteiro */
