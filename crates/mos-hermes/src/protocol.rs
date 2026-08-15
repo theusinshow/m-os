@@ -39,6 +39,27 @@ pub enum HermesEvent {
     ApprovalRequest {
         prompt: String,
     },
+    /// Evento de ENTRADA, e o segundo desta classe.
+    ///
+    /// O agente nao pede permissao aqui: pede INFORMACAO. Passa pelo mesmo
+    /// `_block()` do approval (`server.py:1398`), que emite e trava a thread do
+    /// agente ate `clarify.respond` chegar, com teto de 300 s. Ignorar isto
+    /// congela a resposta por cinco minutos e o turno segue com texto vazio.
+    ClarifyRequest {
+        /// Correlaciona a resposta. Vem do proprio `_block`, nao do payload
+        /// original — e sem ele `_respond` devolve "no pending answer request".
+        request_id: String,
+        question: String,
+        /// Opcoes sugeridas. Pode vir vazio: nem toda clarificacao e escolha.
+        choices: Vec<String>,
+    },
+    /// Evento de ENTRADA, o terceiro. O agente pede senha de sudo NA VPS.
+    ///
+    /// O M/OS nao tem o que perguntar aqui — ver `Bridge::next`. O evento chega
+    /// a superficie so para a recusa poder ser explicada.
+    SudoRequest {
+        request_id: String,
+    },
     Status {
         text: String,
     },
@@ -89,6 +110,24 @@ fn text_of(payload: &Value, key: &str) -> String {
         .to_owned()
 }
 
+/// Lista de strings tolerante: ausente, nula ou de outro tipo vira vazia.
+///
+/// O `choices` do clarify vem de um callback Python sem contrato de tipo
+/// (`clarify_callback: lambda q, c`), entao recusar o frame inteiro por causa
+/// da forma dessa lista trocaria uma pergunta legivel por um erro de protocolo.
+fn strings_of(payload: &Value, key: &str) -> Vec<String> {
+    payload
+        .get(key)
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 impl HermesEvent {
     pub fn parse(frame: &str) -> Result<Self, HermesError> {
         let envelope: Envelope = serde_json::from_str(frame)
@@ -127,6 +166,14 @@ impl HermesEvent {
             },
             "approval.request" => Self::ApprovalRequest {
                 prompt: text_of(payload, "prompt"),
+            },
+            "clarify.request" => Self::ClarifyRequest {
+                request_id: text_of(payload, "request_id"),
+                question: text_of(payload, "question"),
+                choices: strings_of(payload, "choices"),
+            },
+            "sudo.request" => Self::SudoRequest {
+                request_id: text_of(payload, "request_id"),
             },
             "status.update" => Self::Status {
                 text: text_of(payload, "text"),
@@ -192,6 +239,48 @@ impl Request {
             }),
         )
     }
+
+    /// Responde a clarificacao.
+    ///
+    /// Sem `session_id` de proposito: `_respond` (`server.py:7119`) correlaciona
+    /// pelo `request_id` e nao chama `_sess`. Mandar sessao aqui seria copiar o
+    /// formato do approval por analogia, e o servidor ignoraria.
+    pub fn clarify_respond(id: i64, request_id: &str, answer: &str) -> String {
+        Self::call(
+            id,
+            "clarify.respond",
+            json!({ "request_id": request_id, "answer": answer }),
+        )
+    }
+
+    /// Responde ao pedido de sudo com senha vazia, que e a recusa.
+    ///
+    /// O M/OS nunca pede senha de root da VPS ao usuario: um campo de senha que
+    /// aparece sozinho dentro de uma conversa tem a forma exata de um phishing,
+    /// e a credencial nem sequer e do M/OS. Responder vazio destrava o agente na
+    /// hora, em vez de deixa-lo esperando os 120 s do `_block`.
+    pub fn sudo_refuse(id: i64, request_id: &str) -> String {
+        Self::call(
+            id,
+            "sudo.respond",
+            json!({ "request_id": request_id, "password": "" }),
+        )
+    }
+
+    /// Reidrata a conversa. O historico e da VPS; o M/OS le e projeta.
+    pub fn session_history(id: i64, session_id: &str) -> String {
+        Self::call(id, "session.history", json!({ "session_id": session_id }))
+    }
+
+    /// Renomeia a sessao. Sem `title`, o servidor devolve o titulo atual — e e
+    /// assim que o titulo automatico chega, sem o M/OS inventar um.
+    pub fn session_title(id: i64, session_id: &str, title: Option<&str>) -> String {
+        let params = match title {
+            Some(title) => json!({ "session_id": session_id, "title": title }),
+            None => json!({ "session_id": session_id }),
+        };
+        Self::call(id, "session.title", params)
+    }
 }
 
 #[cfg(test)]
@@ -230,6 +319,76 @@ mod tests {
             HermesEvent::ApprovalRequest { prompt } => assert_eq!(prompt, "rodar git push?"),
             other => panic!("esperava ApprovalRequest, veio {other:?}"),
         }
+    }
+
+    /// O segundo evento de entrada. Ate a auditoria de 2026-08-15 ele caia em
+    /// `Unknown`, era descartado pela UI, e o turno congelava por 300 s.
+    #[test]
+    fn parses_a_clarify_request_with_its_request_id() {
+        let frame = r#"{"jsonrpc":"2.0","method":"event","params":{"type":"clarify.request","payload":{"question":"qual projeto?","choices":["Minarum","M-Finance"],"request_id":"a1b2"}}}"#;
+        match HermesEvent::parse(frame).unwrap() {
+            HermesEvent::ClarifyRequest {
+                request_id,
+                question,
+                choices,
+            } => {
+                assert_eq!(request_id, "a1b2");
+                assert_eq!(question, "qual projeto?");
+                assert_eq!(choices, vec!["Minarum".to_owned(), "M-Finance".to_owned()]);
+            }
+            other => panic!("esperava ClarifyRequest, veio {other:?}"),
+        }
+    }
+
+    /// `choices` vem de um callback Python sem contrato de tipo. Ausente ou de
+    /// outro tipo nao pode transformar uma pergunta legivel em erro de frame.
+    #[test]
+    fn a_clarify_without_choices_is_still_a_question() {
+        let frame = r#"{"jsonrpc":"2.0","method":"event","params":{"type":"clarify.request","payload":{"question":"e ai?","request_id":"c3"}}}"#;
+        match HermesEvent::parse(frame).unwrap() {
+            HermesEvent::ClarifyRequest {
+                choices, question, ..
+            } => {
+                assert!(choices.is_empty());
+                assert_eq!(question, "e ai?");
+            }
+            other => panic!("esperava ClarifyRequest, veio {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_a_sudo_request() {
+        let frame = r#"{"jsonrpc":"2.0","method":"event","params":{"type":"sudo.request","payload":{"request_id":"s9"}}}"#;
+        match HermesEvent::parse(frame).unwrap() {
+            HermesEvent::SudoRequest { request_id } => assert_eq!(request_id, "s9"),
+            other => panic!("esperava SudoRequest, veio {other:?}"),
+        }
+    }
+
+    /// `_respond` correlaciona por `request_id` e nao chama `_sess`. Mandar
+    /// session_id seria copiar o formato do approval por analogia.
+    #[test]
+    fn clarify_respond_correlates_by_request_id_and_omits_the_session() {
+        let frame = Request::clarify_respond(1, "a1b2", "Minarum");
+        assert!(frame.contains(r#""method":"clarify.respond""#));
+        assert!(frame.contains(r#""request_id":"a1b2""#));
+        assert!(frame.contains(r#""answer":"Minarum""#));
+        assert!(!frame.contains("session_id"));
+    }
+
+    #[test]
+    fn sudo_is_refused_with_an_empty_password() {
+        let frame = Request::sudo_refuse(1, "s9");
+        assert!(frame.contains(r#""method":"sudo.respond""#));
+        assert!(frame.contains(r#""password":"""#));
+    }
+
+    /// Sem `title` o servidor devolve o titulo atual. E assim que o titulo
+    /// automatico chega, em vez de o M/OS inventar um.
+    #[test]
+    fn session_title_reads_when_no_title_is_given() {
+        assert!(!Request::session_title(1, "abc", None).contains("\"title\""));
+        assert!(Request::session_title(1, "abc", Some("Hermes")).contains(r#""title":"Hermes""#));
     }
 
     #[test]

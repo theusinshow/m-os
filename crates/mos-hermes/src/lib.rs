@@ -21,7 +21,7 @@ mod protocol;
 mod transport;
 
 pub use auth::{Credentials, Gateway, GatewayStatus};
-pub use bridge::{Bridge, Outcome};
+pub use bridge::{Bridge, HistoryMessage, Outcome};
 pub use protocol::{HermesEvent, Request};
 pub use transport::{connect, Channels};
 

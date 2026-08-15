@@ -3,6 +3,8 @@
 //! Nao conhece rede. Recebe `Channels` e opera sobre eles, o que faz todos os
 //! cenarios da spec rodarem sem tocar a rede.
 
+use std::collections::HashMap;
+
 #[cfg(test)]
 use tokio::sync::mpsc;
 
@@ -31,6 +33,29 @@ pub enum Outcome {
     Approval {
         prompt: String,
     },
+    /// O agente parou e espera INFORMACAO, nao permissao.
+    Clarify {
+        request_id: String,
+        question: String,
+        choices: Vec<String>,
+    },
+    /// O agente pediu senha de sudo na VPS e a ponte ja recusou por politica.
+    /// Chega a superficie so para a recusa poder ser explicada — nao ha decisao
+    /// pendente aqui.
+    SudoRefused,
+    /// `status.update`. Antes era absorvido e perdido; e o texto que explica o
+    /// que o agente esta fazendo entre um token e outro.
+    Status {
+        text: String,
+    },
+    /// Resposta de `session.history`. E a conversa que ja existia na VPS.
+    History {
+        messages: Vec<HistoryMessage>,
+    },
+    /// Resposta de `session.title`, com ou sem titulo pedido.
+    Title {
+        title: String,
+    },
     Busy,
     Failed {
         message: String,
@@ -41,15 +66,42 @@ pub enum Outcome {
     },
 }
 
+/// Uma mensagem do historico da VPS.
+///
+/// Deliberadamente rasa: o M/OS projeta isto em `Message`/`MessagePart` do lado
+/// do dominio, e a ponte nao conhece esse modelo.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryMessage {
+    /// `user`, `assistant`, `tool` ou `system`.
+    pub role: String,
+    pub content: String,
+    /// Preenchido so quando `role` e `tool`.
+    pub tool_name: String,
+}
+
+/// O que esperamos de volta de um request nosso.
+///
+/// Substituiu um `Option<i64>` que so sabia rastrear o resume. Com history e
+/// title no caminho, correlacionar por id deixou de ser caso especial.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Pending {
+    Resume,
+    Session,
+    History,
+    Title,
+}
+
 pub struct Bridge {
     channels: Channels,
     state: ConnectionState,
     session_id: Option<String>,
     next_id: i64,
-    /// Id do request de `session.resume` em voo, para reconhecer a rejeicao
-    /// dele e cair em `session.create`. Sem isso, uma sessao que sumiu da VPS
-    /// deixava o Hermes inutilizavel ate o app reiniciar.
-    pending_resume: Option<i64>,
+    /// Requests em voo, por id. Reconhecer a rejeicao de um `session.resume`
+    /// para cair em `session.create` continua sendo o caso critico — sem isso,
+    /// uma sessao que sumiu da VPS deixava o Hermes inutilizavel ate o app
+    /// reiniciar.
+    pending: HashMap<i64, Pending>,
 }
 
 impl Bridge {
@@ -62,7 +114,7 @@ impl Bridge {
             state: ConnectionState::Connecting,
             session_id: None,
             next_id: 1,
-            pending_resume: None,
+            pending: HashMap::new(),
         }
     }
 
@@ -95,26 +147,64 @@ impl Bridge {
         let id = self.take_id();
         let frame = match resume {
             Some(session_id) => {
-                self.pending_resume = Some(id);
+                self.pending.insert(id, Pending::Resume);
                 Request::session_resume(id, session_id)
             }
-            None => Request::session_create(id),
+            None => {
+                self.pending.insert(id, Pending::Session);
+                Request::session_create(id)
+            }
         };
         self.send(frame).await
     }
 
     /// Abre sessao nova depois de um resume rejeitado.
     async fn create_after_failed_resume(&mut self) -> Result<(), HermesError> {
-        self.pending_resume = None;
         let id = self.take_id();
+        self.pending.insert(id, Pending::Session);
         self.send(Request::session_create(id)).await
     }
 
-    pub async fn submit(&mut self, text: &str) -> Result<(), HermesError> {
-        let session_id = self
-            .session_id
+    /// Pede o historico que ja existe na VPS.
+    ///
+    /// E o que torna a conversa continua entre aberturas do app: o M/OS guarda o
+    /// vinculo, e o conteudo vem de la.
+    pub async fn request_history(&mut self) -> Result<(), HermesError> {
+        let session_id = self.require_session()?;
+        let id = self.take_id();
+        self.pending.insert(id, Pending::History);
+        self.send(Request::session_history(id, &session_id)).await
+    }
+
+    /// Define o titulo, ou pede o atual quando `title` e `None`.
+    pub async fn set_title(&mut self, title: Option<&str>) -> Result<(), HermesError> {
+        let session_id = self.require_session()?;
+        let id = self.take_id();
+        self.pending.insert(id, Pending::Title);
+        self.send(Request::session_title(id, &session_id, title))
+            .await
+    }
+
+    /// Responde a clarificacao. Sem sessao no frame: a correlacao e por
+    /// `request_id`, e o servidor nao consulta a sessao aqui.
+    pub async fn respond_clarify(
+        &mut self,
+        request_id: &str,
+        answer: &str,
+    ) -> Result<(), HermesError> {
+        let id = self.take_id();
+        self.send(Request::clarify_respond(id, request_id, answer))
+            .await
+    }
+
+    fn require_session(&self) -> Result<String, HermesError> {
+        self.session_id
             .clone()
-            .ok_or_else(|| HermesError::Gateway("Nenhuma sessao aberta no Hermes.".into()))?;
+            .ok_or_else(|| HermesError::Gateway("Nenhuma sessao aberta no Hermes.".into()))
+    }
+
+    pub async fn submit(&mut self, text: &str) -> Result<(), HermesError> {
+        let session_id = self.require_session()?;
         let id = self.take_id();
         self.send(Request::prompt_submit(id, &session_id, text))
             .await
@@ -131,10 +221,7 @@ impl Bridge {
     }
 
     pub async fn respond_approval(&mut self, approved: bool) -> Result<(), HermesError> {
-        let session_id = self
-            .session_id
-            .clone()
-            .ok_or_else(|| HermesError::Gateway("Nenhuma sessao aberta no Hermes.".into()))?;
+        let session_id = self.require_session()?;
         let id = self.take_id();
         self.send(Request::approval_respond(id, &session_id, approved))
             .await
@@ -184,13 +271,26 @@ impl Bridge {
 
             // Resume rejeitado: a sessao sumiu da VPS, ou o gateway nao conhece
             // o metodo. Abrir uma nova em vez de deixar o Hermes inutilizavel.
-            if let HermesEvent::Rejected { id, .. } = &event {
-                if id.is_some() && *id == self.pending_resume {
+            if let HermesEvent::Rejected { id: Some(id), .. } = &event {
+                if self.pending.remove(id) == Some(Pending::Resume) {
                     if let Err(error) = self.create_after_failed_resume().await {
                         return Some(Err(error));
                     }
                     continue;
                 }
+            }
+
+            // Sudo e decisao de politica, nao do usuario: a ponte recusa aqui
+            // mesmo e destrava o agente na hora. Levar isto ate a UI para
+            // esperar um clique manteria a thread do agente parada por 120 s
+            // para chegar a mesma resposta.
+            if let HermesEvent::SudoRequest { request_id } = &event {
+                let id = self.take_id();
+                let frame = Request::sudo_refuse(id, request_id);
+                if let Err(error) = self.send(frame).await {
+                    return Some(Err(error));
+                }
+                return Some(Ok(Outcome::SudoRefused));
             }
 
             if let Some(outcome) = self.absorb(event, &frame) {
@@ -218,19 +318,46 @@ impl Bridge {
                 running: false,
             })),
             HermesEvent::ApprovalRequest { prompt } => Some(Ok(Outcome::Approval { prompt })),
+            HermesEvent::ClarifyRequest {
+                request_id,
+                question,
+                choices,
+            } => Some(Ok(Outcome::Clarify {
+                request_id,
+                question,
+                choices,
+            })),
+            // Ja tratado em `next`, antes de chegar aqui.
+            HermesEvent::SudoRequest { .. } => None,
             HermesEvent::Failed { message } => Some(Ok(Outcome::Failed { message })),
-            HermesEvent::Status { .. } => None,
+            HermesEvent::Status { text } => Some(Ok(Outcome::Status { text })),
             // 4009 e envio concorrente: a UI oferece cancelar, nao repete.
             HermesEvent::Rejected { code: 4009, .. } => Some(Ok(Outcome::Busy)),
             HermesEvent::Rejected { code, message, .. } => Some(Ok(Outcome::Failed {
                 message: format!("{message} ({code})"),
             })),
             HermesEvent::Unknown { kind } => {
+                // Resposta a um request nosso chega como `result`, sem `params`,
+                // entao nao tem tipo de evento — a correlacao e pelo id.
+                if let Some((id, result)) = result_of(frame) {
+                    match self.pending.remove(&id) {
+                        Some(Pending::History) => {
+                            return Some(Ok(Outcome::History {
+                                messages: history_from(&result),
+                            }))
+                        }
+                        Some(Pending::Title) => {
+                            return Some(Ok(Outcome::Title {
+                                title: title_from(&result),
+                            }))
+                        }
+                        Some(Pending::Resume | Pending::Session) | None => {}
+                    }
+                }
                 // session.create e session.resume respondem com o id da sessao
                 // num result, nao num evento tipado. Colhemos aqui.
                 if let Some(session_id) = session_id_from(frame) {
                     self.session_id = Some(session_id);
-                    self.pending_resume = None;
                     return None;
                 }
                 Some(Ok(Outcome::UnknownFrame { kind }))
@@ -247,6 +374,64 @@ fn session_id_from(frame: &str) -> Option<String> {
         .get("session_id")?
         .as_str()
         .map(str::to_owned)
+}
+
+/// Extrai `(id, result)` de uma resposta nossa. `None` quando o frame nao e
+/// resposta — evento nao tem `result`.
+fn result_of(frame: &str) -> Option<(i64, serde_json::Value)> {
+    let value: serde_json::Value = serde_json::from_str(frame).ok()?;
+    let id = value.get("id")?.as_i64()?;
+    Some((id, value.get("result")?.clone()))
+}
+
+/// Projeta `result.messages` de `session.history`.
+///
+/// Tolerante por escolha: uma mensagem malformada e pulada em vez de derrubar a
+/// reidratacao inteira. Perder uma linha do historico e ruim; perder a conversa
+/// toda porque uma linha divergiu e pior.
+fn history_from(result: &serde_json::Value) -> Vec<HistoryMessage> {
+    let Some(messages) = result.get("messages").and_then(|value| value.as_array()) else {
+        return Vec::new();
+    };
+    messages
+        .iter()
+        .filter_map(|message| {
+            let role = message.get("role")?.as_str()?.to_owned();
+            let content = message
+                .get("content")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_owned();
+            let tool_name = message
+                .get("name")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_owned();
+            // Mensagem de ferramenta traz `context` no lugar de `content`.
+            let content = if content.is_empty() {
+                message
+                    .get("context")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_owned()
+            } else {
+                content
+            };
+            Some(HistoryMessage {
+                role,
+                content,
+                tool_name,
+            })
+        })
+        .collect()
+}
+
+fn title_from(result: &serde_json::Value) -> String {
+    result
+        .get("title")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_owned()
 }
 
 /// Canais para exercitar a ponte sem rede.
@@ -480,6 +665,145 @@ mod tests {
             ConnectionState::Online,
             "o socket continua vivo, entao o estado tambem"
         );
+    }
+
+    /// O defeito que a auditoria de 2026-08-15 encontrou.
+    ///
+    /// `clarify.request` passa pelo mesmo `_block()` do approval: emite e trava
+    /// a thread do agente por ate 300 s esperando `clarify.respond`. Enquanto
+    /// caia em `Unknown`, a UI o descartava e a resposta congelava sem causa na
+    /// tela. Ele tem que chegar a superficie com o `request_id`, porque sem ele
+    /// a resposta nao correlaciona.
+    #[tokio::test]
+    async fn clarify_reaches_the_surface_with_its_request_id() {
+        let (channels, _sent, push) = fake_channels();
+        let mut bridge = Bridge::new(channels);
+
+        push.send(Ok(
+            r#"{"jsonrpc":"2.0","method":"event","params":{"type":"clarify.request","payload":{"question":"qual projeto?","choices":["Minarum"],"request_id":"a1b2"}}}"#.into(),
+        ))
+        .await
+        .unwrap();
+
+        assert_eq!(
+            bridge.next().await.unwrap().unwrap(),
+            Outcome::Clarify {
+                request_id: "a1b2".into(),
+                question: "qual projeto?".into(),
+                choices: vec!["Minarum".into()],
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn responding_to_a_clarify_correlates_by_request_id() {
+        let (channels, mut sent, _push) = fake_channels();
+        let mut bridge = Bridge::new(channels);
+
+        bridge.respond_clarify("a1b2", "Minarum").await.unwrap();
+        let frame = sent.recv().await.unwrap();
+        assert!(frame.contains(r#""method":"clarify.respond""#));
+        assert!(frame.contains(r#""request_id":"a1b2""#));
+    }
+
+    /// Sudo e decisao de politica: a ponte recusa sozinha, na hora.
+    ///
+    /// O M/OS nao tem senha de root da VPS para oferecer, e um campo de senha
+    /// que aparece sozinho no meio de uma conversa tem a forma de um phishing.
+    /// Esperar um clique do usuario para chegar na mesma recusa manteria o
+    /// agente parado pelos 120 s do `_block`.
+    #[tokio::test]
+    async fn sudo_is_refused_by_the_bridge_without_asking_anyone() {
+        let (channels, mut sent, push) = fake_channels();
+        let mut bridge = Bridge::new(channels);
+
+        push.send(Ok(
+            r#"{"jsonrpc":"2.0","method":"event","params":{"type":"sudo.request","payload":{"request_id":"s9"}}}"#.into(),
+        ))
+        .await
+        .unwrap();
+
+        assert_eq!(
+            bridge.next().await.unwrap().unwrap(),
+            Outcome::SudoRefused,
+            "a recusa precisa chegar a superficie para poder ser explicada"
+        );
+        let frame = sent.recv().await.unwrap();
+        assert!(frame.contains(r#""method":"sudo.respond""#));
+        assert!(frame.contains(r#""password":"""#));
+    }
+
+    /// `status.update` era absorvido e perdido. E o texto que explica o que o
+    /// agente faz entre um token e outro.
+    #[tokio::test]
+    async fn status_reaches_the_surface() {
+        let (channels, _sent, push) = fake_channels();
+        let mut bridge = Bridge::new(channels);
+
+        push.send(Ok(
+            r#"{"jsonrpc":"2.0","method":"event","params":{"type":"status.update","payload":{"text":"lendo 4 fontes"}}}"#.into(),
+        ))
+        .await
+        .unwrap();
+        assert_eq!(
+            bridge.next().await.unwrap().unwrap(),
+            Outcome::Status {
+                text: "lendo 4 fontes".into()
+            }
+        );
+    }
+
+    /// Resposta nossa nao tem tipo de evento — a correlacao e pelo id do
+    /// request. Sem isso o historico chegaria como quadro desconhecido.
+    #[tokio::test]
+    async fn history_is_correlated_by_the_request_id() {
+        let (channels, mut sent, push) = fake_channels();
+        let mut bridge = Bridge::new(channels);
+
+        push.send(Ok(SESSION.into())).await.unwrap();
+        push.send(Ok(delta("x"))).await.unwrap();
+        bridge.next().await;
+
+        bridge.request_history().await.unwrap();
+        let asked = sent.recv().await.unwrap();
+        assert!(asked.contains(r#""method":"session.history""#));
+        let id = asked
+            .split(r#""id":"#)
+            .nth(1)
+            .and_then(|rest| rest.split(',').next())
+            .unwrap()
+            .to_owned();
+
+        push.send(Ok(format!(
+            r#"{{"jsonrpc":"2.0","id":{id},"result":{{"count":2,"messages":[
+                {{"role":"user","content":"oi"}},
+                {{"role":"assistant","content":"ola"}}
+            ]}}}}"#
+        )))
+        .await
+        .unwrap();
+
+        match bridge.next().await.unwrap().unwrap() {
+            Outcome::History { messages } => {
+                assert_eq!(messages.len(), 2);
+                assert_eq!(messages[0].role, "user");
+                assert_eq!(messages[1].content, "ola");
+            }
+            other => panic!("esperava History, veio {other:?}"),
+        }
+    }
+
+    /// Uma linha divergente do historico nao pode custar a conversa inteira.
+    #[tokio::test]
+    async fn a_malformed_history_row_is_skipped_not_fatal() {
+        let parsed = history_from(&serde_json::json!({
+            "messages": [
+                {"content": "sem papel"},
+                {"role": "assistant", "content": "sobrevivi"}
+            ]
+        }));
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].content, "sobrevivi");
     }
 
     #[tokio::test]

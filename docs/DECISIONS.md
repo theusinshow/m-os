@@ -37,6 +37,14 @@ Estados possíveis:
 | ADR-019 | Design system versionado como contrato do renderer | Accepted |
 | ADR-020 | Origem de App é metadata, não alvo de abertura | Accepted |
 | ADR-021 | Resource começa por Link e preserva contexto | Accepted |
+| ADR-022 | O design v0.7 sobrepõe o handoff onde ele supõe back-end inexistente | Accepted |
+| ADR-023 | Coluna de Kanban é visualização, não semântica | Accepted |
+| ADR-024 | Hermes é superfície, não segundo agente | Accepted |
+| ADR-025 | A conversa do Hermes é persistida localmente pelo M/OS | Accepted |
+| ADR-026 | Markdown é renderizado como elementos React, nunca como HTML | Accepted |
+| ADR-027 | Nada sai para o Hermes sem chip visível e registro do que foi enviado | Accepted |
+| ADR-028 | A leitura do M/OS pelo Hermes começa por injeção de contexto | Accepted |
+| ADR-029 | Não existem modos de conversa; o Hermes continua dono do reasoning | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -560,3 +568,209 @@ A ponte vive em crate próprio, sem dependência de `mos-storage-sqlite` — "He
 - sessão do M/OS é separada do WhatsApp, mas o agente é o mesmo;
 - `CORE-FOUNDATION.md:33` já estabelecia que Hermes não faz parte do Core; o crate separado torna isso estrutural;
 - ações do M/OS a partir do Hermes (fases 3+) passarão pela camada de aplicação, nunca direto no banco.
+
+---
+
+## ADR-025 — A conversa do Hermes é persistida localmente pelo M/OS
+
+**Aceita em:** 2026-08-15, na evolução para AI Workspace.
+
+### Contexto
+
+Até aqui o M/OS não guardava nada da conversa: o histórico vive no `state.db` da VPS e a
+thread existia apenas na memória do componente React. A auditoria em
+`HERMES-PREMIUM-CHAT.md` §1.2 mostrou três consequências disso.
+
+O `session_id`, que a Spec B mandava guardar, vivia num `Mutex` de memória de processo.
+Nada o escrevia em disco, então `session.resume` — implementado e testado — nunca rodava
+entre aberturas do app. Cada abertura criava sessão nova na VPS.
+
+Sem conversa local não existe lista, busca, rename, branch nem qualquer ação sobre uma
+mensagem específica, porque não existe mensagem: existia um triplo de strings por turno.
+
+### Decisão
+
+O M/OS passa a persistir conversa, mensagens e partes de mensagem em SQLite local, em
+`mos-core` + `mos-storage-sqlite`. A VPS continua sendo dona do histórico do agente; o
+M/OS guarda a sua projeção e o vínculo (`hermes_session_id`).
+
+`mos-hermes` **não** ganha acesso ao banco. Ele continua sem `mos-storage-sqlite` e sem
+`mos-core`. A tradução entre `Outcome` e `MessagePart` acontece no orquestrador do
+desktop, que é o único lugar onde ponte e domínio se encontram.
+
+Três tabelas, não nove: `Conversation`, `Message`, `MessagePart`. Anexo, artifact, citação
+e execução de ferramenta entram como `kind` de parte, com payload JSON validado pelo
+domínio, e só viram tabela própria quando precisarem de lifecycle ou consulta própria.
+
+### Alternativas rejeitadas
+
+- **Continuar sem persistência local.** Mantém a VPS como fonte única, mas impede toda a
+  fase P0 e deixa `session.resume` morto.
+- **Nove entidades desde o início**, como no desenho original do AI Workspace. Contraria
+  ADR-012 e a prática que criou `Resource` só quando havia caso concreto (ADR-021).
+  `MessagePart` sozinho já preserva a capacidade de promover cada uma depois.
+
+### Consequências
+
+- migration 0010 leva o schema de 9 para 10;
+- backup e export passam a conter conversas — `ARCHITECTURE.md` §16 já avisa que ambos
+  podem conter dado pessoal em texto claro, e o aviso agora cobre mais coisa;
+- apenas partes `text` entram no FTS5; reasoning e payload de ferramenta ficam fora;
+- persistência acontece por mensagem, não por delta: um `INSERT` por token sob
+  `synchronous=FULL` (ADR-017) seria um fsync por token.
+
+---
+
+## ADR-026 — Markdown é renderizado como elementos React, nunca como HTML
+
+**Aceita em:** 2026-08-15.
+
+### Contexto
+
+A resposta do Hermes era exibida como `<p>{texto}</p>`. Bloco de código, tabela e lista
+chegavam com as marcações visíveis. Renderizar Markdown é requisito de P0, e introduz a
+primeira superfície do M/OS que interpreta conteúdo vindo de fora da máquina.
+
+A auditoria recomendou biblioteca, com o argumento de que escrever parser e sanitizador à
+mão num caminho de conteúdo remoto é a troca errada. **A implementação mudou essa
+conclusão, e o motivo está registrado aqui em vez de ficar implícito no código.**
+
+O perigo não está em interpretar Markdown. Está em produzir HTML e depois tentar limpá-lo.
+Um renderer que emite elementos React e nunca uma string de HTML não tem sanitizador
+porque não tem o que sanitizar: o React escapa texto por construção, e sem
+`dangerouslySetInnerHTML` não existe caminho de injeção. Uma biblioteca madura é segura
+pelo mesmo motivo, não por um motivo melhor.
+
+Removido o argumento de segurança, sobram os de custo. `react-markdown` com `remark-gfm`
+traz dezenas de pacotes transitivos para uma aplicação cujas dependências de runtime hoje
+são React, a API do Tauri e duas fontes. E o realce de sintaxe com tema pronto entrega uma
+paleta de dez cores para um design system que restringe cor a função
+(`UX-PRINCIPLES.md` §48) e mantém a cor primária abaixo de 10% da interface.
+
+### Decisão
+
+Renderer próprio, em `apps/desktop/src/markdown.tsx`, emitindo apenas elementos React.
+Proibido `dangerouslySetInnerHTML` no projeto inteiro; proibido HTML cru vindo do modelo.
+
+Realce de sintaxe próprio, com três classes semânticas — comentário, literal e
+palavra-chave — usando tokens existentes. Não há tema de dez cores.
+
+O subconjunto suportado é o que uma conversa técnica usa: heading, ênfase, código inline,
+link, lista ordenada e não ordenada com aninhamento, citação, bloco cercado com linguagem,
+tabela, régua e parágrafo.
+
+### Consequências
+
+- nenhuma dependência nova de runtime, e ADR-019 continua intacta;
+- cerca aberta durante o streaming é tratada deliberadamente como bloco de código aberto,
+  em vez de piscar a cada token — comportamento que a biblioteca não daria de graça;
+- Markdown fora do subconjunto aparece como texto, nunca como marcação quebrada;
+- link externo abre pelo backend nativo, como `open_resource` já faz;
+- imagem remota não é carregada: a CSP de `ARCHITECTURE.md` §15.3 bloqueia, e a UI explica
+  em vez de mostrar quebrado;
+- se o subconjunto se mostrar insuficiente no uso real, adotar biblioteca continua
+  possível — a fronteira é uma função só.
+
+---
+
+## ADR-027 — Nada sai para o Hermes sem chip visível e registro do que foi enviado
+
+**Aceita em:** 2026-08-15.
+
+### Contexto
+
+`ARCHITECTURE.md` §15.2 modela o M/OS como dados locais no perfil do Windows. O baseline
+não cobre envio deliberado de conteúdo pessoal a uma VPS. Hoje isso já acontece em pequena
+escala — o que o usuário digita vai para o Hermes — mas anexar contexto do M/OS
+(Projects, Tasks, Captures, Resources) muda o volume e a sensibilidade de ordem.
+
+A menção por `@` existente agravava o problema por outro lado: ela parecia anexar contexto
+e não anexava nada. Substituía o texto pelo nome do Project e mandava a string. O usuário
+acreditava ter dado contexto ao Hermes sem ter dado.
+
+### Decisão
+
+Nenhum dado do M/OS atravessa a ponte sem um chip visível na composição, removível antes
+do envio. Vale para contexto explícito (o usuário pediu) e automático (o sistema ofereceu),
+que se distinguem por peso tipográfico e rótulo, nunca só por cor.
+
+Cada mensagem persiste uma parte `context_ref` com o que **efetivamente** foi enviado —
+entidade, campos e tamanho. A pergunta "o que exatamente foi para a VPS?" precisa ter
+resposta depois do envio, não só antes.
+
+Contexto automático nasce desligado e só é ligado por ação do usuário.
+
+### Consequências
+
+- o chip deixa de ser decoração e passa a ser o controle de um limite de confiança;
+- `UX-PRINCIPLES.md` §59 ("inteligência não pode esconder informação") fica verificável;
+- o registro tem custo de espaço, aceito: ele é a evidência;
+- exportar ou fazer backup passa a incluir esse registro, o que é desejável.
+
+---
+
+## ADR-028 — A leitura do M/OS pelo Hermes começa por injeção de contexto
+
+**Aceita em:** 2026-08-15.
+
+### Contexto
+
+`mos_search`, `mos_get_context` e as demais leituras precisam de um caminho pelo qual o
+agente alcance o M/OS. O protocolo WebSocket do gateway não expõe registro de ferramenta
+do lado do cliente — verificado em `tui_gateway/server.py`. Existem três caminhos, e eles
+não são equivalentes.
+
+O checkout do Hermes contém `mcp_serve.py` e `optional-mcps/`, então um MCP server local
+consumido pelo agente é tecnicamente plausível. Mas o túnel hoje vai do M/OS para a VPS, e
+esse caminho exige o inverso: a VPS alcançando a máquina do usuário.
+
+### Decisão
+
+Começar por **injeção de contexto**: o M/OS monta um bloco estruturado e orçado a partir
+dos seus próprios serviços de leitura e o prefixa ao prompt, com os chips da ADR-027.
+
+MCP server local fica adiado e exige ADR própria antes de qualquer código, porque expor um
+servidor local à VPS é uma mudança de superfície de ataque que `ARCHITECTURE.md` §15.2 não
+cobre. Fork do gateway está rejeitado.
+
+### Consequências
+
+- "Jarvis conhece meu M/OS" fica possível sem mudar topologia de rede nem threat model;
+- o agente não consegue pedir mais dados no meio do turno: o contexto é fixo no envio, e
+  essa limitação é real e conhecida;
+- o Context Service precisa orçar o que envia, porque não há segunda chance;
+- se a limitação incomodar no uso real, a ADR de MCP tem um caso concreto para justificar.
+
+---
+
+## ADR-029 — Não existem modos de conversa; o Hermes continua dono do reasoning
+
+**Aceita em:** 2026-08-15.
+
+### Contexto
+
+A superfície trazia três modos, `ASK`, `ACT` e `ORGANIZE`, com dois desabilitados. O
+desenho do AI Workspace propôs quatro: `Fast`, `Think`, `Research` e `Act`.
+
+Avaliação de lastro real: `Fast` não tem controle de latência que o M/OS possa usar;
+`Think` só existiria via `agent.reasoning_effort`, que ADR-024 atribui explicitamente ao
+Hermes; `Act` é redundante, porque o agente já escolhe ferramenta sozinho; `Research` tem
+lastro — a skill existe no checkout — mas a forma dos seus eventos não foi verificada.
+
+### Decisão
+
+Remover o seletor de modos e não colocar nada no lugar. O Hermes escolhe skill e esforço
+sozinho, como ADR-024 estabeleceu.
+
+`Research` poderá voltar em P2 como **tipo de execução** com progresso e fontes, não como
+chave de modo — e só depois de os eventos da skill serem observados.
+
+Expor controle de esforço exigirá emendar ADR-024 e não é feito por decisão de UI.
+
+### Consequências
+
+- some um controle que ensinava errado: dois de três modos não faziam nada;
+- `Tab` volta a mover foco estrutural, como `DESIGN-FOUNDATIONS.md` §12 exige — ele estava
+  sequestrado para trocar modo dentro de um campo de texto;
+- o composer fica com uma intenção só, coerente com `UX-PRINCIPLES.md` §13;
+- se o usuário quiser controle de esforço, existe caminho, e ele passa por ADR.
