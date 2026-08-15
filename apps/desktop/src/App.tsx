@@ -219,24 +219,19 @@ function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
   return nextIndex;
 }
 
-function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, status, hiddenWidgets, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openProjectsPage, openLibraryPage, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openProjectsPage: () => void; openLibraryPage: () => void; intent?: FunctionIntent }) {
+function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, status, hiddenWidgets, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openProjectsPage, openLibraryPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openProjectsPage: () => void; openLibraryPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
-  const [currentWorkspaceId, setCurrentWorkspaceId] = useState(() => localStorage.getItem("m-os-current-workspace") ?? "");
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
   const [workspaceApps, setWorkspaceApps] = useState<RegisteredApp[]>([]);
-  const currentWorkspace = activeWorkspaces.find((workspace) => workspace.id === currentWorkspaceId) ?? null;
+  // O contexto ativo e a persistencia dele moram no componente raiz desde que a
+  // Library passou a filtrar por ele. Aqui so fica o que e da Home: buscar os
+  // Projects e Apps daquele contexto.
   useEffect(() => {
     if (!currentWorkspaceId || !activeWorkspaces.some((workspace) => workspace.id === currentWorkspaceId)) {
       setWorkspaceProjects([]);
       setWorkspaceApps([]);
-      localStorage.removeItem("m-os-current-workspace");
-      localStorage.removeItem("m-os-current-workspace-name");
       return;
     }
-    localStorage.setItem("m-os-current-workspace", currentWorkspaceId);
-    // O nome alimenta o segmento do meio do caminho de contexto nas outras
-    // telas. Guardado junto do id para nao exigir uma busca so para um rotulo.
-    localStorage.setItem("m-os-current-workspace-name", activeWorkspaces.find((workspace) => workspace.id === currentWorkspaceId)?.name ?? "");
     void Promise.all([api.workspaceProjects(currentWorkspaceId), api.workspaceApps(currentWorkspaceId)])
       .then(([nextProjects, nextApps]) => {
         setWorkspaceProjects(nextProjects);
@@ -695,7 +690,7 @@ function ResourceForm({ resource, capture, cancel, saved }: { resource?: Resourc
   </form>;
 }
 
-function LibraryPage({ resources, initialResourceId, initialResourceKey, refresh, receipt, openCapture, intent }: { resources: Resource[]; initialResourceId: string; initialResourceKey: number; refresh: () => Promise<void>; receipt: (action: UndoAction) => void; openCapture: (capture: Capture) => void; intent?: FunctionIntent }) {
+function LibraryPage({ resources, currentWorkspace, initialResourceId, initialResourceKey, refresh, receipt, openCapture, intent }: { resources: Resource[]; currentWorkspace: Workspace | null; initialResourceId: string; initialResourceKey: number; refresh: () => Promise<void>; receipt: (action: UndoAction) => void; openCapture: (capture: Capture) => void; intent?: FunctionIntent }) {
   const activeResources = resources.filter((resource) => resource.lifecycleState === "active");
   const [selectedId, setSelectedId] = useState(initialResourceId || activeResources[0]?.id || "");
   const [mode, setMode] = useState<"view" | "edit" | "new">("view");
@@ -711,7 +706,7 @@ function LibraryPage({ resources, initialResourceId, initialResourceKey, refresh
   const [kindFilter, setKindFilter] = useState<ResourceKind | "all">("all");
   const [view, setView] = useState<"grid" | "list">("grid");
   // O workspace escolhido na Home nomeia o segmento do meio do caminho.
-  const workspaceSegment = (localStorage.getItem("m-os-current-workspace-name") ?? "").toUpperCase() || null;
+  const workspaceSegment = currentWorkspace?.name.toUpperCase() ?? null;
   const liveResources = resources.filter((resource) => resource.lifecycleState === "active" || resource.id === selectedId);
   const visibleResources = kindFilter === "all" ? liveResources : liveResources.filter((resource) => resource.kind === kindFilter || resource.id === selectedId);
   const selected = visibleResources.find((resource) => resource.id === selectedId) ?? null;
@@ -1348,6 +1343,9 @@ function DesktopApp() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [hiddenWidgets, setHiddenWidgets] = useState<HiddenWidget[]>([]);
+  // O contexto ativo deixou de ser assunto da Home: a Library filtra por ele.
+  // Continua em localStorage porque e preferencia de leitura, nao dado do core.
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState(() => localStorage.getItem("m-os-current-workspace") ?? "");
   const [commandOpen, setCommandOpen] = useState(false);
   // O overlay continua montado durante os 90ms de saida. Desmontar na hora
   // cortaria a animacao pela metade, que e pior que nao ter animacao.
@@ -1410,6 +1408,17 @@ function DesktopApp() {
     return () => { events.forEach((event) => void event.then((dispose) => dispose())); };
   }, [initialize, refresh]);
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("m-os-theme", theme); }, [theme]);
+  // A chave `m-os-current-workspace-name` deixou de ser escrita: existia so para
+  // a Library desenhar o segmento do caminho sem ter o objeto. Com o Workspace
+  // chegando por prop, guardar o nome seria uma segunda fonte de verdade.
+  const currentWorkspace = workspaces.find((workspace) => workspace.id === currentWorkspaceId && workspace.lifecycleState === "active") ?? null;
+  useEffect(() => {
+    if (!currentWorkspace) {
+      localStorage.removeItem("m-os-current-workspace");
+      return;
+    }
+    localStorage.setItem("m-os-current-workspace", currentWorkspace.id);
+  }, [currentWorkspace]);
   useEffect(() => { const handler = (event: globalThis.KeyboardEvent) => { if (event.ctrlKey && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); } if (event.ctrlKey && event.key.toLowerCase() === "z" && undo) { event.preventDefault(); void undo.run().then(() => { setUndo(null); return refresh(); }); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, [refresh, undo]);
 
   // ~5s: tempo de ler e decidir desfazer, sem virar mobilia na tela.
@@ -1455,12 +1464,12 @@ function DesktopApp() {
   }, [page]);
   const pageContent = useMemo(() => {
     if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} />;
-    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} status={status} hiddenWidgets={hiddenWidgets} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} intent={functionIntent ?? undefined} />;
+    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} status={status} hiddenWidgets={hiddenWidgets} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} />;
     if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} openResource={openResource} intent={functionIntent ?? undefined} />;
     if (page === "projects") return <ProjectsPage projects={projects} tasks={tasks} initialProjectId={selectedProjectId} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
     if (page === "workspaces") return <WorkspacesPage workspaces={workspaces} projects={projects} apps={apps} hiddenWidgets={hiddenWidgets} initialWorkspaceId={selectedWorkspaceId} refresh={refresh} openProject={openProject} openApp={openRegisteredApp} intent={functionIntent ?? undefined} />;
     if (page === "apps") return <AppsPage apps={apps} initialAppId={selectedAppId} refresh={refresh} intent={functionIntent ?? undefined} />;
-    if (page === "library") return <LibraryPage resources={resources} initialResourceId={selectedResourceId} initialResourceKey={resourceOpenKey} refresh={refresh} receipt={showReceipt} openCapture={setViewedCapture} intent={functionIntent ?? undefined} />;
+    if (page === "library") return <LibraryPage resources={resources} currentWorkspace={currentWorkspace} initialResourceId={selectedResourceId} initialResourceKey={resourceOpenKey} refresh={refresh} receipt={showReceipt} openCapture={setViewedCapture} intent={functionIntent ?? undefined} />;
     if (page === "tasks") return <BoardPage tasks={tasks} projects={projects} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
     return <SettingsPage theme={theme} setTheme={setThemeState} status={status} capturesArchived={archived} capturesTrashed={trashed} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} trashedResources={trashedResources} refresh={refresh} intent={functionIntent ?? undefined} />;
   }, [page, recent, projects, workspaces, apps, resources, trashedResources, tasks, refresh, inbox, selectedProjectId, selectedWorkspaceId, selectedAppId, selectedResourceId, resourceOpenKey, theme, status, archived, trashed, functionIntent]);
