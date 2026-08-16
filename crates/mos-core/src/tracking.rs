@@ -24,6 +24,201 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
+use uuid::Uuid;
+
+use crate::{CoreError, ErrorCode, ProjectId};
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TimeEntryId(Uuid);
+
+impl TimeEntryId {
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    pub fn parse(value: &str) -> Result<Self, CoreError> {
+        Uuid::parse_str(value)
+            .map(Self)
+            .map_err(|_| CoreError::new(ErrorCode::InvalidInput, "Time entry ID invalido.", false))
+    }
+}
+
+impl Default for TimeEntryId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for TimeEntryId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+/// O tipo de trabalho da sessão. Vocabulário de projetista de CAD, herdado do
+/// CronoCAD — é o que o usuário reconhece ao rever a semana.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityType {
+    Drawing,
+    Detailing,
+    Revision,
+    Meeting,
+    Study,
+    #[default]
+    Other,
+}
+
+/// De onde a sessão veio.
+///
+/// `Reconstructed` não é detalhe técnico: marca a hora que o usuário reconstruiu
+/// depois, e não a que o cronômetro mediu. Faturar as duas sem distinguir seria
+/// cobrar estimativa como medição.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EntrySource {
+    #[default]
+    Timer,
+    Manual,
+    Reconstructed,
+}
+
+/// Estado do projeto no rastreio de tempo.
+///
+/// Existe porque `LifecycleState` do M/OS não distingue "concluído" de
+/// "arquivado", e para uma obra entregue essa diferença é a resposta a "por que
+/// isso parou?".
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackingStatus {
+    #[default]
+    Active,
+    Paused,
+    Completed,
+    Archived,
+}
+
+macro_rules! parse_enum {
+    ($name:ident, $label:literal, $($text:literal => $variant:path),+ $(,)?) => {
+        impl $name {
+            pub fn as_str(self) -> &'static str {
+                match self {
+                    $($variant => $text,)+
+                }
+            }
+
+            pub fn parse(value: &str) -> Result<Self, CoreError> {
+                match value {
+                    $($text => Ok($variant),)+
+                    _ => Err(CoreError::new(
+                        ErrorCode::InvalidInput,
+                        format!(concat!("`{}` nao e ", $label, "."), value),
+                        false,
+                    )),
+                }
+            }
+        }
+    };
+}
+
+parse_enum!(
+    ActivityType,
+    "um tipo de atividade",
+    "drawing" => ActivityType::Drawing,
+    "detailing" => ActivityType::Detailing,
+    "revision" => ActivityType::Revision,
+    "meeting" => ActivityType::Meeting,
+    "study" => ActivityType::Study,
+    "other" => ActivityType::Other,
+);
+
+parse_enum!(
+    EntrySource,
+    "uma origem de sessao",
+    "timer" => EntrySource::Timer,
+    "manual" => EntrySource::Manual,
+    "reconstructed" => EntrySource::Reconstructed,
+);
+
+parse_enum!(
+    TrackingStatus,
+    "um estado de rastreio",
+    "active" => TrackingStatus::Active,
+    "paused" => TrackingStatus::Paused,
+    "completed" => TrackingStatus::Completed,
+    "archived" => TrackingStatus::Archived,
+);
+
+parse_enum!(
+    RoundingMode,
+    "um modo de arredondamento",
+    "nearest" => RoundingMode::Nearest,
+    "up" => RoundingMode::Up,
+    "down" => RoundingMode::Down,
+);
+
+/// Uma sessão de trabalho já gravada.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeEntry {
+    pub id: TimeEntryId,
+    pub project_id: ProjectId,
+    #[serde(with = "time::serde::rfc3339")]
+    pub started_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub ended_at: Option<OffsetDateTime>,
+    pub duration_seconds: i64,
+    pub idle_seconds: i64,
+    pub description: String,
+    pub activity_type: ActivityType,
+    pub billable: bool,
+    pub hourly_rate_snapshot_cents: i64,
+    pub source: EntrySource,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
+}
+
+/// O que é preciso para gravar uma sessão.
+///
+/// `hourly_rate_snapshot_cents` entra aqui e não é derivado do Project na hora
+/// de gravar, porque a importação precisa preservar a taxa que valia na época —
+/// e não a que vale hoje.
+#[derive(Clone, Debug)]
+pub struct NewTimeEntry {
+    pub project_id: ProjectId,
+    pub started_at: OffsetDateTime,
+    pub ended_at: Option<OffsetDateTime>,
+    pub duration_seconds: i64,
+    pub idle_seconds: i64,
+    pub description: String,
+    pub activity_type: ActivityType,
+    pub billable: bool,
+    pub hourly_rate_snapshot_cents: i64,
+    pub source: EntrySource,
+}
+
+/// Dados de cobrança de um Project.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTracking {
+    pub project_id: ProjectId,
+    pub hourly_rate_cents: i64,
+    pub code: String,
+    pub color: String,
+    pub tracking_status: TrackingStatus,
+}
+
+/// Configuração de arredondamento e inatividade, linha única.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackingSettings {
+    pub rounding: Rounding,
+    pub idle_threshold_minutes: i64,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

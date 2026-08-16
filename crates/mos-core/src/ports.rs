@@ -190,6 +190,34 @@ pub trait ResourceRepository: Send + Sync {
     fn delete_resource(&self, id: crate::ResourceId) -> Result<(), CoreError>;
 }
 
+/// Persistencia do rastreio de tempo por Project (ADR-032, etapa B).
+///
+/// Le e escreve o tempo REAL. Arredondamento e desconto de inatividade nao
+/// aparecem em assinatura nenhuma daqui de proposito: sao decisao de
+/// apresentacao, e um repositorio que os aplicasse tornaria impossivel recuperar
+/// o que de fato aconteceu.
+pub trait TimeTrackingRepository: Send + Sync {
+    fn create_time_entry(&self, entry: crate::NewTimeEntry) -> Result<crate::TimeEntry, CoreError>;
+    /// Todas as sessoes vivas, ou so as de um Project.
+    fn time_entries(
+        &self,
+        project_id: Option<crate::ProjectId>,
+    ) -> Result<Vec<crate::TimeEntry>, CoreError>;
+    /// Soft delete: hora de trabalho e registro de cobranca e sai da vista sem
+    /// sair do banco.
+    fn trash_time_entry(&self, id: crate::TimeEntryId) -> Result<(), CoreError>;
+    fn set_project_tracking(
+        &self,
+        tracking: crate::ProjectTracking,
+    ) -> Result<crate::ProjectTracking, CoreError>;
+    fn project_tracking(&self) -> Result<Vec<crate::ProjectTracking>, CoreError>;
+    fn tracking_settings(&self) -> Result<crate::TrackingSettings, CoreError>;
+    fn set_tracking_settings(
+        &self,
+        settings: crate::TrackingSettings,
+    ) -> Result<crate::TrackingSettings, CoreError>;
+}
+
 /// Persistencia da conversa do Hermes (ADR-025).
 ///
 /// Este trait vive no Core, e nao em `mos-hermes`, de proposito: a ponte

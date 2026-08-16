@@ -7,9 +7,10 @@ use crate::{
     BackupReceipt, Capture, CaptureId, CaptureRepository, CaptureSource, Conversation,
     ConversationId, ConversationRepository, ConversationSummary, CoreError, DataMaintenance,
     HiddenWidget, LifecycleState, Message, MessageId, MessageStatus, NewCapture, NewConversation,
-    NewMessage, NewProject, NewRegisteredApp, NewTask, NewWorkspace, PartBody, ProcessingState,
-    Project, ProjectId, RegisteredApp, SearchItem, SearchRequest, Task, TaskId, TaskState,
-    WorkRepository, Workspace, WorkspaceId,
+    NewMessage, NewProject, NewRegisteredApp, NewTask, NewTimeEntry, NewWorkspace, PartBody,
+    ProcessingState, Project, ProjectId, ProjectTracking, RegisteredApp, SearchItem, SearchRequest,
+    Task, TaskId, TaskState, TimeEntry, TimeEntryId, TimeTrackingRepository, Totals,
+    TrackedSession, TrackingSettings, WorkRepository, Workspace, WorkspaceId,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -100,6 +101,72 @@ impl CaptureService {
 
     pub fn rebuild_search(&self) -> Result<usize, CoreError> {
         self.repository.rebuild_search()
+    }
+}
+
+/// Rastreio de tempo por Project (ADR-032).
+#[derive(Clone)]
+pub struct TrackingService {
+    repository: Arc<dyn TimeTrackingRepository>,
+}
+
+impl TrackingService {
+    pub fn new(repository: Arc<dyn TimeTrackingRepository>) -> Self {
+        Self { repository }
+    }
+
+    pub fn record(&self, entry: NewTimeEntry) -> Result<TimeEntry, CoreError> {
+        self.repository.create_time_entry(entry)
+    }
+
+    pub fn entries(&self, project_id: Option<ProjectId>) -> Result<Vec<TimeEntry>, CoreError> {
+        self.repository.time_entries(project_id)
+    }
+
+    pub fn trash(&self, id: TimeEntryId) -> Result<(), CoreError> {
+        self.repository.trash_time_entry(id)
+    }
+
+    pub fn set_project_tracking(
+        &self,
+        tracking: ProjectTracking,
+    ) -> Result<ProjectTracking, CoreError> {
+        self.repository.set_project_tracking(tracking)
+    }
+
+    pub fn project_tracking(&self) -> Result<Vec<ProjectTracking>, CoreError> {
+        self.repository.project_tracking()
+    }
+
+    pub fn settings(&self) -> Result<TrackingSettings, CoreError> {
+        self.repository.tracking_settings()
+    }
+
+    pub fn set_settings(&self, settings: TrackingSettings) -> Result<TrackingSettings, CoreError> {
+        self.repository.set_tracking_settings(settings)
+    }
+
+    /// Totais por Project, ja com o arredondamento configurado aplicado.
+    ///
+    /// E aqui, e em nenhum lugar antes, que o arredondamento entra: o
+    /// repositorio devolve o tempo real e esta funcao compoe a regra pura de
+    /// `tracking`. Quem quiser o tempo cru continua tendo `entries()`.
+    pub fn totals_by_project(
+        &self,
+    ) -> Result<std::collections::HashMap<String, Totals>, CoreError> {
+        let rounding = self.settings()?.rounding;
+        let sessions: Vec<TrackedSession> = self
+            .entries(None)?
+            .into_iter()
+            .map(|entry| TrackedSession {
+                project_id: entry.project_id.to_string(),
+                duration_seconds: entry.duration_seconds,
+                idle_seconds: entry.idle_seconds,
+                billable: entry.billable,
+                hourly_rate_snapshot_cents: entry.hourly_rate_snapshot_cents,
+            })
+            .collect();
+        Ok(crate::aggregate_by_project(&sessions, rounding))
     }
 }
 

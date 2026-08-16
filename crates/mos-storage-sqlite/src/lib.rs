@@ -3,6 +3,7 @@ mod backup;
 mod conversation_repository;
 mod repository;
 mod resource_repository;
+mod tracking_repository;
 mod work_repository;
 
 use std::{
