@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { ActiveTimer, ActivityType, AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { ActiveTimer, ActivityType, AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -207,6 +207,14 @@ export const api = {
   },
   hideQuickCapture() {
     return invoke<void>("hide_quick_capture");
+  },
+  /** Totais por Project, com o arredondamento configurado já aplicado. */
+  trackingTotals() {
+    return invoke<Record<string, Totals>>("tracking_totals");
+  },
+  /** As sessões, em tempo REAL — sem arredondar e sem descontar inatividade. */
+  trackingEntries(projectId?: string) {
+    return invoke<TimeEntry[]>("tracking_entries", { projectId: projectId ?? null });
   },
   timerCurrent() {
     return invoke<ActiveTimer | null>("timer_current");

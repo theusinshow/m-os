@@ -201,6 +201,21 @@ export type TimeEntry = {
   source: "timer" | "manual" | "reconstructed";
 };
 
+/**
+ * Totais de um Project.
+ *
+ * `grossSeconds` é o tempo REAL registrado. `billableSeconds` já passou pelo
+ * desconto de inatividade e pelo arredondamento configurado — os dois números
+ * existem lado a lado porque são perguntas diferentes: quanto eu trabalhei, e
+ * quanto eu cobro.
+ */
+export type Totals = {
+  grossSeconds: number;
+  idleSeconds: number;
+  billableSeconds: number;
+  amountCents: number;
+};
+
 export type ImportReport = {
   projects: number;
   entries: number;

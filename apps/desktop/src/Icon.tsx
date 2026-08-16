@@ -27,6 +27,7 @@ export type IconName =
   | "apps"
   | "library"
   | "board"
+  | "tempo"
   | "settings"
   | "search"
   | "capture"
@@ -48,6 +49,10 @@ const OUTLINE_20: Record<IconName, ReactNode> = {
   apps: <><rect x="3.5" y="3.5" width="5" height="5" /><rect x="11.5" y="3.5" width="5" height="5" /><rect x="3.5" y="11.5" width="5" height="5" /><rect x="11.5" y="11.5" width="5" height="5" /></>,
   library: <><path d="M4 3.5h4.5v13H4zM8.5 3.5H13v13H8.5z" /><path d="m13 4.5 3-.7 1.5 11.7-3 .7z" /></>,
   board: <><rect x="3.5" y="4" width="4" height="12" /><rect x="9" y="4" width="3" height="8" /><rect x="13.5" y="4" width="3" height="10" /></>,
+  // Cronometro, e nao relogio de parede: a coroa em cima e o que separa "medir
+  // uma duracao" de "ver que horas sao". Duas maos apenas — a terceira, de
+  // segundos, some no traco de 1.25.
+  tempo: <><circle cx="10" cy="11.5" r="5.5" /><path d="M8 3.5h4M10 4v2M10 11.5V8M10 11.5h2.5" /></>,
   // Coroa de oito dentes em vez de engrenagem desenhada: a 20px com traco de
   // 1.25 os dentes de uma engrenagem colam uns nos outros.
   settings: <><circle cx="10" cy="10" r="2.5" /><path d="M10 3.5v2M10 14.5v2M3.5 10h2M14.5 10h2M5.4 5.4l1.4 1.4M13.2 13.2l1.4 1.4M14.6 5.4l-1.4 1.4M6.8 13.2l-1.4 1.4" /></>,
@@ -79,6 +84,9 @@ const SOLID_20: Partial<Record<IconName, ReactNode>> = {
   board: <><rect x="3.4" y="3.9" width="4.2" height="12.2" /><rect x="8.9" y="3.9" width="3.2" height="8.2" /><rect x="13.4" y="3.9" width="3.2" height="10.2" /></>,
   settings: <><circle cx="10" cy="10" r="3.1" /><path d="M9.1 2.9h1.8v2.4H9.1zM9.1 14.7h1.8v2.4H9.1zM2.9 9.1h2.4v1.8H2.9zM14.7 9.1h2.4v1.8h-2.4z" /><path d="m4.9 6.2 1.3-1.3 1.7 1.7-1.3 1.3zM12.4 13.7l1.3-1.3 1.7 1.7-1.3 1.3zM13.7 4.9l1.3 1.3-1.7 1.7-1.3-1.3zM6.2 12.4l1.3 1.3-1.7 1.7-1.3-1.3z" /></>,
   capture: <><rect x="9" y="3.4" width="2" height="13.2" /><rect x="3.4" y="9" width="13.2" height="2" /></>,
+  // Sem os ponteiros: a silhueta nao recorta, e um ponteiro vazado exigiria
+  // recorte. Corpo, coroa e haste bastam para reconhecer o cronometro.
+  tempo: <><circle cx="10" cy="11.6" r="5.9" /><rect x="7.8" y="3.2" width="4.4" height="1.9" /><rect x="9.1" y="4.8" width="1.8" height="1.4" /></>,
 };
 
 /**

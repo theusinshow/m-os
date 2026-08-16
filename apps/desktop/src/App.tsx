@@ -10,6 +10,8 @@ import { hermes, type HermesConnectionState, type HermesFailure, type HermesStat
 import { HermesPage } from "./HermesPage";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
+import { ContextPath, EmptyState, Panel } from "./Surface";
+import { TempoPage } from "./TempoPage";
 import { Timer } from "./Timer";
 import { Icon, type IconName } from "./Icon";
 import { Ring, RingLabel } from "./Ring";
@@ -18,7 +20,7 @@ import { MosSymbol } from "./Symbol";
 import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 import "./App.css";
 
-type Page = "home" | "hermes" | "inbox" | "projects" | "workspaces" | "apps" | "library" | "tasks" | "settings";
+type Page = "home" | "hermes" | "inbox" | "projects" | "workspaces" | "apps" | "library" | "tasks" | "tempo" | "settings";
 type UndoAction = { message: string; run: () => Promise<unknown> };
 
 /**
@@ -90,22 +92,6 @@ function IconButton({ label, icon, active = false, onClick }: { label: string; i
   return <button className="icon-button" type="button" aria-label={label} title={label} onClick={onClick}><Icon name={icon} filled={active} /></button>;
 }
 
-function ContextPath({ segments }: { segments: string[] }) {
-  return <div className="context-path" aria-label={segments.join(" / ")}>{segments.map((segment, index) => <span key={`${segment}-${index}`} className={index === segments.length - 1 ? "current" : undefined}>{index ? <b>/</b> : null}{segment}</span>)}</div>;
-}
-
-/**
- * `rule` troca a regua: em vez de sublinhar o cabecalho inteiro, ela sai do
- * rotulo e atravessa a linha. E como o desenho separa uma secao que abre a
- * pagina (CONTEXTO) de um painel dentro da grade.
- */
-function Panel({ label, count, action, rule = false, children, className = "" }: { label: string; count?: string; action?: ReactNode; rule?: boolean; children: ReactNode; className?: string }) {
-  return <section className={`panel ${className}`} data-panel={label} data-rule={rule || undefined}><header className="panel-header"><h2>{label}</h2>{rule ? <span className="panel-rule" aria-hidden="true" /> : null}{count ? <span className="panel-count">{count}</span> : null}{action}</header>{children}</section>;
-}
-
-function EmptyState({ children }: { children: ReactNode }) {
-  return <p className="empty-state">{children}</p>;
-}
 
 /* Cuida so do posicionamento na grade. A moldura e o rotulo continuam no Panel, para
    que a etapa 2 (modo de edicao) mude posicao sem tocar em nenhum widget.
@@ -1742,8 +1728,14 @@ function DesktopApp() {
      porta era o Ctrl+K. Workspace nao e feature nova que precise justificar
      presenca na navegacao (DESIGN-FOUNDATIONS 5): e um dos conceitos centrais
      da VISION 7, e estava invisivel para quem nao conhece o Command. */
-  { page: "workspaces", label: "Workspaces", icon: "workspaces" }, { page: "library", label: "Library", icon: "library" }, { page: "apps", label: "Apps", icon: "apps" }];
-  const pageLabels: Record<Page, string> = { home: "Home", hermes: "Hermes", inbox: "Inbox", tasks: "Tasks", projects: "Projects", library: "Library", apps: "Apps", workspaces: "Workspaces", settings: "Settings" };
+  { page: "workspaces", label: "Workspaces", icon: "workspaces" },
+  /* Tempo e o NONO destino, e a ADR-036 revisou o teto da ADR-031 para caber
+     ele. O argumento nao e frequencia de uso: e que o usuario fatura por hora,
+     entao tempo rastreado e o registro de onde sai a renda dele — e isso nao
+     vive atras de um Ctrl+K. Entra depois de Projects porque a hora sempre
+     pertence a um Project. */
+  { page: "tempo", label: "Tempo", icon: "tempo" }, { page: "library", label: "Library", icon: "library" }, { page: "apps", label: "Apps", icon: "apps" }];
+  const pageLabels: Record<Page, string> = { home: "Home", hermes: "Hermes", inbox: "Inbox", tasks: "Tasks", projects: "Projects", tempo: "Tempo", library: "Library", apps: "Apps", workspaces: "Workspaces", settings: "Settings" };
   const pageMeta = useMemo(() => {
     if (page !== "home") return pageLabels[page].toUpperCase();
     return new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date()).toUpperCase().replace(",", " ·");
@@ -1751,6 +1743,7 @@ function DesktopApp() {
   const pageContent = useMemo(() => {
     if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} />;
     if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} />;
+    if (page === "tempo") return <TempoPage projects={projects} openProject={openProject} />;
     if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} openResource={openResource} intent={functionIntent ?? undefined} />;
     if (page === "projects") return <ProjectsPage projects={projects} tasks={tasks} initialProjectId={selectedProjectId} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
     if (page === "workspaces") return <WorkspacesPage workspaces={workspaces} projects={projects} apps={apps} hiddenWidgets={hiddenWidgets} initialWorkspaceId={selectedWorkspaceId} refresh={refresh} receipt={showReceipt} openProject={openProject} openApp={openRegisteredApp} intent={functionIntent ?? undefined} />;

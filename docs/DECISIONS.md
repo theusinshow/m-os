@@ -851,6 +851,8 @@ A paleta do documento já é a de `mos-tokens.css`. Nenhum literal de cor foi in
 ## ADR-031 — O rail carrega oito destinos, e o teto de seis vira regra de crescimento
 
 **Aceita em:** 2026-08-15, na revisão de layout.
+**Revisada pela ADR-036** em 2026-08-16: o teto passou a nove com a entrada de Tempo. A
+regra de troca continua valendo a partir dali.
 
 ### Contexto
 
@@ -1137,3 +1139,58 @@ quando há caminho de volta: sem Undo ele não acrescentaria nada que a conversa
 - a forma do `UndoStep` atravessa a ponte escrita à mão dos dois lados, e um teste prende
   os nomes: renomear uma variante quebraria o desfazer justamente dentro dos cinco
   segundos em que ele importa.
+
+---
+
+## ADR-036 — O rail vai a nove, e Tempo ganha endereço
+
+**Data:** 2026-08-16
+**Status:** aceito, por decisão do proprietário do produto
+**Revisa:** ADR-031
+
+### Contexto
+
+A ADR-031 manteve oito destinos e transformou o número em **teto de crescimento**: *"a partir
+daqui, um destino novo no rail exige retirar um"*. Ela também antecipou este momento: *"se o
+rail crescer para nove sem essa troca, a decisão aqui foi ignorada, e não revisada"*.
+
+Este é o nono, e esta ADR existe para que ele seja revisão e não omissão.
+
+O pedido: o CronoCAD deixa de ser aplicativo à parte e vira página do M/OS, alcançável por
+ícone no rail, com o tempo trabalhado atravessando para a Home.
+
+### Decisão
+
+**Nove destinos.** Tempo entra sem ninguém sair, e o teto passa a ser nove — com a mesma
+regra de troca valendo daqui em diante.
+
+O argumento que sustenta os oito continua sustentando o nono, e é o único que importa: a
+regra existe para o rail não virar depósito de *features*, e os itens do rail não são
+features, são os substantivos centrais do produto.
+
+Tempo é um deles, e por uma razão que nenhum dos outros oito tem: **o usuário fatura por
+hora.** Tempo rastreado não é uma conveniência do sistema — é o registro do qual sai a
+renda dele. Uma informação nesse nível não vive atrás de um `Ctrl+K`.
+
+### Por que não as alternativas
+
+**Trocar um dos oito** foi descartado pela própria evidência da ADR-031: a troca já foi
+testada com Workspaces e falhou. O item ficou *"invisível para quem não conhece o Command"*
+até ser promovido de volta. Repetir o experimento sabendo o resultado não é rigor, é
+teimosia.
+
+**Tempo dentro de Projects** resolveria metade. A hora sempre pertence a um Project, então
+a aba por projeto faz sentido — e vai existir de qualquer forma. Mas o histórico global, os
+totais do mês e o que o CronoCAD chama de relatório não são de projeto nenhum: são a visão
+por cima. Sem endereço próprio, essa visão fica sem casa.
+
+### Consequências
+
+- o teto vira nove, e a regra de troca continua: o décimo destino exige retirar um;
+- a justificativa passa a ser explícita e verificável — um destino só entra se for
+  substantivo central, e "substantivo central" agora tem um caso de referência: algo de que
+  depende a renda ou a memória do usuário, não algo que ele usa com frequência;
+- `mos-design-system.md` continua dizendo "máximo 6". A distância entre o documento e o
+  produto é de três, e ela está registrada aqui e na ADR-031 em vez de descoberta depois;
+- o risco assumido é real: cada revisão do teto torna a próxima mais fácil, e é assim que
+  um rail vira depósito. A defesa não é o número, é a exigência de ADR para mexer nele.

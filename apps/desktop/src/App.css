@@ -633,6 +633,98 @@ textarea::placeholder {
   color: var(--text-system);
 }
 
+/* Numeros alinhados a direita e tabulares: numa coluna de horas e dinheiro, o
+   olho compara grandeza pela posicao do digito, e largura variavel destroi essa
+   leitura. O nome do Project fica a esquerda porque e o unico texto de verdade
+   da tabela. */
+.tempo-table {
+  width: 100%;
+  margin-top: var(--space-3);
+  border-collapse: collapse;
+}
+
+.tempo-table th,
+.tempo-table td {
+  padding: var(--space-2) 0;
+  border-bottom: var(--line) solid var(--border);
+  text-align: right;
+}
+
+.tempo-table thead th {
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+.tempo-table th:first-child,
+.tempo-table tbody th {
+  text-align: left;
+  font: var(--text-ui);
+}
+
+.tempo-table td {
+  color: var(--text-secondary);
+  font: var(--text-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A coluna do cobravel e a que sustenta a fatura: ela leva a cor de texto
+   cheia, e as vizinhas ficam em secundario. Hierarquia por peso, nao por cor
+   nova. */
+.tempo-table td:nth-child(3),
+.tempo-table td:nth-child(4) {
+  color: var(--text);
+}
+
+.tempo-table tbody th button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tempo-table tbody th button:hover {
+  color: var(--signal-ink);
+}
+
+.tempo-sessions {
+  display: grid;
+  margin-top: var(--space-2);
+}
+
+.tempo-session {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--height-row);
+  padding: var(--space-2) 0;
+  border-bottom: var(--line) solid var(--border);
+}
+
+.tempo-session strong {
+  display: block;
+  font: var(--text-ui);
+  font-weight: 500;
+}
+
+.tempo-session small {
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+.tempo-session-duration {
+  flex: none;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-meta);
+}
+
 .timer-idle {
   display: flex;
   align-items: center;
