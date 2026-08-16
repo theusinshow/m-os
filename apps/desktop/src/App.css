@@ -581,7 +581,10 @@ textarea::placeholder {
 .home-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: var(--space-4);
+  /* Linha respira mais que coluna: 32 contra 20. Com onze widgets do mesmo
+     peso, o gap uniforme faz a grade ler como um bloco unico — a diferenca
+     agrupa cada faixa horizontalmente antes de o olho descer para a proxima. */
+  gap: var(--space-5) var(--space-4);
   padding-top: var(--space-5);
 }
 
@@ -3519,9 +3522,14 @@ input[type="checkbox"]:disabled {
 
 .row-progress i {
   display: block;
+  width: 100%;
   height: 100%;
+  transform-origin: left;
   background: var(--signal-fill);
-  transition: width var(--dur-state) var(--ease-state);
+  /* `scaleX` e nao `width`: animar largura reflui o layout a cada quadro, e
+     esta barra vive dentro de uma lista que pode ter dezenas de linhas — o
+     custo se multiplica por linha. */
+  transition: transform var(--dur-state) var(--ease-state);
 }
 
 .row-progress-count {

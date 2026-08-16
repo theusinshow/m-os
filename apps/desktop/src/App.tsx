@@ -202,7 +202,7 @@ function CaptureComposer({ onSaved, focusKey }: { onSaved: (capture: Capture) =>
 /** Progresso do Project: barra de 2px mais a contagem. A barra diz o quanto
  *  falta antes de o olho ler o numero — e o numero confirma. */
 function RowProgress({ done, total }: { done: number; total: number }) {
-  return <><span className="row-progress" aria-hidden="true"><i style={{ width: `${total ? Math.round((done / total) * 100) : 0}%` }} /></span><span className="row-progress-count">{done}/{total}</span></>;
+  return <><span className="row-progress" aria-hidden="true"><i style={{ transform: `scaleX(${total ? done / total : 0})` }} /></span><span className="row-progress-count">{done}/{total}</span></>;
 }
 
 /** `secondaryKind` decide a familia da segunda linha. Origem de captura e tipo
@@ -306,8 +306,33 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
           Capture. Os outros sete do catalogo dependem de tempo rastreado,
           calendario e habitos, que nao existem no dominio, e ficam de fora. */}
       <Widget id="week_rings" hidden={hiddenIds.has("week_rings")} size="2x1"><Panel label="SEMANA"><WeekRings tasks={tasks} onOpen={openTasksPage} /></Panel></Widget>
-      <Widget id="task_progress" hidden={hiddenIds.has("task_progress")} size="1x1"><Panel label="CONCLUÍDO"><TaskProgressRing tasks={tasks} /></Panel></Widget>
+      {/* A ORDEM AQUI É LAYOUT, e não gosto.
+
+          A grade tem 12 colunas e mistura larguras de 6 e 3 com dois widgets de
+          duas linhas. Auto-placement esparso não reorganiza nada: quando o
+          próximo item não cabe no que sobrou da linha, ele desce e deixa o vão
+          aberto. Na ordem anterior isso abria TRÊS buracos de 3 colunas nas
+          linhas 2 e 3 — e é isso que se lê como bagunça, não a quantidade de
+          widgets.
+
+          A ordem abaixo faz cada faixa fechar em 12: o MÊS (2x2) ocupa a
+          esquerda por duas linhas enquanto CONCLUÍDO e INBOX preenchem a
+          direita da primeira e RECENTES fecha a segunda. Só sobra vão no fim,
+          que é o único lugar onde vão não parece defeito.
+
+          Preferi isto a `grid-auto-flow: dense`, que taparia os buracos movendo
+          itens para trás e faria a ordem visual divergir da ordem de foco.
+
+          Quem esconde um widget reabre um vão — mas aí é consequência legível
+          de uma escolha de quem está olhando, e não do sistema. */}
       <Widget id="month_density" hidden={hiddenIds.has("month_density")} size="2x2"><Panel label="MÊS"><MonthDensity tasks={tasks} captures={recent} /></Panel></Widget>
+      <Widget id="task_progress" hidden={hiddenIds.has("task_progress")} size="1x1"><Panel label="CONCLUÍDO"><TaskProgressRing tasks={tasks} /></Panel></Widget>
+      <Widget id="inbox_pulse" hidden={hiddenIds.has("inbox_pulse")} size="1x1"><Panel label="INBOX">{/* O numero cru vira anel. A proporcao mostrada e o que esta ENVELHECENDO
+    dentro da Inbox, nao o tamanho dela: uma Inbox grande e processada hoje e
+    saudavel, e uma pequena parada ha uma semana nao e. O anel vazio com o
+    numero no centro le exatamente como "nada envelhecendo", que e o estado
+    bom — e e por isso que zero nao desenha ponto de sodio. */}
+<button type="button" className="pulse" onClick={() => openInbox()}><Ring size={88} segments={[{ value: inbox.length ? staleInbox / inbox.length : 0 }]}><RingLabel value={inboxCapped ? `${INBOX_PAGE}+` : String(inbox.length)} /></Ring><small>{inbox.length === 1 ? "capture por processar" : "captures por processar"}</small>{staleInbox ? <small className="pulse-stale">{staleInbox === 1 && !inboxCapped ? "1 com mais de 3 dias" : `${staleInbox}${inboxCapped ? "+" : ""} com mais de 3 dias`}</small> : null}</button></Panel></Widget>
       {/* Sem contagem. O badge dizia `INBOX ${recent.length}` e mentia duas vezes:
           list_recent nao filtra por processing_state (repository.rs:91), entao a
           lista traz tambem o que ja foi processado, e o comando pede so 8
@@ -328,12 +353,6 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
           identificam, e a linha de nomes competiria com as rows ao lado. */}
       <Widget id="apps" hidden={hiddenIds.has("apps")} size="2x1"><Panel label="APPS"><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><AppIcon app={app} />{index < 9 ? <span className="app-shortcut">⌘{index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
       <Widget id="recent_resources" hidden={hiddenIds.has("recent_resources")} size="2x1"><Panel label="RECURSOS" action={activeResources.length > 5 ? <Button variant="ghost" onClick={() => openLibraryPage()}>Ver todos</Button> : undefined}>{activeResources.length ? activeResources.slice(0, 5).map((resource) => <DataRow key={resource.id} primary={resource.title} secondary={resourceHost(resource.url)} meta={relativeTime(resource.updatedAt)} onClick={() => openResource(resource)} />) : <ScopedEmptyState total={allActiveResources.length} workspace={currentWorkspace} noun="resource" onLink={() => openLibraryPage()} linkLabel="Ver tudo" />}</Panel></Widget>
-      <Widget id="inbox_pulse" hidden={hiddenIds.has("inbox_pulse")} size="1x1"><Panel label="INBOX">{/* O numero cru vira anel. A proporcao mostrada e o que esta ENVELHECENDO
-    dentro da Inbox, nao o tamanho dela: uma Inbox grande e processada hoje e
-    saudavel, e uma pequena parada ha uma semana nao e. O anel vazio com o
-    numero no centro le exatamente como "nada envelhecendo", que e o estado
-    bom — e e por isso que zero nao desenha ponto de sodio. */}
-<button type="button" className="pulse" onClick={() => openInbox()}><Ring size={88} segments={[{ value: inbox.length ? staleInbox / inbox.length : 0 }]}><RingLabel value={inboxCapped ? `${INBOX_PAGE}+` : String(inbox.length)} /></Ring><small>{inbox.length === 1 ? "capture por processar" : "captures por processar"}</small>{staleInbox ? <small className="pulse-stale">{staleInbox === 1 && !inboxCapped ? "1 com mais de 3 dias" : `${staleInbox}${inboxCapped ? "+" : ""} com mais de 3 dias`}</small> : null}</button></Panel></Widget>
       <Widget id="quick_actions" hidden={hiddenIds.has("quick_actions")} size="1x1"><Panel label="AÇÕES"><div className="quick-actions"><Button variant="outline" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button><Button variant="outline" size="sm" onClick={() => openTasksPage()}>Nova Task</Button><Button variant="outline" size="sm" onClick={() => openProjectsPage()}>Novo Project</Button></div></Panel></Widget>
       <Widget id="system_health" hidden={hiddenIds.has("system_health")} size="1x1"><Panel label="SISTEMA"><SystemHealth status={status} /></Panel></Widget>
     </div>
