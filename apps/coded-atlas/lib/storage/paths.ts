@@ -34,6 +34,16 @@ export const compositionDir = (slug: string) =>
 export const mockupDir = (slug: string) =>
   path.join(projectDir(slug), "mockups");
 
+// v2.0 — kit de redes sociais (imagens e vídeos separados)
+export const socialDir = (slug: string) =>
+  path.join(projectDir(slug), "social");
+
+export const socialImageDir = (slug: string) =>
+  path.join(socialDir(slug), "images");
+
+export const socialVideoDir = (slug: string) =>
+  path.join(socialDir(slug), "videos");
+
 // v1.5 — páginas extras (screenshots por página)
 export const pageScreenshotDir = (slug: string, pageSlug: string) =>
   path.join(screenshotDir(slug), "pages", pageSlug);

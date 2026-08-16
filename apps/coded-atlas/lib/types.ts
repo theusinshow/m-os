@@ -72,6 +72,7 @@ export interface Catalog {
   };
   compositions?: CompositionAsset[];     // composições para redes (v1.4)
   mockups?: MockupAsset[];               // mockups com moldura (v1.4)
+  social?: SocialKit;                    // kit de redes: imagens + vídeos (v2.0)
   meta: CatalogMeta;
   createdAt: string; // new Date().toISOString()
 }
@@ -90,6 +91,33 @@ export interface MockupAsset {
   name: string;   // "browser" | "phone"
   label: string;  // "Navegador" | "Celular"
   image: string;  // caminho público (PNG com fundo transparente)
+}
+
+/** Imagem do kit de redes: captura emoldurada num formato pronto (v2.0). */
+export interface SocialImageAsset {
+  name: string;     // "ig-feed-1x1"
+  label: string;    // "Feed 1:1"
+  platform: string; // "Instagram"
+  width: number;
+  height: number;
+  image: string;    // caminho público (PNG)
+}
+
+/** Vídeo do kit de redes: gravação de scroll enquadrada num formato pronto (v2.0). */
+export interface SocialVideoAsset {
+  name: string;     // "ig-reels-9x16"
+  label: string;    // "Reels/Story 9:16"
+  platform: string; // "Instagram"
+  width: number;
+  height: number;
+  video: string;    // caminho público (.mp4 H.264)
+  poster?: string;  // caminho público do frame de capa (.jpg)
+}
+
+/** Kit de redes sociais: imagens e vídeos prontos para postar, separados (v2.0). */
+export interface SocialKit {
+  images: SocialImageAsset[];
+  videos: SocialVideoAsset[];
 }
 
 /** Captura de uma página extra do mesmo site (v1.5): viewport + full page, por device. */
@@ -166,6 +194,7 @@ export type CaptureStep =
   | "capturing-pages"
   | "capturing-states"
   | "generating-thumbnails"
+  | "generating-social"
   | "writing-catalog"
   | "done"
   | "error";

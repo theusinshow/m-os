@@ -4,8 +4,8 @@ Checklist **vivo** da construção. O Claude Code deve marcar cada fase como con
 (`[x]`) e escrever uma nota de 1 linha ao terminá-la. Detalhes de cada fase estão na
 seção "Ordem de Implementação" do `docs/architecture.md`.
 
-**Status atual:** **Projeto fechado.** Todo o roadmap entregue (exceto v1.6, descartada). Software 100% determinístico, sem IA.
-**Última fase concluída:** Mockups 3D (v1.4 item 12) + Diff visual (v1.7). `next build` ✓. Mockups 3D verificados por screenshot; diff verificado e2e (6.86% mudança, regiões destacadas).
+**Status atual:** v2.0 — **Kit de redes sociais** entregue (imagens + vídeos). Restante do roadmap entregue (exceto v1.6, descartada). Software 100% determinístico, sem IA.
+**Última fase concluída:** v2.0 Fase 3 (UI + ZIP). `next build` ✓ 10 rotas. Verificado e2e real contra example.com: 3 imagens (1080², 1080×1350, 1080×1920) + 2 vídeos MP4/H.264 com poster, seção na página, ZIP `?only=social`, catalog.json com `social` e sem caminho absoluto.
 **Sem frentes em aberto.** Detalhes em `docs/ROADMAP.md` (fechado).
 
 ---
@@ -144,6 +144,20 @@ Sistema visual comprometido (ver `design.md` › "Sistema visual (v1.0)"): token
 
 - [x] **Mockups 3D em perspectiva** — `lib/mockup/render-3d.ts`: HTML+CSS 3D (device inclinado) fotografado pelo Playwright com fundo transparente; ângulos em `config.mockups3d`. Saem como `desktop-3d`/`mobile-3d` na mesma seção "Mockups" + ZIP. Verificado por screenshot.
 - [x] **Diff visual de recaptura (v1.7)** — `lib/diff/visual-diff.ts` (Sharp decodifica RGBA, `pixelmatch` compara, Sharp grava o PNG de diff) + `POST /api/diff/[slug]` (recaptura o viewport desktop e compara com o do catálogo) + seção "Monitoramento" (`VisualDiff`) na página do projeto (antes/agora/diferença + % mudado). E2E: 6.86% num cenário com cards novos, regiões destacadas em coral.
+
+---
+
+## v2.0 — Kit de redes sociais
+
+Assets prontos para postar, separados em **imagens** e **vídeos**, na estética emoldurada
+da marca. Formatos-alvo: Instagram. Tudo tunável em `config.social` (guard rail 5).
+
+- [x] **Fase 1 — Imagens do kit** — `config.social` (formatos/estética) + tipos (`SocialImageAsset`/`SocialVideoAsset`/`SocialKit`, `Catalog.social`, step `generating-social`) + `paths` (`social/images`, `social/videos`) + `lib/social/compose.ts` (moldura reutilizável) + `lib/social/generate-images.ts` (Sharp) + wiring no `route.ts` e `build-catalog`.
+  _Status:_ `test-social-images.ts` 16/16 — 3 PNGs IG nas dimensões exatas (1080², 1080×1350, 1080×1920), caminhos públicos. `tsc` ✓.
+- [x] **Fase 2 — Vídeos do kit (ffmpeg)** — `lib/social/ffmpeg.ts` (detecção cacheada + runner via `spawn`; `ATLAS_FFMPEG_PATH`) + `lib/social/generate-videos.ts` (webm→MP4 H.264 enquadrado 9:16 e 1:1, poster JPG, cap de duração). Fallback gracioso: sem ffmpeg → `[]` sem derrubar a geração.
+  _Status:_ `test-social-videos.ts` 13/13 (dims + codec h264 via ffprobe). Fallback verificado com binário inexistente → `[]`. `tsc` ✓.
+- [x] **Fase 3 — UI + ZIP** — `components/social-kit.tsx` (seção "Redes sociais": imagens e vídeos separados, preview + download individual) na página do projeto + `?only=social` no ZIP e inclusão de `social/` no ZIP geral + passo no `GenerationStatus`. Reprocess herda de graça (mesmo `route`).
+  _Status:_ `next build` ✓ 10 rotas. E2E real contra example.com: assets em disco, seção renderiza (HTTP 200, `<video>` mp4, link do kit), `catalog.json.social` sem caminho absoluto.
 
 ---
 
