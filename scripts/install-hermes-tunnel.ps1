@@ -28,10 +28,17 @@ Write-Host "script instalado em: $target"
 $argument = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $target + '"'
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $argument
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+# RestartCount existe porque o gatilho e apenas o logon: sem ele, um processo que
+# morre fica morto ate o proximo login. Foi o que aconteceu - a tarefa terminou
+# com 0xC000013A (STATUS_CONTROL_C_EXIT, console fechado) e o tunel passou horas
+# fechado sem ninguem saber. O laco interno ja cuida da VPS fora do ar; isto
+# cuida do processo em si desaparecer.
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
     -StartWhenAvailable `
+    -RestartCount 999 `
+    -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit ([TimeSpan]::Zero)
 
 Register-ScheduledTask `
