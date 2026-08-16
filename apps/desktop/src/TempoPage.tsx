@@ -190,7 +190,7 @@ export function TempoPage({ projects, openProject, receipt }: {
       {view === "painel" ? (
         <>
           <Panel label="CRONÔMETRO" rule>
-            <Timer projects={projects} onChanged={() => void load()} />
+            <Timer projects={projects} entries={entries} onChanged={() => void load()} />
           </Panel>
 
           <Panel label="LANÇAR TEMPO ESQUECIDO">

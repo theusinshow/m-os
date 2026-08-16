@@ -979,12 +979,80 @@ textarea::placeholder {
   cursor: help;
 }
 
+.timer-quick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .tempo-invite {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-4);
   padding-top: var(--space-3);
+}
+
+/* O relatorio no papel.
+ *
+ * A tela e um lugar para decidir o recorte; o papel e o resultado da decisao.
+ * Sai o que serve para navegar — barra lateral, topo, navegacao interna,
+ * filtros e botoes — e fica o que responde a pergunta.
+ *
+ * Tinta preta sobre branco, e nao o tema escuro: imprimir o fundo do M/OS
+ * gastaria um cartucho por pagina e sairia ilegivel em impressora comum. */
+@media print {
+  .nav-rail,
+  .topbar,
+  .tempo-nav,
+  .tempo-filters,
+  .tempo-exports,
+  .receipt,
+  .context-path {
+    display: none !important;
+  }
+
+  .app-shell,
+  .main-column,
+  .content,
+  .page,
+  body {
+    display: block;
+    overflow: visible;
+    height: auto;
+    background: #fff;
+    color: #000;
+  }
+
+  .tempo-page {
+    max-width: none;
+    padding: 0;
+  }
+
+  .panel {
+    break-inside: avoid;
+  }
+
+  .tempo-table th,
+  .tempo-table td,
+  .tempo-table small,
+  .tempo-stats strong,
+  .micro-label,
+  .panel-header h2 {
+    color: #000;
+  }
+
+  .tempo-table th,
+  .tempo-table td {
+    border-bottom: 1px solid #ccc;
+  }
+
+  /* Cabecalho repetido em cada folha: uma tabela de trinta sessoes atravessa
+     paginas, e a segunda sem cabecalho vira uma coluna de numeros sem nome. */
+  .tempo-table thead {
+    display: table-header-group;
+  }
 }
 
 .tempo-invite p {

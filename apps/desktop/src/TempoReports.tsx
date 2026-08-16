@@ -79,6 +79,7 @@ export function TempoReports({ projects }: { projects: Project[] }) {
   const [to, setTo] = useState(today);
   const [projectId, setProjectId] = useState("");
   const [clientId, setClientId] = useState("");
+  const [adjust, setAdjust] = useState("0");
   const [lines, setLines] = useState<ReportLine[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [tracking, setTracking] = useState<ProjectTracking[]>([]);
@@ -120,6 +121,19 @@ export function TempoReports({ projects }: { projects: Project[] }) {
   );
 
   const totals = sum(filtered);
+
+  /**
+   * Desconto (negativo) ou acréscimo (positivo) sobre o total.
+   *
+   * Vive só aqui, e nunca no banco: é uma negociação de uma fatura — "tira 10%
+   * desse mês" — e não uma correção do que foi trabalhado. Gravá-lo faria a
+   * próxima leitura das mesmas horas dar outro número.
+   *
+   * Vírgula aceita porque o teclado brasileiro escreve assim.
+   */
+  const percent = Number(adjust.replace(",", ".")) || 0;
+  const finalAmount = Math.round(totals.amountCents * (1 + percent / 100));
+
   const named = (id: string) => projects.find((project) => project.id === id)?.name ?? "Project removido";
   const byProject = groupBy(filtered, (line) => line.projectId);
   const byActivity = groupBy(filtered, (line) => line.activityType);
@@ -168,15 +182,25 @@ export function TempoReports({ projects }: { projects: Project[] }) {
     return run("CSV", () => api.exportCsv(buildCsv(headers, rows), "relatorio-tempo.csv"));
   }
 
+  /** O resumo do PDF. O ajuste só entra quando existe — zero por cento numa
+   *  linha do relatório é uma linha que não informa nada. */
+  const pdfTotals = (): [string, string][] => {
+    const rows: [string, string][] = [
+      ["Trabalhado", hoursOf(totals.grossSeconds)],
+      ["Cobravel", hoursOf(totals.billableSeconds)],
+      ["Valor", moneyOf(totals.amountCents)],
+    ];
+    if (percent) {
+      rows.push([`Ajuste (${percent}%)`, moneyOf(finalAmount)]);
+    }
+    return rows;
+  };
+
   function exportPdf() {
     return run("PDF", () => api.exportReportPdf({
       title: "Relatório de horas",
       period,
-      totals: [
-        ["Trabalhado", hoursOf(totals.grossSeconds)],
-        ["Cobrável", hoursOf(totals.billableSeconds)],
-        ["Valor", moneyOf(totals.amountCents)],
-      ],
+      totals: pdfTotals(),
       columns: ["Data", "Project", "Cobrável", "Valor"],
       rows: pdfRows(),
     }, "relatorio-tempo.pdf"));
@@ -198,8 +222,10 @@ export function TempoReports({ projects }: { projects: Project[] }) {
       period,
       columns: ["Data", "Project", "Cobrável", "Valor"],
       rows: pdfRows(),
-      totalLabel: "Total",
-      totalValue: moneyOf(totals.amountCents),
+      // O ajuste é dito no rótulo, e não escondido no número: uma fatura cujo
+      // total não fecha com a soma das linhas parece erro de conta.
+      totalLabel: percent ? `Total com ${percent}%` : "Total",
+      totalValue: moneyOf(percent ? finalAmount : totals.amountCents),
     }, `fatura-${slug}.pdf`));
   }
 
@@ -229,6 +255,17 @@ export function TempoReports({ projects }: { projects: Project[] }) {
               {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
             </select>
           </div>
+          <div className="tempo-field">
+            <label htmlFor="rep-adjust">Ajuste (%)</label>
+            {/* Texto e não `number`: aceita vírgula, que é como se escreve
+                decimal em português, e aceita o sinal de menos do desconto. */}
+            <input
+              id="rep-adjust"
+              inputMode="decimal"
+              value={adjust}
+              onChange={(event) => setAdjust(event.currentTarget.value)}
+            />
+          </div>
         </div>
       </Panel>
 
@@ -245,17 +282,30 @@ export function TempoReports({ projects }: { projects: Project[] }) {
                 <strong>{hoursOf(totals.billableSeconds)}</strong>
               </div>
               <div>
-                <span className="micro-label">VALOR</span>
+                <span className="micro-label">{percent ? "VALOR BRUTO" : "VALOR"}</span>
                 <strong>{moneyOf(totals.amountCents)}</strong>
               </div>
-              <div>
-                <span className="micro-label">SESSÕES</span>
-                <strong>{filtered.length}</strong>
-              </div>
+              {/* O ajustado aparece ao LADO do bruto, nunca no lugar dele: quem
+                  vai cobrar precisa ver os dois para conferir o desconto. */}
+              {percent ? (
+                <div>
+                  <span className="micro-label">{percent > 0 ? `COM +${percent}%` : `COM ${percent}%`}</span>
+                  <strong>{moneyOf(finalAmount)}</strong>
+                </div>
+              ) : (
+                <div>
+                  <span className="micro-label">SESSÕES</span>
+                  <strong>{filtered.length}</strong>
+                </div>
+              )}
             </div>
             <div className="form-actions tempo-exports">
               <Button variant="ghost" size="sm" disabled={busy} onClick={() => void exportCsv()}>Exportar CSV</Button>
               <Button variant="ghost" size="sm" disabled={busy} onClick={() => void exportPdf()}>Exportar PDF</Button>
+              {/* Impressão do sistema: no Windows ela abre a caixa com
+                  "Microsoft Print to PDF", então também é uma segunda saída em
+                  papel para quem prefere ver antes de salvar. */}
+              <Button variant="ghost" size="sm" onClick={() => window.print()}>Imprimir</Button>
               <Button variant="primary" size="sm" disabled={busy || !clientId} onClick={() => void exportInvoice()}>
                 Fatura do cliente
               </Button>

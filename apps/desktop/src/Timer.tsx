@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import type { ActiveTimer, Project } from "./types";
+import type { ActiveTimer, Project, TimeEntry } from "./types";
+
+/** Quantos atalhos de "começar agora" cabem antes de virarem uma lista. */
+const QUICK = 3;
 
 /**
  * Segundos que este cronômetro já contou.
@@ -37,8 +40,10 @@ function clockOf(seconds: number) {
  * Só existe quando há Project: cronometrar exige saber para onde vai a hora, e
  * um seletor vazio prometeria uma função que não pode ser cumprida.
  */
-export function Timer({ projects, onChanged }: {
+export function Timer({ projects, entries = [], onChanged }: {
   projects: Project[];
+  /** As sessões recentes, para o começo em um clique saber o que oferecer. */
+  entries?: TimeEntry[];
   onChanged: () => void;
 }) {
   const [timer, setTimer] = useState<ActiveTimer | null>(null);
@@ -82,6 +87,32 @@ export function Timer({ projects, onChanged }: {
     ? projects.find((project) => project.id === timer.projectId)?.name ?? "Project removido"
     : "";
 
+  /**
+   * Os Projects em que se trabalhou por último, do mais recente para o mais
+   * antigo.
+   *
+   * `entries` já vem ordenada por início decrescente, então a primeira aparição
+   * de cada Project é a mais recente — não é preciso ordenar de novo.
+   */
+  const recent = useMemo(() => {
+    const seen: Project[] = [];
+    for (const entry of entries) {
+      if (seen.length >= QUICK) break;
+      if (seen.some((project) => project.id === entry.projectId)) continue;
+      const project = active.find((candidate) => candidate.id === entry.projectId);
+      if (project) seen.push(project);
+    }
+    return seen;
+  }, [entries, active]);
+
+  // Pré-seleciona o último Project trabalhado. Quem cronometra tende a voltar
+  // para a mesma obra, e um seletor em branco cobra uma escolha que o histórico
+  // já respondeu.
+  useEffect(() => {
+    if (choice || !active.length) return;
+    setChoice(recent[0]?.id ?? active[0].id);
+  }, [choice, active, recent]);
+
   if (!timer) {
     if (!active.length) {
       return <p className="empty-state">Crie um Project para cronometrar tempo nele.</p>;
@@ -101,6 +132,25 @@ export function Timer({ projects, onChanged }: {
         >
           Iniciar
         </Button>
+        {/* Começar em um clique: o atrito entre "vou trabalhar" e "estou
+            contando" é exatamente onde o registro se perde. Só aparece com
+            histórico — antes dele, seriam botões sem resposta para dar. */}
+        {recent.length ? (
+          <div className="timer-quick">
+            <span className="micro-label">RETOMAR</span>
+            {recent.map((project) => (
+              <Button
+                key={project.id}
+                variant="ghost"
+                size="sm"
+                disabled={working}
+                onClick={() => void act(() => api.timerStart(project.id, "", "other"))}
+              >
+                {project.name}
+              </Button>
+            ))}
+          </div>
+        ) : null}
         {note ? <p className="support-copy" aria-live="polite">{note}</p> : null}
       </div>
     );
