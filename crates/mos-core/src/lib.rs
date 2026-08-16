@@ -31,7 +31,8 @@ pub use functions::{
     FunctionDefinition, FunctionRisk,
 };
 pub use monitoring::{
-    ActivityEvent, ActivityEventId, ActivityKind, MonitoredApp, NewActivityEvent,
+    open_periods, uncovered, ActivityEvent, ActivityEventId, ActivityKind, MonitoredApp,
+    NewActivityEvent, Period,
 };
 pub use ports::{
     AppRepository, BackupInspection, BackupReceipt, CaptureRepository, ConversationRepository,

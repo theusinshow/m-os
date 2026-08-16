@@ -255,6 +255,9 @@ export type ActivityEvent = {
   processed: boolean;
 };
 
+/** Um intervalo fechado. A Linha do Tempo devolve os que não têm sessão. */
+export type Period = { start: string; end: string };
+
 export type TrackingSettings = {
   rounding: { enabled: boolean; intervalMinutes: number; mode: "nearest" | "up" | "down" };
   idleThresholdMinutes: number;

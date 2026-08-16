@@ -308,6 +308,96 @@ pub fn monitoring_events<R: Runtime>(
     )
 }
 
+/// A Linha do Tempo de um dia: o que ficou sem registro.
+///
+/// Compoe aqui, e nao no renderer, porque a subtracao de periodos e regra
+/// testada em `mos-core` — e porque a tela nao deveria precisar saber que
+/// "programa aberto" e "sessao gravada" vivem em tabelas diferentes.
+///
+/// So devolve o que NAO tem sessao. Oferecer um periodo ja registrado
+/// convidaria a contar a mesma hora duas vezes, e a segunda contagem so
+/// apareceria na fatura.
+#[tauri::command]
+pub fn monitoring_timeline<R: Runtime>(
+    app: AppHandle<R>,
+    since: String,
+    until: String,
+) -> Result<Vec<mos_core::Period>, CoreError> {
+    let state = app.state::<AppState>();
+    let from = mos_core::parse_moment(&since)?;
+    let to = mos_core::parse_moment(&until)?;
+
+    let events = state.monitoring.events(from, to)?;
+    let open = mos_core::open_periods(&events, to.min(time::OffsetDateTime::now_utc()));
+
+    let recorded: Vec<mos_core::Period> = state
+        .tracking
+        .entries(None)?
+        .into_iter()
+        .filter_map(|entry| {
+            let end = entry
+                .ended_at
+                .unwrap_or(entry.started_at + time::Duration::seconds(entry.duration_seconds));
+            (end > from && entry.started_at < to).then_some(mos_core::Period {
+                start: entry.started_at,
+                end,
+            })
+        })
+        .collect();
+
+    Ok(mos_core::uncovered(&open, &recorded))
+}
+
+/// Transforma um vao da Linha do Tempo em sessao.
+///
+/// Grava como `Reconstructed`, e nao `Manual`: sao coisas diferentes. Manual e
+/// hora que o usuario lembrou; reconstruida e hora que o SISTEMA propos a partir
+/// do que observou, e o usuario aceitou. Faturar as duas como medicao seria
+/// cobrar duas estimativas diferentes com o mesmo nome.
+#[tauri::command]
+pub fn tracking_record_from_timeline<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    since: String,
+    until: String,
+    activity_type: String,
+) -> Result<TimeEntry, CoreError> {
+    let state = app.state::<AppState>();
+    let project = ProjectId::parse(&project_id)?;
+    let start = mos_core::parse_moment(&since)?;
+    let end = mos_core::parse_moment(&until)?;
+    if end <= start {
+        return Err(CoreError::new(
+            mos_core::ErrorCode::InvalidInput,
+            "O fim do periodo vem antes do inicio.",
+            false,
+        ));
+    }
+
+    let rate = state
+        .tracking
+        .project_tracking()?
+        .into_iter()
+        .find(|entry| entry.project_id == project)
+        .map(|entry| entry.hourly_rate_cents)
+        .unwrap_or(0);
+
+    let entry = state.tracking.record(mos_core::NewTimeEntry {
+        project_id: project,
+        started_at: start,
+        ended_at: Some(end),
+        duration_seconds: (end - start).whole_seconds(),
+        idle_seconds: 0,
+        description: String::new(),
+        activity_type: ActivityType::parse(&activity_type)?,
+        billable: true,
+        hourly_rate_snapshot_cents: rate,
+        source: mos_core::EntrySource::Reconstructed,
+    })?;
+    let _ = app.emit("data-changed", "tracking");
+    Ok(entry)
+}
+
 /// Marca o evento como resolvido, para o periodo nao ser reoferecido amanha.
 #[tauri::command]
 pub fn monitoring_mark_processed<R: Runtime>(

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, Client, ClientInput, MonitoredApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, Client, ClientInput, MonitoredApp, Period, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -257,6 +257,14 @@ export const api = {
   /** A janela é obrigatória: a Linha do Tempo é sempre sobre um período. */
   activityEvents(since: string, until: string) {
     return invoke<ActivityEvent[]>("monitoring_events", { since, until });
+  },
+  /** Só os períodos SEM sessão registrada — o resto seria contar duas vezes. */
+  monitoringTimeline(since: string, until: string) {
+    return invoke<Period[]>("monitoring_timeline", { since, until });
+  },
+  /** Entra como `reconstructed`: proposta pelo sistema, aceita por você. */
+  recordFromTimeline(projectId: string, since: string, until: string, activityType: ActivityType) {
+    return invoke<TimeEntry>("tracking_record_from_timeline", { projectId, since, until, activityType });
   },
   markActivityProcessed(id: string) {
     return invoke<void>("monitoring_mark_processed", { id });

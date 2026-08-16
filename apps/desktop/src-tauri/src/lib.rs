@@ -1218,6 +1218,8 @@ pub fn run() {
             tracking::monitoring_save_app,
             tracking::monitoring_delete_app,
             tracking::monitoring_events,
+            tracking::monitoring_timeline,
+            tracking::tracking_record_from_timeline,
             tracking::monitoring_mark_processed,
             hermes::hermes_select_conversation,
             hermes::hermes_load_history,

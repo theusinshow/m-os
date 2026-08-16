@@ -139,6 +139,105 @@ pub struct NewActivityEvent {
     pub detected_at: OffsetDateTime,
 }
 
+/// Um intervalo fechado de tempo.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Period {
+    #[serde(with = "time::serde::rfc3339")]
+    pub start: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub end: OffsetDateTime,
+}
+
+impl Period {
+    pub fn seconds(&self) -> i64 {
+        (self.end - self.start).whole_seconds().max(0)
+    }
+}
+
+/// Os períodos em que algum programa monitorado esteve aberto.
+///
+/// Casa `app_opened` com o `app_closed` do MESMO processo. Uma abertura sem
+/// fechamento — o programa ainda está aberto, ou o M/OS foi encerrado antes —
+/// fecha em `now`, porque o trabalho que está acontecendo agora é justamente o
+/// que mais interessa oferecer.
+pub fn open_periods(events: &[ActivityEvent], now: OffsetDateTime) -> Vec<Period> {
+    let mut open: Vec<(String, OffsetDateTime)> = Vec::new();
+    let mut periods = Vec::new();
+
+    for event in events {
+        match event.kind {
+            ActivityKind::AppOpened => {
+                open.push((event.process_name.clone(), event.detected_at));
+            }
+            ActivityKind::AppClosed => {
+                // Do fim para o começo: um mesmo programa aberto duas vezes
+                // fecha primeiro a abertura mais recente, que é o que a pilha do
+                // sistema operacional faz.
+                if let Some(index) = open
+                    .iter()
+                    .rposition(|(name, _)| name == &event.process_name)
+                {
+                    let (_, start) = open.remove(index);
+                    if event.detected_at > start {
+                        periods.push(Period {
+                            start,
+                            end: event.detected_at,
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for (_, start) in open {
+        if now > start {
+            periods.push(Period { start, end: now });
+        }
+    }
+
+    periods.sort_by_key(|period| period.start);
+    periods
+}
+
+/// O que sobra de `periods` depois de tirar o que `covered` já cobre.
+///
+/// É isto que a Linha do Tempo oferece: o programa esteve aberto, e não há
+/// sessão registrada naquele pedaço. O resto ela não mostra, porque oferecer um
+/// período já registrado convidaria a contar a mesma hora duas vezes.
+pub fn uncovered(periods: &[Period], covered: &[Period]) -> Vec<Period> {
+    let mut blocks: Vec<Period> = covered.to_vec();
+    blocks.sort_by_key(|period| period.start);
+
+    let mut result = Vec::new();
+    for period in periods {
+        let mut cursor = period.start;
+        for block in &blocks {
+            if block.end <= cursor || block.start >= period.end {
+                continue;
+            }
+            if block.start > cursor {
+                result.push(Period {
+                    start: cursor,
+                    end: block.start.min(period.end),
+                });
+            }
+            cursor = cursor.max(block.end);
+            if cursor >= period.end {
+                break;
+            }
+        }
+        if cursor < period.end {
+            result.push(Period {
+                start: cursor,
+                end: period.end,
+            });
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,5 +265,118 @@ mod tests {
     fn an_unknown_kind_is_refused_by_name() {
         let error = ActivityKind::parse("app_exploded").unwrap_err();
         assert!(error.message.contains("app_exploded"));
+    }
+
+    fn at(seconds: i64) -> OffsetDateTime {
+        OffsetDateTime::from_unix_timestamp(1_700_000_000 + seconds).unwrap()
+    }
+
+    fn event(kind: ActivityKind, process: &str, seconds: i64) -> ActivityEvent {
+        ActivityEvent {
+            id: ActivityEventId::new(),
+            kind,
+            process_name: process.to_owned(),
+            detected_at: at(seconds),
+            processed: false,
+        }
+    }
+
+    fn period(start: i64, end: i64) -> Period {
+        Period {
+            start: at(start),
+            end: at(end),
+        }
+    }
+
+    #[test]
+    fn an_open_and_close_pair_becomes_one_period() {
+        let events = [
+            event(ActivityKind::AppOpened, "acad.exe", 0),
+            event(ActivityKind::AppClosed, "acad.exe", 3_600),
+        ];
+        assert_eq!(open_periods(&events, at(9_999)), vec![period(0, 3_600)]);
+    }
+
+    /// O programa continua aberto agora. E justamente o trabalho em curso, e
+    /// deixa-lo de fora esconderia o periodo que mais interessa oferecer.
+    #[test]
+    fn an_unclosed_program_runs_until_now() {
+        let events = [event(ActivityKind::AppOpened, "revit.exe", 0)];
+        assert_eq!(open_periods(&events, at(600)), vec![period(0, 600)]);
+    }
+
+    /// Fechamento sem abertura acontece: o M/OS pode ter comecado a observar com
+    /// o programa ja aberto. Ignorar e melhor que inventar um inicio.
+    #[test]
+    fn a_close_without_an_open_is_ignored() {
+        let events = [event(ActivityKind::AppClosed, "acad.exe", 3_600)];
+        assert!(open_periods(&events, at(9_999)).is_empty());
+    }
+
+    #[test]
+    fn events_from_different_programs_do_not_pair_with_each_other() {
+        let events = [
+            event(ActivityKind::AppOpened, "acad.exe", 0),
+            event(ActivityKind::AppOpened, "revit.exe", 100),
+            event(ActivityKind::AppClosed, "acad.exe", 200),
+            event(ActivityKind::AppClosed, "revit.exe", 300),
+        ];
+        assert_eq!(
+            open_periods(&events, at(9_999)),
+            vec![period(0, 200), period(100, 300)]
+        );
+    }
+
+    /// A hora ja registrada sai da oferta. Sem isso a Linha do Tempo convidaria
+    /// a contar a mesma hora duas vezes — e a segunda contagem so apareceria na
+    /// fatura.
+    #[test]
+    fn a_recorded_session_is_carved_out_of_the_offer() {
+        let open = [period(0, 3_600)];
+        let recorded = [period(600, 1_200)];
+        assert_eq!(
+            uncovered(&open, &recorded),
+            vec![period(0, 600), period(1_200, 3_600)]
+        );
+    }
+
+    #[test]
+    fn a_fully_covered_period_offers_nothing() {
+        assert!(uncovered(&[period(600, 1_200)], &[period(0, 3_600)]).is_empty());
+    }
+
+    #[test]
+    fn nothing_recorded_offers_the_whole_period() {
+        assert_eq!(uncovered(&[period(0, 3_600)], &[]), vec![period(0, 3_600)]);
+    }
+
+    #[test]
+    fn several_sessions_carve_several_holes() {
+        let open = [period(0, 10_000)];
+        let recorded = [period(1_000, 2_000), period(5_000, 6_000)];
+        assert_eq!(
+            uncovered(&open, &recorded),
+            vec![
+                period(0, 1_000),
+                period(2_000, 5_000),
+                period(6_000, 10_000)
+            ]
+        );
+    }
+
+    /// Sessoes fora de ordem e sobrepostas sao o caso real de quem corrigiu
+    /// horario a mao. O resultado nao pode depender da ordem em que chegam.
+    #[test]
+    fn overlapping_and_unsorted_sessions_still_carve_correctly() {
+        let open = [period(0, 10_000)];
+        let recorded = [
+            period(5_000, 6_000),
+            period(1_000, 2_000),
+            period(1_500, 5_500),
+        ];
+        assert_eq!(
+            uncovered(&open, &recorded),
+            vec![period(0, 1_000), period(6_000, 10_000)]
+        );
     }
 }

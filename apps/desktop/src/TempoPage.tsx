@@ -4,6 +4,7 @@ import { Button } from "./Button";
 import { ContextPath, EmptyState, Panel } from "./Surface";
 import { TempoClients } from "./TempoClients";
 import { TempoSettings } from "./TempoSettings";
+import { TempoTimeline } from "./TempoTimeline";
 import { Timer } from "./Timer";
 import type { ActivityType, Project, TimeEntry, Totals } from "./types";
 
@@ -180,6 +181,12 @@ export function TempoPage({ projects, openProject, receipt }: {
   const [note, setNote] = useState("");
   const [choice, setChoice] = useState("");
   const [draft, setDraft] = useState<Draft>(emptyDraft);
+  // O convite so existe enquanto ha o que importar. Ele vive AQUI, e nao so em
+  // Settings, porque quem abre a pagina de Tempo com ela vazia esta exatamente
+  // na pergunta que a importacao responde — e um botao que so existe em outra
+  // tela e um botao que nao acontece.
+  const [pendingImport, setPendingImport] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const [editing, setEditing] = useState<TimeEntry | null>(null);
   const [editDraft, setEditDraft] = useState<Draft>(emptyDraft);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -194,6 +201,36 @@ export function TempoPage({ projects, openProject, receipt }: {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    void (async () => {
+      const [at, path] = await Promise.all([
+        api.cronocadImportedAt().catch(() => null),
+        api.defaultCronocadPath().catch(() => null),
+      ]);
+      // Nulo em dois casos que dao no mesmo para a tela: ja importou, ou nao ha
+      // CronoCAD nesta maquina. Nos dois o convite nao faz sentido.
+      setPendingImport(at ? null : path);
+    })();
+  }, []);
+
+  async function runImport() {
+    if (!pendingImport) return;
+    setImporting(true);
+    setNote("");
+    try {
+      const report = await api.importCronocad(pendingImport);
+      setPendingImport(null);
+      setNote(
+        `Importado: ${report.projects} projects · ${report.entries} sessões · ` +
+        `${(report.trackedSeconds / 3600).toFixed(1)} h · ${report.activityEvents} eventos.`,
+      );
+      await load();
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : String(error));
+    }
+    setImporting(false);
+  }
 
   async function guard(run: () => Promise<unknown>) {
     setNote("");
@@ -277,6 +314,24 @@ export function TempoPage({ projects, openProject, receipt }: {
   return (
     <div className="page">
       <ContextPath segments={["M", "TEMPO"]} />
+
+      {pendingImport ? (
+        <Panel label="CRONOCAD ENCONTRADO" rule>
+          <div className="tempo-invite">
+            <div>
+              <p>Existe um banco do CronoCAD nesta máquina, e as horas dele ainda não estão aqui.</p>
+              <p className="support-copy">
+                Vêm projetos, sessões, pendências, programas monitorados, o histórico observado pelo sistema e a
+                sua configuração de arredondamento. O banco de origem é aberto <strong>somente para leitura</strong> —
+                o CronoCAD continua intacto, e você compara o total antes de desinstalar. Roda uma vez.
+              </p>
+            </div>
+            <Button variant="primary" size="sm" disabled={importing} onClick={() => void runImport()}>
+              {importing ? "Importando" : "Importar agora"}
+            </Button>
+          </div>
+        </Panel>
+      ) : null}
 
       <Panel label="CRONÔMETRO" rule>
         <Timer projects={projects} onChanged={() => void load()} />
@@ -370,6 +425,7 @@ export function TempoPage({ projects, openProject, receipt }: {
         )}
       </Panel>
 
+      <TempoTimeline projects={projects} onChanged={() => void load()} />
       <TempoClients />
       <TempoSettings onChanged={() => void load()} />
 

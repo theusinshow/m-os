@@ -31,6 +31,11 @@ mos-storage-sqlite = { path = "../../../crates/mos-storage-sqlite" }
 tokio = { version = "1", features = ["rt", "sync", "macros"] }
 serde.workspace = true
 serde_json = "1"
+# Declarado porque o `mos-core` expoe `OffsetDateTime` na API publica: quem
+# monta um `Period` ou soma uma duracao precisa do mesmo tipo, e depender dele
+# por acaso via arvore de dependencias e o que quebra no dia em que o core
+# mudar de versao.
+time.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
