@@ -214,6 +214,11 @@ pub trait TimeTrackingRepository: Send + Sync {
         id: crate::TimeEntryId,
         edit: crate::TimeEntryEdit,
     ) -> Result<crate::TimeEntry, CoreError>;
+    /// O que esta na lixeira, da remocao mais recente para a mais antiga.
+    ///
+    /// Existe porque soft delete sem tela de lixeira e so uma forma educada de
+    /// perder: o registro fica no banco, mas ninguem consegue chegar nele.
+    fn trashed_time_entries(&self) -> Result<Vec<crate::TimeEntry>, CoreError>;
     /// Soft delete: hora de trabalho e registro de cobranca e sai da vista sem
     /// sair do banco.
     fn trash_time_entry(&self, id: crate::TimeEntryId) -> Result<(), CoreError>;
@@ -262,6 +267,9 @@ pub trait TimeTrackingRepository: Send + Sync {
         &self,
         settings: crate::TrackingSettings,
     ) -> Result<crate::TrackingSettings, CoreError>;
+    /// Quem esta cobrando. So a fatura le isto.
+    fn issuer(&self) -> Result<crate::Issuer, CoreError>;
+    fn set_issuer(&self, issuer: crate::Issuer) -> Result<crate::Issuer, CoreError>;
 }
 
 /// O que o sistema observa: programas abertos e periodos parados.

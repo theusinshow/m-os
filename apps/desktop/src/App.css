@@ -633,6 +633,20 @@ textarea::placeholder {
   color: var(--text-system);
 }
 
+/* A pagina de Tempo tem teto de largura, e as outras ainda nao.
+ *
+ * Numa tela ultrawide o `.page` estica ate a borda, e uma tabela de quatro
+ * colunas fica com o nome do Project num extremo e o valor no outro, com mil
+ * pixels de vazio no meio — o olho perde a linha entre um e outro. 1180px cabe
+ * a tabela inteira sem folga inutil.
+ *
+ * O teto e local e nao em `.page` de proposito: mexer no `.page` mudaria as
+ * outras cinco paginas de uma vez, e eu so consigo conferir esta. */
+.tempo-page {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
 /* Numeros alinhados a direita e tabulares: numa coluna de horas e dinheiro, o
    olho compara grandeza pela posicao do digito, e largura variavel destroi essa
    leitura. O nome do Project fica a esquerda porque e o unico texto de verdade
@@ -789,6 +803,180 @@ textarea::placeholder {
   align-items: center;
   gap: var(--space-2);
   opacity: 1;
+}
+
+/* A navegacao entre as seis telas do Tempo.
+ *
+ * Texto e regua, sem caixa: a barra lateral ja e a navegacao do M/OS, e uma
+ * segunda navegacao desenhada como botoes competiria com ela pela mesma leitura.
+ * O destino atual e o unico com cor de sodio, que e o que o M/OS usa para "voce
+ * esta aqui" em toda parte. */
+.tempo-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.tempo-nav button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color var(--dur-state) var(--ease-state);
+}
+
+.tempo-nav button:hover {
+  color: var(--text);
+}
+
+.tempo-nav button.current {
+  color: var(--signal-ink);
+}
+
+/* Filtros em grade e nao em linha unica: sao ate sete campos, e uma fileira que
+   quebra em lugar imprevisivel deixa "De" e "Ate" em linhas diferentes — e as
+   duas datas so significam algo juntas. */
+.tempo-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+}
+
+.tempo-search {
+  min-width: 220px;
+}
+
+/* Numeros grandes do resumo. Quatro colunas de largura igual para o olho
+   comparar sem reposicionar. */
+.tempo-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-4);
+  padding-top: var(--space-3);
+}
+
+.tempo-stats div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.tempo-stats strong {
+  color: var(--text);
+  font: var(--text-capture);
+  font-variant-numeric: tabular-nums;
+}
+
+.tempo-exports {
+  padding-top: var(--space-4);
+}
+
+/* A segunda linha das celulas: codigo do projeto, horas cobraveis sob o valor.
+   Bloco e nao inline para nao empurrar a largura da coluna. */
+.tempo-table small {
+  display: block;
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+.tempo-table tfoot th,
+.tempo-table tfoot td {
+  border-bottom: 0;
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+}
+
+.tempo-table tfoot strong {
+  color: var(--text);
+  font: var(--text-ui);
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+}
+
+/* Na tabela de Projects a coluna que sustenta a leitura e o ACUMULADO (a
+   quinta), e nao a terceira e a quarta como no Painel. Sem isto o realce cairia
+   sobre "Progresso" e "Valor/hora", que sao contexto e nao conclusao. */
+.tempo-table-projects td:nth-child(3),
+.tempo-table-projects td:nth-child(4) {
+  color: var(--text-secondary);
+}
+
+.tempo-table-projects td:nth-child(5) strong {
+  color: var(--text);
+  font: var(--text-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+.tempo-table-lines td:nth-child(2),
+.tempo-table-lines td:nth-child(3) {
+  color: var(--text-secondary);
+  text-align: left;
+}
+
+.tempo-budget {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.tempo-budget-numbers {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-system);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.tempo-budget-numbers .over {
+  color: var(--text);
+}
+
+.tempo-budget-track {
+  height: 3px;
+  background: var(--border);
+}
+
+.tempo-budget-fill {
+  height: 100%;
+  background: var(--signal-fill);
+}
+
+/* Estourou a meta: a barra vira contorno em vez de ganhar vermelho. O M/OS tem
+   um acento so, e "passou do previsto" nao e erro — e informacao. */
+.tempo-budget-fill[data-over] {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--signal-fill) 0 2px,
+    transparent 2px 4px
+  );
+}
+
+.tempo-budget-plain {
+  color: var(--text-system);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+/* "Conferir?" nao alarma e nao bloqueia: uma sessao de dez horas pode ser real.
+   Fica em sodio porque e a cor de "olhe aqui" no M/OS, e sem caixa porque nao e
+   um botao — nao ha nada a clicar. */
+.tempo-flag {
+  flex: none;
+  color: var(--signal-ink);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  cursor: help;
 }
 
 .tempo-invite {

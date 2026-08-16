@@ -156,6 +156,24 @@ impl TimeTrackingRepository for SqliteStorage {
         Ok(entries)
     }
 
+    fn trashed_time_entries(&self) -> Result<Vec<TimeEntry>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        // Pela remocao e nao pelo inicio: quem abre a lixeira esta procurando o
+        // que acabou de apagar, e nao a sessao mais antiga que ja apagou.
+        let sql = format!(
+            "SELECT {ENTRY_COLUMNS} FROM time_entries \
+             WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC"
+        );
+        let mut statement = connection.prepare(&sql).map_err(map_sql_error)?;
+        let rows = statement.query_map([], read_entry).map_err(map_sql_error)?;
+
+        let mut entries = Vec::new();
+        for row in rows {
+            entries.push(build_entry(row.map_err(map_sql_error)?)?);
+        }
+        Ok(entries)
+    }
+
     fn update_time_entry(
         &self,
         id: TimeEntryId,
@@ -257,12 +275,13 @@ impl TimeTrackingRepository for SqliteStorage {
         connection
             .execute(
                 "INSERT INTO project_tracking (project_id, hourly_rate_cents, code, color, \
-                 tracking_status, client_id, created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7) \
+                 tracking_status, client_id, budget_minutes, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8) \
                  ON CONFLICT (project_id) DO UPDATE SET \
                  hourly_rate_cents = excluded.hourly_rate_cents, code = excluded.code, \
                  color = excluded.color, tracking_status = excluded.tracking_status, \
-                 client_id = excluded.client_id, updated_at = excluded.updated_at",
+                 client_id = excluded.client_id, budget_minutes = excluded.budget_minutes, \
+                 updated_at = excluded.updated_at",
                 params![
                     tracking.project_id.to_string(),
                     tracking.hourly_rate_cents,
@@ -270,6 +289,7 @@ impl TimeTrackingRepository for SqliteStorage {
                     tracking.color,
                     tracking.tracking_status.as_str(),
                     tracking.client_id.map(|id| id.to_string()),
+                    tracking.budget_minutes,
                     now,
                 ],
             )
@@ -281,8 +301,8 @@ impl TimeTrackingRepository for SqliteStorage {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let mut statement = connection
             .prepare(
-                "SELECT project_id, hourly_rate_cents, code, color, tracking_status, client_id \
-                 FROM project_tracking",
+                "SELECT project_id, hourly_rate_cents, code, color, tracking_status, client_id, \
+                 budget_minutes FROM project_tracking",
             )
             .map_err(map_sql_error)?;
         let rows = statement
@@ -294,13 +314,14 @@ impl TimeTrackingRepository for SqliteStorage {
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, Option<String>>(5)?,
+                    row.get::<_, i64>(6)?,
                 ))
             })
             .map_err(map_sql_error)?;
 
         let mut tracking = Vec::new();
         for row in rows {
-            let (project_id, hourly_rate_cents, code, color, status, client) =
+            let (project_id, hourly_rate_cents, code, color, status, client, budget) =
                 row.map_err(map_sql_error)?;
             tracking.push(ProjectTracking {
                 project_id: ProjectId::parse(&project_id)?,
@@ -309,6 +330,7 @@ impl TimeTrackingRepository for SqliteStorage {
                 color: color.unwrap_or_default(),
                 tracking_status: TrackingStatus::parse(&status)?,
                 client_id: client.as_deref().map(ClientId::parse).transpose()?,
+                budget_minutes: budget,
             });
         }
         Ok(tracking)
@@ -694,6 +716,36 @@ impl TimeTrackingRepository for SqliteStorage {
             .map_err(map_sql_error)?;
         Ok(settings)
     }
+
+    fn issuer(&self) -> Result<mos_core::Issuer, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        connection
+            .query_row(
+                "SELECT issuer_name, issuer_document, issuer_contact \
+                 FROM tracking_settings WHERE id = 1",
+                [],
+                |row| {
+                    Ok(mos_core::Issuer {
+                        name: row.get(0)?,
+                        document: row.get(1)?,
+                        contact: row.get(2)?,
+                    })
+                },
+            )
+            .map_err(map_sql_error)
+    }
+
+    fn set_issuer(&self, issuer: mos_core::Issuer) -> Result<mos_core::Issuer, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        connection
+            .execute(
+                "UPDATE tracking_settings SET issuer_name = ?1, issuer_document = ?2, \
+                 issuer_contact = ?3 WHERE id = 1",
+                params![issuer.name, issuer.document, issuer.contact],
+            )
+            .map_err(map_sql_error)?;
+        Ok(issuer)
+    }
 }
 
 #[cfg(test)]
@@ -850,6 +902,7 @@ mod tests {
             color: String::new(),
             tracking_status: TrackingStatus::Active,
             client_id: None,
+            budget_minutes: 0,
         };
         storage.set_project_tracking(first.clone()).unwrap();
         let born: String = {
@@ -955,6 +1008,7 @@ mod tests {
                 color: String::new(),
                 tracking_status: TrackingStatus::Active,
                 client_id: None,
+                budget_minutes: 0,
             })
             .unwrap();
         storage.start_timer(start(id)).unwrap();

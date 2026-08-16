@@ -201,6 +201,31 @@ export type TimeEntry = {
   source: "timer" | "manual" | "reconstructed";
 };
 
+/**
+ * Os dados de cobrança de um Project.
+ *
+ * Separado de `Project` porque a maioria dos Projects do M/OS nunca vai ter
+ * valor/hora nem cliente — e um campo nulo em toda linha ensina que ele é
+ * opcional quando na verdade ele pertence a outro domínio.
+ *
+ * `trackingStatus` tem quatro estados e o `lifecycleState` do M/OS tem três,
+ * porque nenhum dos três significa "concluído". Um projeto que terminou não é a
+ * mesma coisa que um projeto arquivado por desuso, e a diferença importa para
+ * quem fatura.
+ */
+export type TrackingStatus = "active" | "paused" | "completed" | "archived";
+
+export type ProjectTracking = {
+  projectId: string;
+  hourlyRateCents: number;
+  code: string;
+  color: string;
+  trackingStatus: TrackingStatus;
+  clientId: string | null;
+  /** Meta de horas, em minutos. Zero significa "sem meta". */
+  budgetMinutes: number;
+};
+
 /** Quem paga pelo trabalho. Um Project pessoal simplesmente não tem. */
 export type Client = {
   id: string;
@@ -292,6 +317,57 @@ export type Totals = {
   idleSeconds: number;
   billableSeconds: number;
   amountCents: number;
+};
+
+/**
+ * Uma linha do relatório: a sessão, mais o que ela vale.
+ *
+ * `totals` chega calculado pelo backend — mesmo desconto de inatividade, mesmo
+ * arredondamento que o Painel usa. A tela agrupa e formata; não recalcula.
+ */
+export type ReportLine = {
+  entryId: string;
+  projectId: string;
+  startedAt: string;
+  activityType: ActivityType;
+  source: "timer" | "manual" | "reconstructed";
+  billable: boolean;
+  description: string;
+  hourlyRateSnapshotCents: number;
+  totals: Totals;
+};
+
+/** Quem está cobrando. Sai no cabeçalho da fatura, e em nenhum outro lugar. */
+export type Issuer = {
+  name: string;
+  document: string;
+  contact: string;
+};
+
+/**
+ * O PDF recebe as células JÁ FORMATADAS.
+ *
+ * Formatar em dois lugares acabaria com a fatura dizendo um número e a tela
+ * dizendo outro — e quem descobriria seria o cliente.
+ */
+export type ReportPdfData = {
+  title: string;
+  period: string;
+  totals: [string, string][];
+  columns: [string, string, string, string];
+  rows: [string, string, string, string][];
+};
+
+export type InvoiceData = {
+  issuerName: string;
+  issuerDocument: string;
+  issuerContact: string;
+  clientName: string;
+  period: string;
+  columns: [string, string, string, string];
+  rows: [string, string, string, string][];
+  totalLabel: string;
+  totalValue: string;
 };
 
 export type ImportReport = {

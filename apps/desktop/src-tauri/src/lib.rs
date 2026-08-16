@@ -24,6 +24,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod hermes;
 mod jarvis;
+mod pdf;
 mod tracking;
 
 const DEFAULT_CAPTURE_SHORTCUT: &str = "Ctrl+Shift+Space";
@@ -1211,6 +1212,15 @@ pub fn run() {
             tracking::timer_discard,
             tracking::tracking_settings,
             tracking::tracking_set_settings,
+            tracking::tracking_report,
+            tracking::tracking_issuer,
+            tracking::tracking_set_issuer,
+            tracking::tracking_export_report_pdf,
+            tracking::tracking_export_invoice_pdf,
+            tracking::tracking_export_csv,
+            tracking::tracking_trashed,
+            tracking::tracking_project_tracking,
+            tracking::tracking_set_project_tracking,
             tracking::tracking_clients,
             tracking::tracking_save_client,
             tracking::tracking_set_client_archived,

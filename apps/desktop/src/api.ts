@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, Client, ClientInput, MonitoredApp, Period, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, Period, ProjectTracking, ReportLine, ReportPdfData, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -229,11 +229,54 @@ export const api = {
   trackingRestore(id: string) {
     return invoke<void>("tracking_restore", { id });
   },
+  /** A lixeira: o que foi removido continua no banco e volta por aqui. */
+  trackingTrashed() {
+    return invoke<TimeEntry[]>("tracking_trashed");
+  },
+  /**
+   * As sessões de um período, cada uma com o que vale.
+   *
+   * Data ausente é "sem borda deste lado". O cálculo vem do backend porque é lá
+   * que o arredondamento vive — repetir a conta aqui daria um total de tela
+   * diferente do total da fatura, e ninguém saberia qual acreditar.
+   */
+  trackingReport(since: string | null, until: string | null) {
+    return invoke<ReportLine[]>("tracking_report", { since, until });
+  },
+  trackingIssuer() {
+    return invoke<Issuer>("tracking_issuer");
+  },
+  trackingSetIssuer(issuer: Issuer) {
+    return invoke<Issuer>("tracking_set_issuer", { issuer });
+  },
+  /** `false` quando o usuário fecha o diálogo sem escolher onde salvar. */
+  exportReportPdf(report: ReportPdfData, suggestedName: string) {
+    return invoke<boolean>("tracking_export_report_pdf", { report, suggestedName });
+  },
+  exportInvoicePdf(invoice: InvoiceData, suggestedName: string) {
+    return invoke<boolean>("tracking_export_invoice_pdf", { invoice, suggestedName });
+  },
+  exportCsv(contents: string, suggestedName: string) {
+    return invoke<boolean>("tracking_export_csv", { contents, suggestedName });
+  },
   trackingSettings() {
     return invoke<TrackingSettings>("tracking_settings");
   },
   trackingSetSettings(settings: TrackingSettings) {
     return invoke<TrackingSettings>("tracking_set_settings", { settings });
+  },
+  /** Os dados de cobrança de todo Project que tem algum. */
+  projectTracking() {
+    return invoke<ProjectTracking[]>("tracking_project_tracking");
+  },
+  /**
+   * Grava valor/hora, código, cliente e meta.
+   *
+   * Vale do momento da gravação em diante: cada sessão já guarda a taxa que
+   * valia quando o trabalho aconteceu, e reajustar aqui não reescreve o passado.
+   */
+  setProjectTracking(tracking: ProjectTracking) {
+    return invoke<ProjectTracking>("tracking_set_project_tracking", { tracking });
   },
   clients(includeArchived = false) {
     return invoke<Client[]>("tracking_clients", { includeArchived });

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
 import { EmptyState, Panel } from "./Surface";
-import type { MonitoredApp, TrackingSettings } from "./types";
+import type { Issuer, MonitoredApp, TrackingSettings } from "./types";
 
 const MODES: { value: TrackingSettings["rounding"]["mode"]; label: string }[] = [
   { value: "nearest", label: "mais próximo" },
@@ -20,17 +20,20 @@ const MODES: { value: TrackingSettings["rounding"]["mode"]; label: string }[] = 
 export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
   const [settings, setSettings] = useState<TrackingSettings | null>(null);
   const [apps, setApps] = useState<MonitoredApp[]>([]);
+  const [issuer, setIssuer] = useState<Issuer | null>(null);
   const [process, setProcess] = useState("");
   const [label, setLabel] = useState("");
   const [note, setNote] = useState("");
 
   const load = useCallback(async () => {
-    const [next, list] = await Promise.all([
+    const [next, list, who] = await Promise.all([
       api.trackingSettings().catch(() => null),
       api.monitoredApps().catch(() => [] as MonitoredApp[]),
+      api.trackingIssuer().catch(() => null),
     ]);
     setSettings(next);
     setApps(list);
+    setIssuer(who);
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -124,6 +127,53 @@ export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
               isto muda só o número que você cobra, e o arredondamento é aplicado por sessão, não sobre a soma.
             </p>
           </div>
+        ) : (
+          <EmptyState>Configuração indisponível.</EmptyState>
+        )}
+      </Panel>
+
+      <Panel label="EMISSOR DA FATURA">
+        {/* Só a fatura lê isto. Dito na tela para o campo não parecer um cadastro
+            de perfil que vai aparecer em outro lugar. */}
+        <p className="support-copy">
+          Sai no cabeçalho do PDF de fatura, e em nenhum outro lugar. Em branco, a fatura sai sem identificar
+          quem deve receber.
+        </p>
+        {issuer ? (
+          <form
+            className="tempo-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void guard(() => api.trackingSetIssuer(issuer));
+            }}
+          >
+            <div className="tempo-field">
+              <label htmlFor="issuer-name">Nome</label>
+              <input
+                id="issuer-name"
+                value={issuer.name}
+                onChange={(event) => setIssuer({ ...issuer, name: event.currentTarget.value })}
+              />
+            </div>
+            <div className="tempo-field">
+              <label htmlFor="issuer-document">CPF / CNPJ</label>
+              <input
+                id="issuer-document"
+                value={issuer.document}
+                onChange={(event) => setIssuer({ ...issuer, document: event.currentTarget.value })}
+              />
+            </div>
+            <div className="tempo-field">
+              <label htmlFor="issuer-contact">Contato</label>
+              <input
+                id="issuer-contact"
+                value={issuer.contact}
+                placeholder="e-mail ou telefone"
+                onChange={(event) => setIssuer({ ...issuer, contact: event.currentTarget.value })}
+              />
+            </div>
+            <Button variant="secondary" size="sm" type="submit">Salvar</Button>
+          </form>
         ) : (
           <EmptyState>Configuração indisponível.</EmptyState>
         )}

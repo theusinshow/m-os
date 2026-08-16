@@ -89,7 +89,7 @@ impl SqliteStorage {
         let mut projects = origin
             .prepare(
                 "SELECT id, name, description, hourly_rate_cents, status, code, color, notes, \
-                 client_id FROM projects ORDER BY name",
+                 client_id, budget_minutes FROM projects ORDER BY name",
             )
             .map_err(map_sql_error)?;
         let rows = projects
@@ -104,12 +104,13 @@ impl SqliteStorage {
                     row.get::<_, Option<String>>(6)?,
                     row.get::<_, Option<String>>(7)?,
                     row.get::<_, Option<String>>(8)?,
+                    row.get::<_, i64>(9)?,
                 ))
             })
             .map_err(map_sql_error)?;
 
         for row in rows {
-            let (origin_id, name, description, rate, status, code, color, notes, client) =
+            let (origin_id, name, description, rate, status, code, color, notes, client, budget) =
                 row.map_err(map_sql_error)?;
 
             // As anotacoes livres do projeto viram descricao do Project: e o
@@ -135,6 +136,7 @@ impl SqliteStorage {
                     .as_deref()
                     .map(mos_core::ClientId::parse)
                     .transpose()?,
+                budget_minutes: budget,
             })?;
 
             if lifecycle != LifecycleState::Active {
@@ -166,7 +168,8 @@ impl SqliteStorage {
                 "SELECT rounding_enabled, rounding_interval_minutes, rounding_mode, \
                  idle_threshold_minutes, idle_detection_enabled, process_monitoring_enabled, \
                  process_check_interval_seconds, remind_when_monitored_app_opens, \
-                 remind_when_monitored_app_closes FROM settings WHERE id = 1",
+                 remind_when_monitored_app_closes, issuer_name, issuer_document, \
+                 issuer_contact FROM settings WHERE id = 1",
                 [],
                 |row| {
                     Ok((
@@ -179,14 +182,29 @@ impl SqliteStorage {
                         row.get::<_, i64>(6)?,
                         row.get::<_, i64>(7)?,
                         row.get::<_, i64>(8)?,
+                        row.get::<_, Option<String>>(9)?,
+                        row.get::<_, Option<String>>(10)?,
+                        row.get::<_, Option<String>>(11)?,
                     ))
                 },
             )
             .optional()
             .map_err(map_sql_error)?;
 
-        let Some((enabled, interval, mode, idle, idle_on, monitoring, check, on_open, on_close)) =
-            found
+        let Some((
+            enabled,
+            interval,
+            mode,
+            idle,
+            idle_on,
+            monitoring,
+            check,
+            on_open,
+            on_close,
+            issuer_name,
+            issuer_document,
+            issuer_contact,
+        )) = found
         else {
             return Ok(());
         };
@@ -198,9 +216,21 @@ impl SqliteStorage {
                  rounding_interval_minutes = ?2, rounding_mode = ?3, \
                  idle_threshold_minutes = ?4, idle_detection_enabled = ?5, \
                  process_monitoring_enabled = ?6, process_check_interval_seconds = ?7, \
-                 remind_on_monitored_open = ?8, remind_on_monitored_close = ?9 WHERE id = 1",
+                 remind_on_monitored_open = ?8, remind_on_monitored_close = ?9, \
+                 issuer_name = ?10, issuer_document = ?11, issuer_contact = ?12 WHERE id = 1",
                 rusqlite::params![
-                    enabled, interval, mode, idle, idle_on, monitoring, check, on_open, on_close
+                    enabled,
+                    interval,
+                    mode,
+                    idle,
+                    idle_on,
+                    monitoring,
+                    check,
+                    on_open,
+                    on_close,
+                    issuer_name.unwrap_or_default(),
+                    issuer_document.unwrap_or_default(),
+                    issuer_contact.unwrap_or_default(),
                 ],
             )
             .map_err(map_sql_error)?;
@@ -484,7 +514,8 @@ mod tests {
             "CREATE TABLE projects (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT,
                 hourly_rate_cents INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL,
-                code TEXT, color TEXT, notes TEXT, client_id TEXT);
+                code TEXT, color TEXT, notes TEXT, client_id TEXT,
+                budget_minutes INTEGER NOT NULL DEFAULT 0);
              CREATE TABLE time_entries (
                 id TEXT PRIMARY KEY, project_id TEXT NOT NULL, started_at TEXT NOT NULL,
                 ended_at TEXT, duration_seconds INTEGER NOT NULL, idle_seconds INTEGER NOT NULL,
@@ -496,9 +527,9 @@ mod tests {
                 done INTEGER NOT NULL, created_at TEXT NOT NULL);
 
              INSERT INTO projects VALUES
-                ('p1','Rancho Queimado','obra',3000,'active','043',NULL,'lembrar do corrimao',NULL),
+                ('p1','Rancho Queimado','obra',3000,'active','043',NULL,'lembrar do corrimao',NULL,2400),
                 ('p2','Juliano - POA',NULL,5000,'completed',NULL,NULL,NULL,
-                 '018f0000-0000-7000-8000-000000000001');
+                 '018f0000-0000-7000-8000-000000000001',0);
 
              INSERT INTO time_entries VALUES
                 ('e1','p1','2026-07-12T05:27:34Z','2026-07-12T07:27:34Z',7200,600,'detalhe',
@@ -522,8 +553,10 @@ mod tests {
                 process_check_interval_seconds INTEGER,
                 remind_when_monitored_app_opens INTEGER,
                 remind_when_monitored_app_closes INTEGER, rounding_enabled INTEGER,
-                rounding_interval_minutes INTEGER, rounding_mode TEXT);
-             INSERT INTO settings VALUES (1, 1, 7, 1, 9, 0, 1, 1, 30, 'up');
+                rounding_interval_minutes INTEGER, rounding_mode TEXT,
+                issuer_name TEXT, issuer_document TEXT, issuer_contact TEXT);
+             INSERT INTO settings VALUES (1, 1, 7, 1, 9, 0, 1, 1, 30, 'up',
+                'Matheus Mendes', '000.000.000-00', 'contato@exemplo.com');
 
              CREATE TABLE monitored_apps (
                 id TEXT PRIMARY KEY, display_name TEXT, process_name TEXT UNIQUE,
@@ -680,6 +713,44 @@ mod tests {
             .unwrap();
         assert!(project.description.contains("obra"));
         assert!(project.description.contains("corrimao"));
+    }
+
+    /// O emissor sai no cabecalho da fatura. Se ele nao atravessa, a primeira
+    /// fatura emitida no M/OS sai sem dizer quem deve receber.
+    #[test]
+    fn the_invoice_issuer_survives() {
+        let (storage, directory) = m_os();
+        let source = cronocad(directory.path());
+        storage.import_cronocad(&source).unwrap();
+
+        let issuer = storage.issuer().unwrap();
+        assert_eq!(issuer.name, "Matheus Mendes");
+        assert_eq!(issuer.document, "000.000.000-00");
+        assert_eq!(issuer.contact, "contato@exemplo.com");
+    }
+
+    /// A meta de horas nao tinha coluna ate a 0014, e a ausencia nao doeu porque
+    /// o banco real tinha todas em zero. Um banco com meta configurada teria
+    /// perdido a meta em silencio — a leitura passaria, o numero sumiria.
+    #[test]
+    fn the_hour_goal_survives() {
+        let (storage, directory) = m_os();
+        let source = cronocad(directory.path());
+        storage.import_cronocad(&source).unwrap();
+
+        let project = storage
+            .projects(false)
+            .unwrap()
+            .into_iter()
+            .find(|project| project.name == "Rancho Queimado")
+            .unwrap();
+        let tracking = storage
+            .project_tracking()
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.project_id == project.id)
+            .unwrap();
+        assert_eq!(tracking.budget_minutes, 2_400, "a meta de 40h se perdeu");
     }
 
     /// Sem esta recusa, rodar duas vezes dobraria as horas de todo projeto — e o

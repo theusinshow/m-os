@@ -21,7 +21,7 @@ use serde::Serialize;
 
 pub use cronocad_import::ImportReport;
 
-const SCHEMA_VERSION: u32 = 13;
+const SCHEMA_VERSION: u32 = 14;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -35,6 +35,7 @@ const MIGRATION_010: &str = include_str!("../migrations/0010_conversations.sql")
 const MIGRATION_011: &str = include_str!("../migrations/0011_time_tracking.sql");
 const MIGRATION_012: &str = include_str!("../migrations/0012_cronocad_import_mark.sql");
 const MIGRATION_013: &str = include_str!("../migrations/0013_tracking_surface.sql");
+const MIGRATION_014: &str = include_str!("../migrations/0014_project_budget.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -230,6 +231,11 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
             .execute_batch(MIGRATION_013)
             .map_err(map_sql_error)?;
     }
+    if current <= 13 {
+        connection
+            .execute_batch(MIGRATION_014)
+            .map_err(map_sql_error)?;
+    }
     Ok(())
 }
 
@@ -378,7 +384,7 @@ mod tests {
 
         assert_eq!(health.journal_mode.to_lowercase(), "wal");
         assert_eq!(health.synchronous, "FULL");
-        assert_eq!(health.schema_version, 13);
+        assert_eq!(health.schema_version, SCHEMA_VERSION);
         assert_eq!(health.integrity, "ok");
     }
 
@@ -407,7 +413,7 @@ mod tests {
         drop(connection);
 
         let storage = SqliteStorage::open(&database, &backups).unwrap();
-        assert_eq!(storage.health().unwrap().schema_version, 13);
+        assert_eq!(storage.health().unwrap().schema_version, SCHEMA_VERSION);
         assert_eq!(CaptureRepository::recent(&storage, 10).unwrap().len(), 1);
         assert_eq!(
             fs::read_dir(&backups)
@@ -489,7 +495,7 @@ mod tests {
         drop(connection);
 
         let storage = SqliteStorage::open(&database, &backups).unwrap();
-        assert_eq!(storage.health().unwrap().schema_version, 13);
+        assert_eq!(storage.health().unwrap().schema_version, SCHEMA_VERSION);
         assert_eq!(storage.health().unwrap().integrity, "ok");
 
         let connection = Connection::open(&database).unwrap();
@@ -615,7 +621,7 @@ mod tests {
 
         let storage = SqliteStorage::open(&database, &backups).unwrap();
 
-        assert_eq!(storage.health().unwrap().schema_version, 13);
+        assert_eq!(storage.health().unwrap().schema_version, SCHEMA_VERSION);
         let apps = storage.apps(false).unwrap();
         assert_eq!(apps.len(), 1);
         assert_eq!(apps[0].name, "Motion");

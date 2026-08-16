@@ -321,6 +321,9 @@ pub struct ProjectTracking {
     pub tracking_status: TrackingStatus,
     /// Quem paga. Ausente é o caso comum — Project pessoal não tem cliente.
     pub client_id: Option<ClientId>,
+    /// Meta de horas, em minutos. Zero significa "sem meta".
+    #[serde(default)]
+    pub budget_minutes: i64,
 }
 
 /// O cronômetro em curso. No máximo um existe, e o banco garante isso.
@@ -377,6 +380,20 @@ pub struct StartTimer {
 pub struct TrackingSettings {
     pub rounding: Rounding,
     pub idle_threshold_minutes: i64,
+}
+
+/// Quem está cobrando. Sai no cabeçalho da fatura, e em nenhum outro lugar.
+///
+/// Tipo próprio em vez de campos em [`TrackingSettings`] por dois motivos: são
+/// textos e tornariam `Copy` impossível numa struct que é copiada em todo
+/// cálculo de arredondamento — e porque emissor é assunto de fatura, não de
+/// como o tempo é contado.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Issuer {
+    pub name: String,
+    pub document: String,
+    pub contact: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -506,6 +523,59 @@ pub struct Totals {
     pub amount_cents: i64,
 }
 
+/// O que UMA sessão vale, depois do desconto de inatividade e do arredondamento.
+///
+/// Existe para que o total por Project e a linha do relatório saiam da mesma
+/// conta. Duas implementações da mesma regra divergiriam no dia em que uma fosse
+/// corrigida — e o número que diverge aqui é o número que vai na fatura.
+///
+/// Devolve `Totals` de uma sessão só, e não um tipo próprio: um relatório é a
+/// soma de linhas, e somar coisas do mesmo tipo é o que torna a soma óbvia.
+pub fn settle(session: &TrackedSession, rounding: Rounding) -> Totals {
+    let net = net_duration(session.duration_seconds, session.idle_seconds);
+    let billable = billable_duration(net, session.billable);
+    let rounded = round_duration(billable, rounding.effective_interval(), rounding.mode);
+
+    Totals {
+        gross_seconds: session.duration_seconds.max(0),
+        idle_seconds: session.idle_seconds.max(0),
+        billable_seconds: rounded,
+        amount_cents: amount_for_duration(rounded, session.hourly_rate_snapshot_cents),
+    }
+}
+
+impl Totals {
+    /// Acumula outra linha. É o que faz "somar o relatório" ser uma operação só.
+    pub fn add(&mut self, other: Totals) {
+        self.gross_seconds += other.gross_seconds;
+        self.idle_seconds += other.idle_seconds;
+        self.billable_seconds += other.billable_seconds;
+        self.amount_cents += other.amount_cents;
+    }
+}
+
+/// Uma linha do relatório: a sessão, mais o que ela vale.
+///
+/// Vem por SESSÃO e não já agrupada porque o relatório é olhado de vários
+/// ângulos — por Project, por cliente, por atividade, por mês — e cada
+/// agrupamento no backend seria um comando novo com a mesma conta dentro. A
+/// conta que importa (`totals`) já vem pronta e igual à do Painel; agrupar é
+/// soma, e soma a tela faz.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportLine {
+    pub entry_id: TimeEntryId,
+    pub project_id: ProjectId,
+    #[serde(with = "time::serde::rfc3339")]
+    pub started_at: OffsetDateTime,
+    pub activity_type: ActivityType,
+    pub source: EntrySource,
+    pub billable: bool,
+    pub description: String,
+    pub hourly_rate_snapshot_cents: i64,
+    pub totals: Totals,
+}
+
 /// Soma as sessões por projeto.
 ///
 /// Projeto sem sessão simplesmente não aparece no mapa: cabe a quem consome
@@ -515,21 +585,13 @@ pub fn aggregate_by_project(
     sessions: &[TrackedSession],
     rounding: Rounding,
 ) -> HashMap<String, Totals> {
-    let interval = rounding.effective_interval();
     let mut totals: HashMap<String, Totals> = HashMap::new();
-
     for session in sessions {
-        let net = net_duration(session.duration_seconds, session.idle_seconds);
-        let billable = billable_duration(net, session.billable);
-        let rounded = round_duration(billable, interval, rounding.mode);
-
-        let entry = totals.entry(session.project_id.clone()).or_default();
-        entry.gross_seconds += session.duration_seconds.max(0);
-        entry.idle_seconds += session.idle_seconds.max(0);
-        entry.billable_seconds += rounded;
-        entry.amount_cents += amount_for_duration(rounded, session.hourly_rate_snapshot_cents);
+        totals
+            .entry(session.project_id.clone())
+            .or_default()
+            .add(settle(session, rounding));
     }
-
     totals
 }
 

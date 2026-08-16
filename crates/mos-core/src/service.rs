@@ -125,6 +125,18 @@ impl TrackingService {
         self.repository.time_entries(project_id)
     }
 
+    pub fn trashed(&self) -> Result<Vec<TimeEntry>, CoreError> {
+        self.repository.trashed_time_entries()
+    }
+
+    pub fn issuer(&self) -> Result<crate::Issuer, CoreError> {
+        self.repository.issuer()
+    }
+
+    pub fn set_issuer(&self, issuer: crate::Issuer) -> Result<crate::Issuer, CoreError> {
+        self.repository.set_issuer(issuer)
+    }
+
     pub fn edit(&self, id: TimeEntryId, edit: TimeEntryEdit) -> Result<TimeEntry, CoreError> {
         self.repository.update_time_entry(id, edit)
     }
@@ -215,6 +227,47 @@ impl TrackingService {
             })
             .collect();
         Ok(crate::aggregate_by_project(&sessions, rounding))
+    }
+
+    /// As sessões de um período, cada uma com o que vale.
+    ///
+    /// O recorte é aplicado AQUI e não na tela porque o arredondamento acontece
+    /// por sessão: filtrar depois de somar daria um total diferente de somar
+    /// depois de filtrar, e o segundo e o certo.
+    pub fn report(
+        &self,
+        since: Option<time::OffsetDateTime>,
+        until: Option<time::OffsetDateTime>,
+    ) -> Result<Vec<crate::ReportLine>, CoreError> {
+        let rounding = self.settings()?.rounding;
+        Ok(self
+            .entries(None)?
+            .into_iter()
+            .filter(|entry| {
+                since.is_none_or(|from| entry.started_at >= from)
+                    && until.is_none_or(|to| entry.started_at <= to)
+            })
+            .map(|entry| crate::ReportLine {
+                totals: crate::settle(
+                    &TrackedSession {
+                        project_id: entry.project_id.to_string(),
+                        duration_seconds: entry.duration_seconds,
+                        idle_seconds: entry.idle_seconds,
+                        billable: entry.billable,
+                        hourly_rate_snapshot_cents: entry.hourly_rate_snapshot_cents,
+                    },
+                    rounding,
+                ),
+                entry_id: entry.id,
+                project_id: entry.project_id,
+                started_at: entry.started_at,
+                activity_type: entry.activity_type,
+                source: entry.source,
+                billable: entry.billable,
+                description: entry.description,
+                hourly_rate_snapshot_cents: entry.hourly_rate_snapshot_cents,
+            })
+            .collect())
     }
 }
 

@@ -50,10 +50,10 @@ pub use service::{
 };
 pub use tracking::{
     aggregate_by_project, amount_for_duration, billable_duration, elapsed_seconds, net_duration,
-    parse_moment, round_duration, ActiveTimer, ActivityType, Client, ClientId, ClientInput,
-    EntrySource, NewTimeEntry, ProjectTracking, Rounding, RoundingMode, StartTimer, TimeEntry,
-    TimeEntryEdit, TimeEntryId, TimerSnapshot, TimerStatus, Totals, TrackedSession,
-    TrackingSettings, TrackingStatus,
+    parse_moment, round_duration, settle, ActiveTimer, ActivityType, Client, ClientId, ClientInput,
+    EntrySource, Issuer, NewTimeEntry, ProjectTracking, ReportLine, Rounding, RoundingMode,
+    StartTimer, TimeEntry, TimeEntryEdit, TimeEntryId, TimerSnapshot, TimerStatus, Totals,
+    TrackedSession, TrackingSettings, TrackingStatus,
 };
 pub use work::{
     validate_widget_id, HiddenWidget, NewProject, NewTask, NewWorkspace, Project, ProjectId,

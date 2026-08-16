@@ -226,6 +226,152 @@ pub fn tracking_set_settings<R: Runtime>(
     Ok(saved)
 }
 
+/// Quem esta cobrando. Sai no cabecalho da fatura.
+#[tauri::command]
+pub fn tracking_issuer<R: Runtime>(app: AppHandle<R>) -> Result<mos_core::Issuer, CoreError> {
+    app.state::<AppState>().tracking.issuer()
+}
+
+#[tauri::command]
+pub fn tracking_set_issuer<R: Runtime>(
+    app: AppHandle<R>,
+    issuer: mos_core::Issuer,
+) -> Result<mos_core::Issuer, CoreError> {
+    app.state::<AppState>().tracking.set_issuer(issuer)
+}
+
+/// Salva um arquivo num caminho escolhido pelo usuario. `false` = cancelou.
+///
+/// O dialogo e do sistema e nao uma pasta fixa do aplicativo: um relatorio existe
+/// para sair daqui — vai por e-mail, vai para a pasta da obra — e um app que
+/// decide sozinho onde ele mora obriga o usuario a ir buscar.
+fn save_dialog<R: Runtime>(
+    app: &AppHandle<R>,
+    suggested_name: &str,
+    filter: (&str, &[&str]),
+    bytes: Vec<u8>,
+) -> Result<bool, CoreError> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let chosen = app
+        .dialog()
+        .file()
+        .set_file_name(suggested_name)
+        .add_filter(filter.0, filter.1)
+        .blocking_save_file();
+
+    let Some(target) = chosen else {
+        return Ok(false);
+    };
+    let path = target.into_path().map_err(|error| {
+        CoreError::new(mos_core::ErrorCode::InvalidInput, error.to_string(), false)
+    })?;
+    std::fs::write(&path, bytes).map_err(|error| {
+        CoreError::new(
+            mos_core::ErrorCode::StorageUnavailable,
+            format!("Nao foi possivel gravar em {}: {error}", path.display()),
+            true,
+        )
+    })?;
+    Ok(true)
+}
+
+/// Gera o relatorio em PDF e o salva onde o usuario escolher.
+#[tauri::command]
+pub async fn tracking_export_report_pdf<R: Runtime>(
+    app: AppHandle<R>,
+    report: crate::pdf::ReportPdfData,
+    suggested_name: String,
+) -> Result<bool, CoreError> {
+    let bytes = crate::pdf::build_report(&report)
+        .map_err(|error| CoreError::new(mos_core::ErrorCode::Io, error, false))?;
+    save_dialog(&app, &suggested_name, ("PDF", &["pdf"]), bytes)
+}
+
+/// Gera a fatura por cliente em PDF.
+#[tauri::command]
+pub async fn tracking_export_invoice_pdf<R: Runtime>(
+    app: AppHandle<R>,
+    invoice: crate::pdf::InvoiceData,
+    suggested_name: String,
+) -> Result<bool, CoreError> {
+    let bytes = crate::pdf::build_invoice(&invoice)
+        .map_err(|error| CoreError::new(mos_core::ErrorCode::Io, error, false))?;
+    save_dialog(&app, &suggested_name, ("PDF", &["pdf"]), bytes)
+}
+
+/// Salva um texto — hoje o CSV do relatorio.
+///
+/// Com BOM de UTF-8: sem ele o Excel em portugues abre o arquivo em ANSI e
+/// "Detalhamento" vira "DetalhamentoÃ§". O CSV existe para ser aberto numa
+/// planilha, e um CSV que abre torto nao serviu para nada.
+#[tauri::command]
+pub async fn tracking_export_csv<R: Runtime>(
+    app: AppHandle<R>,
+    contents: String,
+    suggested_name: String,
+) -> Result<bool, CoreError> {
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(contents.as_bytes());
+    save_dialog(&app, &suggested_name, ("CSV", &["csv"]), bytes)
+}
+
+/// As sessoes de um periodo, cada uma com o que vale.
+///
+/// Datas ausentes significam "sem borda deste lado", e nao "hoje": o relatorio
+/// mais pedido e o do mes, mas o segundo mais pedido e o do projeto inteiro.
+#[tauri::command]
+pub fn tracking_report<R: Runtime>(
+    app: AppHandle<R>,
+    since: Option<String>,
+    until: Option<String>,
+) -> Result<Vec<mos_core::ReportLine>, CoreError> {
+    let from = since.as_deref().map(mos_core::parse_moment).transpose()?;
+    let to = until.as_deref().map(mos_core::parse_moment).transpose()?;
+    app.state::<AppState>().tracking.report(from, to)
+}
+
+/// A lixeira das sessoes.
+///
+/// Soft delete sem tela de lixeira e so uma forma educada de perder: o registro
+/// continua no banco, e ninguem consegue chegar nele. O recibo com desfazer
+/// resolve o arrependimento de cinco segundos; isto resolve o de cinco dias.
+#[tauri::command]
+pub fn tracking_trashed<R: Runtime>(app: AppHandle<R>) -> Result<Vec<TimeEntry>, CoreError> {
+    app.state::<AppState>().tracking.trashed()
+}
+
+/// Os dados de cobranca de todo Project que tem algum.
+///
+/// A lista vem crua e a tela cruza com `projects`, em vez de o backend devolver
+/// um objeto ja juntado: Project e cobranca sao dominios diferentes, e um tipo
+/// de fusao aqui viraria o terceiro lugar onde "o que e um Project" e decidido.
+#[tauri::command]
+pub fn tracking_project_tracking<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<Vec<mos_core::ProjectTracking>, CoreError> {
+    app.state::<AppState>().tracking.project_tracking()
+}
+
+/// Grava valor/hora, codigo, cliente e meta de um Project.
+///
+/// Nao mexe em sessao ja gravada, e isso e proposital: o
+/// `hourly_rate_snapshot_cents` de cada sessao preserva a taxa do momento em que
+/// o trabalho aconteceu. Reajustar o Project vale do reajuste em diante — quem
+/// ja faturou trinta reais a hora nao passa a ter faturado quarenta.
+#[tauri::command]
+pub fn tracking_set_project_tracking<R: Runtime>(
+    app: AppHandle<R>,
+    tracking: mos_core::ProjectTracking,
+) -> Result<mos_core::ProjectTracking, CoreError> {
+    let saved = app
+        .state::<AppState>()
+        .tracking
+        .set_project_tracking(tracking)?;
+    let _ = app.emit("data-changed", "project-tracking");
+    Ok(saved)
+}
+
 #[tauri::command]
 pub fn tracking_clients<R: Runtime>(
     app: AppHandle<R>,
