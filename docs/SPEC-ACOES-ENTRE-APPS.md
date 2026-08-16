@@ -169,8 +169,8 @@ são um mapa do que o sistema sabe fazer — e isso entra no registro da ADR-027
 
 | Fase | O que | Por que primeiro |
 |---|---|---|
-| 1 | Tool Gateway + catálogo, com ações **locais** do M/OS (criar Capture, criar Task) | prova a cadeia inteira sem tocar em dinheiro nem em rede |
-| 2 | Preview, recibo e Undo | a cerimônia precisa estar pronta antes de a primeira ação de risco existir |
+| 1 ✔ | Tool Gateway + catálogo, com ações **locais** do M/OS (criar Capture, criar Task) | prova a cadeia inteira sem tocar em dinheiro nem em rede |
+| 2 ✔ | Preview, recibo e Undo | a cerimônia precisa estar pronta antes de a primeira ação de risco existir |
 | 3 | Action API no M-Finance + adapter | o buraco real, e o que exige mais cuidado |
 | 4 | CronoCAD | ele vai estar absorvido (ADR-032 fase 3), então é ação local |
 | 5 | Coded Atlas | gerar asset é ação longa; pede o modelo de execução em background |
@@ -178,3 +178,15 @@ são um mapa do que o sistema sabe fazer — e isso entra no registro da ADR-027
 A fase 1 é deliberadamente sem graça: criar uma Task pelo Hermes não impressiona ninguém.
 Mas é ela que prova preview, confirmação, recibo e Undo com risco baixo — e é exatamente o
 que você quer ter testado antes de a primeira frase virar uma conta a pagar.
+
+> **Fases 1 e 2 entregues.** A cerimônia está completa e exercitada com risco baixo:
+> proposta, preview, confirmação, execução pelos serviços da aplicação, recibo e desfazer.
+>
+> Uma decisão apareceu só na implementação e virou ADR-035: **desfazer arquiva, nunca
+> apaga.** A exclusão definitiva recusa o que ainda está ativo, de propósito, e todo Undo
+> que o M/OS já oferecia é restauração de estado. Apagar aqui exigiria contornar uma guarda
+> escrita justamente para impedir apagamento acidental — e ofereceria o único caminho sem
+> volta do app no momento em que o usuário acabou de dizer que errou.
+>
+> A fase 3 herda isso pronto. É o que ela precisava: quando a primeira ação mexer em
+> dinheiro, a cerimônia não estará sendo inventada junto com o risco.

@@ -1084,3 +1084,56 @@ conteúdo, e apagá-lo apagaria o widget.
   Next Up e Day Arc na Fase 4;
 - a linguagem está disponível para CronoCAD, M-Finance e Coded Atlas, que a importam junto
   dos tokens; aplicá-la lá é trabalho de cada superfície, não deste corte.
+
+---
+
+## ADR-035 — Desfazer arquiva, nunca apaga
+
+**Data:** 2026-08-15
+**Status:** aceito
+**Contexto:** fase 2 de `SPEC-ACOES-ENTRE-APPS.md` — o Hermes executa, e o usuário precisa
+de caminho de volta.
+
+### A pergunta
+
+Qual é o inverso de "criar"? A resposta intuitiva é apagar: se a Task não devia existir,
+que ela deixe de existir. Foi por aí que comecei.
+
+### Por que apagar está errado aqui
+
+Duas coisas, encontradas no próprio código, apontam para o mesmo lado.
+
+`ports.rs` declara que a exclusão definitiva **recusa o que ainda está ativo**, e o
+comentário diz o motivo: a regra existe "para que nenhum apagamento aconteça por engano no
+meio do uso normal". Uma Task criada há três segundos está ativa. Para apagá-la eu teria
+que arquivá-la primeiro e então apagar — ou seja, contornar deliberadamente uma guarda
+escrita para impedir exatamente aquilo.
+
+E todo Undo que o M/OS já oferece é **restauração de estado**: `moveToInbox`, `restore`,
+`setResourceArchived(false)`. Nenhum remove. Um desfazer que destrói seria o único caminho
+sem volta do aplicativo — e estaria sendo oferecido no momento exato em que o usuário
+acabou de dizer que errou, que é o pior momento possível para uma ação irreversível.
+
+### A decisão
+
+O inverso de criar é **arquivar**. O inverso de mover é voltar ao estado anterior, que por
+isso é lido antes da mudança e não depois.
+
+### Onde o Undo vive
+
+Na janela de cinco segundos do recibo, como no resto do app — não no cartão da conversa.
+Um botão "desfazer" permanente numa ação de semana passada seria surpresa, não segurança.
+
+O cartão guarda o desfecho de forma permanente, e é por isso que o recibo só aparece
+quando há caminho de volta: sem Undo ele não acrescentaria nada que a conversa já não diga.
+
+### Consequências
+
+- desfazer deixa registro arquivado em vez de sumir com o dado, e isso é a intenção;
+- a exclusão definitiva continua exigindo a decisão explícita do usuário, pelo caminho que
+  já existia em Settings;
+- ações futuras sem inverso honesto declaram `undo: None` — e a ausência fica visível no
+  código em vez de virar esquecimento;
+- a forma do `UndoStep` atravessa a ponte escrita à mão dos dois lados, e um teste prende
+  os nomes: renomear uma variante quebraria o desfazer justamente dentro dos cinco
+  segundos em que ele importa.
