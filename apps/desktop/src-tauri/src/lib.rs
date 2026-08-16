@@ -1188,6 +1188,7 @@ pub fn run() {
             hermes::hermes_approve,
             hermes::hermes_clarify,
             hermes::hermes_clarify_cancel,
+            jarvis::action_undo,
             hermes::hermes_select_conversation,
             hermes::hermes_load_history,
             hermes::hermes_disconnect,

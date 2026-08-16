@@ -333,6 +333,40 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
     }
 }
 
+/// O que a acao fez, e o caminho de volta.
+///
+/// A execucao devolvia so uma frase, e a identidade do que nasceu se perdia
+/// ali. Sem ela o recibo consegue dizer "Task criada" e nao consegue oferecer o
+/// desfazer — que era a metade da cerimonia que faltava (`SPEC-ACOES` fase 2).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionEffect {
+    /// A frase do recibo, e tambem o desfecho gravado na conversa.
+    pub message: String,
+    /// Ausente quando nao ha inverso honesto.
+    pub undo: Option<UndoStep>,
+}
+
+/// O inverso de uma acao executada.
+///
+/// Criar se desfaz ARQUIVANDO, e nao apagando. Duas razoes que se somam: a
+/// exclusao definitiva recusa o que ainda esta ativo (`ports.rs`), e todo Undo
+/// que o M/OS ja oferece e restauracao de estado — nenhum remove. Um desfazer
+/// que destroi seria o unico caminho do app sem volta, e ainda por cima o
+/// caminho oferecido logo depois de o usuario dizer que errou.
+///
+/// Mover se desfaz voltando ao estado anterior, que por isso precisa ser lido
+/// ANTES da mudanca. Depois nao ha de onde tirar.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "step")]
+pub enum UndoStep {
+    ArchiveCapture { id: String },
+    ArchiveTask { id: String },
+    ArchiveProject { id: String },
+    ArchiveResource { id: String },
+    RestoreTaskState { id: String, state: String },
+}
+
 /// O contrato que desce no prompt.
 ///
 /// Diz o que existe e como responder. Nao pede que o modelo execute nada, e a
@@ -437,6 +471,64 @@ mod tests {
                 kind.as_str()
             );
         }
+    }
+
+    /// A forma que atravessa a ponte esta escrita a mao do outro lado, em
+    /// `hermes.ts`. Um `rename` aqui quebraria o desfazer em silencio: o comando
+    /// receberia um passo que nao casa com variante nenhuma e falharia so em
+    /// tempo de execucao — dentro da janela de cinco segundos em que o usuario
+    /// esta justamente tentando consertar um engano.
+    #[test]
+    fn the_undo_steps_serialize_with_the_names_the_renderer_expects() {
+        let cases = [
+            (
+                UndoStep::ArchiveCapture { id: "c".into() },
+                "archiveCapture",
+            ),
+            (UndoStep::ArchiveTask { id: "t".into() }, "archiveTask"),
+            (
+                UndoStep::ArchiveProject { id: "p".into() },
+                "archiveProject",
+            ),
+            (
+                UndoStep::ArchiveResource { id: "r".into() },
+                "archiveResource",
+            ),
+            (
+                UndoStep::RestoreTaskState {
+                    id: "t".into(),
+                    state: "doing".into(),
+                },
+                "restoreTaskState",
+            ),
+        ];
+        for (step, expected) in cases {
+            let json = serde_json::to_value(&step).unwrap();
+            assert_eq!(json["step"], expected);
+            assert!(json.get("id").is_some(), "{expected} perdeu o id");
+        }
+    }
+
+    #[test]
+    fn an_undo_step_round_trips() {
+        let step = UndoStep::RestoreTaskState {
+            id: "t1".into(),
+            state: "backlog".into(),
+        };
+        let json = serde_json::to_string(&step).unwrap();
+        assert_eq!(serde_json::from_str::<UndoStep>(&json).unwrap(), step);
+    }
+
+    /// Um efeito sem inverso e possivel, e por isso `undo` e opcional — mas as
+    /// cinco acoes da fase 1 tem todas caminho de volta. Se uma nova entrar sem
+    /// inverso, que seja por decisao registrada, e nao por esquecimento.
+    #[test]
+    fn an_effect_can_declare_no_way_back() {
+        let effect = ActionEffect {
+            message: "feito".into(),
+            undo: None,
+        };
+        assert!(effect.undo.is_none());
     }
 
     #[test]

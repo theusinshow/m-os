@@ -5,6 +5,7 @@ import {
   hermes,
   hermesUnavailableLabel,
   messageText,
+  type ActionResolution,
   type ContextInput,
   type Conversation,
   type ConversationSummary,
@@ -196,17 +197,17 @@ function AnswerGutter({ tools, elapsed, live }: {
 function ActionCard({ part, messageId, onResolved }: {
   part: Extract<MessagePart["body"], { kind: "action_proposal" }>;
   messageId: string;
-  onResolved: (message: Message) => void;
+  onResolved: (resolution: ActionResolution) => void;
 }) {
   const [working, setWorking] = useState(false);
 
   async function resolve(approved: boolean) {
     setWorking(true);
-    const updated = await conversationApi
+    const resolution = await conversationApi
       .resolveAction(messageId, part.raw, approved)
       .catch(() => null);
     setWorking(false);
-    if (updated) onResolved(updated);
+    if (resolution) onResolved(resolution);
   }
 
   return (
@@ -253,7 +254,7 @@ const StoredMessage = memo(function StoredMessage({ message, onCopy, onEdit, onR
   onCopy: (message: Message) => void;
   onEdit: (message: Message) => void;
   onRegenerate: (message: Message) => void;
-  onResolved: (message: Message) => void;
+  onResolved: (resolution: ActionResolution) => void;
 }) {
   const text = messageText(message);
   const chips = message.parts.filter((part) => part.body.kind === "context_ref");
@@ -340,12 +341,15 @@ const StoredMessage = memo(function StoredMessage({ message, onCopy, onEdit, onR
   );
 });
 
-export function HermesPage({ inbox, projects, tasks }: {
+export function HermesPage({ inbox, projects, tasks, receipt }: {
   inbox: Capture[];
   projects: Project[];
   tasks: Task[];
   openProject?: (project: Project) => void;
   openResource?: (id: string) => void;
+  /** Mesma janela de recibo do resto do app. Tipada pela forma, e não
+   *  importada de `App.tsx`, que já importa esta página. */
+  receipt?: (action: { message: string; run: () => Promise<unknown> }) => void;
 }) {
   const [status, setStatus] = useState<HermesStatus | null>(null);
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -785,7 +789,16 @@ export function HermesPage({ inbox, projects, tasks }: {
               onCopy={copy}
               onEdit={edit}
               onRegenerate={(answer) => void regenerate(answer)}
-              onResolved={(updated) => setMessages((current) => current.map((candidate) => candidate.id === updated.id ? updated : candidate))}
+              onResolved={(resolution) => {
+                setMessages((current) => current.map((candidate) => candidate.id === resolution.message.id ? resolution.message : candidate));
+                // O recibo só aparece quando há caminho de volta. Sem Undo ele
+                // não acrescentaria nada: o cartão na conversa já mostra o
+                // desfecho, e de forma permanente.
+                const step = resolution.undo;
+                if (step && resolution.receipt) {
+                  receipt?.({ message: resolution.receipt, run: () => conversationApi.undoAction(step) });
+                }
+              }}
             />
           ))}
 

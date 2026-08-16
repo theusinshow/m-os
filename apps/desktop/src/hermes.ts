@@ -244,8 +244,32 @@ export const conversations = {
   },
   /** Executa ou cancela uma proposta. O modelo propõe; isto é o M/OS agindo. */
   resolveAction(messageId: string, raw: string, approved: boolean) {
-    return invoke<Message>("action_resolve", { messageId, raw, approved });
+    return invoke<ActionResolution>("action_resolve", { messageId, raw, approved });
   },
+  /** Desfaz o que a proposta fez, dentro da janela do recibo. */
+  undoAction(step: UndoStep) {
+    return invoke<void>("action_undo", { step });
+  },
+};
+
+/**
+ * O caminho de volta de uma ação executada.
+ *
+ * Criar se desfaz arquivando, e não apagando: a exclusão definitiva recusa o
+ * que ainda está ativo, e todo Undo do M/OS é restauração de estado.
+ */
+export type UndoStep =
+  | { step: "archiveCapture"; id: string }
+  | { step: "archiveTask"; id: string }
+  | { step: "archiveProject"; id: string }
+  | { step: "archiveResource"; id: string }
+  | { step: "restoreTaskState"; id: string; state: string };
+
+export type ActionResolution = {
+  message: Message;
+  /** Vazio quando não houve execução: cancelar já se explica no próprio cartão. */
+  receipt: string;
+  undo: UndoStep | null;
 };
 
 /** Texto que o usuario le quando o Hermes nao esta disponivel. */

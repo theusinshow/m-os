@@ -254,7 +254,7 @@ pub fn proposal_part(raw: &str) -> PartBody {
 fn run_action<R: Runtime>(
     app: &AppHandle<R>,
     args: &mos_core::ActionArgs,
-) -> Result<String, CoreError> {
+) -> Result<mos_core::ActionEffect, CoreError> {
     let state = app.state::<AppState>();
     match args {
         mos_core::ActionArgs::CaptureCreate { content } => {
@@ -262,7 +262,12 @@ fn run_action<R: Runtime>(
                 content: content.clone(),
                 source: mos_core::CaptureSource::Home,
             })?;
-            Ok(format!("Capture criada: {}", capture.content))
+            Ok(mos_core::ActionEffect {
+                message: format!("Capture criada: {}", capture.content),
+                undo: Some(mos_core::UndoStep::ArchiveCapture {
+                    id: capture.id.to_string(),
+                }),
+            })
         }
         mos_core::ActionArgs::TaskCreate {
             title,
@@ -279,14 +284,28 @@ fn run_action<R: Runtime>(
                 project_id,
                 source_capture_id: None,
             })?;
-            Ok(format!("Task criada: {}", task.title))
+            Ok(mos_core::ActionEffect {
+                message: format!("Task criada: {}", task.title),
+                undo: Some(mos_core::UndoStep::ArchiveTask {
+                    id: task.id.to_string(),
+                }),
+            })
         }
         mos_core::ActionArgs::TaskSetState { task, state: next } => {
+            // O estado anterior e lido ANTES da mudanca: depois nao ha de onde
+            // tirar, e sem ele "mover" seria a unica acao sem caminho de volta.
             let target = resolve_task(&state, task)?;
+            let previous = target.state;
             let updated = state
                 .work
-                .set_task_state(&target, mos_core::TaskState::parse(next)?)?;
-            Ok(format!("{} movida para {}", updated.title, next))
+                .set_task_state(&target.id.to_string(), mos_core::TaskState::parse(next)?)?;
+            Ok(mos_core::ActionEffect {
+                message: format!("{} movida para {}", updated.title, next),
+                undo: Some(mos_core::UndoStep::RestoreTaskState {
+                    id: updated.id.to_string(),
+                    state: previous.as_str().to_owned(),
+                }),
+            })
         }
         mos_core::ActionArgs::ProjectCreate { name, description } => {
             let project = state.work.create_project(mos_core::CreateProjectInput {
@@ -294,7 +313,12 @@ fn run_action<R: Runtime>(
                 description: description.clone(),
                 repository: String::new(),
             })?;
-            Ok(format!("Project criado: {}", project.name))
+            Ok(mos_core::ActionEffect {
+                message: format!("Project criado: {}", project.name),
+                undo: Some(mos_core::UndoStep::ArchiveProject {
+                    id: project.id.to_string(),
+                }),
+            })
         }
         mos_core::ActionArgs::ResourceCreate {
             kind,
@@ -311,9 +335,50 @@ fn run_action<R: Runtime>(
                     note: note.clone(),
                     source_capture_id: None,
                 })?;
-            Ok(format!("Resource salvo: {}", resource.title))
+            Ok(mos_core::ActionEffect {
+                message: format!("Resource salvo: {}", resource.title),
+                undo: Some(mos_core::UndoStep::ArchiveResource {
+                    id: resource.id.to_string(),
+                }),
+            })
         }
     }
+}
+
+/// Desfaz uma acao executada.
+///
+/// Vive num comando proprio, e nao dentro de `action_resolve`, porque o desfazer
+/// acontece depois — na janela do recibo, quando o usuario le o que aconteceu e
+/// decide que nao era aquilo.
+#[tauri::command]
+pub async fn action_undo<R: Runtime>(
+    app: AppHandle<R>,
+    step: mos_core::UndoStep,
+) -> Result<(), CoreError> {
+    let services = app.state::<AppState>();
+    match step {
+        mos_core::UndoStep::ArchiveCapture { id } => {
+            services.captures.archive(&id)?;
+        }
+        mos_core::UndoStep::ArchiveTask { id } => {
+            services.work.set_task_archived(&id, true)?;
+        }
+        mos_core::UndoStep::ArchiveProject { id } => {
+            services.work.set_project_archived(&id, true)?;
+        }
+        mos_core::UndoStep::ArchiveResource { id } => {
+            services
+                .memory
+                .set_resource_lifecycle(&id, mos_core::LifecycleState::Archived)?;
+        }
+        mos_core::UndoStep::RestoreTaskState { id, state } => {
+            services
+                .work
+                .set_task_state(&id, mos_core::TaskState::parse(&state)?)?;
+        }
+    }
+    let _ = app.emit("data-changed", "undo");
+    Ok(())
 }
 
 /// Acha o Project pelo nome que o usuario falou.
@@ -345,7 +410,10 @@ fn resolve_project(state: &AppState, name: &str) -> Result<Option<String>, CoreE
     }
 }
 
-fn resolve_task(state: &AppState, title: &str) -> Result<String, CoreError> {
+/// Devolve a Task inteira, e nao so o id: quem chama precisa do estado ANTERIOR
+/// para montar o desfazer, e ele ja esta aqui. Buscar de novo depois custaria
+/// uma segunda varredura e leria um estado que a mudanca ja alterou.
+fn resolve_task(state: &AppState, title: &str) -> Result<mos_core::Task, CoreError> {
     let needle = title.trim().to_lowercase();
     let matches: Vec<_> = state
         .work
@@ -360,13 +428,28 @@ fn resolve_task(state: &AppState, title: &str) -> Result<String, CoreError> {
             format!("Nenhuma Task chamada \"{title}\"."),
             false,
         )),
-        1 => Ok(matches[0].id.to_string()),
+        1 => Ok(matches.into_iter().next().expect("um resultado")),
         _ => Err(CoreError::new(
             mos_core::ErrorCode::InvalidInput,
             format!("\"{title}\" bate com {} Tasks. Diga qual.", matches.len()),
             false,
         )),
     }
+}
+
+/// O desfecho de uma proposta, com o caminho de volta quando existe.
+///
+/// A mensagem sozinha nao bastava: ela guarda que a acao foi executada, mas nao
+/// carrega como reverte-la. O Undo vive na janela do recibo, e nao no cartao da
+/// conversa, pelo mesmo motivo que vive assim no resto do app — oferecer
+/// "desfazer" numa acao de semana passada seria surpresa, nao seguranca.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionResolution {
+    pub message: Message,
+    /// Vazio quando nao houve execucao.
+    pub receipt: String,
+    pub undo: Option<mos_core::UndoStep>,
 }
 
 /// Resolve uma proposta: executa ou cancela, e grava o desfecho na mensagem.
@@ -376,16 +459,20 @@ pub async fn action_resolve<R: Runtime>(
     message_id: String,
     raw: String,
     approved: bool,
-) -> Result<Message, CoreError> {
+) -> Result<ActionResolution, CoreError> {
     let service = app.state::<AppState>().conversations.clone();
     let message = service.message(&message_id)?;
 
-    let (status, outcome) = if !approved {
-        (ProposalStatus::Cancelled, "Cancelado por você.".to_owned())
+    let (status, outcome, undo) = if !approved {
+        (
+            ProposalStatus::Cancelled,
+            "Cancelado por você.".to_owned(),
+            None,
+        )
     } else {
         match mos_core::parse_action(&raw).and_then(|args| run_action(&app, &args)) {
-            Ok(done) => (ProposalStatus::Executed, done),
-            Err(error) => (ProposalStatus::Failed, error.message),
+            Ok(effect) => (ProposalStatus::Executed, effect.message, effect.undo),
+            Err(error) => (ProposalStatus::Failed, error.message, None),
         }
     };
 
@@ -413,7 +500,19 @@ pub async fn action_resolve<R: Runtime>(
         let _ = app.emit("data-changed", "action");
     }
     announce_message(&app, &updated);
-    Ok(updated)
+    Ok(ActionResolution {
+        // O recibo so existe quando algo aconteceu. Cancelar e recusar ja se
+        // explicam dentro do proprio cartao, na conversa — repetir aquilo num
+        // aviso flutuante seria ruido sobre uma decisao que o usuario acabou de
+        // tomar.
+        receipt: if status == ProposalStatus::Executed {
+            outcome
+        } else {
+            String::new()
+        },
+        message: updated,
+        undo,
+    })
 }
 
 /// Projeta o historico da VPS em mensagens do M/OS.

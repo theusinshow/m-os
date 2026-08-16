@@ -10,7 +10,8 @@ mod service;
 mod work;
 
 pub use action::{
-    action_contract, parse_action, preview_of, ActionArgs, ActionKind, ActionLine, ActionPreview,
+    action_contract, parse_action, preview_of, ActionArgs, ActionEffect, ActionKind, ActionLine,
+    ActionPreview, UndoStep,
 };
 pub use app::{
     app_catalog, validate_launch_target, validate_source_url, AppCapabilities, AppCatalogEntry,
