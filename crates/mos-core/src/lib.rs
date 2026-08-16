@@ -7,6 +7,7 @@ mod functions;
 mod ports;
 mod resource;
 mod service;
+mod tracking;
 mod work;
 
 pub use action::{
@@ -40,6 +41,10 @@ pub use service::{
     CreateProjectInput, CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService,
     MemoryService, UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput,
     UpdateWorkspaceInput, WorkService,
+};
+pub use tracking::{
+    aggregate_by_project, amount_for_duration, billable_duration, elapsed_seconds, net_duration,
+    round_duration, Rounding, RoundingMode, TimerSnapshot, TimerStatus, Totals, TrackedSession,
 };
 pub use work::{
     validate_widget_id, HiddenWidget, NewProject, NewTask, NewWorkspace, Project, ProjectId,
