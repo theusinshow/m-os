@@ -237,6 +237,10 @@ export type ImportReport = {
   entries: number;
   tasks: number;
   trackedSeconds: number;
+  monitoredApps: number;
+  /** O histórico observado pelo sistema, que alimenta a Linha do Tempo. */
+  activityEvents: number;
+  clients: number;
 };
 
 export type BackupInspection = BackupReceipt & {

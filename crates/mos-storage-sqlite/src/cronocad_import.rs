@@ -15,7 +15,7 @@ use mos_core::{
     NewTimeEntry, ProjectId, ProjectTracking, TaskState, TimeTrackingRepository, TrackingStatus,
     WorkRepository,
 };
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::Serialize;
 
 use crate::{map_sql_error, repository::parse_time, SqliteStorage};
@@ -31,6 +31,11 @@ pub struct ImportReport {
     pub tasks: usize,
     /// Segundos brutos, somados como estavam na origem.
     pub tracked_seconds: i64,
+    pub monitored_apps: usize,
+    /// O historico observado pelo sistema. Sao centenas de linhas e nenhuma
+    /// delas e digitavel de novo — e o que o computador viu acontecer.
+    pub activity_events: usize,
+    pub clients: usize,
 }
 
 /// Traducao do estado do CronoCAD para os dois eixos do M/OS.
@@ -130,8 +135,203 @@ impl SqliteStorage {
             report.projects += 1;
         }
 
+        // Preferencias ANTES da marca, e nunca depois das sessoes por acaso: o
+        // arredondamento muda o numero cobravel, e importar as horas sem trazer
+        // a configuracao faria o M/OS mostrar um valor diferente do que o
+        // CronoCAD mostrava — divergencia silenciosa num numero que vira fatura.
+        self.copy_preferences(&origin)?;
+        report.monitored_apps = self.copy_monitored_apps(&origin)?;
+        report.activity_events = self.copy_activity_events(&origin)?;
+        report.clients = self.copy_clients(&origin)?;
+
         self.mark_cronocad_imported()?;
         Ok(report)
+    }
+
+    /// Traz o arredondamento, a inatividade e o monitoramento.
+    fn copy_preferences(&self, origin: &Connection) -> Result<(), CoreError> {
+        let found = origin
+            .query_row(
+                "SELECT rounding_enabled, rounding_interval_minutes, rounding_mode, \
+                 idle_threshold_minutes, idle_detection_enabled, process_monitoring_enabled, \
+                 process_check_interval_seconds, remind_when_monitored_app_opens, \
+                 remind_when_monitored_app_closes FROM settings WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, i64>(7)?,
+                        row.get::<_, i64>(8)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(map_sql_error)?;
+
+        let Some((enabled, interval, mode, idle, idle_on, monitoring, check, on_open, on_close)) =
+            found
+        else {
+            return Ok(());
+        };
+
+        let connection = self.connection.lock().map_err(crate::map_lock_error)?;
+        connection
+            .execute(
+                "UPDATE tracking_settings SET rounding_enabled = ?1, \
+                 rounding_interval_minutes = ?2, rounding_mode = ?3, \
+                 idle_threshold_minutes = ?4, idle_detection_enabled = ?5, \
+                 process_monitoring_enabled = ?6, process_check_interval_seconds = ?7, \
+                 remind_on_monitored_open = ?8, remind_on_monitored_close = ?9 WHERE id = 1",
+                rusqlite::params![
+                    enabled, interval, mode, idle, idle_on, monitoring, check, on_open, on_close
+                ],
+            )
+            .map_err(map_sql_error)?;
+        Ok(())
+    }
+
+    /// Os programas monitorados, incluindo os que o usuario acrescentou.
+    ///
+    /// `ON CONFLICT` porque a migration ja semeou os cinco sugeridos: o que vem
+    /// do CronoCAD e a verdade, e sobrescreve a semente em vez de duplicar.
+    fn copy_monitored_apps(&self, origin: &Connection) -> Result<usize, CoreError> {
+        let mut statement = origin
+            .prepare(
+                "SELECT id, display_name, process_name, enabled, remind_on_open, \
+                 remind_on_close, created_at, updated_at FROM monitored_apps",
+            )
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                ))
+            })
+            .map_err(map_sql_error)?;
+
+        let connection = self.connection.lock().map_err(crate::map_lock_error)?;
+        let mut count = 0;
+        for row in rows {
+            let (id, name, process, enabled, on_open, on_close, created, updated) =
+                row.map_err(map_sql_error)?;
+            connection
+                .execute(
+                    "INSERT INTO monitored_apps (id, display_name, process_name, enabled, \
+                     remind_on_open, remind_on_close, created_at, updated_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+                     ON CONFLICT (process_name) DO UPDATE SET \
+                     display_name = excluded.display_name, enabled = excluded.enabled, \
+                     remind_on_open = excluded.remind_on_open, \
+                     remind_on_close = excluded.remind_on_close, \
+                     updated_at = excluded.updated_at",
+                    rusqlite::params![
+                        id, name, process, enabled, on_open, on_close, created, updated
+                    ],
+                )
+                .map_err(map_sql_error)?;
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    /// O historico observado pelo sistema.
+    ///
+    /// Sao centenas de linhas e nenhuma delas e digitavel de novo: e o que o
+    /// computador viu acontecer. Sem elas a Linha do Tempo Detectada nasce cega
+    /// para tudo que ja passou.
+    fn copy_activity_events(&self, origin: &Connection) -> Result<usize, CoreError> {
+        let mut statement = origin
+            .prepare(
+                "SELECT id, event_type, process_name, detected_at, metadata_json, \
+                 processed, created_at FROM activity_events ORDER BY detected_at",
+            )
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, String>(6)?,
+                ))
+            })
+            .map_err(map_sql_error)?;
+
+        let connection = self.connection.lock().map_err(crate::map_lock_error)?;
+        let mut count = 0;
+        for row in rows {
+            let (id, kind, process, detected, metadata, processed, created) =
+                row.map_err(map_sql_error)?;
+            connection
+                .execute(
+                    "INSERT OR IGNORE INTO activity_events (id, event_type, process_name, \
+                     detected_at, metadata_json, processed, created_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    rusqlite::params![id, kind, process, detected, metadata, processed, created],
+                )
+                .map_err(map_sql_error)?;
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    fn copy_clients(&self, origin: &Connection) -> Result<usize, CoreError> {
+        let mut statement = origin
+            .prepare(
+                "SELECT id, name, company_name, email, phone, notes, created_at, \
+                 updated_at, archived_at FROM clients",
+            )
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, Option<String>>(8)?,
+                ))
+            })
+            .map_err(map_sql_error)?;
+
+        let connection = self.connection.lock().map_err(crate::map_lock_error)?;
+        let mut count = 0;
+        for row in rows {
+            let (id, name, company, email, phone, notes, created, updated, archived) =
+                row.map_err(map_sql_error)?;
+            connection
+                .execute(
+                    "INSERT OR IGNORE INTO clients (id, name, company_name, email, phone, \
+                     notes, created_at, updated_at, archived_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    rusqlite::params![
+                        id, name, company, email, phone, notes, created, updated, archived
+                    ],
+                )
+                .map_err(map_sql_error)?;
+            count += 1;
+        }
+        Ok(count)
     }
 
     /// Quando o CronoCAD foi importado, se foi.
@@ -302,7 +502,38 @@ mod tests {
 
              INSERT INTO project_todos VALUES
                 ('t1','p1','Conferir cota do patamar',0,'2026-07-12T05:00:00Z'),
-                ('t2','p1','Enviar PDF',1,'2026-07-12T05:00:00Z');",
+                ('t2','p1','Enviar PDF',1,'2026-07-12T05:00:00Z');
+
+             CREATE TABLE settings (
+                id INTEGER PRIMARY KEY, idle_detection_enabled INTEGER,
+                idle_threshold_minutes INTEGER, process_monitoring_enabled INTEGER,
+                process_check_interval_seconds INTEGER,
+                remind_when_monitored_app_opens INTEGER,
+                remind_when_monitored_app_closes INTEGER, rounding_enabled INTEGER,
+                rounding_interval_minutes INTEGER, rounding_mode TEXT);
+             INSERT INTO settings VALUES (1, 1, 7, 1, 9, 0, 1, 1, 30, 'up');
+
+             CREATE TABLE monitored_apps (
+                id TEXT PRIMARY KEY, display_name TEXT, process_name TEXT UNIQUE,
+                enabled INTEGER, remind_on_open INTEGER, remind_on_close INTEGER,
+                created_at TEXT, updated_at TEXT);
+             INSERT INTO monitored_apps VALUES
+                ('app-acad','AutoCAD','acad.exe',0,1,1,'1970-01-01T00:00:00Z','1970-01-01T00:00:00Z'),
+                ('app-meu','Ferramenta minha','minha.exe',1,1,0,'1970-01-01T00:00:00Z','1970-01-01T00:00:00Z');
+
+             CREATE TABLE activity_events (
+                id TEXT PRIMARY KEY, event_type TEXT, process_name TEXT,
+                detected_at TEXT, metadata_json TEXT, processed INTEGER, created_at TEXT);
+             INSERT INTO activity_events VALUES
+                ('v1','app_opened','acad.exe','2026-07-12T05:00:00Z',NULL,0,'2026-07-12T05:00:00Z'),
+                ('v2','idle_started',NULL,'2026-07-12T06:00:00Z',NULL,1,'2026-07-12T06:00:00Z');
+
+             CREATE TABLE clients (
+                id TEXT PRIMARY KEY, name TEXT, company_name TEXT, email TEXT,
+                phone TEXT, notes TEXT, created_at TEXT, updated_at TEXT, archived_at TEXT);
+             INSERT INTO clients VALUES
+                ('c1','Juliano','JS Engenharia',NULL,NULL,NULL,
+                 '2026-07-01T00:00:00Z','2026-07-01T00:00:00Z',NULL);",
         )
         .unwrap();
         path
@@ -320,6 +551,55 @@ mod tests {
         assert_eq!(report.entries, 4);
         assert_eq!(report.tasks, 2);
         assert_eq!(report.tracked_seconds, 7_200 + 3_600 + 1_800 + 3_600);
+    }
+
+    /// O arredondamento MUDA o numero cobravel. Importar as horas sem trazer a
+    /// configuracao faria o M/OS mostrar um valor diferente do que o CronoCAD
+    /// mostrava — divergencia silenciosa num numero que vira fatura.
+    #[test]
+    fn the_rounding_configuration_comes_across() {
+        let (storage, directory) = m_os();
+        storage
+            .import_cronocad(&cronocad(directory.path()))
+            .unwrap();
+
+        let settings = storage.tracking_settings().unwrap();
+        assert!(settings.rounding.enabled);
+        assert_eq!(settings.rounding.interval_minutes, 30);
+        assert_eq!(settings.rounding.mode, mos_core::RoundingMode::Up);
+        assert_eq!(settings.idle_threshold_minutes, 7);
+    }
+
+    /// O historico observado nao e digitavel de novo: e o que o computador viu.
+    #[test]
+    fn the_observed_history_and_the_monitored_apps_come_across() {
+        let (storage, directory) = m_os();
+        let report = storage
+            .import_cronocad(&cronocad(directory.path()))
+            .unwrap();
+
+        assert_eq!(report.activity_events, 2);
+        assert_eq!(report.clients, 1);
+        // Dois na origem, mas a migration ja semeou cinco: o do usuario entra e
+        // o AutoCAD sobrescreve a semente em vez de duplicar.
+        assert_eq!(report.monitored_apps, 2);
+
+        let connection = storage.connection.lock().unwrap();
+        let apps: i64 = connection
+            .query_row("SELECT count(*) FROM monitored_apps", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            apps, 6,
+            "a ferramenta do usuario entrou sem duplicar o AutoCAD"
+        );
+        let acad_off: i64 = connection
+            .query_row(
+                "SELECT enabled FROM monitored_apps WHERE process_name = 'acad.exe'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(acad_off, 0, "a escolha do usuario venceu a semente");
     }
 
     /// A taxa e da SESSAO, e nao do projeto. `e2` foi trabalhada a 90,00/h
@@ -446,11 +726,22 @@ mod tests {
 
         let report = storage.import_cronocad(Path::new(&source)).unwrap();
         println!(
-            "projetos={} sessoes={} tasks={} horas={:.1}",
+            "projetos={} sessoes={} tasks={} horas={:.1} programas={} eventos={} clientes={}",
             report.projects,
             report.entries,
             report.tasks,
-            report.tracked_seconds as f64 / 3600.0
+            report.tracked_seconds as f64 / 3600.0,
+            report.monitored_apps,
+            report.activity_events,
+            report.clients
+        );
+        let settings = storage.tracking_settings().unwrap();
+        println!(
+            "  arredondamento: ativo={} intervalo={}min modo={:?} inatividade={}min",
+            settings.rounding.enabled,
+            settings.rounding.interval_minutes,
+            settings.rounding.mode,
+            settings.idle_threshold_minutes
         );
 
         for tracking in storage.project_tracking().unwrap() {
