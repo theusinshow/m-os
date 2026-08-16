@@ -18,6 +18,15 @@ export function getNextMonthParts(date = new Date()) {
   };
 }
 
+export function getMonthPartsAtOffset(month: number, year: number, offset: number) {
+  const target = new Date(year, month - 1 + offset, 1);
+
+  return {
+    month: target.getMonth() + 1,
+    year: target.getFullYear(),
+  };
+}
+
 export async function getAppUserBySupabaseId(supabaseUserId: string) {
   if (!db) {
     return null;
@@ -91,6 +100,39 @@ export async function ensureMonthForUser(userId: string, month: number, year: nu
     .returning();
 
   return row;
+}
+
+export async function ensureConsecutiveMonthsForUser(
+  userId: string,
+  startMonth: number,
+  startYear: number,
+  count: number,
+) {
+  if (!db) {
+    throw new Error("Database is not configured.");
+  }
+
+  const parts = Array.from({ length: count }, (_, index) =>
+    getMonthPartsAtOffset(startMonth, startYear, index),
+  );
+
+  const rows = await db
+    .insert(months)
+    .values(parts.map((part) => ({ userId, ...part })))
+    .onConflictDoUpdate({
+      target: [months.userId, months.month, months.year],
+      set: { updatedAt: new Date() },
+    })
+    .returning();
+
+  const byKey = new Map(rows.map((row) => [`${row.year}-${row.month}`, row]));
+  return parts.map((part) => {
+    const row = byKey.get(`${part.year}-${part.month}`);
+    if (!row) {
+      throw new Error("Não foi possível preparar os meses da série.");
+    }
+    return row;
+  });
 }
 
 export async function getMonthByParts(userId: string, month: number, year: number) {

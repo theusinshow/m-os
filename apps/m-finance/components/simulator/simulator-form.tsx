@@ -7,8 +7,7 @@ import { FormSubmitButton } from "@/components/form-submit-button";
 import { ValidatedForm, ValidatedInput } from "@/components/ui/validated-form";
 import { monthName } from "@/lib/calculations/simulator";
 
-const fieldClass =
-  "focus-ring min-h-11 w-full rounded-md border border-border-subtle bg-background-elevated px-3 text-sm text-text-primary placeholder:text-text-muted";
+const fieldClass = "field-input";
 
 export function SimulatorForm({
   defaultMonth,

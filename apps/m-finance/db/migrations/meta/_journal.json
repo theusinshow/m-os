@@ -50,6 +50,69 @@
       "when": 1782499790129,
       "tag": "0006_ambiguous_shinko_yamashiro",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783083166408,
+      "tag": "0007_needy_patriot",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783083277851,
+      "tag": "0008_bizarre_crusher_hogan",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783087258914,
+      "tag": "0009_easy_daredevil",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783090222787,
+      "tag": "0010_sad_vivisector",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1783100120529,
+      "tag": "0011_melodic_the_hand",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1783101297083,
+      "tag": "0012_futuristic_blue_blade",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1783101377727,
+      "tag": "0013_sturdy_rhino",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1783101607420,
+      "tag": "0014_bent_phantom_reporter",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1783102760176,
+      "tag": "0015_friendly_nuke",
+      "breakpoints": true
     }
   ]
 }

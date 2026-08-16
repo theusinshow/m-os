@@ -16,7 +16,7 @@ export default async function BillsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeading eyebrow="Despesas" title="Despesas do mês" />
+      <PageHeading eyebrow="Contas" title="Contas do mês" />
 
       {!currentMonth && viewingCurrent ? <CreateCurrentMonthCard /> : null}
 

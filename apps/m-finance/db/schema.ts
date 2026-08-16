@@ -31,6 +31,8 @@ export const paymentType = pgEnum("payment_type", ["cash", "installment"]);
 export const riskLevel = pgEnum("risk_level", ["safe", "controlled", "tight", "critical"]);
 export const goalPriority = pgEnum("goal_priority", ["low", "medium", "high"]);
 export const goalStatus = pgEnum("goal_status", ["active", "paused", "completed", "archived"]);
+export const budgetType = pgEnum("budget_type", ["total", "category", "card"]);
+export type BudgetType = (typeof budgetType.enumValues)[number];
 export const expenseSource = pgEnum("expense_source", ["manual", "openfinance"]);
 export const pluggyItemStatus = pgEnum("pluggy_item_status", [
   "pending",
@@ -40,6 +42,31 @@ export const pluggyItemStatus = pgEnum("pluggy_item_status", [
 ]);
 export const subscriptionStatus = pgEnum("subscription_status", ["trial", "active", "canceled"]);
 export const subscriptionCycle = pgEnum("subscription_cycle", ["once", "monthly", "yearly"]);
+export const whatsappMessageDirection = pgEnum("whatsapp_message_direction", [
+  "inbound",
+  "outbound",
+]);
+export const whatsappMessageStatus = pgEnum("whatsapp_message_status", [
+  "received",
+  "sent",
+  "ignored",
+  "error",
+]);
+export const whatsappPendingActionType = pgEnum("whatsapp_pending_action_type", [
+  "create_card_expense",
+  "create_bill",
+  "resolve_card_expense",
+  "mark_bill_paid",
+  "cancel_last_action",
+  "edit_last_action",
+  "mark_invoice_paid",
+]);
+export const whatsappPendingActionStatus = pgEnum("whatsapp_pending_action_status", [
+  "pending",
+  "confirmed",
+  "cancelled",
+  "expired",
+]);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -142,12 +169,30 @@ export const bills = pgTable(
     amountCents: integer("amount_cents").notNull(),
     dueDate: date("due_date").notNull(),
     isRecurring: boolean("is_recurring").notNull().default(false),
+    seriesId: uuid("series_id"),
+    seriesNumber: integer("series_number"),
+    seriesTotal: integer("series_total"),
     status: billStatus("status").notNull().default("pending"),
     notes: text("notes"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
+    // Rastreia a pendência do WhatsApp que criou essa conta, para que o
+    // "cancela a última" reverta exatamente as linhas certas (inclusive
+    // recorrências com 12 contas de uma vez).
+    whatsappPendingActionId: uuid("whatsapp_pending_action_id"),
     ...timestamps,
   },
-  (table) => [check("bills_amount_positive", sql`${table.amountCents} > 0`)],
+  (table) => [
+    unique("bills_user_series_number_unique").on(
+      table.userId,
+      table.seriesId,
+      table.seriesNumber,
+    ),
+    check("bills_amount_positive", sql`${table.amountCents} > 0`),
+    check(
+      "bills_series_valid",
+      sql`(${table.seriesId} is null and ${table.seriesNumber} is null and ${table.seriesTotal} is null) or (${table.seriesId} is not null and ${table.seriesNumber} is not null and ${table.seriesTotal} is not null and ${table.seriesNumber} between 1 and ${table.seriesTotal} and ${table.seriesTotal} >= 2)`,
+    ),
+  ],
 );
 
 export const creditCards = pgTable(
@@ -203,6 +248,13 @@ export const creditCardExpenses = pgTable(
     // re-sync upserts instead of duplicating.
     source: expenseSource("source").notNull().default("manual"),
     externalId: text("external_id"),
+    installmentId: uuid("installment_id"),
+    installmentNumber: integer("installment_number"),
+    installmentTotal: integer("installment_total"),
+    // Rastreia a pendência do WhatsApp que criou essa despesa, para que o
+    // "cancela a última" reverta exatamente as linhas certas (inclusive
+    // parcelamentos com várias linhas por installmentId).
+    whatsappPendingActionId: uuid("whatsapp_pending_action_id"),
     ...timestamps,
   },
   (table) => [
@@ -210,6 +262,15 @@ export const creditCardExpenses = pgTable(
     // NULLs are distinct in Postgres, so manual rows (externalId = null) never
     // collide; only synced rows are deduped per user by provider id.
     unique("credit_card_expenses_user_external_unique").on(table.userId, table.externalId),
+    unique("credit_card_expenses_user_installment_number_unique").on(
+      table.userId,
+      table.installmentId,
+      table.installmentNumber,
+    ),
+    check(
+      "credit_card_expenses_installment_valid",
+      sql`(${table.installmentId} is null and ${table.installmentNumber} is null and ${table.installmentTotal} is null) or (${table.installmentId} is not null and ${table.installmentNumber} is not null and ${table.installmentTotal} is not null and ${table.installmentNumber} between 1 and ${table.installmentTotal} and ${table.installmentTotal} >= 2)`,
+    ),
   ],
 );
 
@@ -286,6 +347,38 @@ export const pushSubscriptions = pgTable(
   },
   (table) => [unique("push_subscriptions_endpoint_unique").on(table.endpoint)],
 );
+
+export const whatsappMessages = pgTable(
+  "whatsapp_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    direction: whatsappMessageDirection("direction").notNull(),
+    status: whatsappMessageStatus("status").notNull(),
+    from: text("from_number"),
+    to: text("to_number"),
+    body: text("body"),
+    twilioMessageSid: text("twilio_message_sid"),
+    error: text("error"),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique("whatsapp_messages_twilio_sid_unique").on(table.twilioMessageSid)],
+);
+
+export const whatsappPendingActions = pgTable("whatsapp_pending_actions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  phone: text("phone").notNull(),
+  actionType: whatsappPendingActionType("action_type").notNull(),
+  status: whatsappPendingActionStatus("status").notNull().default("pending"),
+  summary: text("summary").notNull(),
+  payload: jsonb("payload").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  ...timestamps,
+});
 
 export const alerts = pgTable("alerts", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -386,6 +479,30 @@ export const settings = pgTable("settings", {
   currency: text("currency").notNull().default("BRL"),
   ...timestamps,
 });
+
+export const budgets = pgTable(
+  "budgets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    monthId: uuid("month_id").notNull().references(() => months.id, { onDelete: "cascade" }),
+    budgetType: budgetType("budget_type").notNull(),
+    categoryId: uuid("category_id").references(() => billCategories.id, { onDelete: "cascade" }),
+    cardId: uuid("card_id").references(() => creditCards.id, { onDelete: "cascade" }),
+    limitCents: integer("limit_cents").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    check("budgets_limit_positive", sql`${table.limitCents} > 0`),
+    unique("budgets_user_month_type_ref_unique").on(
+      table.userId,
+      table.monthId,
+      table.budgetType,
+      table.categoryId,
+      table.cardId,
+    ),
+  ],
+);
 
 export type BillStatus = (typeof billStatus.enumValues)[number];
 export type InvoiceStatus = (typeof invoiceStatus.enumValues)[number];

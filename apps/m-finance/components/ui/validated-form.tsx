@@ -19,12 +19,15 @@ export function ValidatedForm({
   className,
   successMessage,
   resetOnSuccess = false,
+  onSuccess,
 }: {
   action: FormAction;
   children: React.ReactNode;
   className?: string;
   successMessage: string;
   resetOnSuccess?: boolean;
+  /** Chamado após sucesso (ex.: fechar o drawer que contém o form). */
+  onSuccess?: () => void;
 }) {
   const [state, formAction] = useActionState(action, initialFormState);
   const { addToast } = useToast();
@@ -36,10 +39,11 @@ export function ValidatedForm({
       if (resetOnSuccess) {
         formRef.current?.reset();
       }
+      onSuccess?.();
     } else if (state.status === "error" && state.message && !state.fieldErrors) {
       addToast(state.message, "error");
     }
-  }, [state, addToast, successMessage, resetOnSuccess]);
+  }, [state, addToast, successMessage, resetOnSuccess, onSuccess]);
 
   return (
     <FieldErrorContext.Provider value={state.fieldErrors ?? {}}>

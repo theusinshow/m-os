@@ -1,8 +1,9 @@
 import { DashboardCard } from "@/components/dashboard/dashboard-card";
-import { deleteInvoice, markInvoiceAsPaid, markInvoiceAsPending, updateInvoice } from "@/app/actions/invoices";
+import { deleteInvoice, markInvoiceAsPending, updateInvoice } from "@/app/actions/invoices";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { EditDisclosure } from "@/components/ui/edit-disclosure";
 import { FormSubmitButton } from "@/components/form-submit-button";
+import { MarkPaidButton } from "@/components/payable/mark-paid-button";
 import { ToastForm } from "@/components/toast-form";
 import { ValidatedForm, ValidatedInput } from "@/components/ui/validated-form";
 import { CardBrandMark } from "@/components/cards/card-brand-mark";
@@ -54,12 +55,9 @@ export function InvoiceSummaryCard({ invoices }: { invoices: Invoice[] }) {
                 {formatCurrency(invoice.amountCents)}
               </p>
               {invoice.status !== "paid" ? (
-                <ToastForm action={markInvoiceAsPaid} successMessage="Fatura marcada como paga.">
-                  <input name="invoiceId" type="hidden" value={invoice.id} />
-                  <FormSubmitButton pendingLabel="Marcando..." variant="secondary">
-                    Marcar como paga
-                  </FormSubmitButton>
-                </ToastForm>
+                <MarkPaidButton payableId={invoice.id} payableType="invoice" variant="secondary">
+                  Marcar como paga
+                </MarkPaidButton>
               ) : (
                 <ToastForm action={markInvoiceAsPending} successMessage="Fatura reaberta.">
                   <input name="invoiceId" type="hidden" value={invoice.id} />
@@ -74,7 +72,7 @@ export function InvoiceSummaryCard({ invoices }: { invoices: Invoice[] }) {
                 <input name="invoiceId" type="hidden" value={invoice.id} />
                 <div className="grid gap-3 sm:grid-cols-2">
                   <ValidatedInput
-                    className="focus-ring min-h-11 rounded-md border border-border-subtle bg-background-card px-3 text-sm text-text-primary"
+                    className="field-input"
                     defaultValue={centsToInput(invoice.amountCents)}
                     inputMode="decimal"
                     name="amount"
@@ -82,7 +80,7 @@ export function InvoiceSummaryCard({ invoices }: { invoices: Invoice[] }) {
                   />
                   <ValidatedInput
                     aria-label="Dia do vencimento"
-                    className="focus-ring min-h-11 rounded-md border border-border-subtle bg-background-card px-3 text-sm text-text-primary"
+                    className="field-input"
                     defaultValue={dayFromIsoDate(invoice.dueDate)}
                     inputMode="numeric"
                     max={31}

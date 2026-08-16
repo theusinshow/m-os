@@ -2,10 +2,10 @@
 
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { creditCardExpenses } from "@/db/schema";
+import { creditCardExpenses, months } from "@/db/schema";
 import { db } from "@/db/client";
 import { requireUser } from "@/lib/auth/guard";
-import { getAppUserBySupabaseId } from "@/lib/months";
+import { ensureConsecutiveMonthsForUser, getAppUserBySupabaseId } from "@/lib/months";
 import { getActiveMonthForUser } from "@/lib/active-month";
 import { getCardById } from "@/lib/card-expenses";
 import { parseCurrencyToCents } from "@/lib/money";
@@ -48,6 +48,10 @@ export async function addCardExpense(_prev: FormState, formData: FormData): Prom
     description: formData.get("description"),
     amountCents: parseCurrencyToCents(formData.get("amount")),
     purchaseDate: String(formData.get("purchaseDate") ?? "") || undefined,
+    paymentType: formData.get("paymentType") ?? "cash",
+    installments: formData.get("installments")
+      ? Number(formData.get("installments"))
+      : undefined,
   });
 
   if (!parsed.success) {
@@ -58,21 +62,47 @@ export async function addCardExpense(_prev: FormState, formData: FormData): Prom
   }
 
   const payload = parsed.data;
+  const installmentTotal =
+    payload.paymentType === "installment" ? (payload.installments ?? 1) : 1;
+  const targetMonths =
+    installmentTotal > 1
+      ? await ensureConsecutiveMonthsForUser(
+          appUser.id,
+          month.month,
+          month.year,
+          installmentTotal,
+        )
+      : [month];
+  const baseAmount = Math.floor(payload.amountCents / installmentTotal);
+  const remainder = payload.amountCents - baseAmount * installmentTotal;
+  const installmentId = installmentTotal > 1 ? crypto.randomUUID() : null;
 
   await db.transaction(async (tx) => {
-    await tx.insert(creditCardExpenses).values({
-      userId: appUser.id,
-      cardId,
-      monthId: month.id,
-      description: payload.description,
-      amountCents: payload.amountCents,
-      purchaseDate: payload.purchaseDate ?? null,
-    });
-    await syncInvoiceTotal(tx, appUser.id, cardId, month, card.dueDay);
+    await tx.insert(creditCardExpenses).values(
+      targetMonths.map((targetMonth, index) => ({
+        userId: appUser.id,
+        cardId,
+        monthId: targetMonth.id,
+        description: payload.description,
+        amountCents: baseAmount + (index < remainder ? 1 : 0),
+        purchaseDate: payload.purchaseDate ?? null,
+        installmentId,
+        installmentNumber: installmentId ? index + 1 : null,
+        installmentTotal: installmentId ? installmentTotal : null,
+      })),
+    );
+
+    for (const targetMonth of targetMonths) {
+      await syncInvoiceTotal(tx, appUser.id, cardId, targetMonth, card.dueDay);
+    }
   });
 
   revalidateCardSurfaces(cardId);
-  return successState("Compra lançada.");
+  return successState(
+    installmentTotal > 1
+      ? `Compra parcelada em ${installmentTotal} vezes.`
+      : "Compra lançada.",
+  );
 }
 
 export async function deleteCardExpense(formData: FormData) {
@@ -86,7 +116,17 @@ export async function deleteCardExpense(formData: FormData) {
   }
 
   const card = await getCardById(appUser.id, cardId);
-  const month = await getActiveMonthForUser(appUser.id);
+  const [expenseMonth] = await db
+    .select({ id: months.id, month: months.month, year: months.year })
+    .from(creditCardExpenses)
+    .innerJoin(months, eq(creditCardExpenses.monthId, months.id))
+    .where(
+      and(
+        eq(creditCardExpenses.id, expenseId),
+        eq(creditCardExpenses.userId, appUser.id),
+      ),
+    )
+    .limit(1);
 
   await db.transaction(async (tx) => {
     await tx
@@ -94,8 +134,54 @@ export async function deleteCardExpense(formData: FormData) {
       .where(
         and(eq(creditCardExpenses.id, expenseId), eq(creditCardExpenses.userId, appUser.id)),
       );
-    if (card && month) {
-      await syncInvoiceTotal(tx, appUser.id, cardId, month, card.dueDay);
+    if (card && expenseMonth) {
+      await syncInvoiceTotal(tx, appUser.id, cardId, expenseMonth, card.dueDay);
+    }
+  });
+
+  revalidateCardSurfaces(cardId);
+}
+
+export async function deleteCardExpenseSeries(formData: FormData) {
+  const user = await requireUser();
+  const appUser = await getAppUserBySupabaseId(user.id);
+  const installmentId = String(formData.get("installmentId") ?? "");
+  const cardId = String(formData.get("cardId") ?? "");
+
+  if (!db || !appUser || !installmentId || !cardId) {
+    throw new Error("Não foi possível excluir o parcelamento.");
+  }
+
+  const card = await getCardById(appUser.id, cardId);
+  if (!card) {
+    throw new Error("Cartão não encontrado.");
+  }
+
+  const affectedMonths = await db
+    .select({ id: months.id, month: months.month, year: months.year })
+    .from(creditCardExpenses)
+    .innerJoin(months, eq(creditCardExpenses.monthId, months.id))
+    .where(
+      and(
+        eq(creditCardExpenses.installmentId, installmentId),
+        eq(creditCardExpenses.userId, appUser.id),
+        eq(creditCardExpenses.cardId, cardId),
+      ),
+    );
+
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(creditCardExpenses)
+      .where(
+        and(
+          eq(creditCardExpenses.installmentId, installmentId),
+          eq(creditCardExpenses.userId, appUser.id),
+          eq(creditCardExpenses.cardId, cardId),
+        ),
+      );
+
+    for (const affectedMonth of affectedMonths) {
+      await syncInvoiceTotal(tx, appUser.id, cardId, affectedMonth, card.dueDay);
     }
   });
 

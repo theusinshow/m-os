@@ -16,11 +16,11 @@ export function InlineEmpty({
   return (
     <div
       className={cn(
-        "flex items-center gap-2.5 rounded-lg border border-border-subtle bg-background-elevated p-4 text-sm text-text-muted",
+        "flex items-start gap-2.5 rounded-lg border border-border-subtle bg-background-elevated p-4 text-sm leading-6 text-text-muted",
         className,
       )}
     >
-      <CircleDashed aria-hidden="true" className="shrink-0 text-text-muted/70" size={16} />
+      <CircleDashed aria-hidden="true" className="mt-1 shrink-0 text-text-muted/70" size={16} />
       <span>{children}</span>
     </div>
   );

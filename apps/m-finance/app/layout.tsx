@@ -1,4 +1,10 @@
 import type { Metadata, Viewport } from "next";
+// As fontes locais (Satoshi, Panchang) deixaram de ser carregadas na unificação
+// do design system: `globals.css` mapeia `--font-sans/display/mono` para os
+// tokens do M/OS, e nada mais referencia `--font-satoshi`. O merge do agente de
+// WhatsApp trouxe o carregamento de volta, e mantê-lo baixaria duas famílias
+// para desenhar com uma. `app/fonts/fonts.ts` e os arquivos continuam no
+// repositório — são asset do M-Finance, e removê-los é decisão de outra hora.
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 import "@/styles/globals.css";
 
@@ -29,7 +35,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR" data-scroll-behavior="smooth">
+    <html
+      lang="pt-BR"
+      data-scroll-behavior="smooth"
+    >
       <body>
         {children}
         <ServiceWorkerRegister />

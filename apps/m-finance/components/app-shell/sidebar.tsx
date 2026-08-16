@@ -8,6 +8,7 @@ import {
   CreditCard,
   History,
   LayoutDashboard,
+  PiggyBank,
   ReceiptText,
   RefreshCw,
   Settings,
@@ -21,7 +22,7 @@ const navGroups = [
     label: null,
     items: [
       { href: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/app/bills", label: "Despesas", icon: ReceiptText },
+      { href: "/app/bills", label: "Contas", icon: ReceiptText },
       { href: "/app/cards", label: "Cartões", icon: CreditCard },
       { href: "/app/calendar", label: "Calendário", icon: CalendarDays },
       { href: "/app/subscriptions", label: "Assinaturas", icon: RefreshCw },
@@ -31,6 +32,7 @@ const navGroups = [
     label: "Planejamento",
     items: [
       { href: "/app/simulator", label: "Simulador", icon: Calculator },
+      { href: "/app/budgets", label: "Orçamento", icon: PiggyBank },
       { href: "/app/goals", label: "Metas", icon: Target },
       { href: "/app/history", label: "Histórico", icon: History },
     ],
@@ -105,10 +107,12 @@ export function Sidebar() {
       <div className="clip-notch brand-grid absolute bottom-5 left-4 right-4 border border-border-subtle bg-background-secondary p-4">
         <div className="flex items-center gap-2">
           <TriangleMark className="text-accent" size={12} variant="solid" />
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-muted">MVP 1</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-muted">
+            M Finance
+          </p>
         </div>
         <p className="mt-2 text-sm leading-5 text-text-secondary">
-          Cockpit de contas, faturas e vencimentos mensais.
+          O que pagar, o que vence, quanto sobra.
         </p>
       </div>
     </aside>

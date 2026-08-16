@@ -19,7 +19,7 @@ export function FormSubmitButton({
   return (
     <button
       className={cn(
-        "clip-notch sheen group focus-ring relative inline-flex min-h-11 items-center justify-center gap-2 px-4 text-sm font-semibold tracking-tight transition duration-200 disabled:cursor-wait disabled:opacity-75",
+        "clip-notch sheen group focus-ring relative inline-flex min-h-11 w-full items-center justify-center gap-2 px-4 text-sm font-semibold tracking-tight transition duration-200 disabled:cursor-wait disabled:opacity-75 sm:w-auto",
         variant === "primary" &&
           "bg-accent-strong text-text-primary shadow-lg shadow-accent/25 hover:bg-accent-strong-hover active:scale-[0.985]",
         variant === "secondary" &&

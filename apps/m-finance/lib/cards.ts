@@ -82,6 +82,7 @@ export async function getInvoicesByMonth(monthId: string) {
   const rows = await db
     .select({
       id: creditCardInvoices.id,
+      cardId: creditCardInvoices.cardId,
       name: creditCards.name,
       amountCents: creditCardInvoices.amountCents,
       dueDate: creditCardInvoices.dueDate,

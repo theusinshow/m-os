@@ -1,13 +1,17 @@
-import { addCardExpense, deleteCardExpense } from "@/app/actions/card-expenses";
-import { markInvoiceAsPaid, markInvoiceAsPending } from "@/app/actions/invoices";
+import {
+  deleteCardExpense,
+  deleteCardExpenseSeries,
+} from "@/app/actions/card-expenses";
+import { markInvoiceAsPending } from "@/app/actions/invoices";
 import { CardBrandMark } from "@/components/cards/card-brand-mark";
+import { CardExpenseForm } from "@/components/cards/card-expense-form";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { DashboardCard } from "@/components/dashboard/dashboard-card";
 import { FormSubmitButton } from "@/components/form-submit-button";
+import { MarkPaidButton } from "@/components/payable/mark-paid-button";
 import { InlineEmpty } from "@/components/ui/inline-empty";
 import { StatusBadge } from "@/components/status-badge";
 import { ToastForm } from "@/components/toast-form";
-import { ValidatedForm, ValidatedInput } from "@/components/ui/validated-form";
 import { formatCurrency } from "@/lib/formatters/currency";
 import { formatShortDate } from "@/lib/formatters/date";
 
@@ -17,6 +21,12 @@ type Expense = {
   description: string;
   amountCents: number;
   purchaseDate: string | null;
+  installmentId: string | null;
+  installmentNumber: number | null;
+  installmentTotal: number | null;
+};
+type HistoryExpense = Expense & {
+  monthLabel: string;
 };
 type Invoice = {
   id: string;
@@ -25,17 +35,16 @@ type Invoice = {
   status: "pending" | "paid" | "overdue";
 } | null;
 
-const fieldClass =
-  "focus-ring min-h-11 w-full rounded-md border border-border-subtle bg-background-elevated px-3 text-sm text-text-primary placeholder:text-text-muted";
-
 export function CardDetail({
   card,
   expenses,
+  history,
   invoice,
   monthLabel,
 }: {
   card: Card;
   expenses: Expense[];
+  history: HistoryExpense[];
   invoice: Invoice;
   monthLabel: string;
 }) {
@@ -79,12 +88,9 @@ export function CardDetail({
         {invoice ? (
           <div className="mt-5">
             {invoice.status !== "paid" ? (
-              <ToastForm action={markInvoiceAsPaid} successMessage="Fatura marcada como paga.">
-                <input name="invoiceId" type="hidden" value={invoice.id} />
-                <FormSubmitButton pendingLabel="Marcando..." variant="success">
-                  Marcar fatura como paga
-                </FormSubmitButton>
-              </ToastForm>
+              <MarkPaidButton payableId={invoice.id} payableType="invoice" variant="success">
+                Marcar fatura como paga
+              </MarkPaidButton>
             ) : (
               <ToastForm action={markInvoiceAsPending} successMessage="Fatura reaberta.">
                 <input name="invoiceId" type="hidden" value={invoice.id} />
@@ -98,60 +104,10 @@ export function CardDetail({
       </DashboardCard>
 
       <DashboardCard
-        description="Lance cada compra do cartão. O total da fatura passa a ser a soma delas."
+        description="Compras parceladas são distribuídas a partir do mês selecionado."
         title="Lançar compra"
       >
-        <ValidatedForm
-          action={addCardExpense}
-          successMessage="Compra lançada."
-          resetOnSuccess
-          className="grid gap-4 md:grid-cols-[1fr_180px_170px_auto] md:items-end"
-        >
-          <input name="cardId" type="hidden" value={card.id} />
-          <div>
-            <label
-              className="mb-2 block text-sm font-medium text-text-secondary"
-              htmlFor="expense-description"
-            >
-              Descrição
-            </label>
-            <ValidatedInput
-              autoComplete="off"
-              className={fieldClass}
-              id="expense-description"
-              name="description"
-              placeholder="Mercado, assinatura, gasolina…"
-              required
-            />
-          </div>
-          <div>
-            <label
-              className="mb-2 block text-sm font-medium text-text-secondary"
-              htmlFor="expense-amount"
-            >
-              Valor
-            </label>
-            <ValidatedInput
-              autoComplete="off"
-              className={fieldClass}
-              id="expense-amount"
-              inputMode="decimal"
-              name="amount"
-              placeholder="120,00"
-              required
-            />
-          </div>
-          <div>
-            <label
-              className="mb-2 block text-sm font-medium text-text-secondary"
-              htmlFor="expense-date"
-            >
-              Data (opcional)
-            </label>
-            <ValidatedInput className={fieldClass} id="expense-date" name="purchaseDate" type="date" />
-          </div>
-          <FormSubmitButton pendingLabel="Lançando...">Lançar</FormSubmitButton>
-        </ValidatedForm>
+        <CardExpenseForm cardId={card.id} />
       </DashboardCard>
 
       <DashboardCard title="Compras do mês">
@@ -163,18 +119,21 @@ export function CardDetail({
           <div className="space-y-2">
             {expenses.map((expense) => (
               <div
-                className="flex items-center justify-between gap-3 rounded-lg border border-border-subtle bg-background-elevated px-4 py-3"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-subtle bg-background-elevated px-4 py-3"
                 key={expense.id}
               >
                 <div className="min-w-0">
                   <p className="truncate font-medium text-text-primary">{expense.description}</p>
-                  {expense.purchaseDate ? (
-                    <p className="mt-0.5 text-xs text-text-muted">
-                      {formatShortDate(expense.purchaseDate)}
-                    </p>
-                  ) : null}
+                  <p className="mt-0.5 text-xs text-text-muted">
+                    {expense.installmentNumber && expense.installmentTotal
+                      ? `Parcela ${expense.installmentNumber}/${expense.installmentTotal}`
+                      : "À vista"}
+                    {expense.purchaseDate
+                      ? ` · ${formatShortDate(expense.purchaseDate)}`
+                      : ""}
+                  </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-3">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   <p className="num font-semibold text-text-primary">
                     {formatCurrency(expense.amountCents)}
                   </p>
@@ -182,10 +141,58 @@ export function CardDetail({
                     <input name="expenseId" type="hidden" value={expense.id} />
                     <input name="cardId" type="hidden" value={card.id} />
                     <ConfirmDeleteButton confirmMessage="Excluir esta compra?">
-                      Excluir
+                      {expense.installmentId ? "Excluir parcela" : "Excluir"}
                     </ConfirmDeleteButton>
                   </ToastForm>
+                  {expense.installmentId ? (
+                    <ToastForm
+                      action={deleteCardExpenseSeries}
+                      successMessage="Parcelamento excluído."
+                    >
+                      <input
+                        name="installmentId"
+                        type="hidden"
+                        value={expense.installmentId}
+                      />
+                      <input name="cardId" type="hidden" value={card.id} />
+                      <ConfirmDeleteButton confirmMessage="Excluir todas as parcelas desta compra?">
+                        Excluir todas
+                      </ConfirmDeleteButton>
+                    </ToastForm>
+                  ) : null}
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </DashboardCard>
+
+      <DashboardCard
+        description="Tudo que já foi lançado neste cartão, independente do mês selecionado."
+        title="Histórico do cartão"
+      >
+        {history.length === 0 ? (
+          <InlineEmpty>Nenhuma compra cadastrada neste cartão.</InlineEmpty>
+        ) : (
+          <div className="space-y-2">
+            {history.map((expense) => (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-subtle bg-background-elevated px-4 py-3"
+                key={expense.id}
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-text-primary">{expense.description}</p>
+                  <p className="mt-0.5 text-xs text-text-muted">
+                    {expense.monthLabel}
+                    {expense.installmentNumber && expense.installmentTotal
+                      ? ` · parcela ${expense.installmentNumber}/${expense.installmentTotal}`
+                      : " · à vista"}
+                    {expense.purchaseDate ? ` · ${formatShortDate(expense.purchaseDate)}` : ""}
+                  </p>
+                </div>
+                <p className="num font-semibold text-text-primary">
+                  {formatCurrency(expense.amountCents)}
+                </p>
               </div>
             ))}
           </div>

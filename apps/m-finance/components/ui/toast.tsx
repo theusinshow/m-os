@@ -13,14 +13,20 @@ import { cn } from "@/lib/utils";
 
 type ToastVariant = "success" | "error" | "info";
 
+type ToastAction = {
+  label: string;
+  onClick: () => void;
+};
+
 type Toast = {
   id: number;
   message: string;
   variant: ToastVariant;
+  action?: ToastAction;
 };
 
 type ToastContextValue = {
-  addToast: (message: string, variant?: ToastVariant) => void;
+  addToast: (message: string, variant?: ToastVariant, action?: ToastAction) => void;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -61,11 +67,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addToast = useCallback(
-    (message: string, variant: ToastVariant = "info") => {
+    (message: string, variant: ToastVariant = "info", action?: ToastAction) => {
       counter.current += 1;
       const id = counter.current;
-      setToasts((current) => [...current, { id, message, variant }]);
-      const timer = setTimeout(() => removeToast(id), 4000);
+      setToasts((current) => [...current, { id, message, variant, action }]);
+      // Toasts com ação (ex.: Desfazer) ficam mais tempo na tela.
+      const duration = action ? 6000 : 4000;
+      const timer = setTimeout(() => removeToast(id), duration);
       timers.current.set(id, timer);
     },
     [removeToast],
@@ -99,6 +107,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             >
               <Icon className={cn("mt-0.5 shrink-0", iconColor)} size={18} aria-hidden="true" />
               <p className="flex-1 text-sm leading-5 text-text-secondary">{toast.message}</p>
+              {toast.action ? (
+                <button
+                  className="focus-ring shrink-0 rounded-md px-2 py-0.5 text-sm font-semibold text-accent transition hover:bg-accent-soft"
+                  onClick={() => {
+                    toast.action?.onClick();
+                    removeToast(toast.id);
+                  }}
+                  type="button"
+                >
+                  {toast.action.label}
+                </button>
+              ) : null}
               <button
                 aria-label="Fechar"
                 className="focus-ring shrink-0 rounded text-text-muted transition hover:text-text-primary"

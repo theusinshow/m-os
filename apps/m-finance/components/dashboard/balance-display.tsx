@@ -53,7 +53,7 @@ export function BalanceDisplay({
         <p className="text-sm font-medium uppercase tracking-[0.16em] text-text-muted">{label}</p>
         <button
           aria-label={masked ? "Mostrar valor" : "Esconder valor"}
-          className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition duration-200 hover:bg-background-elevated hover:text-text-primary"
+          className="focus-ring inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-text-muted transition duration-200 hover:bg-background-elevated hover:text-text-primary"
           onClick={toggle}
           type="button"
         >

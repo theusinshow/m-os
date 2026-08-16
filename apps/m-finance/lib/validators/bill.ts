@@ -8,3 +8,18 @@ export const billSchema = z.object({
   isRecurring: z.boolean().default(false),
   notes: z.string().optional(),
 });
+
+export const createBillSchema = billSchema
+  .extend({
+    scheduleType: z.enum(["once", "fixed", "ongoing"]).default("once"),
+    repeatMonths: z.number().int().min(2).max(60).optional(),
+  })
+  .superRefine((data, context) => {
+    if (data.scheduleType === "fixed" && !data.repeatMonths) {
+      context.addIssue({
+        code: "custom",
+        message: "Informe por quantos meses a conta deve se repetir.",
+        path: ["repeatMonths"],
+      });
+    }
+  });

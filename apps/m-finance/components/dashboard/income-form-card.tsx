@@ -36,7 +36,7 @@ export function IncomeFormCard({ incomes }: { incomes: Income[] }) {
               Nome
             </label>
             <ValidatedInput
-              className="focus-ring min-h-11 w-full rounded-md border border-border-subtle bg-background-elevated px-3 text-sm text-text-primary placeholder:text-text-muted"
+              className="field-input"
               id="income-name"
               name="name"
               placeholder="Receita principal"
@@ -50,7 +50,7 @@ export function IncomeFormCard({ incomes }: { incomes: Income[] }) {
                 Valor
               </label>
               <ValidatedInput
-                className="focus-ring min-h-11 w-full rounded-md border border-border-subtle bg-background-elevated px-3 text-sm text-text-primary placeholder:text-text-muted"
+                className="field-input"
                 id="income-amount"
                 inputMode="decimal"
                 name="amount"
@@ -63,7 +63,7 @@ export function IncomeFormCard({ incomes }: { incomes: Income[] }) {
                 Tipo
               </label>
               <ValidatedSelect
-                className="focus-ring min-h-11 w-full rounded-md border border-border-subtle bg-background-elevated px-3 text-sm text-text-primary"
+                className="field-input"
                 id="income-type"
                 name="incomeType"
                 required
@@ -80,7 +80,7 @@ export function IncomeFormCard({ incomes }: { incomes: Income[] }) {
               Data prevista
             </label>
             <input
-              className="focus-ring min-h-11 w-full rounded-md border border-border-subtle bg-background-elevated px-3 text-sm text-text-primary"
+              className="field-input"
               id="income-date"
               name="expectedDate"
               type="date"
@@ -119,21 +119,21 @@ export function IncomeFormCard({ incomes }: { incomes: Income[] }) {
                   <ValidatedForm action={updateIncome} successMessage="Receita atualizada." className="grid gap-3">
                     <input name="incomeId" type="hidden" value={income.id} />
                     <ValidatedInput
-                      className="focus-ring min-h-11 rounded-md border border-border-subtle bg-background-card px-3 text-sm text-text-primary"
+                      className="field-input"
                       defaultValue={income.name}
                       name="name"
                       required
                     />
                     <div className="grid gap-3 sm:grid-cols-2">
                       <ValidatedInput
-                        className="focus-ring min-h-11 rounded-md border border-border-subtle bg-background-card px-3 text-sm text-text-primary"
+                        className="field-input"
                         defaultValue={centsToInput(income.amountCents)}
                         inputMode="decimal"
                         name="amount"
                         required
                       />
                       <ValidatedSelect
-                        className="focus-ring min-h-11 rounded-md border border-border-subtle bg-background-card px-3 text-sm text-text-primary"
+                        className="field-input"
                         defaultValue={income.incomeType}
                         name="incomeType"
                       >
@@ -143,7 +143,7 @@ export function IncomeFormCard({ incomes }: { incomes: Income[] }) {
                       </ValidatedSelect>
                     </div>
                     <input
-                      className="focus-ring min-h-11 rounded-md border border-border-subtle bg-background-card px-3 text-sm text-text-primary"
+                      className="field-input"
                       defaultValue={income.expectedDate ?? ""}
                       name="expectedDate"
                       type="date"

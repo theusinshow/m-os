@@ -13,7 +13,7 @@ export function CategoryBreakdownChart({ data }: { data: CategoryDatum[] }) {
   const sorted = [...data].filter((d) => d.value > 0).sort((a, b) => b.value - a.value);
 
   if (sorted.length === 0) {
-    return <InlineEmpty>Sem despesas categorizadas neste mês.</InlineEmpty>;
+    return <InlineEmpty>Sem contas categorizadas neste mês.</InlineEmpty>;
   }
 
   const height = Math.max(120, sorted.length * 44);

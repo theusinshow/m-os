@@ -1,6 +1,6 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { creditCardExpenses, creditCards } from "@/db/schema";
+import { creditCardExpenses, creditCards, months } from "@/db/schema";
 
 export async function getCardById(userId: string, cardId: string) {
   if (!db) {
@@ -32,4 +32,32 @@ export async function getCardExpenses(userId: string, cardId: string, monthId: s
       ),
     )
     .orderBy(asc(creditCardExpenses.purchaseDate), asc(creditCardExpenses.createdAt));
+}
+
+export async function getCardExpenseHistory(userId: string, cardId: string) {
+  if (!db) {
+    return [];
+  }
+
+  return db
+    .select({
+      id: creditCardExpenses.id,
+      description: creditCardExpenses.description,
+      amountCents: creditCardExpenses.amountCents,
+      purchaseDate: creditCardExpenses.purchaseDate,
+      installmentId: creditCardExpenses.installmentId,
+      installmentNumber: creditCardExpenses.installmentNumber,
+      installmentTotal: creditCardExpenses.installmentTotal,
+      month: months.month,
+      year: months.year,
+    })
+    .from(creditCardExpenses)
+    .innerJoin(months, eq(creditCardExpenses.monthId, months.id))
+    .where(and(eq(creditCardExpenses.userId, userId), eq(creditCardExpenses.cardId, cardId)))
+    .orderBy(
+      desc(months.year),
+      desc(months.month),
+      asc(creditCardExpenses.purchaseDate),
+      asc(creditCardExpenses.createdAt),
+    );
 }

@@ -13,8 +13,7 @@ import type { GoalWithProgress } from "@/lib/goals";
 import { centsToInput } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-const editClass =
-  "focus-ring min-h-11 rounded-md border border-border-subtle bg-background-card px-3 text-sm text-text-primary";
+const editClass = "field-input";
 
 const statusLabel: Record<GoalWithProgress["status"], string | null> = {
   active: null,
@@ -95,7 +94,7 @@ export function GoalCard({ goal }: { goal: GoalWithProgress }) {
               Guardar um valor
             </label>
             <ValidatedInput
-              className="focus-ring min-h-11 w-full rounded-md border border-border-subtle bg-background-elevated px-3 text-sm text-text-primary placeholder:text-text-muted"
+              className="field-input"
               id={`contrib-${goal.id}`}
               inputMode="decimal"
               name="amount"

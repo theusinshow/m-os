@@ -10,8 +10,7 @@ type MonthRecord = { id: string; month: number; year: number };
  * Keeps the card's invoice for a month in sync with the sum of its expense
  * items: derives the total when items exist, removes the invoice when none do.
  *
- * Shared by the manual expense actions and the Open Finance sync so both write
- * invoices identically.
+ * Shared by card expense actions so invoice totals stay consistent.
  */
 export async function syncInvoiceTotal(
   tx: Tx,

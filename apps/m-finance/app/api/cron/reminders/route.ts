@@ -1,7 +1,11 @@
 import { env } from "@/lib/env";
 import { runSubscriptionReminders } from "@/lib/push/reminders";
+import {
+  runWhatsappDueReminders,
+  runWhatsappWeeklySummary,
+} from "@/lib/whatsapp/notifications";
 
-// Run on the Node.js runtime (web-push needs Node crypto, not the edge runtime).
+// Run on the Node.js runtime (web-push and Twilio need Node, not the edge runtime).
 export const runtime = "nodejs";
 
 /**
@@ -9,6 +13,9 @@ export const runtime = "nodejs";
  *
  * Vercel Cron calls this with `Authorization: Bearer <CRON_SECRET>` when the
  * CRON_SECRET env var is set. We also accept `?secret=` for manual testing.
+ *
+ * Além dos lembretes de assinatura (web push), roda as notificações do WhatsApp:
+ * vencimentos do dia (sempre) e resumo semanal (às segundas).
  */
 export async function GET(request: Request) {
   const auth = request.headers.get("authorization");
@@ -22,6 +29,15 @@ export async function GET(request: Request) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const result = await runSubscriptionReminders();
-  return Response.json({ ok: true, ...result });
+  const [push, whatsappDue, whatsappWeekly] = await Promise.all([
+    runSubscriptionReminders(),
+    runWhatsappDueReminders(),
+    runWhatsappWeeklySummary(),
+  ]);
+
+  return Response.json({
+    ok: true,
+    push,
+    whatsapp: { due: whatsappDue, weekly: whatsappWeekly },
+  });
 }

@@ -7,7 +7,7 @@ import { PageHeading } from "@/components/page-heading";
 import { requireUser } from "@/lib/auth/guard";
 import { getAppUserBySupabaseId } from "@/lib/months";
 import { getActiveMonthForUser, isViewingCurrentMonth } from "@/lib/active-month";
-import { getCardById, getCardExpenses } from "@/lib/card-expenses";
+import { getCardById, getCardExpenseHistory, getCardExpenses } from "@/lib/card-expenses";
 import { getInvoiceForCardMonth } from "@/lib/cards";
 import { formatMonthLabel } from "@/lib/formatters/date";
 
@@ -54,6 +54,10 @@ export default async function CardDetailPage({
         <CardDetail
           card={card}
           expenses={await getCardExpenses(appUser.id, cardId, month.id)}
+          history={(await getCardExpenseHistory(appUser.id, cardId)).map((expense) => ({
+            ...expense,
+            monthLabel: formatMonthLabel(new Date(expense.year, expense.month - 1, 1)),
+          }))}
           invoice={await getInvoiceForCardMonth(appUser.id, cardId, month.id)}
           monthLabel={monthLabel}
         />

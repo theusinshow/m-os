@@ -28,6 +28,9 @@ export async function getBillsByMonth(monthId: string) {
       amountCents: bills.amountCents,
       dueDate: bills.dueDate,
       isRecurring: bills.isRecurring,
+      seriesId: bills.seriesId,
+      seriesNumber: bills.seriesNumber,
+      seriesTotal: bills.seriesTotal,
       status: bills.status,
       categoryName: billCategories.name,
     })

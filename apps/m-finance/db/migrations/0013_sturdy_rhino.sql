@@ -1,0 +1,1 @@
+ALTER TYPE "public"."whatsapp_pending_action_type" ADD VALUE 'edit_last_action';

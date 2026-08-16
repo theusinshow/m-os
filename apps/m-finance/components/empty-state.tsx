@@ -23,7 +23,7 @@ export function EmptyState({
         <p className="mt-2 max-w-xl text-sm leading-6 text-text-muted">{description}</p>
         {actionHref && actionLabel ? (
           <Link
-            className="focus-ring mt-5 inline-flex min-h-11 w-fit items-center rounded-md border border-border-subtle px-4 text-sm font-semibold text-text-secondary transition duration-200 hover:border-border-default hover:bg-background-hover hover:text-text-primary"
+            className="focus-ring mt-5 inline-flex min-h-11 w-full items-center justify-center rounded-md border border-border-subtle px-4 text-sm font-semibold text-text-secondary transition duration-200 hover:border-border-default hover:bg-background-hover hover:text-text-primary sm:w-fit"
             href={actionHref}
           >
             {actionLabel}

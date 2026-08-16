@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 // "Mais" so the bar never scrolls or overflows working memory.
 const items = [
   { href: "/app/dashboard", label: "Início", icon: LayoutDashboard },
-  { href: "/app/bills", label: "Despesas", icon: ReceiptText },
+  { href: "/app/bills", label: "Contas", icon: ReceiptText },
   { href: "/app/cards", label: "Cartões", icon: CreditCard },
   { href: "/app/calendar", label: "Agenda", icon: CalendarDays },
   { href: "/app/more", label: "Mais", icon: MoreHorizontal },

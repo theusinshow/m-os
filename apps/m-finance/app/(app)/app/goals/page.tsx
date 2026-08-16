@@ -1,7 +1,7 @@
 import { DashboardCard } from "@/components/dashboard/dashboard-card";
 import { EmptyState } from "@/components/empty-state";
 import { GoalCard } from "@/components/goals/goal-card";
-import { GoalFormCard } from "@/components/goals/goal-form-card";
+import { GoalFormDrawer } from "@/components/goals/goal-form-drawer";
 import { PageHeading } from "@/components/page-heading";
 import { requireUser } from "@/lib/auth/guard";
 import { formatCurrency } from "@/lib/formatters/currency";
@@ -20,7 +20,9 @@ export default async function GoalsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeading eyebrow="Metas" title="Estou avançando?" />
+      <PageHeading eyebrow="Metas" title="Estou avançando?">
+        <GoalFormDrawer />
+      </PageHeading>
 
       {trackedGoals.length > 0 ? (
         <DashboardCard title="Resumo das metas">
@@ -59,12 +61,10 @@ export default async function GoalsPage() {
         </DashboardCard>
       ) : null}
 
-      <GoalFormCard />
-
       {goals.length === 0 ? (
         <EmptyState
           title="Nenhuma meta ainda"
-          description="Crie uma meta acima para acompanhar objetivos como reserva de emergência, viagem ou quitar uma dívida — sem afetar o orçamento do mês."
+          description="Crie uma meta para acompanhar objetivos como reserva de emergência, viagem ou quitar uma dívida — sem afetar o orçamento do mês."
         />
       ) : (
         <div className="space-y-4">

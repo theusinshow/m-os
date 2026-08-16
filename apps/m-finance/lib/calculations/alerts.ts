@@ -37,7 +37,7 @@ export function calculateInternalAlerts(
     .filter((payable) => payable.status !== "paid")
     .flatMap((payable): InternalAlert[] => {
       const days = diffInDays(payable.dueDate, today);
-      const label = payable.type === "invoice" ? "Fatura" : "Despesa";
+      const label = payable.type === "invoice" ? "Fatura" : "Conta";
 
       if (days < 0 || payable.status === "overdue") {
         return [{

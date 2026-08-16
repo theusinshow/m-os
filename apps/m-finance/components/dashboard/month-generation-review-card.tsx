@@ -54,13 +54,13 @@ export function MonthGenerationReviewCard({
               </label>
               <div className="grid gap-3 md:grid-cols-[1fr_140px_160px_180px]">
                 <input
-                  className="focus-ring min-h-11 rounded-md border border-border-subtle bg-background-card px-3 text-sm text-text-primary"
+                  className="field-input"
                   defaultValue={bill.name}
                   name={`name-${bill.id}`}
                   required
                 />
                 <input
-                  className="focus-ring min-h-11 rounded-md border border-border-subtle bg-background-card px-3 text-sm text-text-primary"
+                  className="field-input"
                   defaultValue={centsToInput(bill.amountCents)}
                   inputMode="decimal"
                   name={`amount-${bill.id}`}
@@ -68,7 +68,7 @@ export function MonthGenerationReviewCard({
                 />
                 <input
                   aria-label="Dia do vencimento"
-                  className="focus-ring min-h-11 rounded-md border border-border-subtle bg-background-card px-3 text-sm text-text-primary"
+                  className="field-input"
                   defaultValue={dayFromIsoDate(bill.dueDate)}
                   inputMode="numeric"
                   max={31}
@@ -78,7 +78,7 @@ export function MonthGenerationReviewCard({
                   type="number"
                 />
                 <select
-                  className="focus-ring min-h-11 rounded-md border border-border-subtle bg-background-card px-3 text-sm text-text-primary"
+                  className="field-input"
                   defaultValue={bill.categoryId ?? ""}
                   name={`categoryId-${bill.id}`}
                 >

@@ -39,11 +39,11 @@ export function AppShell({
         <Sidebar />
         <div className="min-h-screen lg:pl-72">
           <Topbar
-          activeMonthValue={activeMonthValue}
-          monthOptions={monthOptions}
-          notifications={notifications}
-          user={user}
-        />
+            activeMonthValue={activeMonthValue}
+            monthOptions={monthOptions}
+            notifications={notifications}
+            user={user}
+          />
           <main className="px-4 pb-24 pt-4 md:px-6 lg:px-8 lg:pb-8">{children}</main>
         </div>
         <MobileNav />

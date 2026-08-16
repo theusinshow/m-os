@@ -16,7 +16,7 @@ export function EditDisclosure({
 }) {
   return (
     <details className={cn("group/edit", className)}>
-      <summary className="focus-ring flex min-h-10 w-fit list-none items-center gap-2 rounded-md border border-border-subtle bg-background-elevated px-3 text-sm font-semibold text-text-secondary transition duration-200 hover:border-border-default hover:text-text-primary [&::-webkit-details-marker]:hidden">
+      <summary className="focus-ring flex min-h-10 w-full list-none items-center justify-center gap-2 rounded-md border border-border-subtle bg-background-elevated px-3 text-sm font-semibold text-text-secondary transition duration-200 hover:border-border-default hover:text-text-primary sm:w-fit sm:justify-start [&::-webkit-details-marker]:hidden">
         <Pencil size={14} aria-hidden="true" />
         {label}
         <ChevronDown

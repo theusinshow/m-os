@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Bell } from "lucide-react";
 import { markAllNotificationsRead } from "@/app/actions/notifications";
@@ -23,6 +23,25 @@ export function NotificationsBell({
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Acessibilidade: Escape fecha e devolve o foco ao sino.
+  useEffect(() => {
+    if (!open) return;
+
+    panelRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
 
   function markAll() {
     if (pending || unreadCount === 0) return;
@@ -40,6 +59,7 @@ export function NotificationsBell({
         aria-haspopup="dialog"
         className="focus-ring relative inline-flex h-11 w-11 items-center justify-center rounded-md border border-border-subtle bg-background-secondary text-text-secondary transition duration-150 hover:border-border-default hover:text-text-primary"
         onClick={() => setOpen((value) => !value)}
+        ref={triggerRef}
         type="button"
       >
         <Bell size={18} aria-hidden="true" />
@@ -60,9 +80,11 @@ export function NotificationsBell({
             type="button"
           />
           <div
-            className="absolute right-0 z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border-default bg-background-card shadow-xl shadow-black/30"
-            role="dialog"
             aria-label="Notificações"
+            className="absolute left-0 md:left-auto md:right-0 z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border-default bg-background-card shadow-xl shadow-black/30 outline-none"
+            ref={panelRef}
+            role="dialog"
+            tabIndex={-1}
           >
             <div className="flex items-center justify-between gap-2 border-b border-border-subtle px-4 py-3">
               <p className="text-sm font-semibold text-text-primary">Notificações</p>

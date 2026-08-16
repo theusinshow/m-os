@@ -52,6 +52,21 @@
   --font-sans: var(--font-product);
   --font-display: var(--font-product);
   --font-mono: var(--font-system);
+
+  /* A escala de raios chegou com o agente de WhatsApp e NÃO existia quando a
+     unificação foi feita — então ela não é algo que a unificação descartou, e
+     sim trabalho novo (DESIGN.md §29 do M-Finance: cards 24px, controles 12px).
+
+     Fica como está, e de propósito. A ADR-032 diz que os Apps compartilham os
+     tokens do M/OS sem virar a mesma coisa; a ADR-033 troca o VALOR por trás do
+     nome, e aqui o nome já tem valor próprio e deliberado. Achatar 89 usos de
+     `rounded-*` em 41 arquivos para o raio de 3px do M/OS seria um redesenho
+     decidido dentro de uma resolução de conflito — que é o pior lugar para
+     decidir desenho. */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
 }
 
 :root {
@@ -128,6 +143,84 @@ button:disabled {
 }
 
 /* ---------------------------------------------------------------------------
+   Form controls — um único vocabulário para todos os inputs do app.
+   Altura 44px (alvo de toque), raio md, foco com anel accent.
+--------------------------------------------------------------------------- */
+
+.field-input {
+  min-height: 2.75rem;
+  width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+  background-color: var(--color-background-elevated);
+  padding-inline: 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--color-text-primary);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+.field-input::placeholder {
+  color: var(--color-text-muted);
+}
+.field-input:hover:not(:disabled) {
+  border-color: var(--color-border-default);
+}
+.field-input:focus-visible {
+  outline-color: rgba(251, 54, 64, 0.8);
+  box-shadow: 0 0 0 4px rgba(251, 54, 64, 0.18);
+}
+.field-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+select.field-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238A8780' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2.25rem;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+/* ---------------------------------------------------------------------------
+   Drawer — painel lateral (desktop) / bottom sheet (mobile).
+--------------------------------------------------------------------------- */
+
+@keyframes drawer-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes drawer-slide-right {
+  from { transform: translateX(1.5rem); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes drawer-slide-up {
+  from { transform: translateY(1.5rem); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.drawer-backdrop {
+  animation: drawer-fade-in 180ms ease-out;
+}
+.drawer-panel-right {
+  animation: drawer-slide-right 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.drawer-panel-up {
+  animation: drawer-slide-up 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ---------------------------------------------------------------------------
    Coded by M — geometric + motion layer
    Triangular language, notched surfaces, restrained choreography.
 --------------------------------------------------------------------------- */
@@ -187,21 +280,6 @@ button:disabled {
   }
 }
 
-/* Reveal-on-enter — set by the <Reveal> client wrapper via .is-visible. */
-.reveal {
-  opacity: 0;
-  transform: translateY(14px);
-  transition:
-    opacity 560ms cubic-bezier(0.16, 1, 0.3, 1),
-    transform 560ms cubic-bezier(0.16, 1, 0.3, 1);
-  transition-delay: var(--reveal-delay, 0ms);
-  will-change: opacity, transform;
-}
-.reveal.is-visible {
-  opacity: 1;
-  transform: none;
-}
-
 /* Triangle marker — brand glyph used for active nav + status. */
 .tri-mark {
   clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
@@ -239,10 +317,6 @@ button:disabled {
     transition-duration: 0.01ms !important;
   }
 
-  .reveal {
-    opacity: 1 !important;
-    transform: none !important;
-  }
   .sheen::after {
     display: none;
   }
