@@ -2,7 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
 import { EmptyState, Panel } from "./Surface";
-import type { Issuer, MonitoredApp, MonitoringSettings, TrackingSettings } from "./types";
+import type { Issuer, MonitoredApp, MonitoringSettings, SilencedApp, TrackingSettings } from "./types";
+
+/** `3h20` de silêncio restante — a pergunta é "até quando", não "até que hora". */
+function leftOf(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return hours ? `${hours}h${String(rest).padStart(2, "0")}` : `${rest}min`;
+}
 
 const MODES: { value: TrackingSettings["rounding"]["mode"]; label: string }[] = [
   { value: "nearest", label: "mais próximo" },
@@ -22,21 +29,24 @@ export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
   const [apps, setApps] = useState<MonitoredApp[]>([]);
   const [issuer, setIssuer] = useState<Issuer | null>(null);
   const [watch, setWatch] = useState<MonitoringSettings | null>(null);
+  const [silenced, setSilenced] = useState<SilencedApp[]>([]);
   const [process, setProcess] = useState("");
   const [label, setLabel] = useState("");
   const [note, setNote] = useState("");
 
   const load = useCallback(async () => {
-    const [next, list, who, observation] = await Promise.all([
+    const [next, list, who, observation, quiet] = await Promise.all([
       api.trackingSettings().catch(() => null),
       api.monitoredApps().catch(() => [] as MonitoredApp[]),
       api.trackingIssuer().catch(() => null),
       api.monitoringSettings().catch(() => null),
+      api.reminderSilenced().catch(() => [] as SilencedApp[]),
     ]);
     setSettings(next);
     setApps(list);
     setIssuer(who);
     setWatch(observation);
+    setSilenced(quiet);
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -262,13 +272,35 @@ export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
         </p>
         {apps.length ? (
           <div className="tempo-sessions">
-            {apps.map((entry) => (
+            {apps.map((entry) => {
+              // "Não lembrar hoje" é decidido na janelinha que aparece sobre o
+              // CAD, longe daqui. Se o estado não aparecesse nesta lista, seria
+              // um modo que se liga num lugar e não se desliga em lugar nenhum
+              // — e semanas depois o usuário concluiria que o lembrete quebrou.
+              const quiet = silenced.find(
+                (item) => item.processName.toLowerCase() === entry.processName.toLowerCase(),
+              );
+              return (
               <div className="tempo-session" key={entry.id}>
                 <span>
                   <strong>{entry.displayName}</strong>
                   <small>{entry.processName}{entry.enabled ? "" : " · desativado"}</small>
                 </span>
-                <span className="tempo-session-actions">
+                {quiet ? (
+                  <span className="tempo-flag" title={`Volta a lembrar em ${leftOf(quiet.minutesLeft)}.`}>
+                    Silenciado
+                  </span>
+                ) : null}
+                <span className="tempo-session-actions" data-always={quiet ? "" : undefined}>
+                  {quiet ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void guard(() => api.reminderUnsilence(entry.processName))}
+                    >
+                      Voltar a lembrar
+                    </Button>
+                  ) : null}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -281,7 +313,8 @@ export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
                   </Button>
                 </span>
               </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <EmptyState>Nenhum programa monitorado.</EmptyState>

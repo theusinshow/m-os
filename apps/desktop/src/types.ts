@@ -295,6 +295,30 @@ export type ActivityEvent = {
   processed: boolean;
 };
 
+/**
+ * O que a janelinha de lembrete precisa saber para se desenhar.
+ *
+ * `opened` distingue as duas perguntas que ela faz: abriu o CAD sem cronômetro
+ * ("começo a contar?") ou fechou com o cronômetro rodando ("paro de contar?").
+ */
+export type PendingReminder = {
+  processName: string;
+  displayName: string;
+  opened: boolean;
+  hasActiveTimer: boolean;
+};
+
+/**
+ * Um programa cujo lembrete está silenciado agora.
+ *
+ * O silêncio vive em memória: reiniciar o M/OS devolve todos os lembretes. É a
+ * escolha certa para uma decisão que se chama "hoje".
+ */
+export type SilencedApp = {
+  processName: string;
+  minutesLeft: number;
+};
+
 /** Um intervalo fechado. A Linha do Tempo devolve os que não têm sessão. */
 export type Period = { start: string; end: string };
 

@@ -31,14 +31,38 @@ const REMINDER_COOLDOWN: Duration = Duration::from_secs(60);
 /// migration, e desistir mataria o monitoramento ate o proximo reinicio.
 const RETRY: Duration = Duration::from_secs(5);
 
+/// O que a janelinha de lembrete precisa saber para se desenhar.
+///
+/// Fica no estado e nao so no evento porque a janela pode nascer DEPOIS de o
+/// evento ter sido emitido: na primeira abertura ela ainda esta carregando o
+/// bundle quando o AutoCAD ja abriu. Um lembrete que depende de a janela estar
+/// pronta e um lembrete que se perde justamente na primeira vez.
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingReminder {
+    pub process_name: String,
+    pub display_name: String,
+    /// `true` = abriu o programa; `false` = fechou.
+    pub opened: bool,
+    pub has_active_timer: bool,
+}
+
 #[derive(Default)]
 struct Observed {
     /// Processos monitorados vistos rodando na ultima passada.
     running: BTreeSet<String>,
     /// Quando cada processo notificou pela ultima vez, em epoch.
     last_reminder: HashMap<String, i64>,
+    /// Ate quando cada processo esta silenciado, em epoch.
+    ///
+    /// O instante vem da INTERFACE e nao daqui: "hoje" acaba a meia-noite
+    /// local, e o backend guarda tudo em UTC sem saber o fuso de quem clicou.
+    /// A janela calcula o fim do dia dela e manda o instante pronto.
+    suppressed_until: HashMap<String, i64>,
     /// Se o usuario ja esta contado como parado agora.
     idle: bool,
+    /// O lembrete que a janelinha deve mostrar quando abrir.
+    pending: Option<PendingReminder>,
 }
 
 /// O estado do laco, compartilhado com o resto do aplicativo.
@@ -53,6 +77,72 @@ impl Monitor {
     /// o processo vivo depois de o usuario ter fechado o aplicativo.
     pub fn stop(&self) {
         self.stopped.store(true, Ordering::Relaxed);
+    }
+
+    /// O lembrete pendente, se houver.
+    pub fn pending(&self) -> Option<PendingReminder> {
+        self.observed
+            .lock()
+            .ok()
+            .and_then(|state| state.pending.clone())
+    }
+
+    pub fn clear_pending(&self) {
+        if let Ok(mut state) = self.observed.lock() {
+            state.pending = None;
+        }
+    }
+
+    /// Silencia um programa ate o instante dado (epoch em segundos).
+    pub fn suppress(&self, process_name: &str, until_epoch: i64) {
+        if let Ok(mut state) = self.observed.lock() {
+            state.pending = None;
+            state
+                .suppressed_until
+                .insert(process_name.to_lowercase(), until_epoch);
+        }
+    }
+
+    /// Quais programas estao silenciados agora, e ate quando.
+    ///
+    /// Existe para a tela poder MOSTRAR o silencio. Um modo que se liga e nunca
+    /// mais aparece e um modo que o usuario esquece que ligou — e semanas
+    /// depois ele conclui que o lembrete parou de funcionar.
+    pub fn silenced_now(&self, now: i64) -> Vec<(String, i64)> {
+        let Ok(state) = self.observed.lock() else {
+            return Vec::new();
+        };
+        let mut list: Vec<(String, i64)> = state
+            .suppressed_until
+            .iter()
+            .filter(|(_, until)| now < **until)
+            .map(|(process, until)| (process.clone(), *until))
+            .collect();
+        list.sort();
+        list
+    }
+
+    /// Volta a lembrar deste programa.
+    pub fn unsilence(&self, process_name: &str) {
+        if let Ok(mut state) = self.observed.lock() {
+            state.suppressed_until.remove(&process_name.to_lowercase());
+        }
+    }
+
+    /// Silenciado agora? Limpa a marca vencida de passagem, para o mapa nao
+    /// crescer com programas silenciados semanas atras.
+    fn silenced(&self, process_name: &str, now: i64) -> bool {
+        let Ok(mut state) = self.observed.lock() else {
+            return false;
+        };
+        match state.suppressed_until.get(process_name).copied() {
+            Some(until) if now < until => true,
+            Some(_) => {
+                state.suppressed_until.remove(process_name);
+                false
+            }
+            None => false,
+        }
     }
 }
 
@@ -210,10 +300,28 @@ fn announce<R: Runtime>(
     } else {
         settings.remind_on_close && entry.map(|entry| entry.remind_on_close).unwrap_or(false)
     };
-    if !useful || !allowed || !cooldown_passed(app, process) {
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    // "Nao lembrar hoje" silencia o LEMBRETE, e nunca o registro: o evento ja
+    // foi gravado acima. Quem pediu silencio pediu para nao ser interrompido,
+    // nao para o dia sumir da Linha do Tempo.
+    if !useful || !allowed || app.state::<Monitor>().silenced(process, now) {
+        return;
+    }
+    if !cooldown_passed(app, process) {
         return;
     }
 
+    let reminder = PendingReminder {
+        process_name: process.to_string(),
+        display_name: display.clone(),
+        opened,
+        has_active_timer: running,
+    };
+    if let Ok(mut observed) = app.state::<Monitor>().observed.lock() {
+        observed.pending = Some(reminder.clone());
+    }
+
+    show_reminder(app, &reminder);
     remind(
         app,
         &format!(
@@ -221,11 +329,43 @@ fn announce<R: Runtime>(
             if opened { "foi aberto" } else { "foi fechado" }
         ),
         if opened {
-            "Iniciar o cronometro? Escolha o Project na pagina de Tempo."
+            "Iniciar o cronometro? A janelinha do M/OS tem o botao."
         } else {
-            "Encerrar o registro atual? A pagina de Tempo tem o botao."
+            "Encerrar o registro atual? A janelinha do M/OS tem o botao."
         },
     );
+}
+
+/// Traz a janelinha de lembrete para a frente, no canto inferior direito.
+///
+/// **Sem roubar o foco.** Quem esta desenhando esta com as maos no AutoCAD, e
+/// uma janela que captura o teclado no meio de um comando de CAD nao e um
+/// lembrete — e um acidente esperando para acontecer. Ela aparece por cima,
+/// espera, e nao atrapalha.
+fn show_reminder<R: Runtime>(app: &AppHandle<R>, reminder: &PendingReminder) {
+    let Some(window) = app.get_webview_window("lembrete") else {
+        return;
+    };
+    // A janela ja aberta so precisa do evento: reposicionar por baixo do dedo do
+    // usuario seria pior que deixar onde esta.
+    let already_visible = window.is_visible().unwrap_or(false);
+    if !already_visible {
+        if let Ok(Some(monitor)) = window.current_monitor() {
+            let screen = monitor.size();
+            let scale = monitor.scale_factor();
+            if let Ok(size) = window.outer_size() {
+                // Margem de 24pt do canto, convertida para fisico: a barra de
+                // tarefas mora ali embaixo, e encostar nela esconde o botao.
+                let margin = (24.0 * scale) as u32;
+                let x = screen.width.saturating_sub(size.width + margin);
+                let y = screen.height.saturating_sub(size.height + margin * 3);
+                let _ = window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
+            }
+        }
+        let _ = window.show();
+        let _ = window.set_always_on_top(true);
+    }
+    let _ = window.emit("reminder", reminder);
 }
 
 /// True quando o cooldown venceu — e ja marca o novo instante.
@@ -286,4 +426,74 @@ fn check_idle<R: Runtime>(app: &AppHandle<R>, threshold_minutes: i64) {
 fn remind<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
     use tauri_plugin_notification::NotificationExt;
     let _ = app.notification().builder().title(title).body(body).show();
+}
+
+/// O que a janelinha deve mostrar. Ela pergunta ao abrir, porque pode ter
+/// nascido depois de o evento ter sido emitido.
+#[tauri::command]
+pub fn reminder_pending<R: Runtime>(app: AppHandle<R>) -> Option<PendingReminder> {
+    app.state::<Monitor>().pending()
+}
+
+/// Fecha a janelinha sem decidir nada. "Agora nao" e uma resposta legitima.
+#[tauri::command]
+pub fn reminder_dismiss<R: Runtime>(app: AppHandle<R>) {
+    app.state::<Monitor>().clear_pending();
+    if let Some(window) = app.get_webview_window("lembrete") {
+        let _ = window.hide();
+    }
+}
+
+/// Os programas silenciados agora, para a tela poder mostrar e desfazer.
+///
+/// O silencio vive em MEMORIA e nao no banco, de proposito: "hoje" e uma
+/// decisao do dia, e reiniciar o M/OS ja e o gesto mais natural de "quero tudo
+/// de volta". Persisti-lo criaria um estado que sobrevive sem que ninguem
+/// lembre de o ter criado.
+#[tauri::command]
+pub fn reminder_silenced<R: Runtime>(app: AppHandle<R>) -> Vec<SilencedApp> {
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    app.state::<Monitor>()
+        .silenced_now(now)
+        .into_iter()
+        .map(|(process_name, until)| SilencedApp {
+            process_name,
+            minutes_left: ((until - now) / 60).max(0),
+        })
+        .collect()
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SilencedApp {
+    pub process_name: String,
+    /// Quanto falta, em minutos. A tela nao precisa do instante — precisa dizer
+    /// "volta em 3h", que e o que responde "ate quando isso vale?".
+    pub minutes_left: i64,
+}
+
+#[tauri::command]
+pub fn reminder_unsilence<R: Runtime>(app: AppHandle<R>, process_name: String) {
+    app.state::<Monitor>().unsilence(&process_name);
+}
+
+/// Silencia um programa ate o instante dado.
+///
+/// O instante vem da INTERFACE, em ISO: "hoje" acaba a meia-noite LOCAL, e aqui
+/// so existe UTC. Calcular o fim do dia sem saber o fuso daria meia-noite em
+/// Londres, que no Brasil e nove da noite — o lembrete voltaria a incomodar
+/// justamente na hora extra.
+#[tauri::command]
+pub fn reminder_suppress<R: Runtime>(
+    app: AppHandle<R>,
+    process_name: String,
+    until: String,
+) -> Result<(), mos_core::CoreError> {
+    let moment = mos_core::parse_moment(&until)?;
+    app.state::<Monitor>()
+        .suppress(&process_name, moment.unix_timestamp());
+    if let Some(window) = app.get_webview_window("lembrete") {
+        let _ = window.hide();
+    }
+    Ok(())
 }

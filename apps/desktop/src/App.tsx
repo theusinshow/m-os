@@ -11,6 +11,7 @@ import { HermesPage } from "./HermesPage";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
 import { ContextPath, EmptyState, Panel } from "./Surface";
+import { Reminder } from "./Reminder";
 import { TempoPage } from "./TempoPage";
 import { Timer } from "./Timer";
 import { Icon, type IconName } from "./Icon";
@@ -1776,6 +1777,20 @@ function DesktopApp() {
 <div className="system-state" aria-live="polite">{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content" ref={contentRef}>{content}</main></div>{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
 }
 
+/**
+ * As três janelas do M/OS partem do mesmo bundle e se separam pelo rótulo.
+ *
+ * `main` é o aplicativo; `quick-capture` é a linha de captura global; `lembrete`
+ * é a janelinha que aparece sobre o CAD quando o sistema percebe que o trabalho
+ * começou sem cronômetro.
+ */
 export default function App() {
-  return getCurrentWindow().label === "quick-capture" ? <QuickCapture /> : <DesktopApp />;
+  switch (getCurrentWindow().label) {
+    case "quick-capture":
+      return <QuickCapture />;
+    case "lembrete":
+      return <Reminder />;
+    default:
+      return <DesktopApp />;
+  }
 }

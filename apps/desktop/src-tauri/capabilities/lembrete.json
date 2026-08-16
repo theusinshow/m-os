@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "lembrete",
+  "description": "Janelinha de lembrete que aparece sobre o CAD",
+  "windows": ["lembrete"],
+  "permissions": [
+    "core:default"
+  ]
+}

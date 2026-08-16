@@ -33,6 +33,20 @@
         "maximizable": false,
         "minimizable": false,
         "center": true
+      },
+      {
+        "label": "lembrete",
+        "title": "M/OS",
+        "width": 400,
+        "height": 232,
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "decorations": false,
+        "focus": false
       }
     ],
     "security": {

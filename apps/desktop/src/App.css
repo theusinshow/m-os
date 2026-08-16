@@ -2998,6 +2998,80 @@ input[type="checkbox"]:disabled {
   gap: var(--space-2);
 }
 
+/* A janelinha de lembrete, sobre o CAD.
+ *
+ * Sem decoracao do sistema: ela e do M/OS e nao do Windows, e a barra de titulo
+ * cinza do sistema num retangulo de 400px come um sexto da altura para nao
+ * dizer nada. A borda de sodio e o que a identifica de relance sobre um AutoCAD
+ * — que e o unico contexto em que ela aparece. */
+.reminder-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  border: var(--line) solid var(--signal-ink);
+  background: var(--surface-raised);
+}
+
+.reminder-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* Arrastavel: a janela nasce no canto inferior direito, e ali pode ser
+     exatamente onde o usuario precisa enxergar o desenho. */
+  -webkit-app-region: drag;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.reminder-close {
+  -webkit-app-region: no-drag;
+  min-width: var(--height-control-sm);
+  min-height: var(--height-control-sm);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-system);
+  font: var(--text-ui);
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--dur-state) var(--ease-state);
+}
+
+.reminder-close:hover {
+  color: var(--text);
+}
+
+.reminder-body {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+.reminder-title {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-body);
+}
+
+.reminder-title strong {
+  color: var(--text);
+}
+
+.reminder-body .support-copy {
+  margin: 0;
+}
+
+/* As tres respostas na mesma linha e com o mesmo peso visual, menos a primeira.
+   "Agora nao" e "Nao lembrar hoje" precisam ser tao faceis quanto "Iniciar" —
+   um lembrete que so oferece o sim e uma cobranca. */
+.reminder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
 @keyframes overlay-in {
   from {
     opacity: 0;

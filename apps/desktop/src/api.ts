@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, Period, ProjectTracking, ReportLine, ReportPdfData, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -287,6 +287,30 @@ export const api = {
   },
   setClientArchived(id: string, archived: boolean) {
     return invoke<Client>("tracking_set_client_archived", { id, archived });
+  },
+  /** O lembrete que a janelinha deve mostrar, se houver. */
+  reminderPending() {
+    return invoke<PendingReminder | null>("reminder_pending");
+  },
+  /** Fecha sem decidir nada. "Agora não" é uma resposta legítima. */
+  reminderDismiss() {
+    return invoke<void>("reminder_dismiss");
+  },
+  /**
+   * Silencia um programa até o instante dado.
+   *
+   * O instante é calculado aqui porque "hoje" acaba à meia-noite LOCAL, e o
+   * backend só conhece UTC.
+   */
+  reminderSuppress(processName: string, until: string) {
+    return invoke<void>("reminder_suppress", { processName, until });
+  },
+  /** Os programas silenciados agora — para a tela poder mostrar e desfazer. */
+  reminderSilenced() {
+    return invoke<SilencedApp[]>("reminder_silenced");
+  },
+  reminderUnsilence(processName: string) {
+    return invoke<void>("reminder_unsilence", { processName });
   },
   monitoringSettings() {
     return invoke<MonitoringSettings>("monitoring_settings");
