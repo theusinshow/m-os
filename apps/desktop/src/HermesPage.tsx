@@ -671,7 +671,10 @@ export function HermesPage({ inbox, projects, tasks }: {
       if (!node || !node.contains(document.activeElement)) return;
       if (event.key === "Escape") {
         if (approval) { setApproval(null); void hermes.approve(false); event.preventDefault(); return; }
-        if (clarify) { setClarify(null); event.preventDefault(); return; }
+        // Limpar so o estado local deixava o agente bloqueado no `_block()` do
+        // gateway com a caixa de resposta ja fora da tela — pensando para
+        // sempre, sem saida. Desistir precisa responder.
+        if (clarify) { setClarify(null); void hermes.clarifyCancel(clarify.requestId); event.preventDefault(); return; }
         if (running) { void hermes.interrupt(); event.preventDefault(); }
         return;
       }

@@ -530,6 +530,32 @@ pub async fn hermes_clarify<R: Runtime>(
     order(&app, Order::Clarify(request_id, answer)).await
 }
 
+/// `Esc` sobre uma pergunta do Hermes: desiste de responder.
+///
+/// Responder e obrigatorio ANTES de interromper. O `_block()` do gateway so
+/// solta a thread do agente quando `clarify.respond` chega, e
+/// `session.interrupt` resolve as aprovacoes pendentes — nao as perguntas
+/// (`protocol.rs:220`). Fechar apenas a caixa na tela, que era o que a UI fazia,
+/// deixava o agente travado ate o teto de 300 s com a unica interface de
+/// resposta ja fora do alcance: pensamento infinito sem saida.
+///
+/// Vive no Rust, e nao como duas chamadas encadeadas no renderer, porque as duas
+/// ordens precisam entrar na fila nesta ordem — e porque o turno tem de assentar
+/// mesmo quando a primeira falha.
+#[tauri::command]
+pub async fn hermes_clarify_cancel<R: Runtime>(
+    app: AppHandle<R>,
+    request_id: String,
+) -> Result<(), String> {
+    let answered = order(&app, Order::Clarify(request_id, String::new())).await;
+    let interrupted = order(&app, Order::Interrupt).await;
+    // Assenta mesmo se o gateway caiu no meio: e exatamente quando a resposta
+    // nao chega que a tela nao pode continuar dizendo "pensando".
+    let state = app.state::<HermesState>();
+    settle_turn(&app, &state, MessageStatus::Interrupted);
+    answered.and(interrupted)
+}
+
 /// Aponta a sessao do Hermes para outra conversa.
 #[tauri::command]
 pub async fn hermes_select_conversation<R: Runtime>(

@@ -165,6 +165,10 @@ export const hermes = {
   clarify(requestId: string, answer: string) {
     return invoke<void>("hermes_clarify", { requestId, answer });
   },
+  /** Desiste de responder: solta a thread do agente e assenta o turno. */
+  clarifyCancel(requestId: string) {
+    return invoke<void>("hermes_clarify_cancel", { requestId });
+  },
   selectConversation(conversationId: string) {
     return invoke<void>("hermes_select_conversation", { conversationId });
   },
