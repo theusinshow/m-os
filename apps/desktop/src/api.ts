@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, Period, ProjectTracking, ReportLine, ReportPdfData, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, Period, ProjectTracking, ReportLine, ReportPdfData, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -287,6 +287,13 @@ export const api = {
   },
   setClientArchived(id: string, archived: boolean) {
     return invoke<Client>("tracking_set_client_archived", { id, archived });
+  },
+  monitoringSettings() {
+    return invoke<MonitoringSettings>("monitoring_settings");
+  },
+  /** Vale na próxima passada do laço — desligar tem efeito em segundos. */
+  monitoringSetSettings(settings: MonitoringSettings) {
+    return invoke<MonitoringSettings>("monitoring_set_settings", { settings });
   },
   monitoredApps() {
     return invoke<MonitoredApp[]>("monitoring_apps");

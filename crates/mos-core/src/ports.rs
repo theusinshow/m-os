@@ -298,6 +298,12 @@ pub trait MonitoringRepository: Send + Sync {
     ) -> Result<crate::ActivityEvent, CoreError>;
     /// Marca o evento como resolvido, para o mesmo periodo nao ser reoferecido.
     fn mark_activity_processed(&self, id: crate::ActivityEventId) -> Result<(), CoreError>;
+    /// O quanto o aplicativo olha por cima do ombro.
+    fn monitoring_settings(&self) -> Result<crate::MonitoringSettings, CoreError>;
+    fn set_monitoring_settings(
+        &self,
+        settings: crate::MonitoringSettings,
+    ) -> Result<crate::MonitoringSettings, CoreError>;
 }
 
 /// Persistencia da conversa do Hermes (ADR-025).

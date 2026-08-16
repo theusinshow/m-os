@@ -374,12 +374,16 @@ pub struct StartTimer {
     pub activity_type: ActivityType,
 }
 
-/// Configuração de arredondamento e inatividade, linha única.
+/// Configuração de arredondamento, linha única.
+///
+/// O limiar de inatividade morava aqui e mudou para
+/// [`crate::MonitoringSettings`], onde ele responde à pergunta certa: ele decide
+/// quando o sistema considera que você parou, não quanto disso é cobrado. Com os
+/// dois tipos gravando na mesma coluna, salvar um desfazia o outro.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackingSettings {
     pub rounding: Rounding,
-    pub idle_threshold_minutes: i64,
 }
 
 /// Quem está cobrando. Sai no cabeçalho da fatura, e em nenhum outro lugar.

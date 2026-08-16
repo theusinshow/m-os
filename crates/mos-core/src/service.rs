@@ -299,6 +299,17 @@ impl MonitoringService {
         self.repository.delete_monitored_app(id)
     }
 
+    pub fn settings(&self) -> Result<crate::MonitoringSettings, CoreError> {
+        self.repository.monitoring_settings()
+    }
+
+    pub fn set_settings(
+        &self,
+        settings: crate::MonitoringSettings,
+    ) -> Result<crate::MonitoringSettings, CoreError> {
+        self.repository.set_monitoring_settings(settings)
+    }
+
     /// Os eventos de uma janela, do mais antigo para o mais novo.
     pub fn events(
         &self,

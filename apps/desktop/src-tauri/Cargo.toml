@@ -39,10 +39,15 @@ time.workspace = true
 # A fatura em PDF. Fontes internas do PDF, sem arquivo externo: um PDF que
 # depende de fonte instalada e um PDF que abre errado na maquina do cliente.
 printpdf = "0.7"
+# Lista de processos em execucao. Le APENAS nomes de executavel — nunca titulo
+# de janela, conteudo de arquivo ou linha de comando. A fronteira e a diferenca
+# entre observar e vigiar, e ela e mantida pela escolha da API.
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+tauri-plugin-notification = "2"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-process = "2.3.1"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2.10.1"
-windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_SystemInformation"] }

@@ -670,17 +670,20 @@ impl TimeTrackingRepository for SqliteStorage {
 
     fn tracking_settings(&self) -> Result<TrackingSettings, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
-        let (enabled, interval, mode, idle) = connection
+        // `idle_threshold_minutes` NAO entra: ele pertence a
+        // `MonitoringSettings`. Duas structs escrevendo a mesma coluna fariam
+        // salvar uma desfazer a outra, e o usuario veria a configuracao voltar
+        // sozinha sem entender por que.
+        let (enabled, interval, mode) = connection
             .query_row(
-                "SELECT rounding_enabled, rounding_interval_minutes, rounding_mode, \
-                 idle_threshold_minutes FROM tracking_settings WHERE id = 1",
+                "SELECT rounding_enabled, rounding_interval_minutes, rounding_mode \
+                 FROM tracking_settings WHERE id = 1",
                 [],
                 |row| {
                     Ok((
                         row.get::<_, i64>(0)?,
                         row.get::<_, i64>(1)?,
                         row.get::<_, String>(2)?,
-                        row.get::<_, i64>(3)?,
                     ))
                 },
             )
@@ -692,7 +695,6 @@ impl TimeTrackingRepository for SqliteStorage {
                 interval_minutes: interval,
                 mode: RoundingMode::parse(&mode)?,
             },
-            idle_threshold_minutes: idle,
         })
     }
 
@@ -704,13 +706,11 @@ impl TimeTrackingRepository for SqliteStorage {
         connection
             .execute(
                 "UPDATE tracking_settings SET rounding_enabled = ?1, \
-                 rounding_interval_minutes = ?2, rounding_mode = ?3, \
-                 idle_threshold_minutes = ?4 WHERE id = 1",
+                 rounding_interval_minutes = ?2, rounding_mode = ?3 WHERE id = 1",
                 params![
                     i64::from(settings.rounding.enabled),
                     settings.rounding.interval_minutes,
                     settings.rounding.mode.as_str(),
-                    settings.idle_threshold_minutes,
                 ],
             )
             .map_err(map_sql_error)?;
@@ -750,7 +750,7 @@ impl TimeTrackingRepository for SqliteStorage {
 
 #[cfg(test)]
 mod tests {
-    use mos_core::{NewProject, WorkRepository};
+    use mos_core::{MonitoringRepository, NewProject, WorkRepository};
 
     use super::*;
 
@@ -1068,7 +1068,6 @@ mod tests {
         assert!(!settings.rounding.enabled);
         assert_eq!(settings.rounding.interval_minutes, 15);
         assert_eq!(settings.rounding.mode, RoundingMode::Nearest);
-        assert_eq!(settings.idle_threshold_minutes, 10);
     }
 
     #[test]
@@ -1081,7 +1080,6 @@ mod tests {
                     interval_minutes: 30,
                     mode: RoundingMode::Up,
                 },
-                idle_threshold_minutes: 5,
             })
             .unwrap();
 
@@ -1089,6 +1087,65 @@ mod tests {
         assert!(settings.rounding.enabled);
         assert_eq!(settings.rounding.interval_minutes, 30);
         assert_eq!(settings.rounding.mode, RoundingMode::Up);
-        assert_eq!(settings.idle_threshold_minutes, 5);
+    }
+
+    /// O limiar de inatividade e do monitoramento, e a mesma coluna sustenta os
+    /// dois tipos. Sem esta separacao, salvar o arredondamento zerava a
+    /// configuracao de observacao — e o usuario veria a preferencia voltar
+    /// sozinha sem entender por que.
+    #[test]
+    fn saving_the_rounding_leaves_the_observation_alone() {
+        let (storage, _guard) = temporary_storage();
+        storage
+            .set_monitoring_settings(mos_core::MonitoringSettings {
+                process_monitoring_enabled: false,
+                check_interval_seconds: 20,
+                idle_detection_enabled: true,
+                idle_threshold_minutes: 7,
+                remind_on_open: false,
+                remind_on_close: true,
+            })
+            .unwrap();
+
+        storage
+            .set_tracking_settings(TrackingSettings {
+                rounding: Rounding {
+                    enabled: true,
+                    interval_minutes: 30,
+                    mode: RoundingMode::Up,
+                },
+            })
+            .unwrap();
+
+        let watching = storage.monitoring_settings().unwrap();
+        assert_eq!(watching.idle_threshold_minutes, 7);
+        assert_eq!(watching.check_interval_seconds, 20);
+        assert!(!watching.process_monitoring_enabled);
+        assert!(!watching.remind_on_open);
+    }
+
+    /// Intervalo zero faria o laco girar sem pausa e comer um nucleo inteiro.
+    #[test]
+    fn the_check_interval_never_reaches_zero() {
+        let (storage, _guard) = temporary_storage();
+        let saved = storage
+            .set_monitoring_settings(mos_core::MonitoringSettings {
+                process_monitoring_enabled: true,
+                check_interval_seconds: 0,
+                idle_detection_enabled: true,
+                idle_threshold_minutes: 0,
+                remind_on_open: true,
+                remind_on_close: true,
+            })
+            .unwrap();
+
+        assert_eq!(saved.check_interval_seconds, 1);
+        assert_eq!(
+            storage
+                .monitoring_settings()
+                .unwrap()
+                .idle_threshold_minutes,
+            1
+        );
     }
 }

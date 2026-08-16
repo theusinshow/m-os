@@ -24,6 +24,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod hermes;
 mod jarvis;
+mod monitor;
 mod pdf;
 mod tracking;
 
@@ -1114,6 +1115,9 @@ pub fn run() {
             reveal_window(app, "main");
         }))
         .plugin(tauri_plugin_dialog::init())
+        // O lembrete de "abriu o CAD sem cronometro" precisa aparecer com o
+        // M/OS atras do AutoCAD — que e exatamente quando isso acontece.
+        .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -1176,6 +1180,14 @@ pub fn run() {
                 .lock()
                 .map_err(|error| std::io::Error::other(error.to_string()))? = shortcut_status;
             setup_tray(app)?;
+
+            // O laco de observacao roda em tarefa propria e nunca na thread da
+            // interface: uma varredura de processos leva dezenas de
+            // milissegundos, e no fio da janela isso e um engasgo visivel a
+            // cada cinco segundos.
+            app.manage(monitor::Monitor::default());
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(monitor::run(handle));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1224,6 +1236,8 @@ pub fn run() {
             tracking::tracking_clients,
             tracking::tracking_save_client,
             tracking::tracking_set_client_archived,
+            tracking::monitoring_settings,
+            tracking::monitoring_set_settings,
             tracking::monitoring_apps,
             tracking::monitoring_save_app,
             tracking::monitoring_delete_app,
@@ -1321,6 +1335,17 @@ pub fn run() {
             show_quick_capture,
             hide_quick_capture,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running M/OS");
+        .build(tauri::generate_context!())
+        .expect("error while running M/OS")
+        .run(|app, event| {
+            // O laco de observacao precisa saber que acabou. Sem isto ele
+            // continua acordando a cada cinco segundos depois de o usuario ter
+            // saido, e o processo nao morre.
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                app.state::<monitor::Monitor>().stop();
+            }
+        });
 }

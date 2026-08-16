@@ -491,7 +491,7 @@ impl SqliteStorage {
 
 #[cfg(test)]
 mod tests {
-    use mos_core::{Rounding, RoundingMode, TrackingSettings};
+    use mos_core::{MonitoringRepository, Rounding, RoundingMode, TrackingSettings};
 
     use super::*;
 
@@ -612,7 +612,16 @@ mod tests {
         assert!(settings.rounding.enabled);
         assert_eq!(settings.rounding.interval_minutes, 30);
         assert_eq!(settings.rounding.mode, mos_core::RoundingMode::Up);
-        assert_eq!(settings.idle_threshold_minutes, 7);
+
+        // A observacao veio junto, e vive noutra struct: o limiar decide quando
+        // o sistema considera que voce parou, e o arredondamento decide quanto
+        // disso e cobrado. Sao duas perguntas.
+        let watching = storage.monitoring_settings().unwrap();
+        assert_eq!(watching.idle_threshold_minutes, 7);
+        assert_eq!(watching.check_interval_seconds, 9);
+        assert!(watching.idle_detection_enabled);
+        assert!(!watching.remind_on_open, "o usuario tinha desligado");
+        assert!(watching.remind_on_close);
     }
 
     /// O historico observado nao e digitavel de novo: e o que o computador viu.
@@ -825,12 +834,13 @@ mod tests {
             report.clients
         );
         let settings = storage.tracking_settings().unwrap();
+        let watching = storage.monitoring_settings().unwrap();
         println!(
             "  arredondamento: ativo={} intervalo={}min modo={:?} inatividade={}min",
             settings.rounding.enabled,
             settings.rounding.interval_minutes,
             settings.rounding.mode,
-            settings.idle_threshold_minutes
+            watching.idle_threshold_minutes
         );
 
         for tracking in storage.project_tracking().unwrap() {
@@ -881,7 +891,6 @@ mod tests {
                     interval_minutes: 15,
                     mode: RoundingMode::Nearest,
                 },
-                idle_threshold_minutes: 10,
             })
             .unwrap();
 

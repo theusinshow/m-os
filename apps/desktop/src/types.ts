@@ -260,6 +260,21 @@ export type MonitoredApp = {
   remindOnClose: boolean;
 };
 
+/**
+ * Como o sistema observa.
+ *
+ * Separada de `TrackingSettings` porque responde outra pergunta: uma diz como o
+ * tempo vira dinheiro, esta diz o quanto o aplicativo olha por cima do ombro.
+ */
+export type MonitoringSettings = {
+  processMonitoringEnabled: boolean;
+  checkIntervalSeconds: number;
+  idleDetectionEnabled: boolean;
+  idleThresholdMinutes: number;
+  remindOnOpen: boolean;
+  remindOnClose: boolean;
+};
+
 export type ActivityKind =
   | "app_opened"
   | "app_closed"
@@ -283,9 +298,13 @@ export type ActivityEvent = {
 /** Um intervalo fechado. A Linha do Tempo devolve os que não têm sessão. */
 export type Period = { start: string; end: string };
 
+/**
+ * O limiar de inatividade mora em `MonitoringSettings`, e não aqui: ele decide
+ * quando o sistema considera que você parou, não quanto disso é cobrado. Com os
+ * dois tipos gravando na mesma coluna, salvar um desfazia o outro.
+ */
 export type TrackingSettings = {
   rounding: { enabled: boolean; intervalMinutes: number; mode: "nearest" | "up" | "down" };
-  idleThresholdMinutes: number;
 };
 
 /**

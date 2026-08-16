@@ -413,6 +413,26 @@ pub fn tracking_set_client_archived<R: Runtime>(
     Ok(client)
 }
 
+/// O quanto o aplicativo olha por cima do ombro.
+#[tauri::command]
+pub fn monitoring_settings<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<mos_core::MonitoringSettings, CoreError> {
+    app.state::<AppState>().monitoring.settings()
+}
+
+/// Muda a observacao. O laco rele a cada passada, entao vale na proxima — nao
+/// precisa reiniciar o aplicativo, e desligar tem efeito em segundos.
+#[tauri::command]
+pub fn monitoring_set_settings<R: Runtime>(
+    app: AppHandle<R>,
+    settings: mos_core::MonitoringSettings,
+) -> Result<mos_core::MonitoringSettings, CoreError> {
+    let saved = app.state::<AppState>().monitoring.set_settings(settings)?;
+    let _ = app.emit("data-changed", "monitoring-settings");
+    Ok(saved)
+}
+
 #[tauri::command]
 pub fn monitoring_apps<R: Runtime>(
     app: AppHandle<R>,

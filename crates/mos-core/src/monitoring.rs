@@ -51,6 +51,44 @@ macro_rules! monitoring_id {
 
 monitoring_id!(ActivityEventId, "Activity event ID");
 
+/// Como o sistema observa.
+///
+/// Separada de [`crate::TrackingSettings`] porque responde outra pergunta: uma
+/// diz como o tempo VIRA dinheiro, esta diz o quanto o aplicativo olha por cima
+/// do ombro. Quem desliga o monitoramento nao quer, com isso, mexer no
+/// arredondamento da fatura.
+///
+/// Estava gravada no banco desde a migration 0013 e nao tinha como ser lida:
+/// a importacao trouxe a configuracao do CronoCAD para colunas que nenhum tipo
+/// alcancava.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitoringSettings {
+    pub process_monitoring_enabled: bool,
+    /// De quantos em quantos segundos a lista de processos e relida.
+    pub check_interval_seconds: i64,
+    pub idle_detection_enabled: bool,
+    /// Sem teclado nem mouse por tantos minutos, o periodo vira inatividade.
+    pub idle_threshold_minutes: i64,
+    pub remind_on_open: bool,
+    pub remind_on_close: bool,
+}
+
+/// Quais processos abriram e quais fecharam entre dois instantes.
+///
+/// Pura, e por isso testavel sem Windows: o que decide se houve transicao e a
+/// diferenca entre dois conjuntos, e nao o sistema operacional. O loop que a
+/// chama e a unica parte que precisa de uma maquina de verdade.
+pub fn diff_transitions(
+    previous: &std::collections::BTreeSet<String>,
+    current: &std::collections::BTreeSet<String>,
+) -> (Vec<String>, Vec<String>) {
+    (
+        current.difference(previous).cloned().collect(),
+        previous.difference(current).cloned().collect(),
+    )
+}
+
 /// Um programa cuja abertura sugere trabalho.
 ///
 /// O `id` e TEXT livre e nao UUID porque as sugestoes vem semeadas pela
@@ -241,6 +279,37 @@ pub fn uncovered(periods: &[Period], covered: &[Period]) -> Vec<Period> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn processes(names: &[&str]) -> std::collections::BTreeSet<String> {
+        names.iter().map(|name| name.to_string()).collect()
+    }
+
+    /// A abertura e o fechamento sao a materia-prima da Linha do Tempo. Detectar
+    /// uma abertura que nao houve inventaria trabalho; perder uma real apagaria
+    /// o unico rastro de que o CAD esteve aberto naquela tarde.
+    #[test]
+    fn opening_and_closing_are_detected_once_each() {
+        let before = processes(&["acad.exe"]);
+        let after = processes(&["acad.exe", "revit.exe"]);
+
+        let (opened, closed) = diff_transitions(&before, &after);
+        assert_eq!(opened, ["revit.exe"]);
+        assert!(closed.is_empty());
+
+        let (opened, closed) = diff_transitions(&after, &before);
+        assert!(opened.is_empty());
+        assert_eq!(closed, ["revit.exe"]);
+    }
+
+    /// O laco roda a cada poucos segundos. Sem isto, um AutoCAD aberto a tarde
+    /// inteira geraria centenas de eventos identicos.
+    #[test]
+    fn a_process_that_stayed_open_generates_nothing() {
+        let same = processes(&["acad.exe", "revit.exe"]);
+        let (opened, closed) = diff_transitions(&same, &same);
+        assert!(opened.is_empty());
+        assert!(closed.is_empty());
+    }
 
     /// Os nomes atravessam a ponte e vivem no banco, com CHECK constraint. Um
     /// rename silencioso quebraria a leitura de 321 eventos ja gravados.

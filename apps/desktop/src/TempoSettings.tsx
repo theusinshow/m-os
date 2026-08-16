@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
 import { EmptyState, Panel } from "./Surface";
-import type { Issuer, MonitoredApp, TrackingSettings } from "./types";
+import type { Issuer, MonitoredApp, MonitoringSettings, TrackingSettings } from "./types";
 
 const MODES: { value: TrackingSettings["rounding"]["mode"]; label: string }[] = [
   { value: "nearest", label: "mais próximo" },
@@ -21,19 +21,22 @@ export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
   const [settings, setSettings] = useState<TrackingSettings | null>(null);
   const [apps, setApps] = useState<MonitoredApp[]>([]);
   const [issuer, setIssuer] = useState<Issuer | null>(null);
+  const [watch, setWatch] = useState<MonitoringSettings | null>(null);
   const [process, setProcess] = useState("");
   const [label, setLabel] = useState("");
   const [note, setNote] = useState("");
 
   const load = useCallback(async () => {
-    const [next, list, who] = await Promise.all([
+    const [next, list, who, observation] = await Promise.all([
       api.trackingSettings().catch(() => null),
       api.monitoredApps().catch(() => [] as MonitoredApp[]),
       api.trackingIssuer().catch(() => null),
+      api.monitoringSettings().catch(() => null),
     ]);
     setSettings(next);
     setApps(list);
     setIssuer(who);
+    setWatch(observation);
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -52,6 +55,11 @@ export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
   function save(next: TrackingSettings) {
     setSettings(next);
     void guard(() => api.trackingSetSettings(next));
+  }
+
+  function observe(next: MonitoringSettings) {
+    setWatch(next);
+    void guard(() => api.monitoringSetSettings(next));
   }
 
   return (
@@ -109,23 +117,90 @@ export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
                 {MODES.map((mode) => <option key={mode.value} value={mode.value}>{mode.label}</option>)}
               </select>
             </div>
+            <p className="support-copy">
+              O arredondamento <strong>não</strong> altera o que está gravado. O banco guarda sempre o tempo real —
+              isto muda só o número que você cobra, e o arredondamento é aplicado por sessão, não sobre a soma.
+            </p>
+          </div>
+        ) : (
+          <EmptyState>Configuração indisponível.</EmptyState>
+        )}
+      </Panel>
+
+      <Panel label="OBSERVAÇÃO">
+        {/* Dito de forma verificável, e não como promessa de marketing: o que
+            é lido são nomes de executável e o tempo desde o último toque. Sem
+            título de janela, sem conteúdo de arquivo, sem captura de tela. */}
+        <p className="support-copy">
+          O M/OS lê <strong>nomes de programas em execução</strong> e há quanto tempo você não toca no teclado
+          ou no mouse. Nada além disso — sem título de janela, sem conteúdo de arquivo, sem captura de tela. E
+          nenhuma hora é registrada sozinha: o que é observado vira sugestão na Linha do Tempo, e quem decide
+          é você.
+        </p>
+        {watch ? (
+          <div className="tempo-form">
+            <label className="tempo-check">
+              <input
+                type="checkbox"
+                checked={watch.processMonitoringEnabled}
+                onChange={(event) => observe({ ...watch, processMonitoringEnabled: event.currentTarget.checked })}
+              />
+              Detectar programas abertos
+            </label>
+            <label className="tempo-check">
+              <input
+                type="checkbox"
+                checked={watch.idleDetectionEnabled}
+                onChange={(event) => observe({ ...watch, idleDetectionEnabled: event.currentTarget.checked })}
+              />
+              Detectar inatividade
+            </label>
+            <label className="tempo-check">
+              <input
+                type="checkbox"
+                checked={watch.remindOnOpen}
+                disabled={!watch.processMonitoringEnabled}
+                onChange={(event) => observe({ ...watch, remindOnOpen: event.currentTarget.checked })}
+              />
+              Lembrar ao abrir o CAD sem cronômetro
+            </label>
+            <label className="tempo-check">
+              <input
+                type="checkbox"
+                checked={watch.remindOnClose}
+                disabled={!watch.processMonitoringEnabled}
+                onChange={(event) => observe({ ...watch, remindOnClose: event.currentTarget.checked })}
+              />
+              Lembrar ao fechar o CAD com cronômetro rodando
+            </label>
             <div className="tempo-field">
-              <label htmlFor="idle-threshold">Inatividade a partir de (min)</label>
+              <label htmlFor="idle-threshold">Parado a partir de (min)</label>
               <input
                 id="idle-threshold"
                 type="number"
                 min={1}
                 max={120}
-                value={settings.idleThresholdMinutes}
+                value={watch.idleThresholdMinutes}
+                disabled={!watch.idleDetectionEnabled}
                 onChange={(event) =>
-                  save({ ...settings, idleThresholdMinutes: Math.max(1, Number(event.currentTarget.value) || 1) })
+                  observe({ ...watch, idleThresholdMinutes: Math.max(1, Number(event.currentTarget.value) || 1) })
                 }
               />
             </div>
-            <p className="support-copy">
-              O arredondamento <strong>não</strong> altera o que está gravado. O banco guarda sempre o tempo real —
-              isto muda só o número que você cobra, e o arredondamento é aplicado por sessão, não sobre a soma.
-            </p>
+            <div className="tempo-field">
+              <label htmlFor="check-interval">Verificar a cada (s)</label>
+              <input
+                id="check-interval"
+                type="number"
+                min={1}
+                max={120}
+                value={watch.checkIntervalSeconds}
+                disabled={!watch.processMonitoringEnabled}
+                onChange={(event) =>
+                  observe({ ...watch, checkIntervalSeconds: Math.max(1, Number(event.currentTarget.value) || 1) })
+                }
+              />
+            </div>
           </div>
         ) : (
           <EmptyState>Configuração indisponível.</EmptyState>

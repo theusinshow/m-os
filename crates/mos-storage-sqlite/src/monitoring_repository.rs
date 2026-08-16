@@ -178,6 +178,58 @@ impl MonitoringRepository for SqliteStorage {
             .map_err(map_sql_error)?;
         Ok(())
     }
+
+    fn monitoring_settings(&self) -> Result<mos_core::MonitoringSettings, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        connection
+            .query_row(
+                "SELECT process_monitoring_enabled, process_check_interval_seconds, \
+                 idle_detection_enabled, idle_threshold_minutes, remind_on_monitored_open, \
+                 remind_on_monitored_close FROM tracking_settings WHERE id = 1",
+                [],
+                |row| {
+                    Ok(mos_core::MonitoringSettings {
+                        process_monitoring_enabled: row.get::<_, i64>(0)? != 0,
+                        check_interval_seconds: row.get(1)?,
+                        idle_detection_enabled: row.get::<_, i64>(2)? != 0,
+                        idle_threshold_minutes: row.get(3)?,
+                        remind_on_open: row.get::<_, i64>(4)? != 0,
+                        remind_on_close: row.get::<_, i64>(5)? != 0,
+                    })
+                },
+            )
+            .map_err(map_sql_error)
+    }
+
+    fn set_monitoring_settings(
+        &self,
+        settings: mos_core::MonitoringSettings,
+    ) -> Result<mos_core::MonitoringSettings, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        // Intervalo minimo de um segundo: zero faria o laco girar sem pausa e
+        // comer um nucleo inteiro para observar um AutoCAD que nao mudou.
+        let interval = settings.check_interval_seconds.max(1);
+        connection
+            .execute(
+                "UPDATE tracking_settings SET process_monitoring_enabled = ?1, \
+                 process_check_interval_seconds = ?2, idle_detection_enabled = ?3, \
+                 idle_threshold_minutes = ?4, remind_on_monitored_open = ?5, \
+                 remind_on_monitored_close = ?6 WHERE id = 1",
+                params![
+                    i64::from(settings.process_monitoring_enabled),
+                    interval,
+                    i64::from(settings.idle_detection_enabled),
+                    settings.idle_threshold_minutes.max(1),
+                    i64::from(settings.remind_on_open),
+                    i64::from(settings.remind_on_close),
+                ],
+            )
+            .map_err(map_sql_error)?;
+        Ok(mos_core::MonitoringSettings {
+            check_interval_seconds: interval,
+            ..settings
+        })
+    }
 }
 
 #[cfg(test)]
