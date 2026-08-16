@@ -9,16 +9,10 @@ Por isso `tauri icon` nao serve — ele deriva tudo de uma fonte so.
 Uso:
     python scripts/generate-icons.py
 
-DEPOIS DE RODAR, LIMPE O RESOURCE DO BUILD:
-
-    rm -rf target/release/build/mos-desktop-*
-    rm -f  target/release/mos-desktop.exe
-
-O `tauri-build` gera um `resource.rc` que aponta para `icons/icon.ico`, mas nao
-declara `rerun-if-changed` nos arquivos de icone. Trocar o icone sozinho nao
-invalida nada: o Cargo reaproveita o `.res` ja compilado e o executavel sai com
-o icone antigo. O build passa, o instalador e produzido, nenhum aviso aparece —
-so olhando os bytes do binario da para notar.
+Nao e mais preciso limpar o resource a mao: `src-tauri/build.rs` passou a
+declarar `rerun-if-changed` sobre `icons/icon.ico`. Antes disso o Cargo
+reaproveitava o `.res` ja compilado e o executavel saia com o icone antigo — o
+build passava, o instalador era produzido, e nenhum aviso aparecia.
 
 Para conferir que o icone entrou de verdade:
 
@@ -52,13 +46,63 @@ BARS = {
 FIELD = (0xE7, 0xC2, 0x4E)  # --signal-fill
 INK = (0x0A, 0x0C, 0x0E)  # --on-signal (dark)
 
-# Radius do quadrado fixado pelo handoff. Fora destes, 18.75% do lado — a
-# proporcao que os pontos declarados descrevem.
-RADIUS = {1024: 205, 64: 11, 32: 6, 16: 3}
+# Raio do ladrilho: 18% do lado (Marcas v0.3). Os valores vem declarados da
+# folha em vez de derivados porque 64 foge do arredondamento — 0.18 x 64 da
+# 11.52, que arredondaria para 12, e a folha fixa 11. Fora da tabela, 18%.
+#
+# A v0.2 usava 18.75%, com 1024 aberto em 20%. A diferenca so aparece nos
+# tamanhos grandes, e e onde o icone e mais olhado: 205 -> 184 em 1024.
+RADIUS = {
+    1024: 184,
+    512: 92,
+    256: 46,
+    128: 23,
+    64: 11,
+    48: 9,
+    32: 6,
+    24: 4,
+    16: 3,
+}
 
 # Supersampling: desenhamos 4x maior e reduzimos. A geometria continua sendo a
 # do tamanho alvo; so as bordas ficam limpas.
 SUPERSAMPLE = 4
+
+# Fracao do ladrilho ocupada pelo desenho — coluna GLIFO da receita (Marcas
+# v0.3). Nao e proporcao fixa: cresce conforme o icone encolhe, para compensar a
+# perda de detalhe. Em 256 o desenho ocupa 64% do ladrilho; em 16, 81%.
+#
+# Ate a v0.2 o viewBox de 64 unidades era mapeado no lado inteiro, o que dava
+# 100% e deixava a barra quase encostando na borda. O espectro do M/OS na folha
+# desmente isso de forma direta: ladrilho de 64 com SVG de 40.
+GLYPH = {
+    256: 0.64,
+    128: 0.65,
+    64: 0.66,
+    48: 0.67,
+    32: 0.69,
+    24: 0.71,
+    16: 0.81,
+}
+
+
+def glyph_ratio(size: int) -> float:
+    """Interpola entre os pontos declarados; fora deles, segura nas pontas.
+
+    Os tamanhos do Windows (30, 44, 71, 89, 107, 142, 150, 284, 310) nao estao
+    na receita. Saltar para o vizinho mais proximo criaria degraus visiveis
+    entre icones de tamanho parecido, entao a curva e continua.
+    """
+    declared = sorted(GLYPH)
+    if size <= declared[0]:
+        return GLYPH[declared[0]]
+    if size >= declared[-1]:
+        return GLYPH[declared[-1]]
+    for lower, upper in zip(declared, declared[1:]):
+        if lower <= size <= upper:
+            span = (size - lower) / (upper - lower)
+            return GLYPH[lower] + (GLYPH[upper] - GLYPH[lower]) * span
+    raise AssertionError("tamanho fora da faixa declarada")
 
 
 def bar_for(size: int) -> list[tuple[int, int]]:
@@ -72,7 +116,7 @@ def bar_for(size: int) -> list[tuple[int, int]]:
 def radius_for(size: int) -> int:
     if size in RADIUS:
         return RADIUS[size]
-    return max(1, round(size * 0.1875))
+    return max(1, round(size * 0.18))
 
 
 def render(size: int) -> Image.Image:
@@ -86,8 +130,15 @@ def render(size: int) -> Image.Image:
         fill=FIELD,
     )
 
-    scale = canvas / 64
-    draw.polygon([(x * scale, y * scale) for x, y in bar_for(size)], fill=INK)
+    # O desenho vive numa caixa centrada dentro do ladrilho, e nao no ladrilho
+    # inteiro: e a margem que separa a marca de um bloco de cor.
+    box = canvas * glyph_ratio(size)
+    offset = (canvas - box) / 2
+    scale = box / 64
+    draw.polygon(
+        [(x * scale + offset, y * scale + offset) for x, y in bar_for(size)],
+        fill=INK,
+    )
 
     return image.resize((size, size), Image.LANCZOS)
 
