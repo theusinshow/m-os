@@ -7,10 +7,10 @@ export const metadata: Metadata = {
   description: "Cockpit financeiro pessoal de Matheus Mendes.",
   applicationName: "M Finance",
   manifest: "/manifest.webmanifest",
-  icons: {
-    icon: "/icon.svg",
-    apple: "/apple-icon",
-  },
+  // Sem bloco `icons`: `app/icon.svg` e `app/apple-icon.png` sao convencao de
+  // arquivo, e o Next emite as tags sozinho. O bloco explicito apontava para
+  // `/apple-icon`, a rota que o antigo `apple-icon.tsx` servia — mante-lo
+  // deixaria o link quebrado agora que a marca virou PNG estatico.
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
