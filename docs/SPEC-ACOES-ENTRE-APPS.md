@@ -98,12 +98,22 @@ entendeu em vez de agir por conta.
 Executa ações declaradas, sempre pelo mesmo caminho da UI. Nunca SQL próprio, nunca um
 atalho. Lê `functions.rs` para saber quanta cerimônia cada ação pede:
 
-| risco | confirmação | comportamento |
-|---|---|---|
-| low | none | executa e informa, com Undo |
-| medium | none | executa e informa, com destaque e Undo |
-| medium | explicit | preview antes |
-| high | explicit | preview e confirmação inequívoca; sem prometer Undo |
+> **Corrigido na implementação da fase 1.** A tabela abaixo dizia que risco baixo executava
+> direto, e isso estava errado por confundir dois eixos.
+>
+> O risco classifica a **consequência da ação**. O preview responde a outra coisa: a
+> **incerteza da interpretação**. Quem clica "Criar Task" na interface escolheu aquilo;
+> quem falou uma frase pode ter sido mal entendido — e `UX-PRINCIPLES` §19 pede que o
+> sistema mostre o que compreendeu antes de agir.
+>
+> Então **toda proposta mostra preview**, inclusive as de risco baixo. O risco decide o
+> **peso** da confirmação, não a existência dela.
+
+| risco | comportamento |
+|---|---|
+| low | preview com um botão; Undo depois |
+| medium | preview com destaque; Undo depois |
+| high | preview, confirmação inequívoca, borda em `--danger`; sem prometer Undo |
 
 **Toda ação sobre dinheiro é `high`.** Não é negociável nesta spec.
 

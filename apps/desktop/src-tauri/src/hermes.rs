@@ -484,7 +484,15 @@ pub async fn hermes_send<R: Runtime>(
         );
     }
 
-    let prompt = format!("{}{}", assembled.block, text);
+    // O contrato de acoes desce em toda mensagem, antes do contexto. Ele diz o
+    // que existe e como propor — e diz explicitamente que o modelo nao executa
+    // nada. Sem essa ultima frase, um modelo prestativo tende a preencher campo
+    // que o usuario nao disse.
+    //
+    // Ele sai da maquina junto com o resto do prompt: nomes de acao e forma de
+    // argumento vao para a VPS. Nao sao dados pessoais, mas sao um mapa do que o
+    // sistema sabe fazer, e isso esta registrado na spec.
+    let prompt = format!("{}{}{}", mos_core::action_contract(), assembled.block, text);
     let sent = order(&app, Order::Submit(prompt)).await;
     if sent.is_err() {
         // Falhou antes de sair: a resposta aberta precisa parar de dizer

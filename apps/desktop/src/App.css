@@ -4033,3 +4033,133 @@ input[type="checkbox"]:disabled {
   gap: var(--space-2);
   min-width: 0;
 }
+
+/* ============================================================
+   PROPOSTA DE AÇÃO
+   O cartão que mostra o que o Hermes entendeu, antes de o M/OS agir.
+   Ele não é um alerta: é uma explicação com um botão. O sódio marca o
+   confirmar, e nada mais — o cartão em repouso é tão silencioso quanto uma
+   mensagem.
+   ============================================================ */
+
+.hermes-action {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-4);
+  border: var(--line) solid var(--border-strong);
+  border-left: var(--marker) solid var(--signal-ink);
+  background: var(--surface);
+}
+
+/* Risco alto muda a borda para danger, e não só uma etiqueta: nenhum estado do
+   sistema depende apenas de texto pequeno. */
+.hermes-action[data-risk="high"] {
+  border-left-color: var(--danger);
+}
+
+/* Resolvida, a proposta para de pedir atenção. Ela continua na thread como
+   registro do que aconteceu, e não como coisa a fazer. */
+.hermes-action[data-status="executed"],
+.hermes-action[data-status="cancelled"],
+.hermes-action[data-status="refused"],
+.hermes-action[data-status="failed"] {
+  border-left-color: var(--border-strong);
+  background: transparent;
+}
+
+.hermes-action[data-status="failed"],
+.hermes-action[data-status="refused"] {
+  border-left-color: var(--danger);
+}
+
+.hermes-action-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.hermes-action-head .micro-label:first-child {
+  flex: 1;
+  color: var(--text);
+}
+
+.hermes-action-head .micro-label[data-risk] {
+  color: var(--danger);
+}
+
+.hermes-action-lines {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.hermes-action-lines > div {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: baseline;
+}
+
+.hermes-action-lines dt {
+  color: var(--text-disabled);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+
+.hermes-action-lines dd {
+  margin: 0;
+  color: var(--text);
+  font: var(--text-small);
+  overflow-wrap: anywhere;
+}
+
+.hermes-action-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.hermes-action-foot button {
+  padding: var(--space-2) var(--space-3);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  cursor: pointer;
+}
+
+.hermes-action-foot button:hover:enabled {
+  border-color: var(--signal-ink);
+  color: var(--signal-ink);
+}
+
+.hermes-action-foot button[data-primary] {
+  border-color: var(--signal-fill);
+  background: var(--signal-fill);
+  color: var(--on-signal);
+}
+
+.hermes-action-foot button[data-primary]:hover:enabled {
+  background: var(--signal-hover);
+  color: var(--on-signal);
+}
+
+.hermes-action-foot button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.hermes-action-outcome {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.hermes-action[data-status="failed"] .hermes-action-outcome,
+.hermes-action[data-status="refused"] .hermes-action-outcome {
+  color: var(--danger);
+}

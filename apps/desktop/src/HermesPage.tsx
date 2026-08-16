@@ -185,17 +185,75 @@ function AnswerGutter({ tools, elapsed, live }: {
 }
 
 /**
+ * O que o Hermes propôs.
+ *
+ * O cartão é a explicação do que ele entendeu, e por isso aparece para toda
+ * proposta — inclusive as de risco baixo. Quem clica "Criar Task" na interface
+ * escolheu; quem falou uma frase pode ter sido mal interpretado, e
+ * `UX-PRINCIPLES` §19 pede que o sistema mostre o que compreendeu antes de
+ * agir. O risco decide o peso da confirmação, não a existência dela.
+ */
+function ActionCard({ part, messageId, onResolved }: {
+  part: Extract<MessagePart["body"], { kind: "action_proposal" }>;
+  messageId: string;
+  onResolved: (message: Message) => void;
+}) {
+  const [working, setWorking] = useState(false);
+
+  async function resolve(approved: boolean) {
+    setWorking(true);
+    const updated = await conversationApi
+      .resolveAction(messageId, part.raw, approved)
+      .catch(() => null);
+    setWorking(false);
+    if (updated) onResolved(updated);
+  }
+
+  return (
+    <div className="hermes-action" data-status={part.status} data-risk={part.preview.risk}>
+      <div className="hermes-action-head">
+        <span className="micro-label">{part.preview.title}</span>
+        {part.preview.risk !== "low" ? (
+          <span className="micro-label" data-risk>RISCO {part.preview.risk === "high" ? "ALTO" : "MÉDIO"}</span>
+        ) : null}
+      </div>
+      {part.preview.lines.length ? (
+        <dl className="hermes-action-lines">
+          {part.preview.lines.map((entry) => (
+            <div key={entry.label}>
+              <dt>{entry.label}</dt>
+              <dd>{entry.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      {part.status === "pending" ? (
+        <div className="hermes-action-foot">
+          <button type="button" disabled={working} onClick={() => void resolve(false)}>CANCELAR</button>
+          <button type="button" data-primary disabled={working} onClick={() => void resolve(true)}>
+            {part.preview.risk === "high" ? "CONFIRMAR" : "FAZER"}
+          </button>
+        </div>
+      ) : (
+        <p className="hermes-action-outcome">{part.outcome}</p>
+      )}
+    </div>
+  );
+}
+
+/**
  * Uma mensagem gravada.
  *
  * `memo` nao e otimizacao preventiva: numa thread longa toda mensagem fechada e
  * imutavel, e sem isto o Markdown de todas elas era reparseado a cada token da
  * resposta em curso.
  */
-const StoredMessage = memo(function StoredMessage({ message, onCopy, onEdit, onRegenerate }: {
+const StoredMessage = memo(function StoredMessage({ message, onCopy, onEdit, onRegenerate, onResolved }: {
   message: Message;
   onCopy: (message: Message) => void;
   onEdit: (message: Message) => void;
   onRegenerate: (message: Message) => void;
+  onResolved: (message: Message) => void;
 }) {
   const text = messageText(message);
   const chips = message.parts.filter((part) => part.body.kind === "context_ref");
@@ -257,6 +315,16 @@ const StoredMessage = memo(function StoredMessage({ message, onCopy, onEdit, onR
             );
           }
           if (part.body.kind === "error") return <p className="hermes-failed" key={part.id}>{part.body.message}</p>;
+          if (part.body.kind === "action_proposal") {
+            return (
+              <ActionCard
+                key={part.id}
+                part={part.body}
+                messageId={message.id}
+                onResolved={onResolved}
+              />
+            );
+          }
           if (part.body.kind === "text") return <Markdown key={part.id} source={part.body.text} />;
           return null;
         })}
@@ -708,7 +776,14 @@ export function HermesPage({ inbox, projects, tasks }: {
           </div> : null}
 
           {messages.map((message) => (
-            <StoredMessage key={message.id} message={message} onCopy={copy} onEdit={edit} onRegenerate={(answer) => void regenerate(answer)} />
+            <StoredMessage
+              key={message.id}
+              message={message}
+              onCopy={copy}
+              onEdit={edit}
+              onRegenerate={(answer) => void regenerate(answer)}
+              onResolved={(updated) => setMessages((current) => current.map((candidate) => candidate.id === updated.id ? updated : candidate))}
+            />
           ))}
 
           {stream ? (
@@ -722,8 +797,16 @@ export function HermesPage({ inbox, projects, tasks }: {
                 {/* Durante o streaming o texto e cru: o Markdown assenta uma vez,
                     no fim. Reparsear a cada quadro faria o bloco de codigo piscar
                     enquanto a cerca nao fecha. */}
-                {stream.text ? (
-                  <p className="hermes-streaming">{stream.text}<span className="hermes-caret" aria-hidden="true" /></p>
+                {/* O bloco de proposta some do texto em curso. Ele chega token
+                    a token, então ficaria minutos na tela como JSON cru antes
+                    de virar cartão — e o cartão é a forma legível da mesma
+                    informação. Corta na abertura da cerca, não no fechamento,
+                    porque o fechamento pode nunca chegar. */}
+                {stream.text.split("```mos-action")[0].trim() ? (
+                  <p className="hermes-streaming">
+                    {stream.text.split("```mos-action")[0].trimEnd()}
+                    <span className="hermes-caret" aria-hidden="true" />
+                  </p>
                 ) : null}
               </div>
             </article>

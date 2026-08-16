@@ -229,6 +229,10 @@ pub trait ConversationRepository: Send + Sync {
 
     fn append_message(&self, message: crate::NewMessage) -> Result<crate::Message, CoreError>;
     fn messages(&self, id: crate::ConversationId) -> Result<Vec<crate::Message>, CoreError>;
+    /// Uma mensagem só. Resolver uma proposta precisa reler as partes atuais
+    /// antes de reescrevê-las, senão duas propostas na mesma resposta se
+    /// sobrescreveriam.
+    fn message(&self, id: crate::MessageId) -> Result<crate::Message, CoreError>;
     /// Fecha uma mensagem substituindo as partes e o estado.
     ///
     /// E assim que o streaming termina: uma escrita por mensagem, nunca por

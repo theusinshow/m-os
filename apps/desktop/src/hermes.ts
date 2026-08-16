@@ -47,6 +47,14 @@ export type PartBody =
   | { kind: "status"; text: string }
   | { kind: "error"; message: string }
   | {
+      kind: "action_proposal";
+      /** A proposta crua, que identifica qual parte resolver. */
+      raw: string;
+      preview: ActionPreview;
+      status: ProposalStatus;
+      outcome: string;
+    }
+  | {
       kind: "context_ref";
       origin: ContextOrigin;
       entity: ContextEntity;
@@ -57,6 +65,18 @@ export type PartBody =
       /** Tamanho do que efetivamente saiu, em bytes. */
       bytes: number;
     };
+
+export type ProposalStatus = "pending" | "executed" | "cancelled" | "refused" | "failed";
+export type ActionRisk = "low" | "medium" | "high";
+
+/** O que o Hermes propôs, e que só vira efeito depois que você confirma. */
+export type ActionPreview = {
+  action: string;
+  title: string;
+  lines: { label: string; value: string }[];
+  risk: ActionRisk;
+  confirmation: "none" | "explicit";
+};
 
 export type MessagePart = { id: string; seq: number; body: PartBody };
 export type MessageRole = "user" | "assistant" | "system";
@@ -217,6 +237,10 @@ export const conversations = {
   /** Descarta uma mensagem e tudo depois dela. Regenerate e edicao. */
   truncate(messageId: string) {
     return invoke<void>("conversation_truncate", { messageId });
+  },
+  /** Executa ou cancela uma proposta. O modelo propõe; isto é o M/OS agindo. */
+  resolveAction(messageId: string, raw: string, approved: boolean) {
+    return invoke<Message>("action_resolve", { messageId, raw, approved });
   },
 };
 

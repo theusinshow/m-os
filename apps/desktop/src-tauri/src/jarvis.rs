@@ -15,7 +15,7 @@
 
 use mos_core::{
     ContextEntity, ContextOrigin, Conversation, ConversationService, ConversationSummary,
-    CoreError, Message, MessageStatus, PartBody, ToolRunState,
+    CoreError, Message, MessageStatus, PartBody, ProposalStatus, ToolRunState,
 };
 use mos_hermes::{HistoryMessage, Outcome};
 use serde::{Deserialize, Serialize};
@@ -169,8 +169,14 @@ impl TurnRecorder {
                 text: self.reasoning,
             });
         }
-        if !self.text.is_empty() {
-            parts.push(PartBody::Text { text: self.text });
+        // A proposta sai do texto e vira parte propria. O JSON cru na thread e
+        // ruido, e a mesma informacao volta logo abaixo desenhada como preview.
+        let (text, proposal) = split_proposal(&self.text);
+        if !text.is_empty() {
+            parts.push(PartBody::Text { text });
+        }
+        if let Some(raw) = proposal {
+            parts.push(proposal_part(&raw));
         }
         if let Some(message) = self.error {
             parts.push(PartBody::Error { message });
@@ -184,6 +190,230 @@ impl TurnRecorder {
             || !self.tools.is_empty()
             || self.error.is_some()
     }
+}
+
+/// Separa a proposta do texto da resposta.
+///
+/// Devolve o texto SEM o bloco e a proposta, quando houver. Tirar o bloco do
+/// texto e deliberado: o JSON cru na thread e ruido, e a mesma informacao volta
+/// desenhada como cartao de preview logo abaixo.
+///
+/// So a PRIMEIRA proposta e lida. O contrato pede uma por mensagem, e executar
+/// a segunda de uma resposta que veio fora do contrato seria confiar num
+/// formato que ja se provou errado naquela mesma mensagem.
+pub fn split_proposal(text: &str) -> (String, Option<String>) {
+    const FENCE: &str = "```mos-action";
+    let Some(start) = text.find(FENCE) else {
+        return (text.to_owned(), None);
+    };
+    let after = start + FENCE.len();
+    let Some(end_offset) = text[after..].find("```") else {
+        // Cerca aberta: o turno pode ter sido interrompido no meio do bloco.
+        // Sem fechamento nao ha proposta valida, e o texto fica como veio.
+        return (text.to_owned(), None);
+    };
+    let raw = text[after..after + end_offset].trim().to_owned();
+    let mut cleaned = String::with_capacity(text.len());
+    cleaned.push_str(&text[..start]);
+    cleaned.push_str(&text[after + end_offset + 3..]);
+    (cleaned.trim().to_owned(), Some(raw))
+}
+
+/// Transforma a proposta crua numa parte pendente, ou numa parte recusada.
+///
+/// Recusa tambem vira parte: uma proposta que nao bate com o esquema precisa
+/// aparecer na conversa dizendo o motivo. Descartar em silencio deixaria o
+/// usuario vendo o Hermes prometer uma acao que nunca existiu.
+pub fn proposal_part(raw: &str) -> PartBody {
+    match mos_core::parse_action(raw) {
+        Ok(args) => PartBody::ActionProposal {
+            raw: raw.to_owned(),
+            preview: mos_core::preview_of(&args),
+            status: ProposalStatus::Pending,
+            outcome: String::new(),
+        },
+        Err(error) => PartBody::ActionProposal {
+            raw: raw.to_owned(),
+            preview: mos_core::ActionPreview {
+                action: "desconhecida".into(),
+                title: "PROPOSTA RECUSADA".into(),
+                lines: Vec::new(),
+                risk: mos_core::FunctionRisk::High,
+                confirmation: mos_core::FunctionConfirmation::Explicit,
+            },
+            status: ProposalStatus::Refused,
+            outcome: error.message,
+        },
+    }
+}
+
+/// Executa uma acao aprovada, pelos mesmos servicos que a interface usa.
+///
+/// Nunca SQL proprio, nunca um atalho: e a invariante que faz a acao do Hermes
+/// obedecer as mesmas regras que a acao do usuario (ADR-024, ADR-032).
+fn run_action<R: Runtime>(
+    app: &AppHandle<R>,
+    args: &mos_core::ActionArgs,
+) -> Result<String, CoreError> {
+    let state = app.state::<AppState>();
+    match args {
+        mos_core::ActionArgs::CaptureCreate { content } => {
+            let capture = state.captures.create(mos_core::CreateCaptureInput {
+                content: content.clone(),
+                source: mos_core::CaptureSource::Home,
+            })?;
+            Ok(format!("Capture criada: {}", capture.content))
+        }
+        mos_core::ActionArgs::TaskCreate {
+            title,
+            description,
+            project,
+        } => {
+            let project_id = match project {
+                Some(name) => resolve_project(&state, name)?,
+                None => None,
+            };
+            let task = state.work.create_task(mos_core::CreateTaskInput {
+                title: title.clone(),
+                description: description.clone(),
+                project_id,
+                source_capture_id: None,
+            })?;
+            Ok(format!("Task criada: {}", task.title))
+        }
+        mos_core::ActionArgs::TaskSetState { task, state: next } => {
+            let target = resolve_task(&state, task)?;
+            let updated = state
+                .work
+                .set_task_state(&target, mos_core::TaskState::parse(next)?)?;
+            Ok(format!("{} movida para {}", updated.title, next))
+        }
+        mos_core::ActionArgs::ProjectCreate { name, description } => {
+            let project = state.work.create_project(mos_core::CreateProjectInput {
+                name: name.clone(),
+                description: description.clone(),
+                repository: String::new(),
+            })?;
+            Ok(format!("Project criado: {}", project.name))
+        }
+        mos_core::ActionArgs::ResourceCreate {
+            kind,
+            title,
+            url,
+            note,
+        } => {
+            let resource = state
+                .memory
+                .create_resource(mos_core::CreateResourceInput {
+                    kind: mos_core::ResourceKind::parse(kind)?,
+                    title: title.clone(),
+                    url: url.clone(),
+                    note: note.clone(),
+                    source_capture_id: None,
+                })?;
+            Ok(format!("Resource salvo: {}", resource.title))
+        }
+    }
+}
+
+/// Acha o Project pelo nome que o usuario falou.
+///
+/// Ambiguidade RECUSA em vez de escolher o primeiro. "Escadas" batendo em dois
+/// projetos e exatamente o caso onde adivinhar cria a Task no lugar errado, e o
+/// erro so aparece dias depois.
+fn resolve_project(state: &AppState, name: &str) -> Result<Option<String>, CoreError> {
+    let needle = name.trim().to_lowercase();
+    let matches: Vec<_> = state
+        .work
+        .projects(false)?
+        .into_iter()
+        .filter(|project| project.name.to_lowercase().contains(&needle))
+        .collect();
+
+    match matches.len() {
+        0 => Err(CoreError::new(
+            mos_core::ErrorCode::NotFound,
+            format!("Nenhum Project chamado \"{name}\"."),
+            false,
+        )),
+        1 => Ok(Some(matches[0].id.to_string())),
+        _ => Err(CoreError::new(
+            mos_core::ErrorCode::InvalidInput,
+            format!("\"{name}\" bate com {} Projects. Diga qual.", matches.len()),
+            false,
+        )),
+    }
+}
+
+fn resolve_task(state: &AppState, title: &str) -> Result<String, CoreError> {
+    let needle = title.trim().to_lowercase();
+    let matches: Vec<_> = state
+        .work
+        .tasks(false)?
+        .into_iter()
+        .filter(|task| task.title.to_lowercase().contains(&needle))
+        .collect();
+
+    match matches.len() {
+        0 => Err(CoreError::new(
+            mos_core::ErrorCode::NotFound,
+            format!("Nenhuma Task chamada \"{title}\"."),
+            false,
+        )),
+        1 => Ok(matches[0].id.to_string()),
+        _ => Err(CoreError::new(
+            mos_core::ErrorCode::InvalidInput,
+            format!("\"{title}\" bate com {} Tasks. Diga qual.", matches.len()),
+            false,
+        )),
+    }
+}
+
+/// Resolve uma proposta: executa ou cancela, e grava o desfecho na mensagem.
+#[tauri::command]
+pub async fn action_resolve<R: Runtime>(
+    app: AppHandle<R>,
+    message_id: String,
+    raw: String,
+    approved: bool,
+) -> Result<Message, CoreError> {
+    let service = app.state::<AppState>().conversations.clone();
+    let message = service.message(&message_id)?;
+
+    let (status, outcome) = if !approved {
+        (ProposalStatus::Cancelled, "Cancelado por você.".to_owned())
+    } else {
+        match mos_core::parse_action(&raw).and_then(|args| run_action(&app, &args)) {
+            Ok(done) => (ProposalStatus::Executed, done),
+            Err(error) => (ProposalStatus::Failed, error.message),
+        }
+    };
+
+    let parts = message
+        .parts
+        .into_iter()
+        .map(|part| match part.body {
+            PartBody::ActionProposal {
+                raw: ref found,
+                ref preview,
+                ..
+            } if found == &raw => PartBody::ActionProposal {
+                raw: raw.clone(),
+                preview: preview.clone(),
+                status,
+                outcome: outcome.clone(),
+            },
+            body => body,
+        })
+        .collect();
+
+    let updated = service.attach_parts(&message_id, MessageStatus::Complete, parts)?;
+    if status == ProposalStatus::Executed {
+        // A Home, a Inbox e o Kanban precisam refletir o que acabou de nascer.
+        let _ = app.emit("data-changed", "action");
+    }
+    announce_message(&app, &updated);
+    Ok(updated)
 }
 
 /// Projeta o historico da VPS em mensagens do M/OS.
@@ -560,6 +790,63 @@ pub fn absorb_title<R: Runtime>(app: &AppHandle<R>, conversation_id: &str, title
 mod tests {
     use super::*;
     use mos_core::ConversationId;
+
+    #[test]
+    fn a_proposal_leaves_the_text_and_becomes_a_part() {
+        let (text, raw) = split_proposal(
+            "Posso criar isso.\n\n```mos-action\n{\"action\":\"mos.task.create\",\"args\":{\"title\":\"X\"}}\n```\n",
+        );
+        assert_eq!(text, "Posso criar isso.");
+        assert!(raw.unwrap().contains("mos.task.create"));
+    }
+
+    #[test]
+    fn a_response_without_a_proposal_is_untouched() {
+        let (text, raw) = split_proposal("Só uma resposta normal.");
+        assert_eq!(text, "Só uma resposta normal.");
+        assert!(raw.is_none());
+    }
+
+    /// Cerca aberta acontece de verdade: o turno pode ser interrompido no meio
+    /// do bloco. Sem fechamento nao ha proposta, e o texto fica como veio em
+    /// vez de sumir junto com o resto da mensagem.
+    #[test]
+    fn an_unclosed_fence_is_not_a_proposal() {
+        let (text, raw) = split_proposal("Vou criar\n\n```mos-action\n{\"action\":\"mos.task");
+        assert!(text.contains("Vou criar"));
+        assert!(raw.is_none());
+    }
+
+    /// Proposta invalida vira parte RECUSADA, e nao desaparece. Descartar em
+    /// silencio deixaria o usuario vendo o Hermes prometer uma acao que nunca
+    /// existiu.
+    #[test]
+    fn an_invalid_proposal_becomes_a_refused_part() {
+        match proposal_part("{\"action\":\"mos.task.create\",\"args\":{}}") {
+            PartBody::ActionProposal {
+                status, outcome, ..
+            } => {
+                assert_eq!(status, ProposalStatus::Refused);
+                assert!(outcome.contains("title"));
+            }
+            other => panic!("esperava ActionProposal, veio {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_valid_proposal_starts_pending() {
+        match proposal_part(
+            "{\"action\":\"mos.capture.create\",\"args\":{\"content\":\"uma ideia\"}}",
+        ) {
+            PartBody::ActionProposal {
+                status, preview, ..
+            } => {
+                assert_eq!(status, ProposalStatus::Pending);
+                assert_eq!(preview.title, "CRIAR CAPTURE");
+            }
+            other => panic!("esperava ActionProposal, veio {other:?}"),
+        }
+    }
 
     #[test]
     fn the_recorder_settles_only_on_complete_or_failure() {

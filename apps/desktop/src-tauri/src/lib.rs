@@ -1199,6 +1199,7 @@ pub fn run() {
             jarvis::conversation_delete,
             jarvis::conversation_search,
             jarvis::conversation_truncate,
+            jarvis::action_resolve,
             open_external_url,
             create_capture,
             get_capture,

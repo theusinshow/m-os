@@ -139,6 +139,22 @@ impl MessageStatus {
     }
 }
 
+/// Onde uma proposta parou.
+///
+/// `Refused` e diferente de `Cancelled`: a primeira o M/OS recusou por a
+/// proposta nao bater com o esquema, a segunda o usuario decidiu nao fazer. As
+/// duas terminam sem efeito, e distinguir importa — uma e defeito de
+/// interpretacao, a outra e escolha.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProposalStatus {
+    Pending,
+    Executed,
+    Cancelled,
+    Refused,
+    Failed,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolRunState {
@@ -202,6 +218,21 @@ pub enum PartBody {
     Error {
         message: String,
     },
+    /// Uma acao que o Hermes PROPOS. Ela nasce pendente e so vira efeito depois
+    /// que o usuario confirma — o modelo nunca executa nada.
+    ///
+    /// A proposta e guardada como parte, e nao so desenhada a partir do texto,
+    /// porque a decisao precisa sobreviver a recarregar a conversa: reabrir uma
+    /// thread e ver de novo o botao "Criar" de algo que ja foi criado seria a
+    /// forma mais rapida de duplicar uma Task.
+    ActionProposal {
+        /// A proposta crua, para executar depois da confirmacao.
+        raw: String,
+        preview: crate::ActionPreview,
+        status: ProposalStatus,
+        /// Resultado depois de resolvida. Vazio enquanto pendente.
+        outcome: String,
+    },
     /// O que EFETIVAMENTE atravessou a ponte. A pergunta "o que foi para a VPS?"
     /// precisa de resposta depois do envio, nao so antes (ADR-027).
     ContextRef {
@@ -227,6 +258,7 @@ impl PartBody {
             Self::ToolRun { .. } => "tool_run",
             Self::Status { .. } => "status",
             Self::Error { .. } => "error",
+            Self::ActionProposal { .. } => "action_proposal",
             Self::ContextRef { .. } => "context_ref",
         }
     }

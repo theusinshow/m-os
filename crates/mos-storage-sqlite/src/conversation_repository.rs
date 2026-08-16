@@ -446,6 +446,12 @@ impl ConversationRepository for SqliteStorage {
         Ok(messages)
     }
 
+    fn message(&self, id: MessageId) -> Result<Message, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        load_message(&transaction, &id.to_string())
+    }
+
     fn finish_message(
         &self,
         id: MessageId,

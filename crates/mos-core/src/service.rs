@@ -783,6 +783,10 @@ impl ConversationService {
         self.repository.messages(ConversationId::parse(id)?)
     }
 
+    pub fn message(&self, id: &str) -> Result<Message, CoreError> {
+        self.repository.message(MessageId::parse(id)?)
+    }
+
     pub fn append_user_message(&self, id: &str, text: &str) -> Result<Message, CoreError> {
         let conversation_id = ConversationId::parse(id)?;
         self.repository

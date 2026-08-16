@@ -1,3 +1,4 @@
+mod action;
 mod app;
 mod capture;
 mod conversation;
@@ -8,6 +9,9 @@ mod resource;
 mod service;
 mod work;
 
+pub use action::{
+    action_contract, parse_action, preview_of, ActionArgs, ActionKind, ActionLine, ActionPreview,
+};
 pub use app::{
     app_catalog, validate_launch_target, validate_source_url, AppCapabilities, AppCatalogEntry,
     AppId, AppLaunchKind, NewRegisteredApp, RegisteredApp,
@@ -16,7 +20,7 @@ pub use capture::{Capture, CaptureId, CaptureSource, LifecycleState, NewCapture,
 pub use conversation::{
     validate_title, ContextEntity, ContextOrigin, Conversation, ConversationId,
     ConversationSummary, Message, MessageId, MessagePart, MessagePartId, MessageRole,
-    MessageStatus, NewConversation, NewMessage, PartBody, ToolRunState,
+    MessageStatus, NewConversation, NewMessage, PartBody, ProposalStatus, ToolRunState,
 };
 pub use error::{CoreError, ErrorCode};
 pub use functions::{
