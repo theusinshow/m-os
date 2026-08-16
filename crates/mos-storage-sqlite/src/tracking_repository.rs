@@ -5,9 +5,10 @@
 //! tornaria impossivel recuperar o que de fato aconteceu.
 
 use mos_core::{
-    ActiveTimer, ActivityType, CoreError, EntrySource, ErrorCode, NewTimeEntry, ProjectId,
-    ProjectTracking, Rounding, RoundingMode, StartTimer, TimeEntry, TimeEntryEdit, TimeEntryId,
-    TimeTrackingRepository, TimerStatus, TrackingSettings, TrackingStatus,
+    ActiveTimer, ActivityType, Client, ClientId, ClientInput, CoreError, EntrySource, ErrorCode,
+    NewTimeEntry, ProjectId, ProjectTracking, Rounding, RoundingMode, StartTimer, TimeEntry,
+    TimeEntryEdit, TimeEntryId, TimeTrackingRepository, TimerStatus, TrackingSettings,
+    TrackingStatus,
 };
 use rusqlite::{params, OptionalExtension, Row};
 
@@ -256,18 +257,19 @@ impl TimeTrackingRepository for SqliteStorage {
         connection
             .execute(
                 "INSERT INTO project_tracking (project_id, hourly_rate_cents, code, color, \
-                 tracking_status, created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6) \
+                 tracking_status, client_id, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7) \
                  ON CONFLICT (project_id) DO UPDATE SET \
                  hourly_rate_cents = excluded.hourly_rate_cents, code = excluded.code, \
                  color = excluded.color, tracking_status = excluded.tracking_status, \
-                 updated_at = excluded.updated_at",
+                 client_id = excluded.client_id, updated_at = excluded.updated_at",
                 params![
                     tracking.project_id.to_string(),
                     tracking.hourly_rate_cents,
                     tracking.code,
                     tracking.color,
                     tracking.tracking_status.as_str(),
+                    tracking.client_id.map(|id| id.to_string()),
                     now,
                 ],
             )
@@ -279,7 +281,7 @@ impl TimeTrackingRepository for SqliteStorage {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let mut statement = connection
             .prepare(
-                "SELECT project_id, hourly_rate_cents, code, color, tracking_status \
+                "SELECT project_id, hourly_rate_cents, code, color, tracking_status, client_id \
                  FROM project_tracking",
             )
             .map_err(map_sql_error)?;
@@ -291,13 +293,14 @@ impl TimeTrackingRepository for SqliteStorage {
                     row.get::<_, Option<String>>(2)?,
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
                 ))
             })
             .map_err(map_sql_error)?;
 
         let mut tracking = Vec::new();
         for row in rows {
-            let (project_id, hourly_rate_cents, code, color, status) =
+            let (project_id, hourly_rate_cents, code, color, status, client) =
                 row.map_err(map_sql_error)?;
             tracking.push(ProjectTracking {
                 project_id: ProjectId::parse(&project_id)?,
@@ -305,6 +308,7 @@ impl TimeTrackingRepository for SqliteStorage {
                 code: code.unwrap_or_default(),
                 color: color.unwrap_or_default(),
                 tracking_status: TrackingStatus::parse(&status)?,
+                client_id: client.as_deref().map(ClientId::parse).transpose()?,
             });
         }
         Ok(tracking)
@@ -491,6 +495,140 @@ impl TimeTrackingRepository for SqliteStorage {
             .map_err(map_sql_error)?;
         transaction.commit().map_err(map_sql_error)?;
         build_entry(raw)
+    }
+
+    fn clients(&self, include_archived: bool) -> Result<Vec<Client>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, name, company_name, email, phone, notes, archived_at \
+                 FROM clients WHERE (?1 OR archived_at IS NULL) ORDER BY name",
+            )
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map(params![include_archived], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                ))
+            })
+            .map_err(map_sql_error)?;
+
+        let mut clients = Vec::new();
+        for row in rows {
+            let (id, name, company, email, phone, notes, archived) = row.map_err(map_sql_error)?;
+            clients.push(Client {
+                id: ClientId::parse(&id)?,
+                name,
+                company_name: company.unwrap_or_default(),
+                email: email.unwrap_or_default(),
+                phone: phone.unwrap_or_default(),
+                notes: notes.unwrap_or_default(),
+                archived: archived.is_some(),
+            });
+        }
+        Ok(clients)
+    }
+
+    fn create_client(&self, input: ClientInput) -> Result<Client, CoreError> {
+        let name = input.validated()?.to_owned();
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let id = ClientId::new();
+        let now = format_time(time::OffsetDateTime::now_utc())?;
+        connection
+            .execute(
+                "INSERT INTO clients (id, name, company_name, email, phone, notes, \
+                 created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+                params![
+                    id.to_string(),
+                    name,
+                    input.company_name,
+                    input.email,
+                    input.phone,
+                    input.notes,
+                    now,
+                ],
+            )
+            .map_err(map_sql_error)?;
+
+        Ok(Client {
+            id,
+            name,
+            company_name: input.company_name,
+            email: input.email,
+            phone: input.phone,
+            notes: input.notes,
+            archived: false,
+        })
+    }
+
+    fn update_client(&self, id: ClientId, input: ClientInput) -> Result<Client, CoreError> {
+        let name = input.validated()?.to_owned();
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let changed = connection
+            .execute(
+                "UPDATE clients SET name = ?2, company_name = ?3, email = ?4, phone = ?5, \
+                 notes = ?6, updated_at = ?7 WHERE id = ?1",
+                params![
+                    id.to_string(),
+                    name,
+                    input.company_name,
+                    input.email,
+                    input.phone,
+                    input.notes,
+                    format_time(time::OffsetDateTime::now_utc())?,
+                ],
+            )
+            .map_err(map_sql_error)?;
+        if changed == 0 {
+            return Err(CoreError::new(
+                ErrorCode::NotFound,
+                "Cliente nao encontrado.",
+                false,
+            ));
+        }
+        drop(connection);
+        self.clients(true)?
+            .into_iter()
+            .find(|client| client.id == id)
+            .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "Cliente nao encontrado.", false))
+    }
+
+    fn set_client_archived(&self, id: ClientId, archived: bool) -> Result<Client, CoreError> {
+        {
+            let connection = self.connection.lock().map_err(map_lock_error)?;
+            let stamp = if archived {
+                Some(format_time(time::OffsetDateTime::now_utc())?)
+            } else {
+                None
+            };
+            let changed = connection
+                .execute(
+                    "UPDATE clients SET archived_at = ?2, updated_at = ?3 WHERE id = ?1",
+                    params![
+                        id.to_string(),
+                        stamp,
+                        format_time(time::OffsetDateTime::now_utc())?
+                    ],
+                )
+                .map_err(map_sql_error)?;
+            if changed == 0 {
+                return Err(CoreError::new(
+                    ErrorCode::NotFound,
+                    "Cliente nao encontrado.",
+                    false,
+                ));
+            }
+        }
+        self.clients(true)?
+            .into_iter()
+            .find(|client| client.id == id)
+            .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "Cliente nao encontrado.", false))
     }
 
     fn tracking_settings(&self) -> Result<TrackingSettings, CoreError> {
@@ -696,6 +834,7 @@ mod tests {
             code: "043".into(),
             color: String::new(),
             tracking_status: TrackingStatus::Active,
+            client_id: None,
         };
         storage.set_project_tracking(first.clone()).unwrap();
         let born: String = {
@@ -800,6 +939,7 @@ mod tests {
                 code: String::new(),
                 color: String::new(),
                 tracking_status: TrackingStatus::Active,
+                client_id: None,
             })
             .unwrap();
         storage.start_timer(start(id)).unwrap();

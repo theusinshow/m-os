@@ -33,6 +33,34 @@ use crate::{CoreError, ErrorCode, ProjectId};
 #[serde(transparent)]
 pub struct TimeEntryId(Uuid);
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ClientId(Uuid);
+
+impl ClientId {
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    pub fn parse(value: &str) -> Result<Self, CoreError> {
+        Uuid::parse_str(value)
+            .map(Self)
+            .map_err(|_| CoreError::new(ErrorCode::InvalidInput, "Client ID invalido.", false))
+    }
+}
+
+impl Default for ClientId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for ClientId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
 impl TimeEntryId {
     pub fn new() -> Self {
         Self(Uuid::now_v7())
@@ -234,6 +262,54 @@ pub struct TimeEntryEdit {
     pub billable: bool,
 }
 
+/// Quem paga pelo trabalho.
+///
+/// Existe para a fatura: é dele que sai o cabeçalho do PDF e o agrupamento de
+/// horas por pagador. Um Project pessoal simplesmente não tem cliente, e essa
+/// ausência é normal — por isso o vínculo vive em `ProjectTracking` e não em
+/// `Project`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Client {
+    pub id: ClientId,
+    pub name: String,
+    pub company_name: String,
+    pub email: String,
+    pub phone: String,
+    pub notes: String,
+    pub archived: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientInput {
+    pub name: String,
+    #[serde(default)]
+    pub company_name: String,
+    #[serde(default)]
+    pub email: String,
+    #[serde(default)]
+    pub phone: String,
+    #[serde(default)]
+    pub notes: String,
+}
+
+impl ClientInput {
+    /// Nome vazio é recusado: um cliente sem nome não identifica ninguém, e a
+    /// fatura sairia com cabeçalho em branco.
+    pub fn validated(&self) -> Result<&str, CoreError> {
+        let name = self.name.trim();
+        if name.is_empty() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidInput,
+                "O nome do cliente nao pode estar vazio.",
+                false,
+            ));
+        }
+        Ok(name)
+    }
+}
+
 /// Dados de cobrança de um Project.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -243,6 +319,8 @@ pub struct ProjectTracking {
     pub code: String,
     pub color: String,
     pub tracking_status: TrackingStatus,
+    /// Quem paga. Ausente é o caso comum — Project pessoal não tem cliente.
+    pub client_id: Option<ClientId>,
 }
 
 /// O cronômetro em curso. No máximo um existe, e o banco garante isso.

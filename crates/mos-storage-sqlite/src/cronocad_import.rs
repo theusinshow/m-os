@@ -77,12 +77,19 @@ impl SqliteStorage {
         )
         .map_err(map_sql_error)?;
 
-        let mut report = ImportReport::default();
+        // Clientes ANTES dos projetos: o projeto aponta para o cliente, e a
+        // chave estrangeira recusaria um vinculo para uma linha que ainda nao
+        // existe. Os ids da origem sao preservados, entao o vinculo atravessa
+        // sem mapeamento.
+        let mut report = ImportReport {
+            clients: self.copy_clients(&origin)?,
+            ..Default::default()
+        };
 
         let mut projects = origin
             .prepare(
-                "SELECT id, name, description, hourly_rate_cents, status, code, color, notes \
-                 FROM projects ORDER BY name",
+                "SELECT id, name, description, hourly_rate_cents, status, code, color, notes, \
+                 client_id FROM projects ORDER BY name",
             )
             .map_err(map_sql_error)?;
         let rows = projects
@@ -96,12 +103,13 @@ impl SqliteStorage {
                     row.get::<_, Option<String>>(5)?,
                     row.get::<_, Option<String>>(6)?,
                     row.get::<_, Option<String>>(7)?,
+                    row.get::<_, Option<String>>(8)?,
                 ))
             })
             .map_err(map_sql_error)?;
 
         for row in rows {
-            let (origin_id, name, description, rate, status, code, color, notes) =
+            let (origin_id, name, description, rate, status, code, color, notes, client) =
                 row.map_err(map_sql_error)?;
 
             // As anotacoes livres do projeto viram descricao do Project: e o
@@ -123,6 +131,10 @@ impl SqliteStorage {
                 code: code.unwrap_or_default(),
                 color: color.unwrap_or_default(),
                 tracking_status,
+                client_id: client
+                    .as_deref()
+                    .map(mos_core::ClientId::parse)
+                    .transpose()?,
             })?;
 
             if lifecycle != LifecycleState::Active {
@@ -142,7 +154,6 @@ impl SqliteStorage {
         self.copy_preferences(&origin)?;
         report.monitored_apps = self.copy_monitored_apps(&origin)?;
         report.activity_events = self.copy_activity_events(&origin)?;
-        report.clients = self.copy_clients(&origin)?;
 
         self.mark_cronocad_imported()?;
         Ok(report)
@@ -473,7 +484,7 @@ mod tests {
             "CREATE TABLE projects (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT,
                 hourly_rate_cents INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL,
-                code TEXT, color TEXT, notes TEXT);
+                code TEXT, color TEXT, notes TEXT, client_id TEXT);
              CREATE TABLE time_entries (
                 id TEXT PRIMARY KEY, project_id TEXT NOT NULL, started_at TEXT NOT NULL,
                 ended_at TEXT, duration_seconds INTEGER NOT NULL, idle_seconds INTEGER NOT NULL,
@@ -485,8 +496,9 @@ mod tests {
                 done INTEGER NOT NULL, created_at TEXT NOT NULL);
 
              INSERT INTO projects VALUES
-                ('p1','Rancho Queimado','obra',3000,'active','043',NULL,'lembrar do corrimao'),
-                ('p2','Juliano - POA',NULL,5000,'completed',NULL,NULL,NULL);
+                ('p1','Rancho Queimado','obra',3000,'active','043',NULL,'lembrar do corrimao',NULL),
+                ('p2','Juliano - POA',NULL,5000,'completed',NULL,NULL,NULL,
+                 '018f0000-0000-7000-8000-000000000001');
 
              INSERT INTO time_entries VALUES
                 ('e1','p1','2026-07-12T05:27:34Z','2026-07-12T07:27:34Z',7200,600,'detalhe',
@@ -532,7 +544,7 @@ mod tests {
                 id TEXT PRIMARY KEY, name TEXT, company_name TEXT, email TEXT,
                 phone TEXT, notes TEXT, created_at TEXT, updated_at TEXT, archived_at TEXT);
              INSERT INTO clients VALUES
-                ('c1','Juliano','JS Engenharia',NULL,NULL,NULL,
+                ('018f0000-0000-7000-8000-000000000001','Juliano','JS Engenharia',NULL,NULL,NULL,
                  '2026-07-01T00:00:00Z','2026-07-01T00:00:00Z',NULL);",
         )
         .unwrap();
@@ -646,6 +658,12 @@ mod tests {
             .unwrap();
         assert_eq!(tracking.tracking_status, TrackingStatus::Completed);
         assert_eq!(tracking.hourly_rate_cents, 5_000);
+        // O vinculo com o cliente atravessa: os ids da origem sao preservados, e
+        // por isso os clientes precisam entrar ANTES dos projetos.
+        assert!(
+            tracking.client_id.is_some(),
+            "o cliente do projeto se perdeu"
+        );
     }
 
     #[test]

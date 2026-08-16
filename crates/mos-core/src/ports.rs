@@ -237,11 +237,53 @@ pub trait TimeTrackingRepository: Send + Sync {
     fn set_timer_running(&self, running: bool) -> Result<crate::ActiveTimer, CoreError>;
     /// Encerra e devolve a sessao gravada. Nada e descartado em silencio.
     fn stop_timer(&self) -> Result<crate::TimeEntry, CoreError>;
+    fn clients(&self, include_archived: bool) -> Result<Vec<crate::Client>, CoreError>;
+    fn create_client(&self, input: crate::ClientInput) -> Result<crate::Client, CoreError>;
+    fn update_client(
+        &self,
+        id: crate::ClientId,
+        input: crate::ClientInput,
+    ) -> Result<crate::Client, CoreError>;
+    /// Arquivar e nao apagar: o cliente pode estar em faturas ja emitidas, e
+    /// remove-lo deixaria horas apontando para um pagador que sumiu.
+    fn set_client_archived(
+        &self,
+        id: crate::ClientId,
+        archived: bool,
+    ) -> Result<crate::Client, CoreError>;
     fn tracking_settings(&self) -> Result<crate::TrackingSettings, CoreError>;
     fn set_tracking_settings(
         &self,
         settings: crate::TrackingSettings,
     ) -> Result<crate::TrackingSettings, CoreError>;
+}
+
+/// O que o sistema observa: programas abertos e periodos parados.
+///
+/// Separado de `TimeTrackingRepository` porque observacao NAO vira hora
+/// sozinha. O evento fica guardado, a Linha do Tempo mostra o vao, e quem
+/// decide se aquilo foi trabalho e a pessoa — misturar os dois num repositorio
+/// so abriria a porta para uma sessao nascer de um `app_opened`.
+pub trait MonitoringRepository: Send + Sync {
+    fn monitored_apps(&self) -> Result<Vec<crate::MonitoredApp>, CoreError>;
+    fn save_monitored_app(
+        &self,
+        app: crate::MonitoredApp,
+    ) -> Result<crate::MonitoredApp, CoreError>;
+    fn delete_monitored_app(&self, id: &str) -> Result<(), CoreError>;
+    /// Os eventos de um periodo, do mais antigo para o mais novo — a Linha do
+    /// Tempo se le na ordem em que o dia aconteceu.
+    fn activity_events(
+        &self,
+        since: time::OffsetDateTime,
+        until: time::OffsetDateTime,
+    ) -> Result<Vec<crate::ActivityEvent>, CoreError>;
+    fn record_activity(
+        &self,
+        event: crate::NewActivityEvent,
+    ) -> Result<crate::ActivityEvent, CoreError>;
+    /// Marca o evento como resolvido, para o mesmo periodo nao ser reoferecido.
+    fn mark_activity_processed(&self, id: crate::ActivityEventId) -> Result<(), CoreError>;
 }
 
 /// Persistencia da conversa do Hermes (ADR-025).
