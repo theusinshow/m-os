@@ -44,9 +44,9 @@ pub use service::{
 };
 pub use tracking::{
     aggregate_by_project, amount_for_duration, billable_duration, elapsed_seconds, net_duration,
-    round_duration, ActivityType, EntrySource, NewTimeEntry, ProjectTracking, Rounding,
-    RoundingMode, TimeEntry, TimeEntryId, TimerSnapshot, TimerStatus, Totals, TrackedSession,
-    TrackingSettings, TrackingStatus,
+    round_duration, ActiveTimer, ActivityType, EntrySource, NewTimeEntry, ProjectTracking,
+    Rounding, RoundingMode, StartTimer, TimeEntry, TimeEntryId, TimerSnapshot, TimerStatus, Totals,
+    TrackedSession, TrackingSettings, TrackingStatus,
 };
 pub use work::{
     validate_widget_id, HiddenWidget, NewProject, NewTask, NewWorkspace, Project, ProjectId,

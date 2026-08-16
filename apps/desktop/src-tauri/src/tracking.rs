@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 
-use mos_core::{CoreError, ProjectId, TimeEntry, Totals};
+use mos_core::{ActiveTimer, ActivityType, CoreError, ProjectId, StartTimer, TimeEntry, Totals};
 use mos_storage_sqlite::ImportReport;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
@@ -47,6 +47,55 @@ pub fn tracking_totals<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<std::collections::HashMap<String, Totals>, CoreError> {
     app.state::<AppState>().tracking.totals_by_project()
+}
+
+/// O cronometro em curso, se houver.
+///
+/// A tela pergunta e recebe `accumulated_seconds` mais `last_resumed_at`, e nao
+/// um numero de segundos ja pronto: assim ela pode desenhar o relogio correndo
+/// sozinha, sem que o backend precise emitir um evento por segundo.
+#[tauri::command]
+pub fn timer_current<R: Runtime>(app: AppHandle<R>) -> Result<Option<ActiveTimer>, CoreError> {
+    app.state::<AppState>().tracking.active_timer()
+}
+
+#[tauri::command]
+pub fn timer_start<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    description: String,
+    activity_type: String,
+) -> Result<ActiveTimer, CoreError> {
+    let timer = app.state::<AppState>().tracking.start_timer(StartTimer {
+        project_id: ProjectId::parse(&project_id)?,
+        description,
+        activity_type: ActivityType::parse(&activity_type)?,
+    })?;
+    let _ = app.emit("timer-changed", "started");
+    Ok(timer)
+}
+
+#[tauri::command]
+pub fn timer_set_running<R: Runtime>(
+    app: AppHandle<R>,
+    running: bool,
+) -> Result<ActiveTimer, CoreError> {
+    let timer = app
+        .state::<AppState>()
+        .tracking
+        .set_timer_running(running)?;
+    let _ = app.emit("timer-changed", if running { "resumed" } else { "paused" });
+    Ok(timer)
+}
+
+/// Encerra e devolve a sessao gravada.
+#[tauri::command]
+pub fn timer_stop<R: Runtime>(app: AppHandle<R>) -> Result<TimeEntry, CoreError> {
+    let entry = app.state::<AppState>().tracking.stop_timer()?;
+    let _ = app.emit("timer-changed", "stopped");
+    // A sessao nasceu: quem mostra horas por Project precisa reler.
+    let _ = app.emit("data-changed", "timer");
+    Ok(entry)
 }
 
 /// As sessoes, em tempo REAL — sem arredondar e sem descontar inatividade.

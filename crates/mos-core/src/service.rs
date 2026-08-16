@@ -3,14 +3,15 @@ use std::{path::Path, sync::Arc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    validate_title, AppCapabilities, AppId, AppLaunchKind, AppRepository, BackupInspection,
-    BackupReceipt, Capture, CaptureId, CaptureRepository, CaptureSource, Conversation,
-    ConversationId, ConversationRepository, ConversationSummary, CoreError, DataMaintenance,
-    HiddenWidget, LifecycleState, Message, MessageId, MessageStatus, NewCapture, NewConversation,
-    NewMessage, NewProject, NewRegisteredApp, NewTask, NewTimeEntry, NewWorkspace, PartBody,
-    ProcessingState, Project, ProjectId, ProjectTracking, RegisteredApp, SearchItem, SearchRequest,
-    Task, TaskId, TaskState, TimeEntry, TimeEntryId, TimeTrackingRepository, Totals,
-    TrackedSession, TrackingSettings, WorkRepository, Workspace, WorkspaceId,
+    validate_title, ActiveTimer, AppCapabilities, AppId, AppLaunchKind, AppRepository,
+    BackupInspection, BackupReceipt, Capture, CaptureId, CaptureRepository, CaptureSource,
+    Conversation, ConversationId, ConversationRepository, ConversationSummary, CoreError,
+    DataMaintenance, HiddenWidget, LifecycleState, Message, MessageId, MessageStatus, NewCapture,
+    NewConversation, NewMessage, NewProject, NewRegisteredApp, NewTask, NewTimeEntry, NewWorkspace,
+    PartBody, ProcessingState, Project, ProjectId, ProjectTracking, RegisteredApp, SearchItem,
+    SearchRequest, StartTimer, Task, TaskId, TaskState, TimeEntry, TimeEntryId,
+    TimeTrackingRepository, Totals, TrackedSession, TrackingSettings, WorkRepository, Workspace,
+    WorkspaceId,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -136,6 +137,22 @@ impl TrackingService {
 
     pub fn project_tracking(&self) -> Result<Vec<ProjectTracking>, CoreError> {
         self.repository.project_tracking()
+    }
+
+    pub fn active_timer(&self) -> Result<Option<ActiveTimer>, CoreError> {
+        self.repository.active_timer()
+    }
+
+    pub fn start_timer(&self, start: StartTimer) -> Result<ActiveTimer, CoreError> {
+        self.repository.start_timer(start)
+    }
+
+    pub fn set_timer_running(&self, running: bool) -> Result<ActiveTimer, CoreError> {
+        self.repository.set_timer_running(running)
+    }
+
+    pub fn stop_timer(&self) -> Result<TimeEntry, CoreError> {
+        self.repository.stop_timer()
     }
 
     pub fn settings(&self) -> Result<TrackingSettings, CoreError> {

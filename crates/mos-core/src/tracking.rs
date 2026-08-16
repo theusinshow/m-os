@@ -212,6 +212,54 @@ pub struct ProjectTracking {
     pub tracking_status: TrackingStatus,
 }
 
+/// O cronômetro em curso. No máximo um existe, e o banco garante isso.
+///
+/// `accumulated_seconds` e `last_resumed_at` são o que permite calcular a
+/// duração a partir de timestamps PERSISTIDOS, e não de um contador que vive na
+/// tela. Um contador de interface morre junto com a janela; o trabalho, não.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveTimer {
+    pub project_id: ProjectId,
+    #[serde(with = "time::serde::rfc3339")]
+    pub started_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub last_resumed_at: OffsetDateTime,
+    pub accumulated_seconds: i64,
+    pub status: TimerStatus,
+    pub description: String,
+    pub activity_type: ActivityType,
+}
+
+impl ActiveTimer {
+    /// Quantos segundos este cronômetro já contou, agora.
+    ///
+    /// Delega para [`elapsed_seconds`] em vez de repetir a conta: é lá que mora
+    /// a proteção contra o relógio andar para trás, e duas implementações da
+    /// mesma regra divergiriam no dia em que uma fosse corrigida.
+    pub fn elapsed(&self, now: OffsetDateTime) -> i64 {
+        elapsed_seconds(
+            &TimerSnapshot {
+                status: self.status,
+                accumulated_seconds: self.accumulated_seconds,
+                last_resumed_epoch: self.last_resumed_at.unix_timestamp(),
+            },
+            now.unix_timestamp(),
+        )
+    }
+}
+
+/// O que é preciso para começar a contar.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartTimer {
+    pub project_id: ProjectId,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub activity_type: ActivityType,
+}
+
 /// Configuração de arredondamento e inatividade, linha única.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -428,6 +476,37 @@ mod tests {
     #[test]
     fn a_clock_going_backwards_never_reduces_accumulated_time() {
         assert_eq!(elapsed_seconds(&running(500, 1_000), 940), 500);
+    }
+
+    /// O `ActiveTimer` delega para `elapsed_seconds` em vez de repetir a conta.
+    /// Duas implementacoes da mesma regra divergiriam no dia em que uma fosse
+    /// corrigida — e a que ficasse para tras seria a que conta o dinheiro.
+    #[test]
+    fn an_active_timer_counts_through_the_same_rule() {
+        let started = OffsetDateTime::from_unix_timestamp(1_000).unwrap();
+        let timer = ActiveTimer {
+            project_id: ProjectId::new(),
+            started_at: started,
+            last_resumed_at: started,
+            accumulated_seconds: 120,
+            status: TimerStatus::Running,
+            description: String::new(),
+            activity_type: ActivityType::Other,
+        };
+
+        let now = OffsetDateTime::from_unix_timestamp(1_030).unwrap();
+        assert_eq!(timer.elapsed(now), 150);
+
+        // Pausado congela no acumulado, e relogio para tras nao reduz.
+        let paused = ActiveTimer {
+            status: TimerStatus::Paused,
+            ..timer.clone()
+        };
+        assert_eq!(paused.elapsed(now), 120);
+        assert_eq!(
+            timer.elapsed(OffsetDateTime::from_unix_timestamp(900).unwrap()),
+            120
+        );
     }
 
     #[test]

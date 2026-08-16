@@ -5,10 +5,11 @@
 //! tornaria impossivel recuperar o que de fato aconteceu.
 
 use mos_core::{
-    ActivityType, CoreError, EntrySource, NewTimeEntry, ProjectId, ProjectTracking, Rounding,
-    RoundingMode, TimeEntry, TimeEntryId, TimeTrackingRepository, TrackingSettings, TrackingStatus,
+    ActiveTimer, ActivityType, CoreError, EntrySource, ErrorCode, NewTimeEntry, ProjectId,
+    ProjectTracking, Rounding, RoundingMode, StartTimer, TimeEntry, TimeEntryId,
+    TimeTrackingRepository, TimerStatus, TrackingSettings, TrackingStatus,
 };
-use rusqlite::{params, Row};
+use rusqlite::{params, OptionalExtension, Row};
 
 use crate::{
     map_lock_error, map_sql_error,
@@ -240,6 +241,189 @@ impl TimeTrackingRepository for SqliteStorage {
         Ok(tracking)
     }
 
+    fn active_timer(&self) -> Result<Option<ActiveTimer>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let found = connection
+            .query_row(
+                "SELECT project_id, started_at, last_resumed_at, accumulated_seconds, status, \
+                 description, activity_type FROM active_timer WHERE singleton = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, String>(6)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(map_sql_error)?;
+
+        let Some((project, started, resumed, accumulated, status, description, activity)) = found
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(ActiveTimer {
+            project_id: ProjectId::parse(&project)?,
+            started_at: parse_time(&started)?,
+            last_resumed_at: parse_time(&resumed)?,
+            accumulated_seconds: accumulated,
+            status: if status == "paused" {
+                TimerStatus::Paused
+            } else {
+                TimerStatus::Running
+            },
+            description: description.unwrap_or_default(),
+            activity_type: ActivityType::parse(&activity)?,
+        }))
+    }
+
+    fn start_timer(&self, start: StartTimer) -> Result<ActiveTimer, CoreError> {
+        // Recusa em vez de substituir: encerrar o anterior por conta
+        // descartaria tempo que o usuario nao mandou descartar.
+        if self.active_timer()?.is_some() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidInput,
+                "Ja existe um cronometro em curso. Encerre ou pause antes de comecar outro.",
+                false,
+            ));
+        }
+
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let now = time::OffsetDateTime::now_utc();
+        let stamp = format_time(now)?;
+        connection
+            .execute(
+                "INSERT INTO active_timer (id, singleton, project_id, started_at, \
+                 last_resumed_at, accumulated_seconds, status, description, activity_type, \
+                 created_at, updated_at) \
+                 VALUES (?1, 1, ?2, ?3, ?3, 0, 'running', ?4, ?5, ?3, ?3)",
+                params![
+                    uuid::Uuid::now_v7().to_string(),
+                    start.project_id.to_string(),
+                    stamp,
+                    start.description,
+                    start.activity_type.as_str(),
+                ],
+            )
+            .map_err(map_sql_error)?;
+
+        Ok(ActiveTimer {
+            project_id: start.project_id,
+            started_at: now,
+            last_resumed_at: now,
+            accumulated_seconds: 0,
+            status: TimerStatus::Running,
+            description: start.description,
+            activity_type: start.activity_type,
+        })
+    }
+
+    fn set_timer_running(&self, running: bool) -> Result<ActiveTimer, CoreError> {
+        let timer = self.active_timer()?.ok_or_else(|| {
+            CoreError::new(ErrorCode::NotFound, "Nao ha cronometro em curso.", false)
+        })?;
+        let now = time::OffsetDateTime::now_utc();
+
+        // Pausar consolida o que correu ate agora em `accumulated_seconds`;
+        // retomar zera a marca de referencia. Sem consolidar, uma pausa perderia
+        // o trecho entre o ultimo resume e ela.
+        let (accumulated, resumed) = if running {
+            (timer.accumulated_seconds, now)
+        } else {
+            (timer.elapsed(now), timer.last_resumed_at)
+        };
+
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        connection
+            .execute(
+                "UPDATE active_timer SET status = ?1, accumulated_seconds = ?2, \
+                 last_resumed_at = ?3, updated_at = ?4 WHERE singleton = 1",
+                params![
+                    if running { "running" } else { "paused" },
+                    accumulated,
+                    format_time(resumed)?,
+                    format_time(now)?,
+                ],
+            )
+            .map_err(map_sql_error)?;
+
+        Ok(ActiveTimer {
+            accumulated_seconds: accumulated,
+            last_resumed_at: resumed,
+            status: if running {
+                TimerStatus::Running
+            } else {
+                TimerStatus::Paused
+            },
+            ..timer
+        })
+    }
+
+    fn stop_timer(&self) -> Result<TimeEntry, CoreError> {
+        let timer = self.active_timer()?.ok_or_else(|| {
+            CoreError::new(ErrorCode::NotFound, "Nao ha cronometro em curso.", false)
+        })?;
+        let now = time::OffsetDateTime::now_utc();
+        let duration = timer.elapsed(now);
+
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        // Gravar a sessao e apagar o cronometro na MESMA transacao. Separados,
+        // uma queda entre os dois deixaria a hora contada duas vezes ou nenhuma.
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+
+        // A taxa vem do Project no momento do encerramento e vira snapshot da
+        // sessao: reajustar depois nao reescreve o que ja foi trabalhado.
+        let rate: i64 = transaction
+            .query_row(
+                "SELECT hourly_rate_cents FROM project_tracking WHERE project_id = ?1",
+                params![timer.project_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(map_sql_error)?
+            .unwrap_or(0);
+
+        let id = TimeEntryId::new();
+        let stamp = format_time(now)?;
+        transaction
+            .execute(
+                "INSERT INTO time_entries (id, project_id, started_at, ended_at, \
+                 duration_seconds, idle_seconds, description, activity_type, billable, \
+                 hourly_rate_snapshot_cents, source, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, 1, ?8, 'timer', ?4, ?4)",
+                params![
+                    id.to_string(),
+                    timer.project_id.to_string(),
+                    format_time(timer.started_at)?,
+                    stamp,
+                    duration,
+                    timer.description,
+                    timer.activity_type.as_str(),
+                    rate,
+                ],
+            )
+            .map_err(map_sql_error)?;
+        transaction
+            .execute("DELETE FROM active_timer WHERE singleton = 1", [])
+            .map_err(map_sql_error)?;
+
+        let raw = transaction
+            .query_row(
+                &format!("SELECT {ENTRY_COLUMNS} FROM time_entries WHERE id = ?1"),
+                params![id.to_string()],
+                read_entry,
+            )
+            .map_err(map_sql_error)?;
+        transaction.commit().map_err(map_sql_error)?;
+        build_entry(raw)
+    }
+
     fn tracking_settings(&self) -> Result<TrackingSettings, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let (enabled, interval, mode, idle) = connection
@@ -415,6 +599,109 @@ mod tests {
             })
             .unwrap();
         assert_eq!(still, born);
+    }
+
+    fn start(project_id: ProjectId) -> StartTimer {
+        StartTimer {
+            project_id,
+            description: "detalhe do patamar".into(),
+            activity_type: ActivityType::Detailing,
+        }
+    }
+
+    #[test]
+    fn a_started_timer_is_running_from_zero() {
+        let (storage, _guard) = temporary_storage();
+        let id = project(&storage);
+
+        let timer = storage.start_timer(start(id)).unwrap();
+        assert_eq!(timer.status, TimerStatus::Running);
+        assert_eq!(timer.accumulated_seconds, 0);
+
+        let found = storage.active_timer().unwrap().unwrap();
+        assert_eq!(found.project_id, id);
+        assert_eq!(found.activity_type, ActivityType::Detailing);
+        assert_eq!(found.description, "detalhe do patamar");
+    }
+
+    /// Recusar em vez de substituir: encerrar o anterior por conta descartaria
+    /// tempo que o usuario nao mandou descartar.
+    #[test]
+    fn a_second_timer_is_refused_instead_of_replacing_the_first() {
+        let (storage, _guard) = temporary_storage();
+        let first = project(&storage);
+        storage.start_timer(start(first)).unwrap();
+
+        let error = storage.start_timer(start(first)).unwrap_err();
+        assert!(error.message.contains("cronometro em curso"));
+        assert!(storage.active_timer().unwrap().is_some());
+    }
+
+    #[test]
+    fn pausing_and_resuming_persist_the_state() {
+        let (storage, _guard) = temporary_storage();
+        let id = project(&storage);
+        storage.start_timer(start(id)).unwrap();
+
+        let paused = storage.set_timer_running(false).unwrap();
+        assert_eq!(paused.status, TimerStatus::Paused);
+        assert_eq!(
+            storage.active_timer().unwrap().unwrap().status,
+            TimerStatus::Paused
+        );
+
+        let resumed = storage.set_timer_running(true).unwrap();
+        assert_eq!(resumed.status, TimerStatus::Running);
+        assert_eq!(
+            storage.active_timer().unwrap().unwrap().status,
+            TimerStatus::Running
+        );
+    }
+
+    /// Encerrar grava a sessao E limpa o cronometro. Nada e descartado em
+    /// silencio, e a taxa vem do Project no momento do encerramento.
+    #[test]
+    fn stopping_writes_the_session_and_clears_the_timer() {
+        let (storage, _guard) = temporary_storage();
+        let id = project(&storage);
+        storage
+            .set_project_tracking(ProjectTracking {
+                project_id: id,
+                hourly_rate_cents: 3_000,
+                code: String::new(),
+                color: String::new(),
+                tracking_status: TrackingStatus::Active,
+            })
+            .unwrap();
+        storage.start_timer(start(id)).unwrap();
+
+        let entry = storage.stop_timer().unwrap();
+        assert_eq!(entry.project_id, id);
+        assert_eq!(entry.source, EntrySource::Timer);
+        assert_eq!(entry.activity_type, ActivityType::Detailing);
+        assert_eq!(entry.hourly_rate_snapshot_cents, 3_000);
+        assert!(entry.ended_at.is_some());
+
+        assert!(storage.active_timer().unwrap().is_none());
+        assert_eq!(storage.time_entries(Some(id)).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn stopping_without_a_timer_reports_not_found() {
+        let (storage, _guard) = temporary_storage();
+        assert!(storage.stop_timer().is_err());
+        assert!(storage.set_timer_running(false).is_err());
+    }
+
+    /// Sem tracking cadastrado a taxa e zero, e nao um erro: o Project pode ser
+    /// pessoal e nao ter valor/hora nenhum.
+    #[test]
+    fn a_project_without_a_rate_records_zero() {
+        let (storage, _guard) = temporary_storage();
+        let id = project(&storage);
+        storage.start_timer(start(id)).unwrap();
+
+        assert_eq!(storage.stop_timer().unwrap().hourly_rate_snapshot_cents, 0);
     }
 
     #[test]

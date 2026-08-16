@@ -211,6 +211,18 @@ pub trait TimeTrackingRepository: Send + Sync {
         tracking: crate::ProjectTracking,
     ) -> Result<crate::ProjectTracking, CoreError>;
     fn project_tracking(&self) -> Result<Vec<crate::ProjectTracking>, CoreError>;
+    /// O cronometro em curso, se houver.
+    fn active_timer(&self) -> Result<Option<crate::ActiveTimer>, CoreError>;
+    /// Comeca a contar. RECUSA se ja houver um cronometro.
+    ///
+    /// Recusar em vez de substituir e a regra: encerrar o anterior por conta
+    /// descartaria tempo que o usuario nao mandou descartar.
+    fn start_timer(&self, start: crate::StartTimer) -> Result<crate::ActiveTimer, CoreError>;
+    /// Pausa ou retoma. Cada transicao grava na hora — um estado que so vive na
+    /// memoria some junto com a janela, e o trabalho nao.
+    fn set_timer_running(&self, running: bool) -> Result<crate::ActiveTimer, CoreError>;
+    /// Encerra e devolve a sessao gravada. Nada e descartado em silencio.
+    fn stop_timer(&self) -> Result<crate::TimeEntry, CoreError>;
     fn tracking_settings(&self) -> Result<crate::TrackingSettings, CoreError>;
     fn set_tracking_settings(
         &self,
