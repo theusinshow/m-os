@@ -134,6 +134,10 @@ export function TempoProjects({ projects, totals, openProject }: {
 
   return (
     <>
+      {/* Acima da tabela: o erro de salvar uma cobrança precisa ser visto sem
+          rolar por vinte Projects. */}
+      {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
+
       <Panel
         label="PROJECTS"
         count={sum.cents ? moneyOf(sum.cents) : undefined}
@@ -203,8 +207,6 @@ export function TempoProjects({ projects, totals, openProject }: {
           </EmptyState>
         )}
       </Panel>
-
-      {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
 
       <dialog ref={dialog} className="restore-dialog" onCancel={() => { dialog.current?.close(); setEditing(null); }}>
         <span className="micro-label">COBRANÇA</span>

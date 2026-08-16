@@ -231,6 +231,11 @@ export function TempoReports({ projects }: { projects: Project[] }) {
 
   return (
     <>
+      {/* Acima e não abaixo: "CSV salvo" e "Exportação cancelada" são a resposta
+          a um botão que fica no topo, e o rodapé desta página está três tabelas
+          adiante. Um recibo que exige rolar é um recibo que ninguém lê. */}
+      {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
+
       <Panel label="RECORTE" rule>
         <div className="tempo-filters">
           <div className="tempo-field">
@@ -393,8 +398,6 @@ export function TempoReports({ projects }: { projects: Project[] }) {
           </Panel>
         </>
       ) : null}
-
-      {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
     </>
   );
 }

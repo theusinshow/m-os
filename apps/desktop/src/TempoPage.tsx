@@ -71,6 +71,14 @@ export function TempoPage({ projects, openProject, receipt }: {
   // tela e um botao que nao acontece.
   const [pendingImport, setPendingImport] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  // O recado da importacao vive AQUI e nao no `note` da pagina.
+  //
+  // Isto foi um bug real: o botao "Importar agora" fica no topo, e o `note`
+  // renderiza no rodape — depois do cronometro, da tabela, das sessoes, da
+  // linha do tempo e das configuracoes. O backend recusava com "ja foi
+  // importado" e a explicacao aparecia milhares de pixels abaixo da dobra. Da
+  // cadeira do usuario, o botao estava morto.
+  const [importNote, setImportNote] = useState("");
 
   const load = useCallback(async () => {
     const [nextTotals, nextEntries] = await Promise.all([
@@ -83,32 +91,52 @@ export function TempoPage({ projects, openProject, receipt }: {
 
   useEffect(() => { void load(); }, [load]);
 
-  useEffect(() => {
-    void (async () => {
-      const [at, path] = await Promise.all([
-        api.cronocadImportedAt().catch(() => null),
-        api.defaultCronocadPath().catch(() => null),
-      ]);
-      // Nulo em dois casos que dao no mesmo para a tela: ja importou, ou nao ha
-      // CronoCAD nesta maquina. Nos dois o convite nao faz sentido.
-      setPendingImport(at ? null : path);
-    })();
+  /**
+   * Decide se o convite de importação faz sentido agora.
+   *
+   * A pergunta "já importei?" NÃO pode ser respondida com `catch(() => null)`.
+   * Fazia isso antes, e "a checagem falhou" virava "nunca importou" — o convite
+   * aparecia oferecendo uma ação que o backend ia recusar. Não saber e saber
+   * que não são coisas diferentes, e na dúvida o certo é não convidar.
+   */
+  const checkImport = useCallback(async () => {
+    let importedAt: string | null;
+    try {
+      importedAt = await api.cronocadImportedAt();
+    } catch {
+      setPendingImport(null);
+      return;
+    }
+    if (importedAt) {
+      setPendingImport(null);
+      return;
+    }
+    // Ausente em dois casos: nunca importou, ou não há CronoCAD nesta máquina.
+    // Só o primeiro merece convite, e o caminho é o que distingue os dois.
+    setPendingImport(await api.defaultCronocadPath().catch(() => null));
   }, []);
+
+  useEffect(() => { void checkImport(); }, [checkImport]);
 
   async function runImport() {
     if (!pendingImport) return;
     setImporting(true);
-    setNote("");
+    setImportNote("");
     try {
       const report = await api.importCronocad(pendingImport);
       setPendingImport(null);
-      setNote(
+      setImportNote(
         `Importado: ${report.projects} projects · ${report.entries} sessões · ` +
         `${(report.trackedSeconds / 3600).toFixed(1)} h · ${report.activityEvents} eventos.`,
       );
       await load();
     } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error));
+      setImportNote(error instanceof Error ? error.message : String(error));
+      // Recusou porque já estava importado? Então o convite está desatualizado,
+      // e insistir em mostrá-lo convida o usuário a clicar de novo no mesmo
+      // botão para receber o mesmo "não".
+      await checkImport();
+      await load();
     }
     setImporting(false);
   }
@@ -169,6 +197,10 @@ export function TempoPage({ projects, openProject, receipt }: {
         ))}
       </nav>
 
+      {/* Resposta a UM clique de distância do botão que a provocou. Um recado no
+          rodapé de uma página longa é um recado que não existe. */}
+      {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
+
       {pendingImport ? (
         <Panel label="CRONOCAD ENCONTRADO" rule>
           <div className="tempo-invite">
@@ -179,11 +211,20 @@ export function TempoPage({ projects, openProject, receipt }: {
                 sua configuração de arredondamento. O banco de origem é aberto <strong>somente para leitura</strong> —
                 o CronoCAD continua intacto, e você compara o total antes de desinstalar. Roda uma vez.
               </p>
+              {importNote ? <p className="support-copy" aria-live="polite">{importNote}</p> : null}
             </div>
             <Button variant="primary" size="sm" disabled={importing} onClick={() => void runImport()}>
               {importing ? "Importando" : "Importar agora"}
             </Button>
           </div>
+        </Panel>
+      ) : importNote ? (
+        // O convite sumiu no meio da ação — importou, ou descobriu-se que já
+        // estava importado. O recibo sobrevive ao painel que o gerou: sem isto,
+        // o resultado desapareceria junto com o botão e o clique pareceria não
+        // ter feito nada.
+        <Panel label="CRONOCAD">
+          <p className="support-copy" aria-live="polite">{importNote}</p>
         </Panel>
       ) : null}
 
@@ -299,8 +340,6 @@ export function TempoPage({ projects, openProject, receipt }: {
           <TempoSettings onChanged={() => void load()} />
         </>
       ) : null}
-
-      {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
     </div>
   );
 }

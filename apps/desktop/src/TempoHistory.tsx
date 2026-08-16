@@ -149,6 +149,10 @@ export function TempoHistory({ projects, entries, onChanged, receipt }: {
 
   return (
     <>
+      {/* Acima da lista, e não depois dela: o erro de uma correção precisa ser
+          visto sem rolar por trinta sessões. */}
+      {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
+
       <Panel label="RECORTE" rule>
         <div className="tempo-filters">
           <div className="tempo-field">
@@ -252,8 +256,6 @@ export function TempoHistory({ projects, entries, onChanged, receipt }: {
           />
         )}
       </Panel>
-
-      {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
     </>
   );
 }
