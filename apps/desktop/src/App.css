@@ -633,6 +633,53 @@ textarea::placeholder {
   color: var(--text-system);
 }
 
+.timer-idle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+}
+
+.timer-idle select {
+  flex: 1;
+  min-width: 0;
+}
+
+.timer-live {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+}
+
+/* Algarismos tabulares nao sao refinamento: sem eles cada digito tem largura
+   propria, e o relogio TREME a cada segundo porque o "1" e mais estreito que o
+   "8". Um numero que se mexe sozinho na tela puxa o olho para longe do
+   trabalho, que e o oposto do que um cronometro deveria fazer. */
+.timer-clock {
+  margin: 0;
+  color: var(--text);
+  /* `title` e nao `display`: 48px num widget de meia largura grita, e o desenho
+     acabou de trocar o numero de 48px da Inbox por um anel. 28px em mono le de
+     relance sem virar o assunto da tela inteira. */
+  font: var(--text-title);
+  font-family: var(--font-system);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-meta);
+}
+
+/* Pausado desce para o cinza: o cronometro continua existindo e para de pedir
+   atencao. Cor sozinha nao carrega a informacao — os botoes dizem "Retomar". */
+.timer-live[data-status="paused"] .timer-clock {
+  color: var(--text-secondary);
+}
+
+.timer-project {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
 .quick-actions {
   display: grid;
   justify-items: start;

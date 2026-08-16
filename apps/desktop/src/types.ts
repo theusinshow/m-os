@@ -168,6 +168,39 @@ export type BackupReceipt = {
  * `trackedSeconds` existe para ser comparado com a tela do CronoCAD: é o número
  * que diz se as horas chegaram inteiras, e portanto se dá para desinstalar.
  */
+export type ActivityType = "drawing" | "detailing" | "revision" | "meeting" | "study" | "other";
+
+/**
+ * O cronômetro em curso.
+ *
+ * Vem cru — acumulado mais a marca do último resume — e não como segundos já
+ * prontos. É o que permite a tela desenhar o relógio correndo sozinha, sem o
+ * backend precisar emitir um evento por segundo.
+ */
+export type ActiveTimer = {
+  projectId: string;
+  startedAt: string;
+  lastResumedAt: string;
+  accumulatedSeconds: number;
+  status: "running" | "paused";
+  description: string;
+  activityType: ActivityType;
+};
+
+export type TimeEntry = {
+  id: string;
+  projectId: string;
+  startedAt: string;
+  endedAt: string | null;
+  durationSeconds: number;
+  idleSeconds: number;
+  description: string;
+  activityType: ActivityType;
+  billable: boolean;
+  hourlyRateSnapshotCents: number;
+  source: "timer" | "manual" | "reconstructed";
+};
+
 export type ImportReport = {
   projects: number;
   entries: number;

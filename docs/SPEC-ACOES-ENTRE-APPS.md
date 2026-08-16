@@ -124,11 +124,34 @@ O M/OS não aprende o que é uma conta: ele aprende que existe
 `m-finance.recurrence.create` e qual a forma dos argumentos. **A regra de domínio continua
 dentro do App.**
 
-### 4.3 M-Finance — a peça que não existe
+### 4.3 M-Finance — a peça que **passou a existir**
 
-Este é o buraco real. As escritas do M-Finance vivem em **Server Actions**
-(`app/actions/bills.ts` e vizinhos), que não são contrato público. Ele tem rotas de API
-para auth, cron, export e Open Finance — **nenhuma de escrita.**
+> **Corrigido em 2026-08-16.** O texto abaixo dizia que esta era a peça que não existia.
+> Deixou de ser verdade, e por um caminho que ninguém planejou: o M-Finance ganhou um
+> agente de WhatsApp — 14 commits que só chegaram ao monorepo quando os repositórios
+> originais foram arquivados — e com ele um executor de ações completo.
+>
+> O que existe hoje em `lib/whatsapp/`, 2.605 linhas:
+>
+> | Arquivo | O que resolve |
+> |---|---|
+> | `action-executor.ts` | executa ações com payload validado por Zod |
+> | `pending-intents.ts` | proposta pendente, confirmação, expiração |
+> | `audit.ts` | registro do que foi executado |
+> | `auth.ts` | autenticação por segredo, máquina a máquina |
+>
+> E o esquema de `create_bill` é `{ amountCents, description, dueDay, isRecurring }` —
+> exatamente a conta de água que motivou esta spec.
+>
+> Vale notar o que aconteceu: **os dois lados chegaram sozinhos à mesma arquitetura.**
+> Propor, deixar pendente, confirmar, executar, registrar. Não foi coordenação; foi o
+> mesmo problema empurrando para a mesma forma.
+>
+> **Consequência para a fase 3:** ela deixa de ser "construir uma Action API" e vira
+> "expor o executor que já existe num endpoint que o M/OS chame". O trabalho restante é
+> a rota HTTP autenticada, o adapter do lado do M/OS e a credencial — não o domínio.
+
+O texto original, mantido porque a regra que ele enuncia continua valendo:
 
 Precisa ganhar uma **Action API**: endpoint estreito, versionado, autenticado por máquina,
 que chama as mesmas funções que a UI dele chama. O precedente de autenticação máquina a

@@ -9,6 +9,8 @@ import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionInte
 import { hermes, type HermesConnectionState, type HermesFailure, type HermesStatus } from "./hermes";
 import { HermesPage } from "./HermesPage";
 import { AppIcon } from "./AppIcon";
+import { Button } from "./Button";
+import { Timer } from "./Timer";
 import { Icon, type IconName } from "./Icon";
 import { Ring, RingLabel } from "./Ring";
 import { MonthDensity, TaskProgressRing, WeekRings } from "./Widgets";
@@ -83,11 +85,6 @@ function resourceHost(url: string) {
   }
 }
 
-function Button({ variant = "secondary", size, className = "", children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "outline" | "ghost" | "danger"; size?: "sm" }) {
-  // className e somado, nunca sobrescrito: espalhar props depois do className
-  // fazia um className de fora apagar "button primary" inteiro.
-  return <button className={`button ${variant} ${size ?? ""} ${className}`.replace(/\s+/g, " ").trim()} type="button" {...props}>{children}</button>;
-}
 
 function IconButton({ label, icon, active = false, onClick }: { label: string; icon: IconName; active?: boolean; onClick: () => void }) {
   return <button className="icon-button" type="button" aria-label={label} title={label} onClick={onClick}><Icon name={icon} filled={active} /></button>;
@@ -151,6 +148,7 @@ function SystemHealth({ status }: { status: AppStatus | null }) {
    a linha guardada deixa de casar com qualquer widget do catalogo. O rotulo
    pode mudar a vontade; o id, nunca. */
 const HOME_WIDGETS: { id: string; label: string }[] = [
+  { id: "timer", label: "CRONÔMETRO" },
   { id: "now", label: "EM ANDAMENTO" },
   { id: "week_rings", label: "SEMANA" },
   { id: "task_progress", label: "CONCLUÍDO" },
@@ -365,11 +363,29 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
         Preferi isto a `grid-auto-flow: dense`, que taparia vãos movendo itens
         para trás e faria a ordem visual divergir da ordem de foco. */}
 
-    {/* O QUE PRECISO FAZER. Só o que exige decisão: o que está em andamento e o
-        que espera na Inbox. O anel de concluído fecha a linha porque é a
-        resposta de "e o que já saiu da frente?". */}
+    {/* AGORA. O que está acontecendo neste minuto, e nada mais: a hora que está
+        correndo e o trabalho que está aberto. Os dois fecham a faixa em 12. */}
     <div className="home-grid">
+      <Widget id="timer" hidden={hiddenIds.has("timer")} size="2x1"><Panel label="CRONÔMETRO"><Timer projects={projects} onChanged={() => void refresh()} /></Panel></Widget>
       <Widget id="now" hidden={hiddenIds.has("now")} size="2x1"><Panel label="EM ANDAMENTO" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel></Widget>
+    </div>
+
+    {/* O QUE ESTÁ ACONTECENDO. Anel, densidade e lista curta — tudo de relance,
+        nada pedindo decisão, e é isso que os mantém no mesmo grupo.
+
+        São cinco, um a mais que a regra de quatro por grupo. A alternativa era
+        uma faixa pela metade, que lê pior que um grupo levemente cheio.
+
+        RECENTES entra aqui e não na faixa de cima: capture recente é o pulso do
+        que passou, não uma decisão pendente. A contagem verdadeira da Inbox é a
+        do anel — o badge de RECENTES foi removido porque `list_recent` não
+        filtra por `processing_state` (repository.rs:91) e o comando pede só 8
+        (lib.rs:80), então o número mentia duas vezes.
+
+        Os outros sete widgets do catálogo dependem de calendário e hábitos, que
+        não existem no domínio, e por isso não estão aqui. */}
+    <div className="home-grid">
+      <Widget id="month_density" hidden={hiddenIds.has("month_density")} size="2x2"><Panel label="MÊS"><MonthDensity tasks={tasks} captures={recent} /></Panel></Widget>
       <Widget id="inbox_pulse" hidden={hiddenIds.has("inbox_pulse")} size="1x1"><Panel label="INBOX">{/* O numero cru vira anel. A proporcao mostrada e o que esta ENVELHECENDO
     dentro da Inbox, nao o tamanho dela: uma Inbox grande e processada hoje e
     saudavel, e uma pequena parada ha uma semana nao e. O anel vazio com o
@@ -377,20 +393,6 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
     bom — e e por isso que zero nao desenha ponto de sodio. */}
 <button type="button" className="pulse" onClick={() => openInbox()}><Ring size={88} segments={[{ value: inbox.length ? staleInbox / inbox.length : 0 }]}><RingLabel value={inboxCapped ? `${INBOX_PAGE}+` : String(inbox.length)} /></Ring><small>{inbox.length === 1 ? "capture por processar" : "captures por processar"}</small>{staleInbox ? <small className="pulse-stale">{staleInbox === 1 && !inboxCapped ? "1 com mais de 3 dias" : `${staleInbox}${inboxCapped ? "+" : ""} com mais de 3 dias`}</small> : null}</button></Panel></Widget>
       <Widget id="task_progress" hidden={hiddenIds.has("task_progress")} size="1x1"><Panel label="CONCLUÍDO"><TaskProgressRing tasks={tasks} /></Panel></Widget>
-    </div>
-
-    {/* O QUE ESTÁ ACONTECENDO. Os widgets visuais da família anel e densidade:
-        cada um lê dado que o M/OS já registra — Task concluída, Task criada,
-        Capture. Os outros sete do catálogo dependem de tempo rastreado,
-        calendário e hábitos, que não existem no domínio, e ficam de fora.
-
-        RECENTES entra aqui e não na faixa de cima: capture recente é o pulso do
-        que passou, não uma decisão pendente. A contagem verdadeira da Inbox é a
-        do anel acima — o badge daqui foi removido porque `list_recent` não
-        filtra por `processing_state` (repository.rs:91) e o comando pede só 8
-        (lib.rs:80), então o número mentia duas vezes. */}
-    <div className="home-grid">
-      <Widget id="month_density" hidden={hiddenIds.has("month_density")} size="2x2"><Panel label="MÊS"><MonthDensity tasks={tasks} captures={recent} /></Panel></Widget>
       <Widget id="week_rings" hidden={hiddenIds.has("week_rings")} size="2x1"><Panel label="SEMANA"><WeekRings tasks={tasks} onOpen={openTasksPage} /></Panel></Widget>
       <Widget id="recent" hidden={hiddenIds.has("recent")} size="2x1"><Panel label="RECENTES">{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nada capturado ainda. O que você escrever no campo acima aparece aqui.</EmptyState>}</Panel></Widget>
     </div>

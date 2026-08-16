@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { ActiveTimer, ActivityType, AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -207,6 +207,19 @@ export const api = {
   },
   hideQuickCapture() {
     return invoke<void>("hide_quick_capture");
+  },
+  timerCurrent() {
+    return invoke<ActiveTimer | null>("timer_current");
+  },
+  timerStart(projectId: string, description: string, activityType: ActivityType) {
+    return invoke<ActiveTimer>("timer_start", { projectId, description, activityType });
+  },
+  timerSetRunning(running: boolean) {
+    return invoke<ActiveTimer>("timer_set_running", { running });
+  },
+  /** Encerra e devolve a sessão gravada. */
+  timerStop() {
+    return invoke<TimeEntry>("timer_stop");
   },
   /** Onde o CronoCAD guarda o banco, se ele estiver instalado. */
   defaultCronocadPath() {
