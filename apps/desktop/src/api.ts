@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -207,6 +207,14 @@ export const api = {
   },
   hideQuickCapture() {
     return invoke<void>("hide_quick_capture");
+  },
+  /** Onde o CronoCAD guarda o banco, se ele estiver instalado. */
+  defaultCronocadPath() {
+    return invoke<string | null>("tracking_default_cronocad_path");
+  },
+  /** Caminho de mão única, roda uma vez. A origem é aberta só para leitura. */
+  importCronocad(path: string) {
+    return invoke<ImportReport>("tracking_import_cronocad", { path });
   },
   createBackup(path: string) {
     return invoke<BackupReceipt>("create_backup", { path });

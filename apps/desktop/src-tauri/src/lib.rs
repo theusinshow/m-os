@@ -9,8 +9,9 @@ use mos_core::{
     CaptureService, ConversationService, CoreError, CreateAppInput, CreateCaptureInput,
     CreateProjectInput, CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService,
     FunctionDefinition, HiddenWidget, MemoryService, Project, RegisteredApp, Resource,
-    ResourceWorkspace, SearchItem, Task, TaskState, UpdateAppInput, UpdateProjectInput,
-    UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, WorkService, Workspace,
+    ResourceWorkspace, SearchItem, Task, TaskState, TrackingService, UpdateAppInput,
+    UpdateProjectInput, UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, WorkService,
+    Workspace,
 };
 use mos_storage_sqlite::{SqliteStorage, StorageHealth};
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod hermes;
 mod jarvis;
+mod tracking;
 
 const DEFAULT_CAPTURE_SHORTCUT: &str = "Ctrl+Shift+Space";
 
@@ -32,6 +34,7 @@ struct AppState {
     apps: AppService,
     memory: MemoryService,
     conversations: ConversationService,
+    tracking: TrackingService,
     data: DataService,
     storage: Arc<SqliteStorage>,
     shortcut_status: Mutex<String>,
@@ -1139,6 +1142,7 @@ pub fn run() {
                 apps: AppService::new(storage.clone()),
                 memory: MemoryService::new(storage.clone()),
                 conversations: ConversationService::new(storage.clone()),
+                tracking: TrackingService::new(storage.clone()),
                 data: DataService::new(storage.clone()),
                 storage,
                 shortcut_status: Mutex::new("Registrando...".into()),
@@ -1189,6 +1193,10 @@ pub fn run() {
             hermes::hermes_clarify,
             hermes::hermes_clarify_cancel,
             jarvis::action_undo,
+            tracking::tracking_default_cronocad_path,
+            tracking::tracking_import_cronocad,
+            tracking::tracking_totals,
+            tracking::tracking_entries,
             hermes::hermes_select_conversation,
             hermes::hermes_load_history,
             hermes::hermes_disconnect,

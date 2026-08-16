@@ -18,6 +18,8 @@ use mos_core::{CoreError, ErrorCode};
 use rusqlite::{Connection, MAIN_DB};
 use serde::Serialize;
 
+pub use cronocad_import::ImportReport;
+
 const SCHEMA_VERSION: u32 = 11;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");

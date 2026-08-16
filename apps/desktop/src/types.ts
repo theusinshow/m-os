@@ -162,6 +162,19 @@ export type BackupReceipt = {
   createdAt: string;
 };
 
+/**
+ * O que a importação do CronoCAD trouxe.
+ *
+ * `trackedSeconds` existe para ser comparado com a tela do CronoCAD: é o número
+ * que diz se as horas chegaram inteiras, e portanto se dá para desinstalar.
+ */
+export type ImportReport = {
+  projects: number;
+  entries: number;
+  tasks: number;
+  trackedSeconds: number;
+};
+
 export type BackupInspection = BackupReceipt & {
   schemaVersion: number;
   captureCount: number;
