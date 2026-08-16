@@ -1,6 +1,7 @@
 mod app_repository;
 mod backup;
 mod conversation_repository;
+mod cronocad_import;
 mod repository;
 mod resource_repository;
 mod tracking_repository;
