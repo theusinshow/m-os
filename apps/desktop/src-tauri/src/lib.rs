@@ -1195,6 +1195,7 @@ pub fn run() {
             jarvis::action_undo,
             tracking::tracking_default_cronocad_path,
             tracking::tracking_import_cronocad,
+            tracking::tracking_cronocad_imported_at,
             tracking::tracking_totals,
             tracking::tracking_entries,
             tracking::timer_current,

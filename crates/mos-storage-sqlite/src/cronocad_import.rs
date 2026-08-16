@@ -50,15 +50,18 @@ fn map_status(raw: &str) -> (LifecycleState, TrackingStatus) {
 impl SqliteStorage {
     /// Importa um banco do CronoCAD. Roda uma vez.
     ///
-    /// Recusa se ja houver sessao gravada, e a recusa e a protecao: sem ela,
-    /// rodar duas vezes dobraria as horas de todo projeto, e o erro so
-    /// apareceria na hora de faturar.
+    /// A recusa olha para a MARCA de importacao, e nao para a existencia de
+    /// sessao. A primeira versao recusava quando `time_entries` tinha qualquer
+    /// linha, e isso quebrou no primeiro uso real: quem experimentou o
+    /// cronometro antes de importar criou uma sessao e ficou impedido de
+    /// importar para sempre. "Ja importei" e "tem dado" nao sao a mesma
+    /// pergunta.
     pub fn import_cronocad(&self, source: &Path) -> Result<ImportReport, CoreError> {
-        if !self.time_entries(None)?.is_empty() {
+        if self.cronocad_imported_at()?.is_some() {
             return Err(CoreError::new(
                 ErrorCode::InvalidInput,
-                "Ja existe tempo registrado no M/OS. A importacao do CronoCAD roda uma vez, \
-                 em banco sem sessao — importar de novo dobraria as horas.",
+                "O CronoCAD ja foi importado neste M/OS. Importar de novo dobraria as horas \
+                 de todo projeto, e o erro so apareceria na hora de faturar.",
                 false,
             ));
         }
@@ -127,7 +130,33 @@ impl SqliteStorage {
             report.projects += 1;
         }
 
+        self.mark_cronocad_imported()?;
         Ok(report)
+    }
+
+    /// Quando o CronoCAD foi importado, se foi.
+    pub fn cronocad_imported_at(&self) -> Result<Option<String>, CoreError> {
+        let connection = self.connection.lock().map_err(crate::map_lock_error)?;
+        connection
+            .query_row(
+                "SELECT cronocad_imported_at FROM tracking_settings WHERE id = 1",
+                [],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .map_err(map_sql_error)
+    }
+
+    fn mark_cronocad_imported(&self) -> Result<(), CoreError> {
+        let connection = self.connection.lock().map_err(crate::map_lock_error)?;
+        connection
+            .execute(
+                "UPDATE tracking_settings SET cronocad_imported_at = ?1 WHERE id = 1",
+                [crate::repository::format_time(
+                    time::OffsetDateTime::now_utc(),
+                )?],
+            )
+            .map_err(map_sql_error)?;
+        Ok(())
     }
 
     fn copy_entries(
@@ -364,7 +393,38 @@ mod tests {
         storage.import_cronocad(&source).unwrap();
 
         let error = storage.import_cronocad(&source).unwrap_err();
-        assert!(error.message.contains("uma vez"));
+        assert!(error.message.contains("ja foi importado"));
+        assert!(storage.cronocad_imported_at().unwrap().is_some());
+    }
+
+    /// O caso que quebrou no primeiro uso real.
+    ///
+    /// A trava antiga recusava quando `time_entries` tinha qualquer linha, entao
+    /// quem experimentou o cronometro antes de importar ficava impedido de
+    /// importar PARA SEMPRE. "Ja importei" e "tem dado" nao sao a mesma
+    /// pergunta, e este teste prende a diferenca.
+    #[test]
+    fn trying_the_timer_first_does_not_block_the_import() {
+        let (storage, directory) = m_os();
+        let existing = storage
+            .create_project(NewProject::create("NexoDoc", "", "").unwrap())
+            .unwrap();
+        storage
+            .start_timer(mos_core::StartTimer {
+                project_id: existing.id,
+                description: String::new(),
+                activity_type: ActivityType::Other,
+            })
+            .unwrap();
+        storage.stop_timer().unwrap();
+        assert_eq!(storage.time_entries(None).unwrap().len(), 1);
+
+        let report = storage
+            .import_cronocad(&cronocad(directory.path()))
+            .unwrap();
+        assert_eq!(report.projects, 2);
+        // A sessao do teste do cronometro continua la, somada as importadas.
+        assert_eq!(storage.time_entries(None).unwrap().len(), 5);
     }
 
     /// Ensaio contra um banco REAL, sob demanda.

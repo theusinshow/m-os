@@ -26,6 +26,17 @@ pub fn tracking_default_cronocad_path() -> Option<String> {
     path.exists().then(|| path.display().to_string())
 }
 
+/// Quando o CronoCAD foi importado, se foi.
+///
+/// A tela pergunta ao BANCO em vez de lembrar da sessao: fechar e reabrir o app
+/// nao deveria reabilitar um botao que nao pode mais ser clicado.
+#[tauri::command]
+pub fn tracking_cronocad_imported_at<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<Option<String>, CoreError> {
+    app.state::<AppState>().storage.cronocad_imported_at()
+}
+
 /// Importa o banco do CronoCAD. Roda uma vez.
 #[tauri::command]
 pub async fn tracking_import_cronocad<R: Runtime>(

@@ -225,6 +225,10 @@ export const api = {
   defaultCronocadPath() {
     return invoke<string | null>("tracking_default_cronocad_path");
   },
+  /** Quando o CronoCAD foi importado, se foi. Pergunta ao banco, não à sessão. */
+  cronocadImportedAt() {
+    return invoke<string | null>("tracking_cronocad_imported_at");
+  },
   /** Caminho de mão única, roda uma vez. A origem é aberta só para leitura. */
   importCronocad(path: string) {
     return invoke<ImportReport>("tracking_import_cronocad", { path });
