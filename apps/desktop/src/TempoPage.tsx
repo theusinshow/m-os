@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
 import { ContextPath, EmptyState, Panel } from "./Surface";
+import { TempoClients } from "./TempoClients";
+import { TempoSettings } from "./TempoSettings";
 import { Timer } from "./Timer";
 import type { ActivityType, Project, TimeEntry, Totals } from "./types";
 
@@ -367,6 +369,9 @@ export function TempoPage({ projects, openProject, receipt }: {
           <EmptyState>As sessões encerradas aparecem aqui, da mais recente para a mais antiga.</EmptyState>
         )}
       </Panel>
+
+      <TempoClients />
+      <TempoSettings onChanged={() => void load()} />
 
       {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
 

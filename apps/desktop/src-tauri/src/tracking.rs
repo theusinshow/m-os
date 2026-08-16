@@ -205,6 +205,28 @@ pub fn timer_discard<R: Runtime>(app: AppHandle<R>) -> Result<(), CoreError> {
 }
 
 #[tauri::command]
+pub fn tracking_settings<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<mos_core::TrackingSettings, CoreError> {
+    app.state::<AppState>().tracking.settings()
+}
+
+/// Muda arredondamento e inatividade.
+///
+/// Emite `data-changed` porque o arredondamento reescreve TODO total cobravel
+/// da tela: quem estiver olhando a pagina de Tempo precisa reler, ou continuaria
+/// mostrando um numero que deixou de valer.
+#[tauri::command]
+pub fn tracking_set_settings<R: Runtime>(
+    app: AppHandle<R>,
+    settings: mos_core::TrackingSettings,
+) -> Result<mos_core::TrackingSettings, CoreError> {
+    let saved = app.state::<AppState>().tracking.set_settings(settings)?;
+    let _ = app.emit("data-changed", "tracking-settings");
+    Ok(saved)
+}
+
+#[tauri::command]
 pub fn tracking_clients<R: Runtime>(
     app: AppHandle<R>,
     include_archived: bool,

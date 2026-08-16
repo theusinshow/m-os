@@ -788,6 +788,13 @@ textarea::placeholder {
   }
 }
 
+/* Arquivado desce para o cinza e continua legivel. Nao some e nao ganha cor
+   propria: a informacao de que ele existe importa, e a de que esta fora do uso
+   corrente ja esta escrita na linha. */
+.tempo-session[data-archived] strong {
+  color: var(--text-secondary);
+}
+
 .tempo-session-duration {
   flex: none;
   color: var(--text-secondary);

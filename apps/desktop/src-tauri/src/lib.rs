@@ -1209,6 +1209,8 @@ pub fn run() {
             tracking::timer_set_running,
             tracking::timer_stop,
             tracking::timer_discard,
+            tracking::tracking_settings,
+            tracking::tracking_set_settings,
             tracking::tracking_clients,
             tracking::tracking_save_client,
             tracking::tracking_set_client_archived,

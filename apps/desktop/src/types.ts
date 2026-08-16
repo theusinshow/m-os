@@ -201,6 +201,65 @@ export type TimeEntry = {
   source: "timer" | "manual" | "reconstructed";
 };
 
+/** Quem paga pelo trabalho. Um Project pessoal simplesmente não tem. */
+export type Client = {
+  id: string;
+  name: string;
+  companyName: string;
+  email: string;
+  phone: string;
+  notes: string;
+  archived: boolean;
+};
+
+export type ClientInput = {
+  name: string;
+  companyName: string;
+  email: string;
+  phone: string;
+  notes: string;
+};
+
+/**
+ * Um programa cuja abertura sugere trabalho.
+ *
+ * `processName` é a chave real: o monitoramento casa por ele, e o backend
+ * normaliza para minúsculas porque o Windows não diferencia.
+ */
+export type MonitoredApp = {
+  id: string;
+  displayName: string;
+  processName: string;
+  enabled: boolean;
+  remindOnOpen: boolean;
+  remindOnClose: boolean;
+};
+
+export type ActivityKind =
+  | "app_opened"
+  | "app_closed"
+  | "idle_started"
+  | "idle_ended"
+  | "timer_started"
+  | "timer_paused"
+  | "timer_resumed"
+  | "timer_stopped";
+
+/** O que o sistema observou. Observação não vira hora sozinha. */
+export type ActivityEvent = {
+  id: string;
+  kind: ActivityKind;
+  processName: string;
+  detectedAt: string;
+  /** Já virou sessão ou já foi descartado — não é reoferecido. */
+  processed: boolean;
+};
+
+export type TrackingSettings = {
+  rounding: { enabled: boolean; intervalMinutes: number; mode: "nearest" | "up" | "down" };
+  idleThresholdMinutes: number;
+};
+
 /**
  * O que uma correção pode mudar numa sessão.
  *

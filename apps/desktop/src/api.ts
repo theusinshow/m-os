@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { ActiveTimer, ActivityType, AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, Client, ClientInput, MonitoredApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -228,6 +228,41 @@ export const api = {
   },
   trackingRestore(id: string) {
     return invoke<void>("tracking_restore", { id });
+  },
+  trackingSettings() {
+    return invoke<TrackingSettings>("tracking_settings");
+  },
+  trackingSetSettings(settings: TrackingSettings) {
+    return invoke<TrackingSettings>("tracking_set_settings", { settings });
+  },
+  clients(includeArchived = false) {
+    return invoke<Client[]>("tracking_clients", { includeArchived });
+  },
+  /** Cria quando `id` vem vazio, atualiza quando vem preenchido. */
+  saveClient(id: string | null, input: ClientInput) {
+    return invoke<Client>("tracking_save_client", { id, input });
+  },
+  setClientArchived(id: string, archived: boolean) {
+    return invoke<Client>("tracking_set_client_archived", { id, archived });
+  },
+  monitoredApps() {
+    return invoke<MonitoredApp[]>("monitoring_apps");
+  },
+  saveMonitoredApp(entry: MonitoredApp) {
+    return invoke<MonitoredApp>("monitoring_save_app", { entry });
+  },
+  deleteMonitoredApp(id: string) {
+    return invoke<void>("monitoring_delete_app", { id });
+  },
+  /** A janela é obrigatória: a Linha do Tempo é sempre sobre um período. */
+  activityEvents(since: string, until: string) {
+    return invoke<ActivityEvent[]>("monitoring_events", { since, until });
+  },
+  markActivityProcessed(id: string) {
+    return invoke<void>("monitoring_mark_processed", { id });
+  },
+  timerDiscard() {
+    return invoke<void>("timer_discard");
   },
   timerCurrent() {
     return invoke<ActiveTimer | null>("timer_current");
