@@ -44,8 +44,8 @@ pub use resource::{
 pub use service::{
     AppService, CaptureService, ConversationService, CreateAppInput, CreateCaptureInput,
     CreateProjectInput, CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService,
-    MemoryService, TrackingService, UpdateAppInput, UpdateProjectInput, UpdateResourceInput,
-    UpdateTaskInput, UpdateWorkspaceInput, WorkService,
+    MemoryService, MonitoringService, TrackingService, UpdateAppInput, UpdateProjectInput,
+    UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, WorkService,
 };
 pub use tracking::{
     aggregate_by_project, amount_for_duration, billable_duration, elapsed_seconds, net_duration,

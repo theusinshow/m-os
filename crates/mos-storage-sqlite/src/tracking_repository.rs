@@ -631,6 +631,21 @@ impl TimeTrackingRepository for SqliteStorage {
             .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "Cliente nao encontrado.", false))
     }
 
+    fn discard_timer(&self) -> Result<(), CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let changed = connection
+            .execute("DELETE FROM active_timer WHERE singleton = 1", [])
+            .map_err(map_sql_error)?;
+        if changed == 0 {
+            return Err(CoreError::new(
+                ErrorCode::NotFound,
+                "Nao ha cronometro em curso.",
+                false,
+            ));
+        }
+        Ok(())
+    }
+
     fn tracking_settings(&self) -> Result<TrackingSettings, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let (enabled, interval, mode, idle) = connection
@@ -960,6 +975,24 @@ mod tests {
         let (storage, _guard) = temporary_storage();
         assert!(storage.stop_timer().is_err());
         assert!(storage.set_timer_running(false).is_err());
+        assert!(storage.discard_timer().is_err());
+    }
+
+    /// Descartar e a UNICA operacao que joga tempo fora. Existe para quem
+    /// iniciou no Project errado — e por isso nao grava sessao nenhuma.
+    #[test]
+    fn discarding_throws_the_timer_away_without_recording() {
+        let (storage, _guard) = temporary_storage();
+        let id = project(&storage);
+        storage.start_timer(start(id)).unwrap();
+
+        storage.discard_timer().unwrap();
+
+        assert!(storage.active_timer().unwrap().is_none());
+        assert!(
+            storage.time_entries(None).unwrap().is_empty(),
+            "descartar nao pode gravar sessao"
+        );
     }
 
     /// Sem tracking cadastrado a taxa e zero, e nao um erro: o Project pode ser

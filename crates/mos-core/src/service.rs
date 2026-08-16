@@ -3,15 +3,16 @@ use std::{path::Path, sync::Arc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    validate_title, ActiveTimer, AppCapabilities, AppId, AppLaunchKind, AppRepository,
-    BackupInspection, BackupReceipt, Capture, CaptureId, CaptureRepository, CaptureSource,
-    Conversation, ConversationId, ConversationRepository, ConversationSummary, CoreError,
-    DataMaintenance, HiddenWidget, LifecycleState, Message, MessageId, MessageStatus, NewCapture,
-    NewConversation, NewMessage, NewProject, NewRegisteredApp, NewTask, NewTimeEntry, NewWorkspace,
-    PartBody, ProcessingState, Project, ProjectId, ProjectTracking, RegisteredApp, SearchItem,
-    SearchRequest, StartTimer, Task, TaskId, TaskState, TimeEntry, TimeEntryEdit, TimeEntryId,
-    TimeTrackingRepository, Totals, TrackedSession, TrackingSettings, WorkRepository, Workspace,
-    WorkspaceId,
+    validate_title, ActiveTimer, ActivityEvent, ActivityEventId, AppCapabilities, AppId,
+    AppLaunchKind, AppRepository, BackupInspection, BackupReceipt, Capture, CaptureId,
+    CaptureRepository, CaptureSource, Client, ClientId, ClientInput, Conversation, ConversationId,
+    ConversationRepository, ConversationSummary, CoreError, DataMaintenance, HiddenWidget,
+    LifecycleState, Message, MessageId, MessageStatus, MonitoredApp, MonitoringRepository,
+    NewActivityEvent, NewCapture, NewConversation, NewMessage, NewProject, NewRegisteredApp,
+    NewTask, NewTimeEntry, NewWorkspace, PartBody, ProcessingState, Project, ProjectId,
+    ProjectTracking, RegisteredApp, SearchItem, SearchRequest, StartTimer, Task, TaskId, TaskState,
+    TimeEntry, TimeEntryEdit, TimeEntryId, TimeTrackingRepository, Totals, TrackedSession,
+    TrackingSettings, WorkRepository, Workspace, WorkspaceId,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -163,12 +164,34 @@ impl TrackingService {
         self.repository.stop_timer()
     }
 
+    /// Joga fora o cronometro sem gravar. Quem chama confirma antes.
+    pub fn discard_timer(&self) -> Result<(), CoreError> {
+        self.repository.discard_timer()
+    }
+
     pub fn settings(&self) -> Result<TrackingSettings, CoreError> {
         self.repository.tracking_settings()
     }
 
     pub fn set_settings(&self, settings: TrackingSettings) -> Result<TrackingSettings, CoreError> {
         self.repository.set_tracking_settings(settings)
+    }
+
+    pub fn clients(&self, include_archived: bool) -> Result<Vec<Client>, CoreError> {
+        self.repository.clients(include_archived)
+    }
+
+    pub fn create_client(&self, input: ClientInput) -> Result<Client, CoreError> {
+        self.repository.create_client(input)
+    }
+
+    pub fn update_client(&self, id: &str, input: ClientInput) -> Result<Client, CoreError> {
+        self.repository.update_client(ClientId::parse(id)?, input)
+    }
+
+    pub fn set_client_archived(&self, id: &str, archived: bool) -> Result<Client, CoreError> {
+        self.repository
+            .set_client_archived(ClientId::parse(id)?, archived)
     }
 
     /// Totais por Project, ja com o arredondamento configurado aplicado.
@@ -192,6 +215,60 @@ impl TrackingService {
             })
             .collect();
         Ok(crate::aggregate_by_project(&sessions, rounding))
+    }
+}
+
+/// O que o sistema observa (ADR-032).
+///
+/// Servico proprio, e nao metodos no `TrackingService`, pelo mesmo motivo que
+/// os repositorios sao dois: observacao nao vira hora sozinha, e manter os dois
+/// separados torna essa fronteira visivel na assinatura em vez de depender de
+/// alguem lembrar dela.
+#[derive(Clone)]
+pub struct MonitoringService {
+    repository: Arc<dyn MonitoringRepository>,
+}
+
+impl MonitoringService {
+    pub fn new(repository: Arc<dyn MonitoringRepository>) -> Self {
+        Self { repository }
+    }
+
+    pub fn apps(&self) -> Result<Vec<MonitoredApp>, CoreError> {
+        self.repository.monitored_apps()
+    }
+
+    pub fn save_app(&self, app: MonitoredApp) -> Result<MonitoredApp, CoreError> {
+        self.repository.save_monitored_app(app)
+    }
+
+    pub fn delete_app(&self, id: &str) -> Result<(), CoreError> {
+        self.repository.delete_monitored_app(id)
+    }
+
+    /// Os eventos de uma janela, do mais antigo para o mais novo.
+    pub fn events(
+        &self,
+        since: time::OffsetDateTime,
+        until: time::OffsetDateTime,
+    ) -> Result<Vec<ActivityEvent>, CoreError> {
+        if until < since {
+            return Err(CoreError::new(
+                crate::ErrorCode::InvalidInput,
+                "O fim da janela vem antes do inicio.",
+                false,
+            ));
+        }
+        self.repository.activity_events(since, until)
+    }
+
+    pub fn record(&self, event: NewActivityEvent) -> Result<ActivityEvent, CoreError> {
+        self.repository.record_activity(event)
+    }
+
+    pub fn mark_processed(&self, id: &str) -> Result<(), CoreError> {
+        self.repository
+            .mark_activity_processed(ActivityEventId::parse(id)?)
     }
 }
 

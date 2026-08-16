@@ -192,6 +192,109 @@ pub fn timer_stop<R: Runtime>(app: AppHandle<R>) -> Result<TimeEntry, CoreError>
     Ok(entry)
 }
 
+/// Joga fora o cronometro sem gravar sessao.
+///
+/// A confirmacao e da interface, e nao daqui: e a unica operacao do rastreio
+/// que descarta tempo, e um comando que so recusa sem explicar deixaria o
+/// usuario sem entender por que o botao nao fez nada.
+#[tauri::command]
+pub fn timer_discard<R: Runtime>(app: AppHandle<R>) -> Result<(), CoreError> {
+    app.state::<AppState>().tracking.discard_timer()?;
+    let _ = app.emit("timer-changed", "discarded");
+    Ok(())
+}
+
+#[tauri::command]
+pub fn tracking_clients<R: Runtime>(
+    app: AppHandle<R>,
+    include_archived: bool,
+) -> Result<Vec<mos_core::Client>, CoreError> {
+    app.state::<AppState>().tracking.clients(include_archived)
+}
+
+/// Cria quando `id` vem vazio, atualiza quando vem preenchido.
+///
+/// Um comando so porque o formulario e o mesmo: separar em dois obrigaria a
+/// tela a saber qual chamar, e ela ja sabe se esta editando pelo id que tem.
+#[tauri::command]
+pub fn tracking_save_client<R: Runtime>(
+    app: AppHandle<R>,
+    id: Option<String>,
+    input: mos_core::ClientInput,
+) -> Result<mos_core::Client, CoreError> {
+    let state = app.state::<AppState>();
+    let client = match id.as_deref().filter(|value| !value.is_empty()) {
+        Some(id) => state.tracking.update_client(id, input)?,
+        None => state.tracking.create_client(input)?,
+    };
+    let _ = app.emit("data-changed", "clients");
+    Ok(client)
+}
+
+#[tauri::command]
+pub fn tracking_set_client_archived<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    archived: bool,
+) -> Result<mos_core::Client, CoreError> {
+    let client = app
+        .state::<AppState>()
+        .tracking
+        .set_client_archived(&id, archived)?;
+    let _ = app.emit("data-changed", "clients");
+    Ok(client)
+}
+
+#[tauri::command]
+pub fn monitoring_apps<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<Vec<mos_core::MonitoredApp>, CoreError> {
+    app.state::<AppState>().monitoring.apps()
+}
+
+#[tauri::command]
+pub fn monitoring_save_app<R: Runtime>(
+    app: AppHandle<R>,
+    entry: mos_core::MonitoredApp,
+) -> Result<mos_core::MonitoredApp, CoreError> {
+    let saved = app.state::<AppState>().monitoring.save_app(entry)?;
+    let _ = app.emit("data-changed", "monitoring");
+    Ok(saved)
+}
+
+#[tauri::command]
+pub fn monitoring_delete_app<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), CoreError> {
+    app.state::<AppState>().monitoring.delete_app(&id)?;
+    let _ = app.emit("data-changed", "monitoring");
+    Ok(())
+}
+
+/// Os eventos de uma janela, do mais antigo para o mais novo.
+///
+/// A janela e obrigatoria e nao tem padrao: a Linha do Tempo e sempre sobre um
+/// periodo, e devolver "tudo" por omissao traria 321 eventos para desenhar um
+/// dia.
+#[tauri::command]
+pub fn monitoring_events<R: Runtime>(
+    app: AppHandle<R>,
+    since: String,
+    until: String,
+) -> Result<Vec<mos_core::ActivityEvent>, CoreError> {
+    app.state::<AppState>().monitoring.events(
+        mos_core::parse_moment(&since)?,
+        mos_core::parse_moment(&until)?,
+    )
+}
+
+/// Marca o evento como resolvido, para o periodo nao ser reoferecido amanha.
+#[tauri::command]
+pub fn monitoring_mark_processed<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+) -> Result<(), CoreError> {
+    app.state::<AppState>().monitoring.mark_processed(&id)
+}
+
 /// As sessoes, em tempo REAL — sem arredondar e sem descontar inatividade.
 #[tauri::command]
 pub fn tracking_entries<R: Runtime>(

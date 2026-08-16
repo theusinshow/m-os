@@ -237,6 +237,12 @@ pub trait TimeTrackingRepository: Send + Sync {
     fn set_timer_running(&self, running: bool) -> Result<crate::ActiveTimer, CoreError>;
     /// Encerra e devolve a sessao gravada. Nada e descartado em silencio.
     fn stop_timer(&self) -> Result<crate::TimeEntry, CoreError>;
+    /// Joga fora o cronometro SEM gravar sessao.
+    ///
+    /// Existe para o caso real de ter iniciado no Project errado. E a unica
+    /// operacao que descarta tempo, e por isso a interface tem que pedir
+    /// confirmacao — o dominio nao pode ser a ultima defesa disso.
+    fn discard_timer(&self) -> Result<(), CoreError>;
     fn clients(&self, include_archived: bool) -> Result<Vec<crate::Client>, CoreError>;
     fn create_client(&self, input: crate::ClientInput) -> Result<crate::Client, CoreError>;
     fn update_client(
