@@ -300,7 +300,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
     <CaptureComposer onSaved={(capture) => { markSaved(capture); void refresh(); }} focusKey={intent?.target === "home_capture" ? intent.key : undefined} />
     <Panel label="CONTEXTO" rule action={currentWorkspace ? <Button variant="ghost" onClick={() => setCurrentWorkspaceId("")}>Todos</Button> : undefined}><div className="context-switcher">{activeWorkspaces.map((workspace) => <button key={workspace.id} type="button" data-selected={workspace.id === currentWorkspaceId || undefined} onClick={() => setCurrentWorkspaceId(workspace.id)} onDoubleClick={() => openWorkspace(workspace)}><strong>{workspace.name}</strong><small>{workspace.description || "Workspace"}</small></button>)}{!activeWorkspaces.length ? <EmptyState>Workspaces ativos aparecerão aqui.</EmptyState> : null}</div></Panel>
     <div className="home-grid">
-      <Widget id="now" hidden={hiddenIds.has("now")} size="2x1"><Panel label="EM ANDAMENTO" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nothing in progress right now.</EmptyState>}</Panel></Widget>
+      <Widget id="now" hidden={hiddenIds.has("now")} size="2x1"><Panel label="EM ANDAMENTO" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel></Widget>
       {/* Os tres widgets visuais da familia anel e densidade.
           Cada um le dado que o M/OS ja registra — Task concluida, Task criada,
           Capture. Os outros sete do catalogo dependem de tempo rastreado,
@@ -340,7 +340,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
           a Inbox estivesse. A contagem verdadeira da Inbox e a do widget INBOX,
           logo abaixo — duas contagens do mesmo nome que discordam sao pior que
           nenhuma. */}
-      <Widget id="recent" hidden={hiddenIds.has("recent")} size="2x1"><Panel label="RECENTES">{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nothing on your mind right now.</EmptyState>}</Panel></Widget>
+      <Widget id="recent" hidden={hiddenIds.has("recent")} size="2x1"><Panel label="RECENTES">{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nada capturado ainda. O que você escrever no campo acima aparece aqui.</EmptyState>}</Panel></Widget>
       {/* Sem contagem: o desenho so conta o que exige decisao — o que esta em
           andamento e o que espera na Inbox. Project e App voce navega, nao
           processa. */}
@@ -432,7 +432,7 @@ function InboxPage({ captures, projects, refresh, receipt, openTask, openResourc
     } catch (nextError) { setError(appError(nextError).message); }
   }
 
-  if (!captures.length) return <div className="page"><ContextPath segments={["M", "INBOX"]} /><EmptyState>Nothing to process. Everything captured has been dealt with.</EmptyState></div>;
+  if (!captures.length) return <div className="page"><ContextPath segments={["M", "INBOX"]} /><EmptyState>Inbox limpa — tudo que você capturou já foi processado.</EmptyState></div>;
   return <div className="split-page">
     <section className="list-pane">
       <div className="pane-heading"><ContextPath segments={["M", "INBOX"]} /><span className="micro-label">{captures.length} {captures.length === 1 ? "ITEM" : "ITENS"}</span></div>
