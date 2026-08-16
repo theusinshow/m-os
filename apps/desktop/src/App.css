@@ -690,6 +690,55 @@ textarea::placeholder {
   color: var(--signal-ink);
 }
 
+/* Formulario em linha, e nao empilhado: sao cinco campos curtos e a acao cabe
+   ao lado. Um formulario vertical para lancar uma hora esquecida faria a tarefa
+   parecer maior do que e — e o atrito e justamente o que faz alguem desistir de
+   registrar. */
+.tempo-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+}
+
+.tempo-field,
+.tempo-duration {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.tempo-duration {
+  grid-template-columns: auto auto;
+  align-items: end;
+  gap: var(--space-1) var(--space-2);
+}
+
+.tempo-form label,
+.tempo-duration label {
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+.tempo-duration input {
+  width: 4.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tempo-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.tempo-form .support-copy {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 .tempo-sessions {
   display: grid;
   margin-top: var(--space-2);
@@ -715,6 +764,28 @@ textarea::placeholder {
   color: var(--text-system);
   font: var(--text-meta);
   letter-spacing: var(--tracking-meta);
+}
+
+/* As acoes so aparecem no hover ou com foco: uma lista de sessoes com dois
+   botoes em cada linha vira uma parede de botoes, e o assunto da linha e a hora
+   trabalhada. `:focus-within` mantem o teclado com o mesmo alcance do mouse. */
+.tempo-session-actions {
+  display: flex;
+  flex: none;
+  gap: var(--space-1);
+  opacity: 0;
+  transition: opacity var(--dur-state) var(--ease-state);
+}
+
+.tempo-session:hover .tempo-session-actions,
+.tempo-session:focus-within .tempo-session-actions {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tempo-session-actions {
+    transition: none;
+  }
 }
 
 .tempo-session-duration {

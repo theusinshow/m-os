@@ -201,6 +201,39 @@ pub struct NewTimeEntry {
     pub source: EntrySource,
 }
 
+/// Lê um instante em RFC 3339.
+///
+/// Vive aqui, e não no orquestrador, porque é este módulo que define o formato
+/// dos timestamps do rastreio. Deixar o parse do outro lado da ponte obrigaria
+/// o desktop a depender do crate de data só para repetir esta regra.
+pub fn parse_moment(value: &str) -> Result<OffsetDateTime, CoreError> {
+    OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).map_err(|error| {
+        CoreError::new(
+            ErrorCode::InvalidInput,
+            format!("Data invalida: {error}"),
+            false,
+        )
+    })
+}
+
+/// O que uma correção pode mudar numa sessão gravada.
+///
+/// Sem `project_id` e sem `hourly_rate_snapshot_cents`, e as duas ausências são
+/// a mesma decisão: a taxa é o registro do que valia quando o trabalho
+/// aconteceu, e reescrevê-la — direto ou de lado, movendo o Project — pode
+/// alterar um valor já faturado sem ninguém pedir.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeEntryEdit {
+    #[serde(with = "time::serde::rfc3339")]
+    pub started_at: OffsetDateTime,
+    pub duration_seconds: i64,
+    pub idle_seconds: i64,
+    pub description: String,
+    pub activity_type: ActivityType,
+    pub billable: bool,
+}
+
 /// Dados de cobrança de um Project.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

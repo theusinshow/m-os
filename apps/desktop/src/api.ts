@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { ActiveTimer, ActivityType, AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { ActiveTimer, ActivityType, AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -215,6 +215,19 @@ export const api = {
   /** As sessões, em tempo REAL — sem arredondar e sem descontar inatividade. */
   trackingEntries(projectId?: string) {
     return invoke<TimeEntry[]>("tracking_entries", { projectId: projectId ?? null });
+  },
+  /** Lança tempo que o cronômetro não contou. Fica marcado como `manual`. */
+  trackingRecord(input: { projectId: string; startedAt: string; durationSeconds: number; description: string; activityType: ActivityType; billable: boolean }) {
+    return invoke<TimeEntry>("tracking_record", input);
+  },
+  trackingEdit(id: string, edit: TimeEntryEdit) {
+    return invoke<TimeEntry>("tracking_edit", { id, edit });
+  },
+  trackingTrash(id: string) {
+    return invoke<void>("tracking_trash", { id });
+  },
+  trackingRestore(id: string) {
+    return invoke<void>("tracking_restore", { id });
   },
   timerCurrent() {
     return invoke<ActiveTimer | null>("timer_current");

@@ -60,6 +60,89 @@ pub fn tracking_totals<R: Runtime>(
     app.state::<AppState>().tracking.totals_by_project()
 }
 
+/// Lanca tempo que o cronometro nao contou.
+///
+/// A pergunta que guia o CronoCAD e "isso reduz a chance de esquecer de
+/// registrar o trabalho?". Esquecer de INICIAR e tao comum quanto esquecer de
+/// encerrar, e sem este caminho a hora esquecida simplesmente nao existe.
+#[tauri::command]
+pub fn tracking_record<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    started_at: String,
+    duration_seconds: i64,
+    description: String,
+    activity_type: String,
+    billable: bool,
+) -> Result<TimeEntry, CoreError> {
+    let state = app.state::<AppState>();
+    let project = ProjectId::parse(&project_id)?;
+    // A taxa vem do Project AGORA, e vira snapshot: e a melhor aproximacao
+    // disponivel para uma hora lancada depois.
+    let rate = state
+        .tracking
+        .project_tracking()?
+        .into_iter()
+        .find(|entry| entry.project_id == project)
+        .map(|entry| entry.hourly_rate_cents)
+        .unwrap_or(0);
+
+    let entry = state.tracking.record(mos_core::NewTimeEntry {
+        project_id: project,
+        started_at: mos_core::parse_moment(&started_at)?,
+        ended_at: None,
+        duration_seconds,
+        idle_seconds: 0,
+        description,
+        activity_type: ActivityType::parse(&activity_type)?,
+        billable,
+        hourly_rate_snapshot_cents: rate,
+        // `Manual` e nao `Timer`: hora lancada a mao e estimativa, e faturar
+        // estimativa como medicao sem dizer seria mentir por omissao.
+        source: mos_core::EntrySource::Manual,
+    })?;
+    let _ = app.emit("data-changed", "tracking");
+    Ok(entry)
+}
+
+/// Corrige uma sessao ja gravada.
+///
+/// Recebe a edicao como ESTRUTURA e nao como sete parametros soltos: o tipo ja
+/// existe no dominio, e repetir a lista de campos aqui criaria um segundo lugar
+/// para esquecer de acrescentar um.
+#[tauri::command]
+pub fn tracking_edit<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    edit: mos_core::TimeEntryEdit,
+) -> Result<TimeEntry, CoreError> {
+    let entry = app
+        .state::<AppState>()
+        .tracking
+        .edit(mos_core::TimeEntryId::parse(&id)?, edit)?;
+    let _ = app.emit("data-changed", "tracking");
+    Ok(entry)
+}
+
+#[tauri::command]
+pub fn tracking_trash<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), CoreError> {
+    app.state::<AppState>()
+        .tracking
+        .trash(mos_core::TimeEntryId::parse(&id)?)?;
+    let _ = app.emit("data-changed", "tracking");
+    Ok(())
+}
+
+/// O inverso de `tracking_trash`, para o recibo poder oferecer desfazer.
+#[tauri::command]
+pub fn tracking_restore<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), CoreError> {
+    app.state::<AppState>()
+        .tracking
+        .restore(mos_core::TimeEntryId::parse(&id)?)?;
+    let _ = app.emit("data-changed", "tracking");
+    Ok(())
+}
+
 /// O cronometro em curso, se houver.
 ///
 /// A tela pergunta e recebe `accumulated_seconds` mais `last_resumed_at`, e nao

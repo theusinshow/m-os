@@ -6,7 +6,7 @@
 
 use mos_core::{
     ActiveTimer, ActivityType, CoreError, EntrySource, ErrorCode, NewTimeEntry, ProjectId,
-    ProjectTracking, Rounding, RoundingMode, StartTimer, TimeEntry, TimeEntryId,
+    ProjectTracking, Rounding, RoundingMode, StartTimer, TimeEntry, TimeEntryEdit, TimeEntryId,
     TimeTrackingRepository, TimerStatus, TrackingSettings, TrackingStatus,
 };
 use rusqlite::{params, OptionalExtension, Row};
@@ -155,6 +155,53 @@ impl TimeTrackingRepository for SqliteStorage {
         Ok(entries)
     }
 
+    fn update_time_entry(
+        &self,
+        id: TimeEntryId,
+        edit: TimeEntryEdit,
+    ) -> Result<TimeEntry, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        // `ended_at` deriva do inicio mais a duracao em vez de ser editado
+        // separado: dois campos que precisam concordar acabam discordando, e o
+        // que o usuario corrige e "quanto tempo durou", nao "quando terminou".
+        let ended = edit.started_at + time::Duration::seconds(edit.duration_seconds.max(0));
+        let changed = connection
+            .execute(
+                "UPDATE time_entries SET started_at = ?2, ended_at = ?3, \
+                 duration_seconds = ?4, idle_seconds = ?5, description = ?6, \
+                 activity_type = ?7, billable = ?8, updated_at = ?9 \
+                 WHERE id = ?1 AND deleted_at IS NULL",
+                params![
+                    id.to_string(),
+                    format_time(edit.started_at)?,
+                    format_time(ended)?,
+                    edit.duration_seconds.max(0),
+                    edit.idle_seconds.max(0),
+                    edit.description,
+                    edit.activity_type.as_str(),
+                    i64::from(edit.billable),
+                    format_time(time::OffsetDateTime::now_utc())?,
+                ],
+            )
+            .map_err(map_sql_error)?;
+        if changed == 0 {
+            return Err(CoreError::new(
+                ErrorCode::NotFound,
+                "Sessao nao encontrada.",
+                false,
+            ));
+        }
+
+        let raw = connection
+            .query_row(
+                &format!("SELECT {ENTRY_COLUMNS} FROM time_entries WHERE id = ?1"),
+                params![id.to_string()],
+                read_entry,
+            )
+            .map_err(map_sql_error)?;
+        build_entry(raw)
+    }
+
     fn trash_time_entry(&self, id: TimeEntryId) -> Result<(), CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let now = format_time(time::OffsetDateTime::now_utc())?;
@@ -169,6 +216,28 @@ impl TimeTrackingRepository for SqliteStorage {
             return Err(CoreError::new(
                 mos_core::ErrorCode::NotFound,
                 "Sessao nao encontrada.",
+                false,
+            ));
+        }
+        Ok(())
+    }
+
+    fn restore_time_entry(&self, id: TimeEntryId) -> Result<(), CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let changed = connection
+            .execute(
+                "UPDATE time_entries SET deleted_at = NULL, updated_at = ?2 \
+                 WHERE id = ?1 AND deleted_at IS NOT NULL",
+                params![
+                    id.to_string(),
+                    format_time(time::OffsetDateTime::now_utc())?
+                ],
+            )
+            .map_err(map_sql_error)?;
+        if changed == 0 {
+            return Err(CoreError::new(
+                ErrorCode::NotFound,
+                "Sessao nao encontrada na lixeira.",
                 false,
             ));
         }
@@ -542,6 +611,66 @@ mod tests {
             .query_row("SELECT count(*) FROM time_entries", [], |row| row.get(0))
             .unwrap();
         assert_eq!(remaining, 1);
+    }
+
+    fn edit_of(duration: i64) -> TimeEntryEdit {
+        TimeEntryEdit {
+            started_at: time::OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap(),
+            duration_seconds: duration,
+            idle_seconds: 0,
+            description: "corrigido".into(),
+            activity_type: ActivityType::Revision,
+            billable: false,
+        }
+    }
+
+    /// Esquecer de encerrar o cronometro e o erro mais comum de quem rastreia
+    /// tempo — corrigir a duracao precisa ser trivial.
+    #[test]
+    fn editing_an_entry_fixes_the_duration_and_derives_the_end() {
+        let (storage, _guard) = temporary_storage();
+        let id = project(&storage);
+        let created = storage.create_time_entry(entry(id, 36_000, 3_000)).unwrap();
+
+        let fixed = storage
+            .update_time_entry(created.id, edit_of(5_400))
+            .unwrap();
+
+        assert_eq!(fixed.duration_seconds, 5_400);
+        assert_eq!(fixed.activity_type, ActivityType::Revision);
+        assert!(!fixed.billable);
+        // O fim deriva do inicio mais a duracao: dois campos que precisam
+        // concordar acabam discordando.
+        assert_eq!(
+            fixed.ended_at.unwrap().unix_timestamp() - fixed.started_at.unix_timestamp(),
+            5_400
+        );
+    }
+
+    /// A taxa e o registro do que valia quando o trabalho aconteceu. Uma
+    /// correcao de duracao nao pode reprecificar o passado.
+    #[test]
+    fn editing_never_touches_the_rate_snapshot() {
+        let (storage, _guard) = temporary_storage();
+        let id = project(&storage);
+        let created = storage.create_time_entry(entry(id, 3_600, 9_000)).unwrap();
+
+        let fixed = storage
+            .update_time_entry(created.id, edit_of(1_800))
+            .unwrap();
+        assert_eq!(fixed.hourly_rate_snapshot_cents, 9_000);
+    }
+
+    #[test]
+    fn editing_a_trashed_entry_reports_not_found() {
+        let (storage, _guard) = temporary_storage();
+        let id = project(&storage);
+        let created = storage.create_time_entry(entry(id, 600, 3_000)).unwrap();
+        storage.trash_time_entry(created.id).unwrap();
+
+        assert!(storage
+            .update_time_entry(created.id, edit_of(1_200))
+            .is_err());
     }
 
     #[test]

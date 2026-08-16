@@ -9,7 +9,7 @@ use crate::{
     DataMaintenance, HiddenWidget, LifecycleState, Message, MessageId, MessageStatus, NewCapture,
     NewConversation, NewMessage, NewProject, NewRegisteredApp, NewTask, NewTimeEntry, NewWorkspace,
     PartBody, ProcessingState, Project, ProjectId, ProjectTracking, RegisteredApp, SearchItem,
-    SearchRequest, StartTimer, Task, TaskId, TaskState, TimeEntry, TimeEntryId,
+    SearchRequest, StartTimer, Task, TaskId, TaskState, TimeEntry, TimeEntryEdit, TimeEntryId,
     TimeTrackingRepository, Totals, TrackedSession, TrackingSettings, WorkRepository, Workspace,
     WorkspaceId,
 };
@@ -124,8 +124,16 @@ impl TrackingService {
         self.repository.time_entries(project_id)
     }
 
+    pub fn edit(&self, id: TimeEntryId, edit: TimeEntryEdit) -> Result<TimeEntry, CoreError> {
+        self.repository.update_time_entry(id, edit)
+    }
+
     pub fn trash(&self, id: TimeEntryId) -> Result<(), CoreError> {
         self.repository.trash_time_entry(id)
+    }
+
+    pub fn restore(&self, id: TimeEntryId) -> Result<(), CoreError> {
+        self.repository.restore_time_entry(id)
     }
 
     pub fn set_project_tracking(

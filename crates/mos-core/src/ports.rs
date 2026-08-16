@@ -203,9 +203,23 @@ pub trait TimeTrackingRepository: Send + Sync {
         &self,
         project_id: Option<crate::ProjectId>,
     ) -> Result<Vec<crate::TimeEntry>, CoreError>;
+    /// Corrige uma sessao ja gravada.
+    ///
+    /// O Project NAO entra: mover hora entre Projects mexeria no snapshot de
+    /// valor/hora, e reprecificar em silencio pode alterar um valor ja
+    /// faturado. Corrigir o rotulo e corrigir o preco sao duas decisoes, e
+    /// misturar as duas dentro de um formulario de edicao esconde a segunda.
+    fn update_time_entry(
+        &self,
+        id: crate::TimeEntryId,
+        edit: crate::TimeEntryEdit,
+    ) -> Result<crate::TimeEntry, CoreError>;
     /// Soft delete: hora de trabalho e registro de cobranca e sai da vista sem
     /// sair do banco.
     fn trash_time_entry(&self, id: crate::TimeEntryId) -> Result<(), CoreError>;
+    /// O inverso de `trash_time_entry`, e o que faz o desfazer existir aqui
+    /// como existe no resto do M/OS (ADR-035).
+    fn restore_time_entry(&self, id: crate::TimeEntryId) -> Result<(), CoreError>;
     fn set_project_tracking(
         &self,
         tracking: crate::ProjectTracking,

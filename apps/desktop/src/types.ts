@@ -202,6 +202,22 @@ export type TimeEntry = {
 };
 
 /**
+ * O que uma correção pode mudar numa sessão.
+ *
+ * Sem `projectId` e sem a taxa, e as duas ausências são a mesma decisão: a taxa
+ * é o registro do que valia quando o trabalho aconteceu, e reescrevê-la — direto
+ * ou de lado, movendo o Project — pode alterar um valor já faturado.
+ */
+export type TimeEntryEdit = {
+  startedAt: string;
+  durationSeconds: number;
+  idleSeconds: number;
+  description: string;
+  activityType: ActivityType;
+  billable: boolean;
+};
+
+/**
  * Totais de um Project.
  *
  * `grossSeconds` é o tempo REAL registrado. `billableSeconds` já passou pelo
