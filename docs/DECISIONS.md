@@ -1194,3 +1194,64 @@ por cima. Sem endereço próprio, essa visão fica sem casa.
   produto é de três, e ela está registrada aqui e na ADR-031 em vez de descoberta depois;
 - o risco assumido é real: cada revisão do teto torna a próxima mais fácil, e é assim que
   um rail vira depósito. A defesa não é o número, é a exigência de ADR para mexer nele.
+
+## ADR-037 — O M/OS observa nomes de programa, e nada além disso
+
+**Data:** 2026-08-16
+**Status:** aceito
+**Complementa:** ADR-032, ADR-036
+
+### Contexto
+
+A absorção do CronoCAD (ADR-032) terminou com a peça que fazia o aplicativo original ganhar
+o adjetivo que ele usava para se descrever: ele **percebe** que você começou a trabalhar. Um
+laço compara os processos em execução com uma lista de programas cadastrados, e mede há
+quanto tempo ninguém toca no teclado ou no mouse.
+
+Isso é, por construção, um recurso de monitoramento — a mesma família de código que sustenta
+software de vigilância de funcionário. A diferença entre os dois não está na intenção de quem
+escreve, e sim em onde a fronteira é desenhada e em quão difícil é atravessá-la depois.
+
+### Decisão
+
+**Só duas coisas são lidas:** o nome do executável dos processos em execução, e o número de
+segundos desde o último evento de teclado ou mouse.
+
+Explicitamente fora, e não por esquecimento:
+
+- título de janela — diria em qual arquivo, em qual cliente, em qual assunto;
+- linha de comando do processo — diria caminhos completos;
+- conteúdo de arquivo, de qualquer tipo;
+- captura de tela, de qualquer frequência;
+- telemetria: nada do que é observado sai da máquina.
+
+E a regra que já vinha do CronoCAD, agora com laço de verdade por trás dela: **observação não
+vira hora sozinha.** O evento é gravado, a Linha do Tempo mostra o vão, e quem decide se
+aquilo foi trabalho é a pessoa. Nenhum caminho do código cria uma sessão a partir de um
+evento observado sem passar por um clique.
+
+### Por que a fronteira é a API, e não a política
+
+A escolha das funções chamadas é o que sustenta a promessa. `GetLastInputInfo` devolve um
+número — não há como extrair dele o que foi digitado. A enumeração de processos do `sysinfo`
+com `features = ["system"]` traz o nome; ler o título da janela exigiria `GetWindowText`, que
+é uma chamada nova, visível em revisão, e que teria de ser escrita de propósito.
+
+Uma política escrita num documento é respeitada por quem lê o documento. Uma fronteira
+mantida pela API é respeitada por quem não leu — e é a segunda que resiste ao tempo.
+
+O texto na tela de Configurações diz exatamente isto, em português, onde o usuário pode
+conferir. Uma promessa de privacidade que só existe no código é uma promessa que o usuário
+não pode cobrar.
+
+### Consequências
+
+- o monitoramento pode ser desligado inteiro, e o lembrete separadamente. Observação que não
+  pode ser desligada é vigilância, mesmo quando o observado é o dono da máquina;
+- qualquer PR que introduza leitura de título de janela, de linha de comando ou de tela
+  contradiz esta ADR e exige revisá-la — não basta achar que "é só um detalhe a mais";
+- fora do Windows o laço não mede inatividade e devolve ausência, em vez de fingir zero.
+  Zero significaria "acabou de mexer", e a Linha do Tempo passaria a nunca ver inatividade —
+  um número inventado é pior que um número faltando;
+- o custo assumido: um laço acordando a cada poucos segundos. Ele roda em tarefa própria,
+  nunca no fio da interface, e o intervalo é configurável com piso de um segundo.
