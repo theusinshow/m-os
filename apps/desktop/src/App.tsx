@@ -18,6 +18,31 @@ import "./App.css";
 
 type Page = "home" | "hermes" | "inbox" | "projects" | "workspaces" | "apps" | "library" | "tasks" | "settings";
 type UndoAction = { message: string; run: () => Promise<unknown> };
+
+/**
+ * Os atalhos que existem de verdade.
+ *
+ * A auditoria deu 1 de 10 em "ajuda e documentação", e o motivo não era falta
+ * de recurso: era o contrário. O app é operável quase inteiro pelo teclado e
+ * nada disso estava escrito em lugar nenhum — quem não descobrisse por acidente
+ * nunca saberia.
+ *
+ * A lista é escrita à mão de propósito. Derivá-la dos handlers daria uma
+ * garantia falsa de sincronia e produziria rótulos como "keydown ctrl+k"; o que
+ * falta documentar aqui é o QUE a tecla faz, e isso só existe na cabeça de quem
+ * escreveu. O preço é manutenção: atalho novo entra aqui na mão.
+ */
+const SHORTCUTS: { keys: string; does: string }[] = [
+  { keys: "Ctrl + K", does: "Abrir a busca e os comandos" },
+  { keys: "Ctrl + Z", does: "Desfazer a última ação, enquanto o recibo estiver na tela" },
+  { keys: "Ctrl + 1…9", does: "Abrir o app na posição correspondente, na Home" },
+  { keys: "Esc", does: "Fechar, cancelar ou interromper o que estiver em curso" },
+  { keys: "↑ ↓ Home End", does: "Navegar entre as linhas de uma lista" },
+  { keys: "Ctrl + N", does: "Nova conversa, no Hermes" },
+  { keys: "Ctrl + /", does: "Mostrar ou ocultar a coluna de conversas, no Hermes" },
+  { keys: "↑ (campo vazio)", does: "Editar a última pergunta enviada, no Hermes" },
+  { keys: "Shift + Enter", does: "Quebrar linha em vez de enviar, no Hermes" },
+];
 type Theme = "dark" | "light";
 type CommandResult = SearchItem | { kind: "function"; function: FunctionDefinition };
 type FunctionIntent = { target: FunctionIntentTarget; key: number };
@@ -263,6 +288,27 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
       return rightDate.localeCompare(leftDate);
     })
     .slice(0, 5);
+  /** O atalho que o rótulo do tile promete.
+   *
+   *  Até aqui `app-shortcut` só era DESENHADO: a Home exibia ⌘1, ⌘2… e nenhum
+   *  handler escutava. Rótulo que mente é pior que rótulo ausente — quem tenta
+   *  uma vez e não funciona para de acreditar nos outros atalhos do app. E ⌘ é
+   *  notação de macOS num aplicativo Windows.
+   *
+   *  Vive na Home, e não global, porque é aqui que os tiles estão: um atalho
+   *  para a "quinta posição" de uma lista que você não está vendo não teria
+   *  como ser previsto. */
+  useEffect(() => {
+    function handler(event: globalThis.KeyboardEvent) {
+      if (!event.ctrlKey || event.altKey || event.shiftKey) return;
+      const index = Number(event.key) - 1;
+      if (!Number.isInteger(index) || index < 0 || index >= activeApps.length) return;
+      event.preventDefault();
+      openApp(activeApps[index]);
+    }
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [activeApps, openApp]);
   // Efemero: marca a Capture recem-criada para o savedWash e some. Nao e
   // estado de dominio, entao nao vale persistir nem subir para o App.
   const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set());
@@ -299,60 +345,72 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
     <ContextPath segments={["M", "HOME"]} />
     <CaptureComposer onSaved={(capture) => { markSaved(capture); void refresh(); }} focusKey={intent?.target === "home_capture" ? intent.key : undefined} />
     <Panel label="CONTEXTO" rule action={currentWorkspace ? <Button variant="ghost" onClick={() => setCurrentWorkspaceId("")}>Todos</Button> : undefined}><div className="context-switcher">{activeWorkspaces.map((workspace) => <button key={workspace.id} type="button" data-selected={workspace.id === currentWorkspaceId || undefined} onClick={() => setCurrentWorkspaceId(workspace.id)} onDoubleClick={() => openWorkspace(workspace)}><strong>{workspace.name}</strong><small>{workspace.description || "Workspace"}</small></button>)}{!activeWorkspaces.length ? <EmptyState>Workspaces ativos aparecerão aqui.</EmptyState> : null}</div></Panel>
+    {/* A HOME É QUATRO FAIXAS, e cada uma responde a uma pergunta.
+
+        Onze widgets numa grade só liam como onze coisas do mesmo peso, e o
+        PRODUCT.md §4 avisa contra exatamente isso: a Home responde "o que está
+        acontecendo e o que preciso fazer?", não "tudo o que existe". A regra de
+        carga cognitiva diz o mesmo por outro caminho — grupos de até quatro.
+
+        Faixas em vez de rótulos de seção porque o app já usa rótulo mono em
+        cada Panel; um segundo nível de rótulo acima deles seria rótulo sobre
+        rótulo. O que separa as faixas é ar, não mais texto.
+
+        Cada faixa é a sua própria grade de 12 colunas, e isso é o que torna o
+        arranjo robusto: fecha sozinha, e esconder um widget só reflowa a faixa
+        dele em vez de empurrar a Home inteira. Antes de existirem faixas, a
+        ordem abria três buracos de 3 colunas no meio — era isso que se lia como
+        bagunça, e não a quantidade.
+
+        Preferi isto a `grid-auto-flow: dense`, que taparia vãos movendo itens
+        para trás e faria a ordem visual divergir da ordem de foco. */}
+
+    {/* O QUE PRECISO FAZER. Só o que exige decisão: o que está em andamento e o
+        que espera na Inbox. O anel de concluído fecha a linha porque é a
+        resposta de "e o que já saiu da frente?". */}
     <div className="home-grid">
       <Widget id="now" hidden={hiddenIds.has("now")} size="2x1"><Panel label="EM ANDAMENTO" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel></Widget>
-      {/* Os tres widgets visuais da familia anel e densidade.
-          Cada um le dado que o M/OS ja registra — Task concluida, Task criada,
-          Capture. Os outros sete do catalogo dependem de tempo rastreado,
-          calendario e habitos, que nao existem no dominio, e ficam de fora. */}
-      <Widget id="week_rings" hidden={hiddenIds.has("week_rings")} size="2x1"><Panel label="SEMANA"><WeekRings tasks={tasks} onOpen={openTasksPage} /></Panel></Widget>
-      {/* A ORDEM AQUI É LAYOUT, e não gosto.
-
-          A grade tem 12 colunas e mistura larguras de 6 e 3 com dois widgets de
-          duas linhas. Auto-placement esparso não reorganiza nada: quando o
-          próximo item não cabe no que sobrou da linha, ele desce e deixa o vão
-          aberto. Na ordem anterior isso abria TRÊS buracos de 3 colunas nas
-          linhas 2 e 3 — e é isso que se lê como bagunça, não a quantidade de
-          widgets.
-
-          A ordem abaixo faz cada faixa fechar em 12: o MÊS (2x2) ocupa a
-          esquerda por duas linhas enquanto CONCLUÍDO e INBOX preenchem a
-          direita da primeira e RECENTES fecha a segunda. Só sobra vão no fim,
-          que é o único lugar onde vão não parece defeito.
-
-          Preferi isto a `grid-auto-flow: dense`, que taparia os buracos movendo
-          itens para trás e faria a ordem visual divergir da ordem de foco.
-
-          Quem esconde um widget reabre um vão — mas aí é consequência legível
-          de uma escolha de quem está olhando, e não do sistema. */}
-      <Widget id="month_density" hidden={hiddenIds.has("month_density")} size="2x2"><Panel label="MÊS"><MonthDensity tasks={tasks} captures={recent} /></Panel></Widget>
-      <Widget id="task_progress" hidden={hiddenIds.has("task_progress")} size="1x1"><Panel label="CONCLUÍDO"><TaskProgressRing tasks={tasks} /></Panel></Widget>
       <Widget id="inbox_pulse" hidden={hiddenIds.has("inbox_pulse")} size="1x1"><Panel label="INBOX">{/* O numero cru vira anel. A proporcao mostrada e o que esta ENVELHECENDO
     dentro da Inbox, nao o tamanho dela: uma Inbox grande e processada hoje e
     saudavel, e uma pequena parada ha uma semana nao e. O anel vazio com o
     numero no centro le exatamente como "nada envelhecendo", que e o estado
     bom — e e por isso que zero nao desenha ponto de sodio. */}
 <button type="button" className="pulse" onClick={() => openInbox()}><Ring size={88} segments={[{ value: inbox.length ? staleInbox / inbox.length : 0 }]}><RingLabel value={inboxCapped ? `${INBOX_PAGE}+` : String(inbox.length)} /></Ring><small>{inbox.length === 1 ? "capture por processar" : "captures por processar"}</small>{staleInbox ? <small className="pulse-stale">{staleInbox === 1 && !inboxCapped ? "1 com mais de 3 dias" : `${staleInbox}${inboxCapped ? "+" : ""} com mais de 3 dias`}</small> : null}</button></Panel></Widget>
-      {/* Sem contagem. O badge dizia `INBOX ${recent.length}` e mentia duas vezes:
-          list_recent nao filtra por processing_state (repository.rs:91), entao a
-          lista traz tambem o que ja foi processado, e o comando pede so 8
-          (src-tauri/src/lib.rs:80), entao o numero parava em 8 por mais cheia que
-          a Inbox estivesse. A contagem verdadeira da Inbox e a do widget INBOX,
-          logo abaixo — duas contagens do mesmo nome que discordam sao pior que
-          nenhuma. */}
+      <Widget id="task_progress" hidden={hiddenIds.has("task_progress")} size="1x1"><Panel label="CONCLUÍDO"><TaskProgressRing tasks={tasks} /></Panel></Widget>
+    </div>
+
+    {/* O QUE ESTÁ ACONTECENDO. Os widgets visuais da família anel e densidade:
+        cada um lê dado que o M/OS já registra — Task concluída, Task criada,
+        Capture. Os outros sete do catálogo dependem de tempo rastreado,
+        calendário e hábitos, que não existem no domínio, e ficam de fora.
+
+        RECENTES entra aqui e não na faixa de cima: capture recente é o pulso do
+        que passou, não uma decisão pendente. A contagem verdadeira da Inbox é a
+        do anel acima — o badge daqui foi removido porque `list_recent` não
+        filtra por `processing_state` (repository.rs:91) e o comando pede só 8
+        (lib.rs:80), então o número mentia duas vezes. */}
+    <div className="home-grid">
+      <Widget id="month_density" hidden={hiddenIds.has("month_density")} size="2x2"><Panel label="MÊS"><MonthDensity tasks={tasks} captures={recent} /></Panel></Widget>
+      <Widget id="week_rings" hidden={hiddenIds.has("week_rings")} size="2x1"><Panel label="SEMANA"><WeekRings tasks={tasks} onOpen={openTasksPage} /></Panel></Widget>
       <Widget id="recent" hidden={hiddenIds.has("recent")} size="2x1"><Panel label="RECENTES">{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nada capturado ainda. O que você escrever no campo acima aparece aqui.</EmptyState>}</Panel></Widget>
-      {/* Sem contagem: o desenho so conta o que exige decisao — o que esta em
-          andamento e o que espera na Inbox. Project e App voce navega, nao
-          processa. */}
-      {/* O corte em 5 e silencioso: com 12 projects o painel mostra 5 e nada diz
-          que existem outros. Continua sem contagem, pela decisao acima, mas o
-          link so aparece quando ha o que ver alem do corte — se cabem todos, o
-          cabecalho fica limpo. */}
+    </div>
+
+    {/* O ACERVO. Aqui você navega, não processa — e é por isso que nada nesta
+        faixa tem contagem. O corte em 5 seria silencioso, então o link "Ver
+        todos" só aparece quando existe algo além do corte; se cabem todos, o
+        cabeçalho fica limpo. */}
+    <div className="home-grid">
       <Widget id="projects" hidden={hiddenIds.has("projects")} size="2x2"><Panel label="PROJECTS" action={scopedProjects.length > 5 ? <Button variant="ghost" onClick={() => openProjectsPage()}>Ver todos</Button> : undefined}>{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} aria-hidden="true" />} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <ScopedEmptyState total={projects.filter((project) => project.lifecycleState === "active").length} workspace={currentWorkspace} noun="project" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
       {/* O nome do app nao entra: o icone com a inicial e o atalho ja o
           identificam, e a linha de nomes competiria com as rows ao lado. */}
-      <Widget id="apps" hidden={hiddenIds.has("apps")} size="2x1"><Panel label="APPS"><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><AppIcon app={app} />{index < 9 ? <span className="app-shortcut">⌘{index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
+      <Widget id="apps" hidden={hiddenIds.has("apps")} size="2x1"><Panel label="APPS"><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><AppIcon app={app} />{index < 9 ? <span className="app-shortcut">Ctrl {index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
       <Widget id="recent_resources" hidden={hiddenIds.has("recent_resources")} size="2x1"><Panel label="RECURSOS" action={activeResources.length > 5 ? <Button variant="ghost" onClick={() => openLibraryPage()}>Ver todos</Button> : undefined}>{activeResources.length ? activeResources.slice(0, 5).map((resource) => <DataRow key={resource.id} primary={resource.title} secondary={resourceHost(resource.url)} meta={relativeTime(resource.updatedAt)} onClick={() => openResource(resource)} />) : <ScopedEmptyState total={allActiveResources.length} workspace={currentWorkspace} noun="resource" onLink={() => openLibraryPage()} linkLabel="Ver tudo" />}</Panel></Widget>
+    </div>
+
+    {/* O SISTEMA. Última faixa de propósito: atalho e tranquilidade não são a
+        pergunta que abre a Home. SISTEMA não duplica INTEGRIDADE das Settings —
+        aquele é diagnóstico (schema, WAL), este responde "está salvo?". */}
+    <div className="home-grid">
       <Widget id="quick_actions" hidden={hiddenIds.has("quick_actions")} size="1x1"><Panel label="AÇÕES"><div className="quick-actions"><Button variant="outline" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button><Button variant="outline" size="sm" onClick={() => openTasksPage()}>Nova Task</Button><Button variant="outline" size="sm" onClick={() => openProjectsPage()}>Novo Project</Button></div></Panel></Widget>
       <Widget id="system_health" hidden={hiddenIds.has("system_health")} size="1x1"><Panel label="SISTEMA"><SystemHealth status={status} /></Panel></Widget>
     </div>
@@ -1389,7 +1447,7 @@ function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrash
   const archivedResources = resources.filter((resource) => resource.lifecycleState === "archived");
   const archivedWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "archived");
   const functionsByCategory = functionCategories.map((category) => ({ category, items: functions.filter((item) => item.category === category) })).filter((group) => group.items.length);
-  return <div className="page settings-page"><ContextPath segments={["M", "SETTINGS"]} /><HermesSettings /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateStatusLine() ? <p className="support-copy" aria-live="polite">{updateStatusLine()}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then(setMessage).catch((error) => setMessage(appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Project", project.name, () => api.deleteProject(project.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Workspace", workspace.name, () => api.deleteWorkspace(workspace.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("App", app.name, () => api.deleteRegisteredApp(app.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Task", task.title, () => api.deleteTask(task.id))}>Excluir</Button></div>)}</details></Panel><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}<dialog ref={deleteDialog} className="restore-dialog" onCancel={() => { deleteDialog.current?.close(); setPendingDelete(null); }}><span className="micro-label">EXCLUSÃO DEFINITIVA</span><h2>Excluir {pendingDelete?.noun.toLowerCase()} “{pendingDelete?.label}”?</h2><p>Isto apaga o registro do banco. Não há Desfazer: o único caminho de volta é restaurar um backup anterior a esta ação.</p><div className="form-actions"><Button variant="ghost" onClick={() => { deleteDialog.current?.close(); setPendingDelete(null); }}>Cancelar</Button><Button variant="danger" onClick={() => void confirmDelete()}>Excluir</Button></div></dialog><dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></div>;
+  return <div className="page settings-page"><ContextPath segments={["M", "SETTINGS"]} /><HermesSettings /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateStatusLine() ? <p className="support-copy" aria-live="polite">{updateStatusLine()}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then(setMessage).catch((error) => setMessage(appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="ATALHOS"><p className="support-copy">O M/OS é operável quase inteiro pelo teclado. Nada aqui precisa ser decorado — esta lista existe para quando você quiser.</p><dl className="shortcut-list">{SHORTCUTS.map((entry) => <div key={entry.keys}><dt>{entry.keys}</dt><dd>{entry.does}</dd></div>)}</dl></Panel><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Project", project.name, () => api.deleteProject(project.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Workspace", workspace.name, () => api.deleteWorkspace(workspace.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("App", app.name, () => api.deleteRegisteredApp(app.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Task", task.title, () => api.deleteTask(task.id))}>Excluir</Button></div>)}</details></Panel><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}<dialog ref={deleteDialog} className="restore-dialog" onCancel={() => { deleteDialog.current?.close(); setPendingDelete(null); }}><span className="micro-label">EXCLUSÃO DEFINITIVA</span><h2>Excluir {pendingDelete?.noun.toLowerCase()} “{pendingDelete?.label}”?</h2><p>Isto apaga o registro do banco. Não há Desfazer: o único caminho de volta é restaurar um backup anterior a esta ação.</p><div className="form-actions"><Button variant="ghost" onClick={() => { deleteDialog.current?.close(); setPendingDelete(null); }}>Cancelar</Button><Button variant="danger" onClick={() => void confirmDelete()}>Excluir</Button></div></dialog><dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></div>;
 }
 
 function QuickCapture() {

@@ -756,7 +756,11 @@ export function HermesPage({ inbox, projects, tasks, receipt }: {
             <input name="title" defaultValue={conversation?.title ?? ""} aria-label="Título da conversa" autoFocus />
           </form>
         ) : (
-          <button type="button" className="hermes-title" onClick={() => setRenaming(true)} title="Renomear conversa">
+          // O nome acessível diz a AÇÃO e contém o texto visível. Só com o
+          // título, o leitor de tela anunciava o nome da conversa e nada
+          // indicava que clicar renomeia; só com "Renomear", o nome deixaria
+          // de conter o rótulo visível (WCAG 2.5.3).
+          <button type="button" className="hermes-title" onClick={() => setRenaming(true)} aria-label={`Renomear conversa: ${conversation?.title || "sem título"}`} title="Renomear conversa">
             {conversation?.title || "sem título"}
           </button>
         )}
