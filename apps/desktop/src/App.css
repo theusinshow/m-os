@@ -851,7 +851,7 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-loose);
   border-bottom: var(--line) solid var(--border);
 }
 
@@ -868,10 +868,13 @@ textarea::placeholder {
   letter-spacing: var(--tracking-meta);
 }
 
+/* 24px, e nao 12. Medido contra a referencia: o respiro interno do card era
+   metade do que precisava, e conteudo encostado na moldura e o que faz uma tela
+   inteira parecer apertada mesmo quando cada peca esta no lugar. */
 .tempo-card-body {
   flex: 1;
   min-width: 0;
-  padding: var(--space-3);
+  padding: var(--space-loose);
 }
 
 /* O card sem padding, para tabela encostar na moldura como no original. */
@@ -1011,7 +1014,7 @@ textarea::placeholder {
 
 .tempo-card.flush .tempo-table th,
 .tempo-card.flush .tempo-table td {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-loose);
 }
 
 .tempo-card.flush .tempo-table tbody tr:last-child th,

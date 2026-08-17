@@ -37,6 +37,11 @@ jobs:
         shell: pwsh
         run: ./scripts/check-version.ps1
 
+      # Só no CI, e nunca no `package.yml`: contraste ruim precisa barrar um PR,
+      # mas não pode ser motivo para um release não sair.
+      - name: Check token contrast
+        run: python scripts/check-contrast.py
+
       - name: Install frontend dependencies
         working-directory: apps/desktop
         run: npm ci
