@@ -421,6 +421,24 @@ export type InvoiceData = {
   totalValue: string;
 };
 
+export type CalendarKind = "session" | "task_done" | "task_created" | "capture" | "app_opened";
+
+/**
+ * Um item de calendário: algo que o M/OS registrou, com hora.
+ *
+ * `at` vem em **UTC**. Que dia isso é decide-se no renderer, que é o único dos
+ * dois lados que conhece o fuso de quem está olhando.
+ */
+export type CalendarItem = {
+  kind: CalendarKind;
+  at: string;
+  endsAt: string | null;
+  title: string;
+  projectId: string | null;
+  seconds: number;
+  amountCents: number;
+};
+
 export type ImportReport = {
   projects: number;
   entries: number;
