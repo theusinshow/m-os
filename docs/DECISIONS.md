@@ -1320,3 +1320,51 @@ fechar.
   revisão do teto torna a próxima mais fácil. A defesa não é o número, é a
   exigência de ADR para mexer nele — e esta é a segunda em dois dias, o que é um
   sinal a observar.
+
+## ADR-039 — O rail vai a onze, e Finance entra sem tirar ninguém
+
+**Data:** 2026-08-17
+**Status:** aceito, por decisão do proprietário do produto
+**Revisa:** ADR-038, ADR-036, ADR-031
+
+### Contexto
+
+A ADR-038 levou o rail a dez e manteve a regra herdada da ADR-036: o próximo
+destino exige retirar um. M-Finance é hoje um app web separado
+(`apps/m-finance`, Next.js/Postgres/Supabase, deploy em produção), alcançável
+pelo M/OS apenas através do App Registry, que abre o navegador padrão do
+Windows e tira o usuário da janela do M/OS. A Feature A (ver
+`docs/superpowers/specs/2026-08-17-m-finance-embed-design.md`) embute essa
+mesma URL num iframe dentro de uma página nativa do M/OS, e o pedido natural é
+um destino de rail para ela — Finance não é uma tela secundária, é onde o
+usuário vê e mexe no próprio dinheiro.
+
+### Decisão
+
+**Finance entra no rail. Nada sai. O teto passa a ser onze.**
+
+O critério já fixado pela ADR-036 é "algo de que depende a renda ou a memória
+do usuário, não algo que ele usa com frequência". Finance passa nesse critério
+com folga maior que Apps passava — Apps foi removido justamente por ser só
+conveniência (ADR-038), e contas, vencimentos e faturas são renda de forma
+direta, não uma leitura extensiva do critério.
+
+Diferente da troca Apps→Calendário da ADR-038, aqui nada precisa sair: o rail
+ainda comporta um décimo primeiro item sem ficar ilegível nas larguras
+suportadas (840×600 em diante, conforme os lotes de UI/UX já validados), e não
+há um destino de menor evidência para substituir sem repetir o experimento já
+descartado com Workspaces (ADR-031).
+
+Finance entra no grupo `TRABALHO`, depois de Calendário, antes do grupo
+`MEMÓRIA` (Library).
+
+### Consequências
+
+- o teto vira onze, e a regra de troca continua valendo para o próximo pedido:
+  o décimo segundo exige retirar um, ou uma ADR nova que justifique não
+  retirar, como esta fez;
+- o App Registry continua tendo a entrada `m-finance` como está — o rail é um
+  caminho adicional, não uma substituição;
+- esta ADR não reabre nem contradiz a ADR-032 (M-Finance continua Next.js,
+  Postgres e Vercel, rodando exatamente como hoje; só o lugar onde a mesma URL
+  é exibida muda).
