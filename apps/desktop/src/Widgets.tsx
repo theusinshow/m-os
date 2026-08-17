@@ -5,11 +5,14 @@ import type { Capture, Task } from "./types";
 /**
  * Widgets visuais da Home — `M-OS Widgets - Visuais e Animados v0.1`.
  *
- * Só entram aqui os widgets do desenho que têm dado REAL no M/OS hoje. Os
- * outros sete do catálogo dependem de tempo rastreado (CronoCAD, ainda não
- * absorvido), de calendário e de hábitos — nenhum dos três existe no domínio.
- * Um anel bonito preenchido com número inventado é pior que a ausência: ele
- * ensina a confiar numa medida que não existe.
+ * Só entram aqui os widgets do desenho que têm dado REAL no M/OS hoje. Um anel
+ * bonito preenchido com número inventado é pior que a ausência: ele ensina a
+ * confiar numa medida que não existe.
+ *
+ * Os que dependiam de TEMPO RASTREADO saíram deste bloqueio quando o CronoCAD
+ * foi absorvido, e vivem em `TimeWidgets.tsx` — separados porque carregam o
+ * próprio dado, fora do `refresh()` da Home. Os que restam dependem de
+ * calendário e de hábitos, que continuam não existindo no domínio.
  */
 
 const WEEKDAYS = ["SEG", "TER", "QUA", "QUI", "SEX", "SÁB", "DOM"];

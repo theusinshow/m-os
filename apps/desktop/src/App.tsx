@@ -12,6 +12,7 @@ import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
 import { ContextPath, EmptyState, Panel } from "./Surface";
 import { Reminder } from "./Reminder";
+import { BudgetRing, TodayHours, useTrackedTime, WeekByProject } from "./TimeWidgets";
 import { TempoPage } from "./TempoPage";
 import { Timer } from "./Timer";
 import { Icon, type IconName } from "./Icon";
@@ -137,6 +138,12 @@ function SystemHealth({ status }: { status: AppStatus | null }) {
 const HOME_WIDGETS: { id: string; label: string }[] = [
   { id: "timer", label: "CRONÔMETRO" },
   { id: "now", label: "EM ANDAMENTO" },
+  // Os tres de tempo. Ids novos e nao renomeados: `week_rings` continua sendo a
+  // semana de TASKS, e reaproveitar o id daria a quem ocultou um o outro
+  // escondido sem ter pedido.
+  { id: "today_hours", label: "HOJE" },
+  { id: "week_by_project", label: "SEMANA POR PROJECT" },
+  { id: "budget_ring", label: "META" },
   { id: "week_rings", label: "SEMANA" },
   { id: "task_progress", label: "CONCLUÍDO" },
   { id: "month_density", label: "MÊS" },
@@ -238,7 +245,7 @@ function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
   return nextIndex;
 }
 
-function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openProjectsPage, openLibraryPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openProjectsPage: () => void; openLibraryPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent }) {
+function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openLibraryPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
   const [workspaceApps, setWorkspaceApps] = useState<RegisteredApp[]>([]);
@@ -317,6 +324,10 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
   // sem Workspace nao ha escolha a aplicar.
   const hiddenIds = useMemo(() => new Set(currentWorkspaceId ? hiddenWidgets.filter((entry) => entry.workspaceId === currentWorkspaceId).map((entry) => entry.widgetId) : []), [hiddenWidgets, currentWorkspaceId]);
   const allWidgetsHidden = HOME_WIDGETS.every((widget) => hiddenIds.has(widget.id));
+  // O tempo carrega por fora do `refresh()`: aquele é o caminho de boot do app
+  // inteiro, e um erro no rastreio não pode ser motivo para a Home não abrir.
+  const trackedTime = useTrackedTime();
+  const hasBudget = trackedTime.tracking.some((entry) => entry.budgetMinutes > 0);
   // resources(true) traz arquivado junto — a Home so mostra o acervo vivo. A ordem
   // ja vem do banco por updated_at DESC (resource_repository.rs:185).
   const allActiveResources = resources.filter((resource) => resource.lifecycleState === "active");
@@ -357,6 +368,26 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
       <Widget id="now" hidden={hiddenIds.has("now")} size="2x1"><Panel label="EM ANDAMENTO" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel></Widget>
     </div>
 
+    {/* O TEMPO. Faixa própria, e não misturada com a de baixo, porque responde
+        outra pergunta: aquela fala do trabalho: aqui fala das HORAS — que é de
+        onde sai a renda de quem fatura por hora (ADR-036).
+
+        Fecha em 12 exatamente: 3 + 6 + 3. A META vai por ÚLTIMO de propósito —
+        ela some quando nenhum Project tem meta, e um vão no fim da faixa é só
+        ar, enquanto no meio seria o buraco de 3 colunas que fazia a Home ler
+        como bagunça.
+
+        Todos mostram HORAS, nunca dinheiro: o valor passa por arredondamento e
+        desconto de inatividade, que vivem no Rust, e repetir essa conta aqui
+        criaria um segundo número capaz de divergir do que vai na fatura. */}
+    <div className="home-grid">
+      <Widget id="today_hours" hidden={hiddenIds.has("today_hours")} size="1x1"><Panel label="HOJE"><TodayHours time={trackedTime} /></Panel></Widget>
+      <Widget id="week_by_project" hidden={hiddenIds.has("week_by_project")} size="2x1"><Panel label="SEMANA POR PROJECT"><WeekByProject time={trackedTime} projects={projects} onOpen={openTempoPage} /></Panel></Widget>
+      {/* Escondido quando nenhum Project tem meta: um anel preenchido contra um
+          alvo que ninguém definiu ensina a confiar numa medida que não existe. */}
+      <Widget id="budget_ring" hidden={hiddenIds.has("budget_ring") || !hasBudget} size="1x1"><Panel label="META"><BudgetRing time={trackedTime} projects={projects} onOpen={openProject} /></Panel></Widget>
+    </div>
+
     {/* O QUE ESTÁ ACONTECENDO. Anel, densidade e lista curta — tudo de relance,
         nada pedindo decisão, e é isso que os mantém no mesmo grupo.
 
@@ -369,8 +400,10 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
         filtra por `processing_state` (repository.rs:91) e o comando pede só 8
         (lib.rs:80), então o número mentia duas vezes.
 
-        Os outros sete widgets do catálogo dependem de calendário e hábitos, que
-        não existem no domínio, e por isso não estão aqui. */}
+        Os widgets do catálogo que ainda faltam dependem de calendário e de
+        hábitos, que não existem no domínio, e por isso não estão aqui. Os de
+        tempo rastreado saíram desta lista quando o CronoCAD foi absorvido, e
+        ganharam faixa própria acima. */}
     <div className="home-grid">
       <Widget id="month_density" hidden={hiddenIds.has("month_density")} size="2x2"><Panel label="MÊS"><MonthDensity tasks={tasks} captures={recent} /></Panel></Widget>
       <Widget id="inbox_pulse" hidden={hiddenIds.has("inbox_pulse")} size="1x1"><Panel label="INBOX">{/* O numero cru vira anel. A proporcao mostrada e o que esta ENVELHECENDO
@@ -1743,7 +1776,7 @@ function DesktopApp() {
   }, [page]);
   const pageContent = useMemo(() => {
     if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} />;
-    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} />;
+    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} />;
     if (page === "tempo") return <TempoPage projects={projects} openProject={openProject} receipt={showReceipt} />;
     if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} openResource={openResource} intent={functionIntent ?? undefined} />;
     if (page === "projects") return <ProjectsPage projects={projects} tasks={tasks} initialProjectId={selectedProjectId} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
