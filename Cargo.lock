@@ -2387,10 +2387,12 @@ dependencies = [
 name = "mos-desktop"
 version = "0.2.11"
 dependencies = [
+ "keyring",
  "mos-core",
  "mos-hermes",
  "mos-storage-sqlite",
  "printpdf",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sysinfo",
