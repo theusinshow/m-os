@@ -30,6 +30,7 @@ pub enum ActionKind {
     TimeStart,
     TimeStop,
     TimeRecord,
+    MFinanceCreateBill,
 }
 
 impl ActionKind {
@@ -51,6 +52,7 @@ impl ActionKind {
             Self::TimeStart => "mos.time.start",
             Self::TimeStop => "mos.time.stop",
             Self::TimeRecord => "mos.time.record",
+            Self::MFinanceCreateBill => "m-finance.create_bill",
         }
     }
 
@@ -64,6 +66,7 @@ impl ActionKind {
             "mos.time.start" => Some(Self::TimeStart),
             "mos.time.stop" => Some(Self::TimeStop),
             "mos.time.record" => Some(Self::TimeRecord),
+            "m-finance.create_bill" => Some(Self::MFinanceCreateBill),
             _ => None,
         }
     }
@@ -80,10 +83,11 @@ impl ActionKind {
             Self::TimeStart => "time.start",
             Self::TimeStop => "time.stop",
             Self::TimeRecord => "time.record",
+            Self::MFinanceCreateBill => "m-finance.create_bill",
         }
     }
 
-    pub fn all() -> [ActionKind; 8] {
+    pub fn all() -> [ActionKind; 9] {
         [
             Self::CaptureCreate,
             Self::TaskCreate,
@@ -93,6 +97,7 @@ impl ActionKind {
             Self::TimeStart,
             Self::TimeStop,
             Self::TimeRecord,
+            Self::MFinanceCreateBill,
         ]
     }
 
@@ -111,6 +116,7 @@ impl ActionKind {
             // Em MINUTOS, e nao "1h30": tres jeitos de escrever a mesma duracao
             // dao tres jeitos de errar um quarto dela, e o erro sai na fatura.
             Self::TimeRecord => "{ project, minutes, day?: AAAA-MM-DD, activity?, description? }",
+            Self::MFinanceCreateBill => "{ amountCents, description, dueDay?: 1-31, isRecurring }",
         }
     }
 }
@@ -163,6 +169,14 @@ pub enum ActionArgs {
         activity: String,
         description: String,
     },
+    MFinanceCreateBill {
+        /// Centavos. Sempre positivo — zero ou negativo nao e uma conta.
+        amount_cents: i64,
+        description: String,
+        /// Dia do mes, 1-31. Ausente quando a conta nao tem vencimento fixo.
+        due_day: Option<u8>,
+        is_recurring: bool,
+    },
 }
 
 impl ActionArgs {
@@ -176,6 +190,7 @@ impl ActionArgs {
             Self::TimeStart { .. } => ActionKind::TimeStart,
             Self::TimeStop => ActionKind::TimeStop,
             Self::TimeRecord { .. } => ActionKind::TimeRecord,
+            Self::MFinanceCreateBill { .. } => ActionKind::MFinanceCreateBill,
         }
     }
 }
@@ -292,6 +307,42 @@ pub fn parse_action(raw: &str) -> Result<ActionArgs, CoreError> {
             activity: activity_of(&args)?,
             description: text(&args, "description"),
         },
+        ActionKind::MFinanceCreateBill => {
+            let amount_cents = args
+                .get("amountCents")
+                .and_then(serde_json::Value::as_i64)
+                .filter(|value| *value > 0)
+                .ok_or_else(|| {
+                    CoreError::new(
+                        ErrorCode::InvalidInput,
+                        "A proposta de `m-finance.create_bill` veio sem `amountCents` valido."
+                            .to_owned(),
+                        false,
+                    )
+                })?;
+            let due_day = args
+                .get("dueDay")
+                .and_then(serde_json::Value::as_u64)
+                .map(|value| value as u8);
+            if let Some(day) = due_day {
+                if !(1..=31).contains(&day) {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidInput,
+                        format!("`{day}` nao e um dia valido de vencimento."),
+                        false,
+                    ));
+                }
+            }
+            ActionArgs::MFinanceCreateBill {
+                amount_cents,
+                description: required(&args, "description", kind)?,
+                due_day,
+                is_recurring: args
+                    .get("isRecurring")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false),
+            }
+        }
     })
 }
 
@@ -382,6 +433,12 @@ fn line(label: &str, value: &str) -> ActionLine {
         label: label.to_owned(),
         value: value.to_owned(),
     }
+}
+
+/// R$ a partir de centavos. Nao e formatacao de moeda completa (sem milhar) —
+/// e so o preview; o M-Finance formata de verdade na tela dele.
+fn format_cents(cents: i64) -> String {
+    format!("R$ {:.2}", cents as f64 / 100.0)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -489,6 +546,22 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
             }
             ("LANÇAR TEMPO", lines)
         }
+        ActionArgs::MFinanceCreateBill {
+            amount_cents,
+            description,
+            due_day,
+            is_recurring,
+        } => {
+            let mut lines = vec![
+                line("Valor", &format_cents(*amount_cents)),
+                line("Descrição", description),
+            ];
+            if let Some(day) = due_day {
+                lines.push(line("Vencimento", &format!("dia {day}")));
+            }
+            lines.push(line("Recorrente", if *is_recurring { "sim" } else { "não" }));
+            ("CRIAR CONTA NO M-FINANCE", lines)
+        }
     };
 
     ActionPreview {
@@ -563,9 +636,15 @@ pub enum UndoStep {
 /// Diz o que existe e como responder. Nao pede que o modelo execute nada, e a
 /// frase final e deliberada: sem ela, um modelo prestativo tende a preencher
 /// campos que o usuario nao disse.
-pub fn action_contract() -> String {
+///
+/// `finance_enabled` decide se `m-finance.create_bill` desce no catalogo.
+/// Sem a capacidade `can_write` no App M-Finance, o Hermes nunca aprende que
+/// a acao existe — a mesma logica que impede a UI de oferecer uma acao que o
+/// usuario nao habilitou.
+pub fn action_contract(finance_enabled: bool) -> String {
     let catalog = ActionKind::all()
         .iter()
+        .filter(|kind| finance_enabled || **kind != ActionKind::MFinanceCreateBill)
         .map(|kind| format!("- {} {}", kind.as_str(), kind.signature()))
         .collect::<Vec<_>>()
         .join("\n");
@@ -828,9 +907,56 @@ mod tests {
 
     #[test]
     fn the_contract_lists_every_action() {
-        let contract = action_contract();
+        let contract = action_contract(true);
         for kind in ActionKind::all() {
             assert!(contract.contains(kind.as_str()));
         }
+    }
+
+    #[test]
+    fn parses_m_finance_create_bill() {
+        let raw = r#"{"action":"m-finance.create_bill","args":{"amountCents":18000,"description":"Conta de luz","dueDay":10,"isRecurring":true}}"#;
+        assert_eq!(
+            parse_action(raw).unwrap(),
+            ActionArgs::MFinanceCreateBill {
+                amount_cents: 18000,
+                description: "Conta de luz".into(),
+                due_day: Some(10),
+                is_recurring: true,
+            }
+        );
+    }
+
+    #[test]
+    fn refuses_a_bill_with_zero_or_negative_amount() {
+        let raw = r#"{"action":"m-finance.create_bill","args":{"amountCents":0,"description":"X","isRecurring":false}}"#;
+        assert!(parse_action(raw).is_err());
+    }
+
+    #[test]
+    fn refuses_a_due_day_outside_the_month() {
+        let raw = r#"{"action":"m-finance.create_bill","args":{"amountCents":100,"description":"X","dueDay":32,"isRecurring":false}}"#;
+        assert!(parse_action(raw).is_err());
+    }
+
+    #[test]
+    fn the_m_finance_preview_shows_currency_and_due_day() {
+        let args = ActionArgs::MFinanceCreateBill {
+            amount_cents: 18000,
+            description: "Conta de luz".into(),
+            due_day: Some(10),
+            is_recurring: true,
+        };
+        let preview = preview_of(&args);
+        assert_eq!(preview.title, "CRIAR CONTA NO M-FINANCE");
+        assert!(preview.lines.iter().any(|l| l.value.contains("180")));
+        assert!(preview.lines.iter().any(|l| l.value.contains("10")));
+        assert_eq!(preview.risk, FunctionRisk::High);
+    }
+
+    #[test]
+    fn the_contract_hides_m_finance_when_not_enabled() {
+        assert!(!action_contract(false).contains("m-finance.create_bill"));
+        assert!(action_contract(true).contains("m-finance.create_bill"));
     }
 }
