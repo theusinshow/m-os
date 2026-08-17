@@ -29,6 +29,7 @@ export type IconName =
   | "board"
   | "tempo"
   | "calendar"
+  | "finance"
   | "settings"
   | "search"
   | "capture"
@@ -57,6 +58,10 @@ const OUTLINE_20: Record<IconName, ReactNode> = {
   // Folha com a regua do cabecalho e as duas argolas. A regua e o que separa
   // "calendario" de "janela" a 20px.
   calendar: <><rect x="3.5" y="5.5" width="13" height="11" /><path d="M3.5 9.5h13M7 3.5v3M13 3.5v3" /></>,
+  // Nota com o valor marcado por um circulo vazado: diferencia de "calendar" e
+  // "board" sem precisar de simbolo de moeda (que nao cabe limpo no traco de
+  // 1.25 a 20px).
+  finance: <><rect x="3" y="6" width="14" height="8" /><circle cx="10" cy="10" r="2" /></>,
   // Coroa de oito dentes em vez de engrenagem desenhada: a 20px com traco de
   // 1.25 os dentes de uma engrenagem colam uns nos outros.
   settings: <><circle cx="10" cy="10" r="2.5" /><path d="M10 3.5v2M10 14.5v2M3.5 10h2M14.5 10h2M5.4 5.4l1.4 1.4M13.2 13.2l1.4 1.4M14.6 5.4l-1.4 1.4M6.8 13.2l-1.4 1.4" /></>,
@@ -92,6 +97,10 @@ const SOLID_20: Partial<Record<IconName, ReactNode>> = {
   // recorte. Corpo, coroa e haste bastam para reconhecer o cronometro.
   tempo: <><circle cx="10" cy="11.6" r="5.9" /><rect x="7.8" y="3.2" width="4.4" height="1.9" /><rect x="9.1" y="4.8" width="1.8" height="1.4" /></>,
   calendar: <><rect x="3.2" y="5.2" width="13.6" height="11.6" /><rect x="6.4" y="2.9" width="1.6" height="3.4" /><rect x="12" y="2.9" width="1.6" height="3.4" /></>,
+  // Sem o circulo vazado: a silhueta nao recorta, e um furo no meio exigiria
+  // caminho composto. O retangulo da nota basta para reconhecer o item ao
+  // lado dos outros destinos ativos do rail.
+  finance: <><rect x="2.9" y="5.9" width="14.2" height="8.2" /></>,
 };
 
 /**
