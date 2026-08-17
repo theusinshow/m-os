@@ -30,8 +30,16 @@ Hoje "M Finance" no App Registry abre `https://m-finance-silk.vercel.app` no nav
 ## 3. Ponto de entrada
 
 - `Page` type em `App.tsx` ganha `"finance"`.
-- Grupo de rail `TRABALHO` (mesmo grupo de Projects, Calendar, Tempo) ganha o item `{ page: "finance", label: "Finance", icon: "finance" }`. Precisa de um ícone novo (`Icon name="finance"`) seguindo o padrão de stroke já existente — reaproveitar um ícone já existente e neutro (ex. o mesmo símbolo genérico usado para Apps) se não houver tempo de desenhar um novo, documentando a dívida.
+- Grupo de rail `TRABALHO` (hoje: Tasks, Projects, Workspaces, Tempo, Calendário) ganha o item `{ page: "finance", label: "Finance", icon: "finance" }` ao final do grupo, antes de `MEMÓRIA` (Library). Precisa de um ícone novo (`Icon name="finance"`) seguindo o padrão de stroke já existente.
 - O App Registry mantém a entrada `m-finance` como está (metadata/URL), sem remover — quem clicar em "M Finance" na lista de Apps continua abrindo no navegador externo; o rail é o novo caminho "embutido", não uma substituição do App Registry.
+
+### 3.1 Revisão do teto do rail (ADR-039)
+
+O rail já está no teto documentado por ADR-031/ADR-036/ADR-038 (10 destinos: Home, Hermes, Inbox, Tasks, Projects, Workspaces, Tempo, Calendário, Library, mais Apps fora do rail desde a ADR-038). Adicionar Finance sem decisão explícita seria exatamente o tipo de mudança silenciosa de IA que `UI-UX-REFINEMENT.md` §15 proíbe.
+
+Decisão: **revisar o teto para 11**, sem remover nenhum destino existente. Justificativa, no mesmo critério já usado pela ADR-036 para o Tempo ("renda ou memória, não conveniência" — ADR-038): Finance é onde o usuário vê e mexe no próprio dinheiro — passa no critério de "renda" com folga maior que Apps (que foi removido por ser só conveniência). Esta decisão precisa de uma ADR própria (`ADR-039`) em `docs/DECISIONS.md`, registrada como parte do plano de implementação — não é uma alteração informal de comentário no código.
+
+`nav` passa a ter 10 itens (índices 0–9): `home, hermes, inbox, tasks, projects, workspaces, tempo, calendario, finance, library`. Grupos: `GERAL = nav.slice(0, 3)` (inalterado), `TRABALHO = nav.slice(3, 9)` (ganha `finance` no fim), `MEMÓRIA = nav.slice(9)` (continua só `library`, agora no índice 9 em vez de 8).
 
 ## 4. Renderização
 
