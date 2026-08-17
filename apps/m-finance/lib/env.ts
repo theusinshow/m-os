@@ -10,6 +10,8 @@ export const env = {
   vapidSubject: process.env.VAPID_SUBJECT ?? "mailto:admin@example.com",
   // Secret Vercel Cron sends so only it can trigger the daily reminder run.
   cronSecret: process.env.CRON_SECRET ?? "",
+  // Secret que autoriza o M/OS a chamar a Action API (Hermes propondo acoes).
+  mosActionSecret: process.env.MOS_ACTION_SECRET ?? "",
   // WhatsApp via Twilio. The webhook is intentionally private to one phone.
   twilioAccountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
   twilioAuthToken: process.env.TWILIO_AUTH_TOKEN ?? "",
