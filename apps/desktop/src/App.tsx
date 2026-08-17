@@ -10,7 +10,7 @@ import { hermes, type HermesConnectionState, type HermesFailure, type HermesStat
 import { HermesPage } from "./HermesPage";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
-import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel } from "./Surface";
+import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel, StateMessage } from "./Surface";
 import { CalendarPage } from "./CalendarPage";
 import { Reminder } from "./Reminder";
 import { BudgetRing, TodayHours, useTrackedTime, WeekByProject } from "./TimeWidgets";
@@ -220,12 +220,12 @@ function CaptureComposer({ onSaved, focusKey }: { onSaved: (capture: Capture) =>
     <div className="capture-line">
       <span className="capture-bar" aria-hidden="true" />
       <div className="capture-input">
-        <textarea ref={input} aria-label="Conteúdo da captura" value={content} onChange={(event) => setContent(event.currentTarget.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} rows={1} />
+        <textarea ref={input} aria-label="Conteúdo da captura" value={content} onChange={(event) => { setContent(event.currentTarget.value); if (state !== "idle") { setState("idle"); setFeedback(""); } }} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} rows={1} />
         {!content && !focused ? <span className="capture-ghost" aria-hidden="true">What's on your mind?<i className="capture-caret" /></span> : null}
       </div>
       <Button className="capture-save" variant="primary" type="submit" disabled={!content.trim() || state === "saving"}>{state === "saving" ? "Salvando" : "Salvar ⏎"}</Button>
     </div>
-    {feedback && state === "error" ? <p className="feedback error" role="alert">{feedback}</p> : null}
+    {feedback && state !== "idle" ? <StateMessage state={state === "success" ? "saved" : state} label={feedback} /> : null}
   </form>;
 }
 
@@ -439,11 +439,11 @@ function CaptureTaskForm({ capture, projects, onCreated, cancel }: { capture: Ca
       setSaving(false);
     }
   }
-  return <form className="stack-form" onSubmit={submit}>
+  return <form className="stack-form" onSubmit={submit} aria-busy={saving}>
     <label><span>TÍTULO</span><input value={title} onChange={(event) => setTitle(event.currentTarget.value)} autoFocus /></label>
     <label><span>DESCRIÇÃO</span><textarea value={description} onChange={(event) => setDescription(event.currentTarget.value)} rows={3} /></label>
     <label><span>PROJECT</span><select value={projectId} onChange={(event) => setProjectId(event.currentTarget.value)}><option value="">Sem Project</option>{projects.filter((project) => project.lifecycleState === "active").map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
-    {error ? <p className="inline-error" role="alert">! {error}</p> : null}
+    {saving ? <StateMessage state="saving" label="Salvando Task..." /> : error ? <StateMessage state="error" label={error} /> : null}
     <div className="form-actions"><Button variant="ghost" onClick={cancel}>Cancelar</Button><Button variant="primary" type="submit" disabled={!title.trim() || saving}>{saving ? "Salvando" : "Criar Task"}</Button></div>
   </form>;
 }
@@ -545,7 +545,7 @@ function InboxPage({ captures, projects, refresh, receipt, openTask, openResourc
         }}
       />)}</div>
     </section>
-    {selected ? <Inspector ref={inspector} label="Detalhe da Capture" onBack={returnToInboxList} onEscape={returnToInboxList}><header className="detail-header"><div><span className="micro-label">CAPTURE</span><h1>{selected.content}</h1><div className="chip-line"><span className="chip">{sourceLabel(selected.source)}</span><span className="chip">{relativeTime(selected.capturedAt)}</span></div></div><ActionMenu trigger={<Icon name="more" />} items={[{ label: "Arquivar", onSelect: () => void mutate("archive") }, { label: "Mover para a Lixeira", danger: true, onSelect: () => void mutate("trash") }]} /></header>
+    {selected ? <Inspector ref={inspector} label="Detalhe da Capture" open={narrowPane === "detail"} onBack={returnToInboxList} onEscape={returnToInboxList}><header className="detail-header"><div><span className="micro-label">CAPTURE</span><h1>{selected.content}</h1><div className="chip-line"><span className="chip">{sourceLabel(selected.source)}</span><span className="chip">{relativeTime(selected.capturedAt)}</span></div></div><ActionMenu trigger={<Icon name="more" />} items={[{ label: "Arquivar", onSelect: () => void mutate("archive") }, { label: "Mover para a Lixeira", danger: true, onSelect: () => void mutate("trash") }]} /></header>
       {error ? <p className="inline-error" role="alert">! {error}</p> : null}
       {/* Moldura pronta, conteudo honesto. A interpretacao do Hermes e a fase 3
           da integracao; ate la este bloco diz o que e, em vez de fabricar uma
@@ -564,17 +564,21 @@ function ProjectForm({ project, cancel, saved }: { project?: Project; cancel: ()
   const [description, setDescription] = useState(project?.description ?? "");
   const [repository, setRepository] = useState(project?.repository ?? "");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    setError("");
     try { saved(project ? await api.updateProject(project.id, name, description, repository) : await api.createProject(name, description, repository)); }
-    catch (nextError) { setError(appError(nextError).message); }
+    catch (nextError) { setError(appError(nextError).message); setSaving(false); }
   }
-  return <form className="stack-form" onSubmit={submit}>
+  return <form className="stack-form" onSubmit={submit} aria-busy={saving}>
     <label><span>NOME</span><input value={name} onChange={(event) => setName(event.currentTarget.value)} autoFocus /></label>
     <label><span>DESCRIÇÃO</span><textarea value={description} onChange={(event) => setDescription(event.currentTarget.value)} rows={4} /></label>
     <label><span>REPOSITÓRIO</span><input className="mono-input" value={repository} onChange={(event) => setRepository(event.currentTarget.value)} placeholder="usuario/repo ou URL" /></label>
-    {error ? <p className="inline-error" role="alert">! {error}</p> : null}
-    <div className="form-actions"><Button variant="ghost" onClick={cancel}>Cancelar</Button><Button variant="primary" type="submit" disabled={!name.trim()}>Salvar</Button></div>
+    {saving ? <StateMessage state="saving" label="Salvando Project..." /> : error ? <StateMessage state="error" label={error} /> : null}
+    <div className="form-actions"><Button variant="ghost" onClick={cancel} disabled={saving}>Cancelar</Button><Button variant="primary" type="submit" disabled={!name.trim() || saving}>{saving ? "Salvando" : "Salvar"}</Button></div>
   </form>;
 }
 
@@ -583,17 +587,21 @@ function DirectTaskForm({ projectId = null, projects, cancel, saved }: { project
   const [description, setDescription] = useState("");
   const [selectedProject, setSelectedProject] = useState(projectId ?? "");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    setError("");
     try { saved(await api.createTask(title, description, selectedProject || null)); }
-    catch (nextError) { setError(appError(nextError).message); }
+    catch (nextError) { setError(appError(nextError).message); setSaving(false); }
   }
-  return <form className="stack-form compact-form" onSubmit={submit}>
+  return <form className="stack-form compact-form" onSubmit={submit} aria-busy={saving}>
     <label><span>TÍTULO</span><input value={title} onChange={(event) => setTitle(event.currentTarget.value)} autoFocus /></label>
     <label><span>DESCRIÇÃO</span><textarea value={description} onChange={(event) => setDescription(event.currentTarget.value)} rows={2} /></label>
     <label><span>PROJECT</span><select value={selectedProject} onChange={(event) => setSelectedProject(event.currentTarget.value)}><option value="">Sem Project</option>{projects.filter((project) => project.lifecycleState === "active").map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
-    {error ? <p className="inline-error" role="alert">! {error}</p> : null}
-    <div className="form-actions"><Button variant="ghost" onClick={cancel}>Cancelar</Button><Button variant="primary" type="submit" disabled={!title.trim()}>Criar Task</Button></div>
+    {saving ? <StateMessage state="saving" label="Salvando Task..." /> : error ? <StateMessage state="error" label={error} /> : null}
+    <div className="form-actions"><Button variant="ghost" onClick={cancel} disabled={saving}>Cancelar</Button><Button variant="primary" type="submit" disabled={!title.trim() || saving}>{saving ? "Salvando" : "Criar Task"}</Button></div>
   </form>;
 }
 
@@ -726,6 +734,7 @@ function ProjectsPage({ projects, tasks, initialProjectId, refresh, receipt, ope
     <Inspector
       ref={inspector}
       label="Detalhe do Project"
+      open={narrowPane === "detail"}
       onBack={returnToList}
       onEscape={mode === "view" || mode === "new" ? returnToList : undefined}
     >
@@ -804,16 +813,20 @@ function WorkspaceForm({ workspace, cancel, saved }: { workspace?: Workspace; ca
   const [name, setName] = useState(workspace?.name ?? "");
   const [description, setDescription] = useState(workspace?.description ?? "");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    setError("");
     try { saved(workspace ? await api.updateWorkspace(workspace.id, name, description) : await api.createWorkspace(name, description)); }
-    catch (nextError) { setError(appError(nextError).message); }
+    catch (nextError) { setError(appError(nextError).message); setSaving(false); }
   }
-  return <form className="stack-form" onSubmit={submit}>
+  return <form className="stack-form" onSubmit={submit} aria-busy={saving}>
     <label><span>NOME</span><input value={name} onChange={(event) => setName(event.currentTarget.value)} autoFocus /></label>
     <label><span>DESCRIÇÃO</span><textarea value={description} onChange={(event) => setDescription(event.currentTarget.value)} rows={4} /></label>
-    {error ? <p className="inline-error" role="alert">! {error}</p> : null}
-    <div className="form-actions"><Button variant="ghost" onClick={cancel}>Cancelar</Button><Button variant="primary" type="submit" disabled={!name.trim()}>Salvar</Button></div>
+    {saving ? <StateMessage state="saving" label="Salvando Workspace..." /> : error ? <StateMessage state="error" label={error} /> : null}
+    <div className="form-actions"><Button variant="ghost" onClick={cancel} disabled={saving}>Cancelar</Button><Button variant="primary" type="submit" disabled={!name.trim() || saving}>{saving ? "Salvando" : "Salvar"}</Button></div>
   </form>;
 }
 
@@ -1006,6 +1019,7 @@ function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWork
     <Inspector
       ref={inspector}
       label="Detalhe do Workspace"
+      open={narrowPane === "detail"}
       onBack={returnToList}
       onEscape={mode === "view" || mode === "new" ? returnToList : undefined}
     >
@@ -1116,15 +1130,15 @@ function RegisteredAppForm({ app, cancel, saved }: { app?: RegisteredApp; cancel
       setSaving(false);
     }
   }
-  return <form className="stack-form" onSubmit={submit}>
+  return <form className="stack-form" onSubmit={submit} aria-busy={saving}>
     <label><span>NOME</span><input value={name} onChange={(event) => setName(event.currentTarget.value)} autoFocus /></label>
     <label><span>DESCRIÇÃO</span><textarea value={description} onChange={(event) => setDescription(event.currentTarget.value)} rows={4} /></label>
     <label><span>ORIGEM</span><input value={sourceUrl} onChange={(event) => setSourceUrl(event.currentTarget.value)} placeholder="https://github.com/..." /></label>
     <label><span>TIPO DE ABERTURA</span><select value={launchKind} onChange={(event) => { setLaunchKind(event.currentTarget.value as AppLaunchKind | ""); if (!event.currentTarget.value) setLaunchTarget(""); }}><option value="">Sem alvo por enquanto</option><option value="url">URL</option><option value="path">Path local</option></select></label>
     {launchKind ? <label><span>ALVO</span>{launchKind === "path" ? <div className="target-picker"><input value={launchTarget} onChange={(event) => setLaunchTarget(event.currentTarget.value)} placeholder={"C:\\Apps\\app.exe"} /><Button variant="outline" onClick={() => void choosePath(false)}>Escolher arquivo</Button><Button variant="ghost" onClick={() => void choosePath(true)}>Escolher pasta</Button></div> : <input value={launchTarget} onChange={(event) => setLaunchTarget(event.currentTarget.value)} placeholder="https://..." />}</label> : null}
     <fieldset className="capability-fieldset"><legend className="micro-label">CAPACIDADES</legend>{([["canOpen", "OPEN"], ["canRead", "READ"], ["canWrite", "WRITE"], ["canAutomate", "AUTOMATE"]] as const).map(([key, label]) => <label className="capability-check" key={key}><input type="checkbox" checked={capabilities[key]} onChange={(event) => setCapabilities((current) => ({ ...current, [key]: event.currentTarget.checked }))} /><span className="micro-label">{label}</span></label>)}</fieldset>
-    {error ? <p className="inline-error" role="alert">! {error}</p> : null}
-    <div className="form-actions"><Button variant="ghost" onClick={cancel}>Cancelar</Button><Button variant="primary" type="submit" disabled={!name.trim() || saving}>{saving ? "Salvando" : "Salvar"}</Button></div>
+    {saving ? <StateMessage state="saving" label="Salvando App..." /> : error ? <StateMessage state="error" label={error} /> : null}
+    <div className="form-actions"><Button variant="ghost" onClick={cancel} disabled={saving}>Cancelar</Button><Button variant="primary" type="submit" disabled={!name.trim() || saving}>{saving ? "Salvando" : "Salvar"}</Button></div>
   </form>;
 }
 
@@ -1303,6 +1317,7 @@ function AppsPage({ apps, initialAppId, refresh, receipt, intent }: { apps: Regi
     <Inspector
       ref={inspector}
       label="Detalhe do App"
+      open={narrowPane === "detail"}
       onBack={returnToList}
       onEscape={mode === "view" || mode === "new" ? returnToList : undefined}
     >
@@ -1412,7 +1427,7 @@ function ResourceForm({ resource, capture, cancel, saved }: { resource?: Resourc
       <label><span>TÍTULO</span><input value={title} onChange={(event) => setTitle(event.currentTarget.value)} placeholder={needsUrl ? "Opcional · usa a URL quando vazio" : "Obrigatório para uma nota"} autoFocus={!needsUrl} /></label>
       <label><span>POR QUÊ?</span><textarea value={note} onChange={(event) => setNote(event.currentTarget.value)} placeholder="O que merece ser lembrado sobre este link?" rows={4} /></label>
       {capture ? <div className="provenance"><span className="micro-label">ORIGEM PRESERVADA</span><span>{capture.content}</span><small>{sourceLabel(capture.source)} · {relativeTime(capture.capturedAt)}</small></div> : null}
-      {error ? <p className="inline-error" role="alert">! {error} Os campos continuam aqui.</p> : null}
+      {saving ? <StateMessage state="saving" label="Salvando Resource..." /> : error ? <StateMessage state="error" label={error} detail="Os campos continuam preenchidos para uma nova tentativa." /> : null}
       <div className="form-actions"><Button variant="ghost" onClick={cancel}>Cancelar</Button><Button variant="primary" type="submit" disabled={saving || (needsUrl ? !url.trim() : !title.trim())}>{saving ? "Salvando" : "Salvar Resource"}</Button></div>
     </fieldset>
   </form>;
@@ -1674,6 +1689,7 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
     <Inspector
       ref={detail}
       label="Detalhe do Resource"
+      open={narrowPane === "detail"}
       onBack={returnToList}
       onEscape={mode === "view" || mode === "new" ? returnToList : undefined}
     >
@@ -1891,7 +1907,7 @@ function TaskDrawer({ task, projects, close, refresh, receipt, openCapture }: { 
       <label><span>PROJECT</span><select value={projectId} onChange={(event) => setProjectId(event.currentTarget.value)} disabled={pending !== null}><option value="">Sem Project</option>{projects.filter((project) => project.lifecycleState === "active").map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
       <label><span>ESTADO</span><select value={state} onChange={(event) => setState(event.currentTarget.value as TaskState)} disabled={pending !== null}>{stateOrder.map((value) => <option key={value} value={value}>{stateLabels[value]}</option>)}</select></label>
       {source ? <div className="provenance"><span className="micro-label">ORIGEM</span><button type="button" onClick={() => openCapture(source)}>{source.content}</button><small>{sourceLabel(source.source)} · {relativeTime(source.capturedAt)}</small></div> : null}
-      {error ? <p className="inline-error" role="alert">! {error}</p> : null}
+      {pending === "save" ? <StateMessage state="saving" label="Salvando Task..." /> : pending === "archive" ? <StateMessage state="saving" label="Arquivando Task..." /> : error ? <StateMessage state="error" label={error} /> : null}
       <div className="form-actions spread"><Button variant="danger" onClick={() => void archive()} disabled={pending !== null}>{pending === "archive" ? "Arquivando" : "Arquivar"}</Button><Button variant="primary" type="submit" disabled={!title.trim() || pending !== null}>{pending === "save" ? "Salvando" : "Salvar"}</Button></div>
     </form>
   </aside>;
@@ -2028,6 +2044,7 @@ function HermesSettings() {
   const [password, setPassword] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [message, setMessage] = useState("");
+  const [messageState, setMessageState] = useState<"saving" | "saved" | "error">("saved");
   useEffect(() => {
     void hermes.status().then((next) => { setStatus(next); setBaseUrl(next.baseUrl); }).catch(() => undefined);
     const subscription = hermes.onState(setStatus);
@@ -2036,6 +2053,8 @@ function HermesSettings() {
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    setMessageState("saving");
+    setMessage("Salvando conexão...");
     try {
       if (baseUrl.trim()) await hermes.setBaseUrl(baseUrl);
       // O provider `basic` do Hermes exige usuario E senha (o config.yaml
@@ -2065,7 +2084,8 @@ function HermesSettings() {
         setMessage("Endereço salvo.");
       }
       setStatus(await hermes.status());
-    } catch (error) { setMessage(String(error)); }
+      setMessageState("saved");
+    } catch (error) { setMessageState("error"); setMessage(String(error)); }
   }
 
   const stateLabel = status?.state === "online" ? "Conectado" : status?.state === "connecting" ? "Conectando" : "Desconectado";
@@ -2085,13 +2105,14 @@ function HermesSettings() {
       <div><dt>CREDENCIAL</dt><dd>{status?.hasCredentials ? "Configurada" : <span className="fact-empty">Não configurada</span>}</dd></div>
     </dl>
     {status?.detail ? <p className="support-copy">{status.detail}</p> : null}
-    {message ? <p className="settings-message" aria-live="polite">{message}</p> : null}
+    {message ? <StateMessage state={messageState} label={message} /> : null}
   </Panel>;
 }
 
 function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrashed, projects, tasks, workspaces, apps, resources, trashedResources, refresh, intent }: { theme: Theme; setTheme: (theme: Theme) => void; status: AppStatus | null; capturesArchived: Capture[]; capturesTrashed: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; trashedResources: Resource[]; refresh: () => Promise<void>; intent?: FunctionIntent }) {
   const [shortcut, setShortcut] = useState("Ctrl+Shift+Space");
   const [message, setMessage] = useState("");
+  const [messageState, setMessageState] = useState<"saved" | "error">("saved");
   const [inspection, setInspection] = useState<BackupInspection | null>(null);
   const [restorePath, setRestorePath] = useState("");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
@@ -2118,6 +2139,10 @@ function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrash
   // dialogo nomeia o item e diz que o caminho de volta e o backup anterior.
   const deleteDialog = useRef<HTMLDialogElement>(null);
   const [pendingDelete, setPendingDelete] = useState<{ noun: string; label: string; run: () => Promise<unknown> } | null>(null);
+  function notify(state: "saved" | "error", nextMessage: string) {
+    setMessageState(state);
+    setMessage(nextMessage);
+  }
   function askDelete(noun: string, label: string, run: () => Promise<unknown>) {
     setPendingDelete({ noun, label, run });
     deleteDialog.current?.showModal();
@@ -2129,15 +2154,15 @@ function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrash
     if (!target) return;
     try {
       await target.run();
-      setMessage(`${target.noun} excluído definitivamente.`);
+      notify("saved", `${target.noun} excluído definitivamente.`);
       await refresh();
-    } catch (error) { setMessage(appError(error).message); }
+    } catch (error) { notify("error", appError(error).message); }
   }
-  useEffect(() => { void api.functions().then(setFunctions).catch((error) => setMessage(appError(error).message)); }, []);
-  async function backup() { const path = await save({ defaultPath: "m-os-backup.mos-backup", filters: [{ name: "M/OS Backup", extensions: ["mos-backup"] }] }); if (path) void api.createBackup(path).then((receipt) => setMessage(`Backup criado: ${receipt.path}`)).catch((error) => setMessage(appError(error).message)); }
-  async function exportData() { const path = await save({ defaultPath: "m-os-export.json", filters: [{ name: "JSON", extensions: ["json"] }] }); if (path) void api.exportJson(path).then((receipt) => setMessage(`Export criado: ${receipt.path}`)).catch((error) => setMessage(appError(error).message)); }
-  async function chooseRestore() { const path = await open({ multiple: false, filters: [{ name: "M/OS Backup", extensions: ["mos-backup"] }] }); if (!path) return; try { setInspection(await api.inspectBackup(path)); setRestorePath(path); dialog.current?.showModal(); } catch (error) { setMessage(appError(error).message); } }
-  async function confirmRestore() { try { const safety = await api.restoreBackup(restorePath); dialog.current?.close(); setMessage(`Dados restaurados. Safety backup: ${safety.path}`); await refresh(); } catch (error) { setMessage(appError(error).message); } }
+  useEffect(() => { void api.functions().then(setFunctions).catch((error) => notify("error", appError(error).message)); }, []);
+  async function backup() { const path = await save({ defaultPath: "m-os-backup.mos-backup", filters: [{ name: "M/OS Backup", extensions: ["mos-backup"] }] }); if (path) void api.createBackup(path).then((receipt) => notify("saved", `Backup criado: ${receipt.path}`)).catch((error) => notify("error", appError(error).message)); }
+  async function exportData() { const path = await save({ defaultPath: "m-os-export.json", filters: [{ name: "JSON", extensions: ["json"] }] }); if (path) void api.exportJson(path).then((receipt) => notify("saved", `Export criado: ${receipt.path}`)).catch((error) => notify("error", appError(error).message)); }
+  async function chooseRestore() { const path = await open({ multiple: false, filters: [{ name: "M/OS Backup", extensions: ["mos-backup"] }] }); if (!path) return; try { setInspection(await api.inspectBackup(path)); setRestorePath(path); dialog.current?.showModal(); } catch (error) { notify("error", appError(error).message); } }
+  async function confirmRestore() { try { const safety = await api.restoreBackup(restorePath); dialog.current?.close(); notify("saved", `Dados restaurados. Safety backup: ${safety.path}`); await refresh(); } catch (error) { notify("error", appError(error).message); } }
   /** Traz as horas do CronoCAD. Caminho de mão única, roda uma vez.
    *
    *  O diálogo abre já no arquivo padrão quando o CronoCAD está instalado: o
@@ -2207,26 +2232,26 @@ function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrash
   const archivedResources = resources.filter((resource) => resource.lifecycleState === "archived");
   const archivedWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "archived");
   const functionsByCategory = functionCategories.map((category) => ({ category, items: functions.filter((item) => item.category === category) })).filter((group) => group.items.length);
-  return <div className="page settings-page"><PaneHeader segments={["M", "SETTINGS"]} meta="SISTEMA" /><section className="settings-section" aria-labelledby="settings-connection"><h2 id="settings-connection" className="settings-section-title">Conexão e aparência</h2><HermesSettings /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel></section><section className="settings-section" aria-labelledby="settings-updates"><h2 id="settings-updates" className="settings-section-title">Atualizações e entrada</h2><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateStatusLine() ? <p className="support-copy" aria-live="polite">{updateStatusLine()}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then(setMessage).catch((error) => setMessage(appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="ATALHOS"><p className="support-copy">O M/OS é operável quase inteiro pelo teclado. Nada aqui precisa ser decorado — esta lista existe para quando você quiser.</p><dl className="shortcut-list">{SHORTCUTS.map((entry) => <div key={entry.keys}><dt>{entry.keys}</dt><dd>{entry.does}</dd></div>)}</dl></Panel></section><section className="settings-section" aria-labelledby="settings-advanced"><h2 id="settings-advanced" className="settings-section-title">Avançado</h2><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="CRONOCAD"><div className="setting-row"><div><strong>Importar horas do CronoCAD</strong><p>Traz projetos, sessões e pendências para o M/OS. As horas passam a pertencer aos Projects daqui, e o valor/hora de cada sessão é preservado como estava na época.</p><p className="support-copy">Vem tudo: sessões, pendências, programas monitorados, o histórico observado pelo sistema e a sua configuração de arredondamento — sem ela o valor cobrável aqui daria diferente do que o CronoCAD mostra. Roda uma vez, e o banco de origem é aberto somente para leitura. Compare o total com a tela dele antes de desinstalar.</p>{importReport ? <p className="support-copy" aria-live="polite">{importReport.projects} {importReport.projects === 1 ? "project" : "projects"} · {importReport.entries} {importReport.entries === 1 ? "sessão" : "sessões"} · {importReport.tasks} {importReport.tasks === 1 ? "task" : "tasks"} · <strong>{(importReport.trackedSeconds / 3600).toFixed(1)} h</strong>{importReport.activityEvents ? ` · ${importReport.activityEvents} eventos observados` : ""}{importReport.monitoredApps ? ` · ${importReport.monitoredApps} programas` : ""}{importReport.clients ? ` · ${importReport.clients} clientes` : ""}</p> : null}{importNote ? <p className="support-copy" aria-live="polite">{importNote}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void importCronocad()} disabled={importing || Boolean(importedAt)}>{importing ? "Importando" : importedAt ? "Importado" : "Importar"}</Button></div></div></Panel><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Project", project.name, () => api.deleteProject(project.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Workspace", workspace.name, () => api.deleteWorkspace(workspace.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("App", app.name, () => api.deleteRegisteredApp(app.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Task", task.title, () => api.deleteTask(task.id))}>Excluir</Button></div>)}</details></Panel></section><section className="settings-section" aria-labelledby="settings-data"><h2 id="settings-data" className="settings-section-title">Dados e ciclo de vida</h2><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}<dialog ref={deleteDialog} className="restore-dialog" onCancel={() => { deleteDialog.current?.close(); setPendingDelete(null); }}><span className="micro-label">EXCLUSÃO DEFINITIVA</span><h2>Excluir {pendingDelete?.noun.toLowerCase()} “{pendingDelete?.label}”?</h2><p>Isto apaga o registro do banco. Não há Desfazer: o único caminho de volta é restaurar um backup anterior a esta ação.</p><div className="form-actions"><Button variant="ghost" onClick={() => { deleteDialog.current?.close(); setPendingDelete(null); }}>Cancelar</Button><Button variant="danger" onClick={() => void confirmDelete()}>Excluir</Button></div></dialog><dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></section></div>;
+  return <div className="page settings-page"><PaneHeader segments={["M", "SETTINGS"]} meta="SISTEMA" /><section className="settings-section" aria-labelledby="settings-connection"><h2 id="settings-connection" className="settings-section-title">Conexão e aparência</h2><HermesSettings /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" aria-label="Tema claro" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel></section><section className="settings-section" aria-labelledby="settings-updates"><h2 id="settings-updates" className="settings-section-title">Atualizações e entrada</h2><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateStatusLine() ? <StateMessage state={updateState === "error" ? "error" : updateState === "checking" || updateState === "installing" ? "loading" : "saved"} label={updateStatusLine() ?? ""} /> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="ATALHOS"><p className="support-copy">O M/OS é operável quase inteiro pelo teclado. Nada aqui precisa ser decorado — esta lista existe para quando você quiser.</p><dl className="shortcut-list">{SHORTCUTS.map((entry) => <div key={entry.keys}><dt>{entry.keys}</dt><dd>{entry.does}</dd></div>)}</dl></Panel></section><section className="settings-section" aria-labelledby="settings-data"><h2 id="settings-data" className="settings-section-title">Dados e ciclo de vida</h2><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Project", project.name, () => api.deleteProject(project.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Workspace", workspace.name, () => api.deleteWorkspace(workspace.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("App", app.name, () => api.deleteRegisteredApp(app.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Task", task.title, () => api.deleteTask(task.id))}>Excluir</Button></div>)}</details></Panel><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel>{message ? <StateMessage state={messageState} label={message} /> : null}<dialog ref={deleteDialog} className="restore-dialog" onCancel={() => { deleteDialog.current?.close(); setPendingDelete(null); }}><span className="micro-label">EXCLUSÃO DEFINITIVA</span><h2>Excluir {pendingDelete?.noun.toLowerCase()} “{pendingDelete?.label}”?</h2><p>Isto apaga o registro do banco. Não há Desfazer: o único caminho de volta é restaurar um backup anterior a esta ação.</p><div className="form-actions"><Button variant="ghost" onClick={() => { deleteDialog.current?.close(); setPendingDelete(null); }}>Cancelar</Button><Button variant="danger" onClick={() => void confirmDelete()}>Excluir</Button></div></dialog><dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></section><section className="settings-section" aria-labelledby="settings-advanced"><h2 id="settings-advanced" className="settings-section-title">Avançado</h2><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="CRONOCAD"><div className="setting-row"><div><strong>Importar horas do CronoCAD</strong><p>Traz projetos, sessões e pendências para o M/OS. As horas passam a pertencer aos Projects daqui, e o valor/hora de cada sessão é preservado como estava na época.</p><p className="support-copy">Vem tudo: sessões, pendências, programas monitorados, o histórico observado pelo sistema e a sua configuração de arredondamento — sem ela o valor cobrável aqui daria diferente do que o CronoCAD mostra. Roda uma vez, e o banco de origem é aberto somente para leitura. Compare o total com a tela dele antes de desinstalar.</p>{importReport ? <p className="support-copy" aria-live="polite">{importReport.projects} {importReport.projects === 1 ? "project" : "projects"} · {importReport.entries} {importReport.entries === 1 ? "sessão" : "sessões"} · {importReport.tasks} {importReport.tasks === 1 ? "task" : "tasks"} · <strong>{(importReport.trackedSeconds / 3600).toFixed(1)} h</strong>{importReport.activityEvents ? ` · ${importReport.activityEvents} eventos observados` : ""}{importReport.monitoredApps ? ` · ${importReport.monitoredApps} programas` : ""}{importReport.clients ? ` · ${importReport.clients} clientes` : ""}</p> : null}{importNote ? <p className="support-copy" aria-live="polite">{importNote}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void importCronocad()} disabled={importing || Boolean(importedAt)}>{importing ? "Importando" : importedAt ? "Importado" : "Importar"}</Button></div></div></Panel></section></div>;
 }
 
 function QuickCapture() {
   const [content, setContent] = useState("");
-  const [state, setState] = useState<"idle" | "saving" | "error">("idle");
+  const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [feedback, setFeedback] = useState("Enter para salvar · Esc para fechar");
   const input = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { input.current?.focus(); const unlisten = listen("window-revealed", () => input.current?.focus()); return () => { void unlisten.then((dispose) => dispose()); }; }, []);
-  async function submit(event: FormEvent) { event.preventDefault(); if (!content.trim() || state === "saving") return; setState("saving"); setFeedback("Salvando localmente..."); try { await api.createCapture(content, "quick_capture"); setContent(""); setState("idle"); setFeedback("Salvo na Inbox"); window.setTimeout(() => void api.hideQuickCapture(), 160); } catch (error) { setState("error"); setFeedback(`${appError(error).message} O texto continua aqui.`); } }
+  async function submit(event: FormEvent) { event.preventDefault(); if (!content.trim() || state === "saving") return; setState("saving"); setFeedback("Salvando localmente..."); try { await api.createCapture(content, "quick_capture"); setContent(""); setState("saved"); setFeedback("Salvo na Inbox"); window.setTimeout(() => void api.hideQuickCapture(), 160); } catch (error) { setState("error"); setFeedback(`${appError(error).message} O texto continua aqui.`); } }
   // Os tres tracos de amplitude sao a unica presenca da voz em repouso — sem
   // icone de microfone. Ficam apagados ate a voz existir (fase adiada).
   return <main className="quick-shell"><form className="quick-capture" onSubmit={submit}>
     <div className="capture-line">
       <span className="capture-bar" aria-hidden="true" />
-      <textarea ref={input} value={content} onChange={(event) => setContent(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Escape") void api.hideQuickCapture(); if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} aria-label="Texto da captura" placeholder="What's on your mind?" rows={1} />
+      <textarea ref={input} value={content} onChange={(event) => { setContent(event.currentTarget.value); if (state !== "idle") { setState("idle"); setFeedback(""); } }} onKeyDown={(event) => { if (event.key === "Escape") void api.hideQuickCapture(); if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} aria-label="Texto da captura" placeholder="What's on your mind?" rows={1} />
       {content ? null : <span className="capture-caret" aria-hidden="true" />}
       <span className="amplitude" aria-hidden="true"><i /><i /><i /><i /></span>
     </div>
-    <div className="capture-footer"><span className="micro-label">⏎ SALVA E FECHA · ESC CANCELA</span><span className={`feedback ${state}`} aria-live="polite">{state === "error" ? feedback : ""}</span></div>
+    <div className="capture-footer"><span className="micro-label">⏎ SALVA E FECHA · ESC CANCELA</span>{state !== "idle" ? <StateMessage state={state} label={feedback} /> : null}</div>
   </form></main>;
 }
 
@@ -2535,9 +2560,9 @@ function DesktopApp() {
   const content = bootState === "ready"
     ? pageContent
     : bootState === "error"
-      ? <section className="page startup-state" role="alert"><h1>M/OS não abriu os dados locais com segurança.</h1><p>{bootMessage} Nenhuma alteração foi feita.</p><Button variant="primary" onClick={() => void initialize()}>Tentar novamente</Button></section>
+      ? <section className="page startup-state"><h1>M/OS não abriu os dados locais com segurança.</h1><StateMessage state="error" label="Os dados locais permaneceram intactos." detail={bootMessage} /><Button variant="primary" onClick={() => void initialize()}>Tentar novamente</Button></section>
       : showBootLoading
-        ? <section className="page startup-state" role="status"><p>Abrindo dados locais...</p></section>
+        ? <section className="page startup-state"><StateMessage state="loading" label="Abrindo dados locais..." /></section>
         : null;
 
   return <div className="app-shell" data-rail-expanded={railExpanded || undefined}><aside className="nav-rail" data-expanded={railExpanded || undefined} aria-label="Navegação do M/OS"><button className="rail-toggle" type="button" aria-label={railExpanded ? "Recolher navegação" : "Expandir navegação"} aria-expanded={railExpanded} onClick={toggleRail}><span className="rail-symbol" aria-hidden="true"><MosSymbol size={16} /></span><span className="rail-brand" aria-hidden="true">M/OS</span></button><nav className="rail-navigation" aria-label="Navegação principal">{navGroups.map((group) => <div className="rail-group" role="group" aria-label={group.label} key={group.label}><span className="rail-group-label" aria-hidden="true">{group.label}</span>{group.items.map((item) => <button className="rail-destination" key={item.page} aria-current={page === item.page ? "page" : undefined} aria-label={item.label} onClick={() => navigate(item.page)}><Icon name={item.icon} filled={page === item.page} /><span className="rail-label" aria-hidden="true">{item.label}</span><span className="rail-tooltip" aria-hidden="true">{item.label}</span>{/* Sem badge de contagem: o desenho nao tem, e um numero permanente no rail

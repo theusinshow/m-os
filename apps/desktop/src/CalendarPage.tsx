@@ -3,7 +3,7 @@ import type { KeyboardEvent } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
 import { groupByLocalDay, monthGrid, startOfLocalDay } from "./calendarDays";
-import { EmptyState, Inspector, PaneHeader } from "./Surface";
+import { EmptyState, Inspector, PaneHeader, StateMessage } from "./Surface";
 import type { CalendarItem, CalendarKind } from "./types";
 
 const WEEKDAYS = ["SEG", "TER", "QUA", "QUI", "SEX", "SÁB", "DOM"];
@@ -143,7 +143,7 @@ export function CalendarPage() {
           }
         />
 
-        {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
+        {note ? <StateMessage state="error" label="Não foi possível carregar o calendário." detail={note} /> : null}
 
         <div ref={gridRef} className="calendar-grid" role="grid" aria-label={monthLabel}>
           {WEEKDAYS.map((weekday) => (
@@ -196,6 +196,7 @@ export function CalendarPage() {
         <Inspector
           ref={inspector}
           label="Detalhe do dia"
+          open={narrowPane === "detail"}
           onBack={returnToGrid}
           onEscape={returnToGrid}
         >

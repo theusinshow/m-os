@@ -269,15 +269,20 @@ body {
 @media (prefers-reduced-motion: reduce) {
   :root {
     --dur-instant: 0ms;
-    --dur-state: 60ms;
-    --dur-enter: 80ms;
-    --dur-exit: 60ms;
+    --dur-state: 0ms;
+    --dur-enter: 0ms;
+    --dur-exit: 0ms;
     --dur-move: 0ms;
-    --dur-context: 80ms;
-    --dur-first: 80ms;
+    --dur-context: 0ms;
+    --dur-first: 0ms;
   }
-  /* Nenhum transform animado. Só opacidade. */
-  * { animation: none !important; }
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition-duration: 0ms !important;
+  }
 }
 
 /* Alto contraste do Windows. Os tokens param de impor cor e devolvem o controle

@@ -1,6 +1,6 @@
 # Lote 5 — Motion e consistência transversal — Design
 
-**Status:** aprovado para plano de implementação
+**Status:** implementado e validado
 
 **Data:** 2026-08-17
 

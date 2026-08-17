@@ -118,7 +118,7 @@ button {
 .icon-button,
 .rail-destination,
 .rail-utility,
-.menu summary {
+.menu-trigger {
   display: grid;
   width: var(--height-control);
   height: var(--height-control);
@@ -134,7 +134,7 @@ button {
 .icon-button:not(:disabled):hover,
 .rail-destination:hover,
 .rail-utility:hover,
-.menu summary:hover {
+.menu-trigger:hover {
   color: var(--text);
   background: var(--surface-hover);
 }
@@ -1436,12 +1436,6 @@ textarea::placeholder {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .calendar-cell {
-    transition: none;
-  }
-}
-
 /* Dois cards empilhados dentro de uma coluna da grade. */
 .tempo-stack {
   display: grid;
@@ -1566,12 +1560,6 @@ tr:focus-within .tempo-row-actions {
 
 .tempo-forgot summary:hover {
   color: var(--text);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tempo-row-actions {
-    transition: none;
-  }
 }
 
 /* A navegacao entre as seis telas do Tempo.
@@ -1885,12 +1873,6 @@ tr:focus-within .tempo-row-actions {
 
 .tempo-invite .support-copy {
   margin-bottom: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tempo-session-actions {
-    transition: none;
-  }
 }
 
 /* Arquivado desce para o cinza e continua legivel. Nao some e nao ganha cor
@@ -2257,6 +2239,7 @@ tr:focus-within .tempo-row-actions {
 
 .pane-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-3);
@@ -2272,6 +2255,7 @@ tr:focus-within .tempo-row-actions {
   flex: none;
   align-items: center;
   gap: var(--space-3);
+  margin-left: auto;
 }
 
 /* Fixado na base do pane: a dica de teclado fecha a coluna, nao flutua logo
@@ -2810,6 +2794,22 @@ tr:focus-within .tempo-row-actions {
   padding: var(--space-5) var(--content-margin) var(--space-5) var(--space-5);
 }
 
+.inspector {
+  animation: inspectorEnter var(--dur-enter) var(--ease-enter);
+}
+
+@keyframes inspectorEnter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-1));
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .detail-pane > .pane-footnote {
   margin-top: auto;
 }
@@ -2871,14 +2871,6 @@ tr:focus-within .tempo-row-actions {
   position: relative;
 }
 
-.menu summary {
-  list-style: none;
-}
-
-.menu summary::-webkit-details-marker {
-  display: none;
-}
-
 .menu > div {
   position: absolute;
   z-index: var(--z-overlay);
@@ -2923,6 +2915,83 @@ tr:focus-within .tempo-row-actions {
 .menu > div button:disabled {
   color: var(--text-disabled);
   cursor: default;
+}
+
+.state-message {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  overflow-wrap: anywhere;
+  animation: stateMessageEnter var(--dur-state) var(--ease-enter);
+}
+
+.state-message-marker {
+  flex: none;
+  width: var(--marker);
+  min-height: 1lh;
+  background: var(--border-strong);
+}
+
+.state-message strong {
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+}
+
+.state-message details {
+  margin-top: var(--space-1);
+}
+
+.state-message summary {
+  color: var(--text-system);
+  cursor: pointer;
+  text-transform: uppercase;
+}
+
+.state-message p {
+  max-width: 70ch;
+  margin: var(--space-1) 0 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.state-message[data-state="loading"] .state-message-marker,
+.state-message[data-state="saving"] .state-message-marker {
+  background: var(--signal-fill);
+  animation: edgeBreath 1200ms var(--ease-state) infinite alternate;
+}
+
+.state-message[data-state="saved"] {
+  color: var(--success);
+  animation: savedWash 900ms var(--ease-state);
+}
+
+.state-message[data-state="saved"] .state-message-marker {
+  background: var(--success);
+}
+
+.state-message[data-state="error"] {
+  color: var(--danger);
+}
+
+.state-message[data-state="error"] .state-message-marker {
+  background: var(--danger);
+}
+
+@keyframes stateMessageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .stack-form {
@@ -4311,8 +4380,11 @@ input[type="checkbox"]:disabled {
     width: auto;
   }
 
-  .inspector-page[data-pane="list"] .detail-pane,
   .inspector-page[data-pane="detail"] .list-pane {
+    display: none;
+  }
+
+  .inspector-page[data-pane="list"] .detail-pane:not(.inspector) {
     display: none;
   }
 
@@ -4338,17 +4410,38 @@ input[type="checkbox"]:disabled {
   .data-row[data-selected] {
     color: HighlightText;
   }
-}
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    transform-origin: center !important;
-    transition-duration: var(--dur-instant) !important;
+  .dot-field {
+    display: none;
+  }
+
+  .command-fade i {
+    backdrop-filter: none;
+  }
+
+  .command-fade {
+    height: var(--line);
+    background: CanvasText;
+  }
+
+  .state-message-marker {
+    background: CanvasText;
+  }
+
+  .state-message[data-state="saving"] .state-message-marker,
+  .state-message[data-state="loading"] .state-message-marker {
+    background: Highlight;
+  }
+
+  .state-message[data-state="error"] .state-message-marker {
+    background: Mark;
+  }
+
+  * {
+    scrollbar-color: auto;
   }
 }
+
 /* ============================================================
    HERMES — AI Workspace (M-OS Hermes - Design Direction v1)
 
@@ -5446,13 +5539,6 @@ input[type="checkbox"]:disabled {
    definicoes da mesma classe, com tecnicas diferentes de ocultacao — e a que
    valia era a ultima do arquivo, por ordem, e nao por escolha. */
 
-@media (prefers-reduced-motion: reduce) {
-  .hermes-caret,
-  .hermes-thinking,
-  .hermes-steps li[data-state="running"] {
-    animation: none;
-  }
-}
 /* Barra de progresso de linha, com largura fixa para que duas linhas vizinhas
    fiquem comparaveis pelo olho: barras de largura variavel nao se comparam. */
 .row-progress {
@@ -5521,7 +5607,7 @@ input[type="checkbox"]:disabled {
      DESIGN-FOUNDATIONS.md secao 13: "sem bounce, elastic, particulas ou glow"
      DESIGN-FOUNDATIONS.md secao 2:  "cor com funcao, nunca como atmosfera"
      UX-PRINCIPLES.md secao 16:      evitar "glow excessivo", "animacoes de particulas"
-     mos-tokens.css:258:             "Nenhum transform animado. So opacidade."
+     mos-tokens.css:258:             reduced-motion desliga movimento globalmente
 
    O conflito foi levantado antes da implementacao e o dono do produto manteve
    o pedido. Fica registrado aqui para que quem ler depois nao trate como
@@ -5539,9 +5625,9 @@ input[type="checkbox"]:disabled {
    texto ou aria correspondente. Remover este bloco inteiro deixa a aplicacao
    integralmente utilizavel, que e o criterio de acessibilidade acordado.
 
-   prefers-reduced-motion ja e coberto por mos-tokens.css:259, que aplica
-   `* { animation: none !important }` — os efeitos abaixo degradam para o
-   estado estatico, e nenhum deles depende do movimento para significar.
+   prefers-reduced-motion e coberto pela fonte unica em tokens.css, que zera
+   animacoes e transicoes inclusive em pseudo-elementos. Os efeitos abaixo
+   degradam para o estado estatico e nenhum depende do movimento para significar.
    ============================================================ */
 
 /* ---------- 1. Border Glow — estado de processamento ----------
@@ -5708,14 +5794,8 @@ input[type="checkbox"]:disabled {
   pointer-events: none;
 }
 
-/* Alto contraste do Windows: a camada some por inteiro. Em forced-colors o
-   sistema devolve o controle das cores ao usuario, e textura decorativa e a
-   primeira coisa que atrapalha quem precisou ligar esse modo. */
-@media (forced-colors: active) {
-  .dot-field {
-    display: none;
-  }
-}
+/* Em forced-colors esta camada some pela excecao consolidada acima: textura
+   decorativa nao compete com as system colors escolhidas pelo usuario. */
 
 /* ---------- 4. Gradual Blur — a borda dos resultados ----------
 
@@ -5768,18 +5848,8 @@ input[type="checkbox"]:disabled {
   mask-image: linear-gradient(to bottom, transparent 65%, #000);
 }
 
-/* Em alto contraste o desfoque sai e entra uma linha: a informacao "ha mais
-   abaixo" continua, sem depender de efeito optico. */
-@media (forced-colors: active) {
-  .command-fade i {
-    backdrop-filter: none;
-  }
-
-  .command-fade {
-    height: var(--line);
-    background: CanvasText;
-  }
-}
+/* Em alto contraste a excecao consolidada acima troca o desfoque por uma
+   linha, preservando a informacao "ha mais abaixo" sem efeito optico. */
 
 /* ---------- 5. Animated Content — transicoes que explicam ----------
 
@@ -5920,12 +5990,7 @@ input[type="checkbox"]:disabled {
   background: var(--border-control);
 }
 
-/* Em alto contraste a barra volta a ser a do sistema. */
-@media (forced-colors: active) {
-  * {
-    scrollbar-color: auto;
-  }
-}
+/* Em alto contraste a excecao consolidada devolve a barra ao sistema. */
 
 /* ============================================================
    WIDGETS VISUAIS — layout

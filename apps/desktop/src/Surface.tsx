@@ -1,5 +1,8 @@
-import { forwardRef, useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { AnimatePresence, LazyMotion, m, useReducedMotion } from "framer-motion";
+
+const loadMotionFeatures = () => import("./motionFeatures").then((module) => module.default);
 
 /**
  * As três peças que montam qualquer página do M/OS.
@@ -40,24 +43,42 @@ export function PaneHeader({ segments, meta, actions }: {
 export const Inspector = forwardRef<HTMLElement, {
   label: string;
   children: ReactNode;
+  open?: boolean;
   onBack?: () => void;
   onEscape?: () => void;
-}>(function Inspector({ label, children, onBack, onEscape }, ref) {
+}>(function Inspector({ label, children, open = true, onBack, onEscape }, ref) {
+  const [compact, setCompact] = useState(() => window.matchMedia("(max-width: 960px)").matches);
+  const reducedMotion = useReducedMotion();
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 960px)");
+    const update = () => setCompact(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  const visible = !compact || open;
   return (
-    <article
-      ref={ref}
-      className="detail-pane inspector"
-      tabIndex={-1}
-      aria-label={label}
-      onKeyDown={(event) => {
-        if (event.key !== "Escape" || !onEscape) return;
-        event.preventDefault();
-        onEscape();
-      }}
-    >
-      {onBack ? <div className="inspector-nav"><button type="button" onClick={onBack}>Voltar à lista</button><span className="micro-label">ESC</span></div> : null}
-      {children}
-    </article>
+    <LazyMotion features={loadMotionFeatures} strict>
+      <AnimatePresence initial={false}>
+        {visible ? <m.article
+          ref={ref}
+          className="detail-pane inspector"
+          tabIndex={-1}
+          aria-label={label}
+          exit={reducedMotion ? { opacity: 0, pointerEvents: "none" } : { opacity: 0, y: -4, pointerEvents: "none" }}
+          transition={{ duration: reducedMotion ? 0 : 0.09, ease: [0.4, 0, 1, 1] }}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape" || !onEscape) return;
+            event.preventDefault();
+            onEscape();
+          }}
+        >
+          {onBack ? <div className="inspector-nav"><button type="button" onClick={onBack}>Voltar à lista</button><span className="micro-label">ESC</span></div> : null}
+          {children}
+        </m.article> : null}
+      </AnimatePresence>
+    </LazyMotion>
   );
 });
 
@@ -74,15 +95,16 @@ export function ActionMenu({ trigger, items, label = "Mais ações" }: {
   items: ActionMenuItem[];
   label?: string;
 }) {
-  const root = useRef<HTMLDetailsElement>(null);
-  const summary = useRef<HTMLElement>(null);
+  const root = useRef<HTMLDivElement>(null);
+  const triggerButton = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const menuId = useId();
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     if (!open) return;
     const closeOutside = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node)) {
-        root.current?.removeAttribute("open");
         setOpen(false);
       }
     };
@@ -91,18 +113,26 @@ export function ActionMenu({ trigger, items, label = "Mais ações" }: {
   }, [open]);
 
   function closeMenu(restoreFocus = false) {
-    root.current?.removeAttribute("open");
+    if (restoreFocus) triggerButton.current?.focus();
     setOpen(false);
-    if (restoreFocus) requestAnimationFrame(() => summary.current?.focus());
+  }
+
+  function focusMenuItem(position: "first" | "last") {
+    requestAnimationFrame(() => {
+      const menuItems = Array.from(root.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']:not(:disabled)") ?? []);
+      menuItems[position === "first" ? 0 : menuItems.length - 1]?.focus();
+    });
   }
 
   return (
-    <details
+    <div
       ref={root}
       className="menu"
-      onToggle={(event) => setOpen(event.currentTarget.open)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
+      }}
       onKeyDown={(event) => {
-        if (event.key === "Escape") {
+        if (event.key === "Escape" && open) {
           event.preventDefault();
           event.stopPropagation();
           closeMenu(true);
@@ -111,6 +141,11 @@ export function ActionMenu({ trigger, items, label = "Mais ações" }: {
         if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
         const menuItems = Array.from(root.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']:not(:disabled)") ?? []);
+        if (!open) {
+          setOpen(true);
+          focusMenuItem(event.key === "ArrowUp" || event.key === "End" ? "last" : "first");
+          return;
+        }
         if (!menuItems.length) return;
         const currentIndex = menuItems.indexOf(document.activeElement as HTMLButtonElement);
         const nextIndex = event.key === "Home"
@@ -120,21 +155,50 @@ export function ActionMenu({ trigger, items, label = "Mais ações" }: {
             : currentIndex < 0
               ? event.key === "ArrowUp" ? menuItems.length - 1 : 0
               : (currentIndex + (event.key === "ArrowDown" ? 1 : -1) + menuItems.length) % menuItems.length;
-        if (!root.current?.open) {
-          root.current?.setAttribute("open", "");
-          setOpen(true);
-          requestAnimationFrame(() => menuItems[nextIndex]?.focus());
-        } else {
-          menuItems[nextIndex]?.focus();
-        }
+        menuItems[nextIndex]?.focus();
       }}
     >
-      <summary ref={summary} aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open}>{trigger}</summary>
-      <div role="menu" aria-label={label}>
-        {items.map((item) => <button key={item.label} type="button" role="menuitem" disabled={item.disabled} className={item.danger ? "danger-text" : undefined} onClick={() => { closeMenu(); item.onSelect(); }}>{item.label}</button>)}
-      </div>
-    </details>
+      <button
+        ref={triggerButton}
+        className="menu-trigger"
+        type="button"
+        aria-label={label}
+        title={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        onClick={() => setOpen((current) => !current)}
+      >{trigger}</button>
+      <LazyMotion features={loadMotionFeatures} strict>
+        <AnimatePresence>
+          {open ? <m.div
+            id={menuId}
+            role="menu"
+            aria-label={label}
+            exit={reducedMotion ? { opacity: 0, pointerEvents: "none" } : { opacity: 0, y: -2, scale: 0.985, pointerEvents: "none" }}
+            transition={{ duration: reducedMotion ? 0 : 0.09, ease: [0.4, 0, 1, 1] }}
+          >
+            {items.map((item) => <button key={item.label} type="button" role="menuitem" disabled={item.disabled} className={item.danger ? "danger-text" : undefined} onClick={() => { closeMenu(true); item.onSelect(); }}>{item.label}</button>)}
+          </m.div> : null}
+        </AnimatePresence>
+      </LazyMotion>
+    </div>
   );
+}
+
+export type StateMessageState = "empty" | "loading" | "error" | "saving" | "saved";
+
+/** Estado operacional curto e consistente para formulários e superfícies. */
+export function StateMessage({ state, label, detail, className = "" }: {
+  state: StateMessageState;
+  label: string;
+  detail?: string;
+  className?: string;
+}) {
+  return <div className={`state-message ${className}`.trim()} data-state={state} role="status" aria-live="polite" aria-atomic="true">
+    <span className="state-message-marker" aria-hidden="true" />
+    <div><strong>{label}</strong>{detail ? <details><summary>Detalhes técnicos</summary><p>{detail}</p></details> : null}</div>
+  </div>;
 }
 
 /**

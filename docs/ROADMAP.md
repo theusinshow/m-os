@@ -805,19 +805,16 @@ existem.
 - Library / Resources — Lote 4D: acervo como pane principal, grade auto-fill, Inspector com medida e teclado na coleção;
 - Calendar — Lote 4E: grade como estrutura, detalhe do dia no Inspector lateral, nav e teclado de mês;
 - Apps, Workspaces e Settings — Lote 4F: Inspector compartilhado, empty states e Settings por seções.
+- Motion e consistência transversal — Lote 5: exit do Inspector e ActionMenu, estados operacionais compartilhados, reduced motion e forced colors consolidados.
 
 O estado detalhado, evidências de QA e decisões de cada lote estão em
 `UI-UX-REFINEMENT.md`.
 
-### Próximos lotes priorizados
+### Próximo lote condicionado
 
 1. **Hermes 3B — condicionado à conexão real**
    - validar mensagens, streaming, tools, citations, clarify e approval de ponta a ponta;
    - não fabricar respostas nem alterar o gateway apenas para produzir screenshots.
-2. **Motion e consistência transversal — Lote 5**
-   - executar somente depois das superfícies estruturais acima;
-   - consolidar transições de page, Inspector, popover, selected, saving e loading;
-   - verificar `prefers-reduced-motion`, teclado, forced colors e performance.
 
 ### Gate de conclusão de cada lote
 

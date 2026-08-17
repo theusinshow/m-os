@@ -1043,7 +1043,7 @@ Implementado em 2026-08-17 como refinamento de Projects no contrato master-detai
 - `npm run build`: aprovado;
 - `npm test -- --run`: 2 arquivos e 12 testes aprovados;
 - `git diff --check`: aprovado;
-- inspeção visual no cliente Tauri deve validar Dark em 840×600, 1280×800, 1440×900 e 1920×1080, além de Light onde borders/seleção mudem.
+- inspeção visual no cliente Tauri validada em Dark: 840×600, 1280×800, 1440×900 e 1920×1080; Light validado onde borders/seleção mudam.
 
 ### Limite deste lote
 
@@ -1083,7 +1083,7 @@ Implementado em 2026-08-17 como refinamento de Library/Resources. Filtros, kinds
 - `npm run build`: aprovado;
 - `npm test -- --run`: 2 arquivos e 12 testes aprovados;
 - `git diff --check`: aprovado;
-- inspeção visual no cliente Tauri deve validar Dark em 840×600, 1280×800, 1440×900 e 1920×1080, além de Light onde surfaces/borders mudem.
+- inspeção visual no cliente Tauri validada em Dark: 840×600, 1280×800, 1440×900 e 1920×1080; Light validado onde surfaces/borders mudam.
 
 ### Limite deste lote
 
@@ -1122,7 +1122,7 @@ Implementado em 2026-08-17 como refinamento do Calendar retrospectivo. Fontes, `
 - `npm run build`: aprovado;
 - `npm test -- --run`: 2 arquivos e 12 testes aprovados (inclui `calendarDays`);
 - `git diff --check`: aprovado;
-- inspeção visual no cliente Tauri deve validar Dark em 840×600, 1280×800, 1440×900 e 1920×1080.
+- inspeção visual no cliente Tauri validada em Dark: 840×600, 1280×800, 1440×900 e 1920×1080.
 
 ### Limite deste lote
 
@@ -1152,8 +1152,46 @@ Implementado em 2026-08-17 como fechamento das superfícies master-detail restan
 
 - `npm run build`: aprovado;
 - `npm test -- --run`: 2 arquivos e 12 testes aprovados;
-- inspeção visual no cliente Tauri deve validar Dark em 840×600, 1280×800, 1440×900 e 1920×1080.
+- inspeção visual no cliente Tauri validada em Dark: 840×600, 1280×800, 1440×900 e 1920×1080.
 
 ### Limite deste lote
 
 Nenhuma regra de negócio, API, banco, schema ou contrato de domínio foi alterado. Hermes 3B permanece condicionado à conexão real. O próximo lote estrutural restante é **Lote 5 — Motion e consistência transversal**, após validação visual das superfícies 4C–4F.
+
+## 28. Estado de execução — Lote 5
+
+Implementado em 2026-08-17 como fechamento transversal da trilha UI/UX vNext. O lote preservou regras de negócio, APIs, banco, schema, navegação e contratos de domínio.
+
+### Motion e foco
+
+- `Inspector` usa o mesmo contrato em desktop e pane única: entrada por opacity/translate, saída de 90ms e foco devolvido à lista sem aguardar a animação;
+- `ActionMenu` deixou o `details` nativo e passou a expor gatilho, menu e menuitems explícitos, com clique externo, setas, `Home`, `End` e `Esc` consistentes;
+- o spike com Framer Motion no WebView2 real não produziu warnings de `ResizeObserver`; a orquestração ficou limitada a `AnimatePresence`/`useReducedMotion`, com feature bundle carregado à parte e sem layout measurement;
+- `page-surface`, drawer e overlays preservam os contratos de entrada/saída existentes e os tokens compartilhados.
+
+### Estados e acessibilidade
+
+- `StateMessage` cobre `empty`, `loading`, `error`, `saving` e `saved` com `aria-live` embutido e disclosure técnico opcional;
+- Capture, Quick Capture, formulários de Task/Project/Workspace/App/Resource, boot, conexão Hermes e feedback de Settings usam a mesma linguagem de estado;
+- o indicador compacto de sync permanece uma exceção deliberada: ele compartilha os tokens, mas conserva a geometria própria da topbar;
+- `prefers-reduced-motion` possui uma única fonte em `packages/design-system/tokens.css` e zera tokens, animações e transições; a cópia de handoff foi sincronizada;
+- as exceções reais de `forced-colors` foram consolidadas em um único bloco local para seleção e acabamentos específicos.
+
+### Correções da revisão 4D–4F
+
+- Settings segue a ordem de leitura documentada: conexão/aparência, atualizações/entrada, dados/ciclo de vida e avançado;
+- `PaneHeader` permite quebra responsiva de ações, removendo scroll horizontal interno em Apps e Calendar;
+- o lockfile recuperou metadados de plataforma removidos acidentalmente e passou a registrar apenas o novo grafo de motion.
+
+### Evidência de QA
+
+- cliente Tauri real em Dark: 840×600, 1280×800, 1440×900 e 1920×1080;
+- Light em 1440×900 para Projects, Calendar e Library;
+- zero overflow de página, botões sem nome, campos sem label ou IDs duplicados nas oito superfícies verificadas;
+- Inspector e ActionMenu validados por teclado, retorno de foco e delayed unmount; console sem erros e sem warnings de `ResizeObserver` em motion normal;
+- reduced motion confirmou todos os tokens relevantes em `0ms`; forced colors confirmou os fallbacks do novo primitive;
+- `npm run build`, `npm test -- --run`, `npx impeccable detect apps/desktop/src` e `git diff --check`: aprovados.
+
+### Limite deste lote
+
+Tempo não foi redesenhado neste fechamento transversal. Hermes 3B continua condicionado a uma conexão real para que mensagens, streaming, tools, citations, clarify e approval sejam observados de ponta a ponta, sem estados fabricados.
