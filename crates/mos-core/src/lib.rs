@@ -1,5 +1,6 @@
 mod action;
 mod app;
+mod calendar;
 mod capture;
 mod conversation;
 mod error;
@@ -19,6 +20,7 @@ pub use app::{
     app_catalog, validate_launch_target, validate_source_url, AppCapabilities, AppCatalogEntry,
     AppId, AppLaunchKind, NewRegisteredApp, RegisteredApp,
 };
+pub use calendar::{compose, CalendarItem, CalendarKind, ComposeInput};
 pub use capture::{Capture, CaptureId, CaptureSource, LifecycleState, NewCapture, ProcessingState};
 pub use conversation::{
     validate_title, ContextEntity, ContextOrigin, Conversation, ConversationId,
