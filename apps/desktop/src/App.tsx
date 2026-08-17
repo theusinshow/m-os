@@ -61,8 +61,8 @@ const INBOX_PAGE = 200;
 
 const stateOrder: TaskState[] = ["inbox", "backlog", "planned", "doing", "review", "done"];
 const stateLabels: Record<TaskState, string> = { inbox: "Inbox", backlog: "Backlog", planned: "Planned", doing: "Doing", review: "Review", done: "Done" };
-const functionCategories: FunctionDefinition["category"][] = ["capture", "work", "memory", "app", "data", "system"];
-const functionCategoryLabels: Record<FunctionDefinition["category"], string> = { capture: "CAPTURE", work: "WORK", memory: "MEMORY", app: "APP", data: "DATA", system: "SYSTEM" };
+const functionCategories: FunctionDefinition["category"][] = ["capture", "work", "time", "memory", "app", "data", "system"];
+const functionCategoryLabels: Record<FunctionDefinition["category"], string> = { capture: "CAPTURE", work: "WORK", time: "TEMPO", memory: "MEMORY", app: "APP", data: "DATA", system: "SYSTEM" };
 const functionRiskLabels: Record<FunctionDefinition["risk"], string> = { low: "baixo", medium: "medio", high: "alto" };
 const functionConfirmationLabels: Record<FunctionDefinition["confirmation"], string> = { none: "sem confirmacao", explicit: "confirmacao explicita" };
 const relativeFormatter = new Intl.RelativeTimeFormat("pt-BR", { numeric: "auto" });

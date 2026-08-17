@@ -342,7 +342,149 @@ fn run_action<R: Runtime>(
                 }),
             })
         }
+        mos_core::ActionArgs::TimeStart {
+            project,
+            activity,
+            description,
+        } => {
+            let project_id = resolve_project_id(&state, project)?;
+            let started = state.tracking.start_timer(mos_core::StartTimer {
+                project_id,
+                description: description.clone(),
+                activity_type: parse_activity(activity)?,
+            })?;
+            let _ = app.emit("timer-changed", "started");
+            Ok(mos_core::ActionEffect {
+                message: format!(
+                    "Cronometro iniciado em {}.",
+                    project_name(&state, started.project_id)
+                ),
+                // SEM desfazer, e a ausencia e a decisao certa: o inverso de
+                // iniciar e descartar, e descartar joga tempo fora. A ADR-035
+                // diz que desfazer arquiva e nunca destroi, e um cronometro
+                // recem-iniciado se resolve com Pausar ou Encerrar na tela.
+                undo: None,
+            })
+        }
+        mos_core::ActionArgs::TimeStop => {
+            let entry = state.tracking.stop_timer()?;
+            let _ = app.emit("timer-changed", "stopped");
+            Ok(mos_core::ActionEffect {
+                message: format!(
+                    "Sessao de {} gravada em {}.",
+                    spoken_duration(entry.duration_seconds),
+                    project_name(&state, entry.project_id)
+                ),
+                undo: Some(mos_core::UndoStep::TrashTimeEntry {
+                    id: entry.id.to_string(),
+                }),
+            })
+        }
+        mos_core::ActionArgs::TimeRecord {
+            project,
+            minutes,
+            day,
+            activity,
+            description,
+        } => {
+            let project_id = resolve_project_id(&state, project)?;
+            // A taxa vem do Project AGORA e vira snapshot, igual ao lancamento
+            // feito pela tela: e a melhor aproximacao para uma hora lembrada
+            // depois, e usar outro caminho aqui daria valores diferentes para a
+            // mesma hora conforme quem a lancou.
+            let rate = state
+                .tracking
+                .project_tracking()?
+                .into_iter()
+                .find(|entry| entry.project_id == project_id)
+                .map(|entry| entry.hourly_rate_cents)
+                .unwrap_or(0);
+            let entry = state.tracking.record(mos_core::NewTimeEntry {
+                project_id,
+                started_at: moment_for_day(day)?,
+                ended_at: None,
+                duration_seconds: minutes * 60,
+                idle_seconds: 0,
+                description: description.clone(),
+                activity_type: parse_activity(activity)?,
+                billable: true,
+                hourly_rate_snapshot_cents: rate,
+                // `Manual` como qualquer hora lembrada depois. Hora proposta
+                // pelo Hermes nao e mais medida que hora digitada na tela.
+                source: mos_core::EntrySource::Manual,
+            })?;
+            let _ = app.emit("data-changed", "tracking");
+            Ok(mos_core::ActionEffect {
+                message: format!(
+                    "{} lancadas em {}.",
+                    spoken_duration(entry.duration_seconds),
+                    project_name(&state, entry.project_id)
+                ),
+                undo: Some(mos_core::UndoStep::TrashTimeEntry {
+                    id: entry.id.to_string(),
+                }),
+            })
+        }
     }
+}
+
+/// O mesmo `resolve_project`, ja tipado.
+///
+/// As acoes de tempo precisam de `ProjectId` e nao de texto, e a ambiguidade
+/// ("bate com tres Projects") continua sendo recusada la — um cronometro
+/// iniciado no Project errado e hora que vai para a fatura errada.
+fn resolve_project_id(state: &AppState, name: &str) -> Result<mos_core::ProjectId, CoreError> {
+    let id = resolve_project(state, name)?.ok_or_else(|| {
+        CoreError::new(
+            mos_core::ErrorCode::NotFound,
+            format!("Nao achei um Project chamado \"{name}\"."),
+            false,
+        )
+    })?;
+    mos_core::ProjectId::parse(&id)
+}
+
+/// Vazio vira `other`: a atividade e opcional, e recusar por omissao faria o
+/// Hermes ter de adivinhar um campo que o usuario nao disse.
+fn parse_activity(value: &str) -> Result<mos_core::ActivityType, CoreError> {
+    if value.is_empty() {
+        return Ok(mos_core::ActivityType::Other);
+    }
+    mos_core::ActivityType::parse(value)
+}
+
+/// O nome do Project, para o recibo falar como o usuario fala.
+fn project_name(state: &AppState, id: mos_core::ProjectId) -> String {
+    state
+        .work
+        .projects(true)
+        .ok()
+        .and_then(|projects| projects.into_iter().find(|project| project.id == id))
+        .map(|project| project.name)
+        .unwrap_or_else(|| "Project".to_owned())
+}
+
+/// `2h30` ou `45min`, para o recibo.
+fn spoken_duration(seconds: i64) -> String {
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    if hours > 0 {
+        format!("{hours}h{minutes:02}")
+    } else {
+        format!("{minutes}min")
+    }
+}
+
+/// O instante de um dia `AAAA-MM-DD`, ao meio-dia local.
+///
+/// Meio-dia, e nao meia-noite: uma hora lancada a meia-noite fica na fronteira
+/// entre dois dias, e qualquer diferenca de fuso a joga para o dia anterior. Ao
+/// meio-dia sobram doze horas de folga para cada lado.
+fn moment_for_day(day: &str) -> Result<time::OffsetDateTime, CoreError> {
+    if day.is_empty() {
+        return Ok(time::OffsetDateTime::now_utc());
+    }
+    mos_core::parse_moment(&format!("{day}T12:00:00Z"))
 }
 
 /// Desfaz uma acao executada.
@@ -375,6 +517,11 @@ pub async fn action_undo<R: Runtime>(
             services
                 .work
                 .set_task_state(&id, mos_core::TaskState::parse(&state)?)?;
+        }
+        mos_core::UndoStep::TrashTimeEntry { id } => {
+            services
+                .tracking
+                .trash(mos_core::TimeEntryId::parse(&id)?)?;
         }
     }
     let _ = app.emit("data-changed", "undo");

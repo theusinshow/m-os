@@ -5,6 +5,10 @@ use serde::{Deserialize, Serialize};
 pub enum FunctionCategory {
     Capture,
     Work,
+    /// Rastreio de tempo. Categoria propria e nao `Work` porque Tempo e um
+    /// substantivo central do produto e nao uma faceta do trabalho — e a razao
+    /// esta na ADR-036: e dele que sai a renda de quem fatura por hora.
+    Time,
     Memory,
     App,
     Data,
@@ -94,6 +98,41 @@ pub fn function_registry() -> Vec<FunctionDefinition> {
             FunctionCategory::Work,
             FunctionRisk::Low,
             FunctionConfirmation::None,
+        ),
+        // As tres do tempo. O risco NAO e uniforme, e a diferenca e deliberada.
+        //
+        // Iniciar e barato: o banco recusa um segundo cronometro, entao a pior
+        // consequencia de um engano e um cronometro rodando no Project errado,
+        // visivel na hora e corrigivel com um clique.
+        //
+        // Encerrar e lancar escrevem hora COBRAVEL a partir de uma frase. Um
+        // "duas horas" ouvido como "doze horas" vira erro de fatura, e o erro so
+        // aparece no dia de cobrar. Por isso os dois pedem confirmacao explicita
+        // — a mesma razao pela qual a fase 3 desta spec e a que exige mais
+        // cuidado: quando a acao vira dinheiro, a cerimonia precisa pesar.
+        function(
+            "time.start",
+            "Iniciar cronometro",
+            "Comeca a contar tempo num Project. Recusa se ja houver cronometro.",
+            FunctionCategory::Time,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "time.stop",
+            "Encerrar cronometro",
+            "Encerra o cronometro em curso e grava a sessao.",
+            FunctionCategory::Time,
+            FunctionRisk::Medium,
+            FunctionConfirmation::Explicit,
+        ),
+        function(
+            "time.record",
+            "Lancar tempo",
+            "Registra tempo trabalhado que o cronometro nao contou.",
+            FunctionCategory::Time,
+            FunctionRisk::Medium,
+            FunctionConfirmation::Explicit,
         ),
         function(
             "resource.create",

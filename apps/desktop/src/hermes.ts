@@ -263,7 +263,9 @@ export type UndoStep =
   | { step: "archiveTask"; id: string }
   | { step: "archiveProject"; id: string }
   | { step: "archiveResource"; id: string }
-  | { step: "restoreTaskState"; id: string; state: string };
+  | { step: "restoreTaskState"; id: string; state: string }
+  /** Sessão para a lixeira. Soft delete: volta pela lixeira do Histórico. */
+  | { step: "trashTimeEntry"; id: string };
 
 export type ActionResolution = {
   message: Message;

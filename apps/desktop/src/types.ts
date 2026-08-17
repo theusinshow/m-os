@@ -119,7 +119,7 @@ export type SearchItem =
   | { kind: "app"; app: RegisteredApp }
   | { kind: "resource"; resource: Resource };
 
-export type FunctionCategory = "capture" | "work" | "memory" | "app" | "data" | "system";
+export type FunctionCategory = "capture" | "work" | "time" | "memory" | "app" | "data" | "system";
 export type FunctionRisk = "low" | "medium" | "high";
 export type FunctionConfirmation = "none" | "explicit";
 

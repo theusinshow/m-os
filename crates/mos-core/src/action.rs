@@ -27,11 +27,20 @@ pub enum ActionKind {
     TaskSetState,
     ProjectCreate,
     ResourceCreate,
+    TimeStart,
+    TimeStop,
+    TimeRecord,
 }
 
 impl ActionKind {
     /// O nome que atravessa a ponte. Prefixado pelo App dono, porque o catalogo
-    /// vai crescer com `m-finance.*` e `cronocad.*`.
+    /// vai crescer com `m-finance.*`.
+    ///
+    /// As de tempo levam `mos.` e nao `cronocad.`, apesar de a spec ter previsto
+    /// o segundo: ela foi escrita antes da absorcao (ADR-032). O CronoCAD deixou
+    /// de ser App a parte e virou a pagina de Tempo do M/OS, entao o dono da
+    /// acao e o M/OS. Um prefixo que nomeia um App que nao existe mais ensinaria
+    /// o modelo a falar de um sistema que o usuario nao tem.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::CaptureCreate => "mos.capture.create",
@@ -39,6 +48,9 @@ impl ActionKind {
             Self::TaskSetState => "mos.task.set_state",
             Self::ProjectCreate => "mos.project.create",
             Self::ResourceCreate => "mos.resource.create",
+            Self::TimeStart => "mos.time.start",
+            Self::TimeStop => "mos.time.stop",
+            Self::TimeRecord => "mos.time.record",
         }
     }
 
@@ -49,6 +61,9 @@ impl ActionKind {
             "mos.task.set_state" => Some(Self::TaskSetState),
             "mos.project.create" => Some(Self::ProjectCreate),
             "mos.resource.create" => Some(Self::ResourceCreate),
+            "mos.time.start" => Some(Self::TimeStart),
+            "mos.time.stop" => Some(Self::TimeStop),
+            "mos.time.record" => Some(Self::TimeRecord),
             _ => None,
         }
     }
@@ -62,16 +77,22 @@ impl ActionKind {
             Self::TaskSetState => "task.set_state",
             Self::ProjectCreate => "project.create",
             Self::ResourceCreate => "resource.create",
+            Self::TimeStart => "time.start",
+            Self::TimeStop => "time.stop",
+            Self::TimeRecord => "time.record",
         }
     }
 
-    pub fn all() -> [ActionKind; 5] {
+    pub fn all() -> [ActionKind; 8] {
         [
             Self::CaptureCreate,
             Self::TaskCreate,
             Self::TaskSetState,
             Self::ProjectCreate,
             Self::ResourceCreate,
+            Self::TimeStart,
+            Self::TimeStop,
+            Self::TimeRecord,
         ]
     }
 
@@ -85,9 +106,17 @@ impl ActionKind {
             Self::TaskSetState => "{ task, state: inbox|backlog|planned|doing|review|done }",
             Self::ProjectCreate => "{ name, description? }",
             Self::ResourceCreate => "{ kind: site|library|image|note, title, url?, note? }",
+            Self::TimeStart => "{ project, activity?, description? }",
+            Self::TimeStop => "{ }",
+            // Em MINUTOS, e nao "1h30": tres jeitos de escrever a mesma duracao
+            // dao tres jeitos de errar um quarto dela, e o erro sai na fatura.
+            Self::TimeRecord => "{ project, minutes, day?: AAAA-MM-DD, activity?, description? }",
         }
     }
 }
+
+/// As atividades que uma sessao pode ter. Espelha `ActivityType` do dominio.
+const ACTIVITIES: &str = "drawing|detailing|revision|meeting|study|other";
 
 /// Argumentos ja validados. Sair do JSON solto o quanto antes e o que impede um
 /// campo inventado pelo modelo de viajar ate a camada de servico.
@@ -118,6 +147,22 @@ pub enum ActionArgs {
         url: String,
         note: String,
     },
+    TimeStart {
+        /// Nome do Project, como o usuario fala. Resolvido na execucao.
+        project: String,
+        activity: String,
+        description: String,
+    },
+    TimeStop,
+    TimeRecord {
+        project: String,
+        /// Duracao em minutos. Validada na entrada: ver `parse_action`.
+        minutes: i64,
+        /// `AAAA-MM-DD`. Vazio significa hoje.
+        day: String,
+        activity: String,
+        description: String,
+    },
 }
 
 impl ActionArgs {
@@ -128,6 +173,9 @@ impl ActionArgs {
             Self::TaskSetState { .. } => ActionKind::TaskSetState,
             Self::ProjectCreate { .. } => ActionKind::ProjectCreate,
             Self::ResourceCreate { .. } => ActionKind::ResourceCreate,
+            Self::TimeStart { .. } => ActionKind::TimeStart,
+            Self::TimeStop => ActionKind::TimeStop,
+            Self::TimeRecord { .. } => ActionKind::TimeRecord,
         }
     }
 }
@@ -231,7 +279,87 @@ pub fn parse_action(raw: &str) -> Result<ActionArgs, CoreError> {
                 note: text(&args, "note"),
             }
         }
+        ActionKind::TimeStart => ActionArgs::TimeStart {
+            project: required(&args, "project", kind)?,
+            activity: activity_of(&args)?,
+            description: text(&args, "description"),
+        },
+        ActionKind::TimeStop => ActionArgs::TimeStop,
+        ActionKind::TimeRecord => ActionArgs::TimeRecord {
+            project: required(&args, "project", kind)?,
+            minutes: minutes_of(&args)?,
+            day: day_of(&args)?,
+            activity: activity_of(&args)?,
+            description: text(&args, "description"),
+        },
     })
+}
+
+/// Duracao em minutos, dentro do que um dia comporta.
+///
+/// O teto de 24h nao e paranoia: e a unica defesa contra o modo de falha mais
+/// caro deste catalogo. "Duas horas" ouvido como "duzentas" viraria 12.000
+/// minutos, e o numero so seria notado na hora de faturar. Recusar aqui devolve
+/// o erro para a conversa, onde ele ainda custa uma frase.
+fn minutes_of(args: &serde_json::Value) -> Result<i64, CoreError> {
+    let raw = args.get("minutes").and_then(serde_json::Value::as_i64);
+    let refuse = |detail: &str| {
+        CoreError::new(
+            ErrorCode::InvalidInput,
+            format!("A proposta de `mos.time.record` {detail}"),
+            false,
+        )
+    };
+    match raw {
+        None => Err(refuse(
+            "veio sem `minutes`, ou com um valor que nao e numero inteiro.",
+        )),
+        Some(value) if value <= 0 => Err(refuse("veio com duracao zero ou negativa.")),
+        Some(value) if value > 24 * 60 => Err(refuse(
+            "veio com mais de 24 horas numa sessao so. Se for isso mesmo, lance dia a dia.",
+        )),
+        Some(value) => Ok(value),
+    }
+}
+
+/// `AAAA-MM-DD`, ou vazio para hoje.
+///
+/// A forma e conferida aqui e o instante e montado na execucao: um dia mal
+/// escrito viraria hora lancada no mes errado, e o total do mes fecharia errado
+/// sem nada parecer quebrado.
+fn day_of(args: &serde_json::Value) -> Result<String, CoreError> {
+    let day = text(args, "day");
+    if day.is_empty() {
+        return Ok(day);
+    }
+    let shaped = day.len() == 10
+        && day.as_bytes()[4] == b'-'
+        && day.as_bytes()[7] == b'-'
+        && day
+            .bytes()
+            .enumerate()
+            .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit());
+    if !shaped {
+        return Err(CoreError::new(
+            ErrorCode::InvalidInput,
+            format!("`{day}` nao e uma data no formato AAAA-MM-DD."),
+            false,
+        ));
+    }
+    Ok(day)
+}
+
+/// Atividade do vocabulario fixo. Vazio vira `other` na execucao.
+fn activity_of(args: &serde_json::Value) -> Result<String, CoreError> {
+    let activity = text(args, "activity");
+    if activity.is_empty() || ACTIVITIES.split('|').any(|known| known == activity) {
+        return Ok(activity);
+    }
+    Err(CoreError::new(
+        ErrorCode::InvalidInput,
+        format!("`{activity}` nao e uma atividade. Use uma de: {ACTIVITIES}."),
+        false,
+    ))
 }
 
 /// O que a tela mostra antes de executar.
@@ -315,6 +443,52 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
             }
             ("SALVAR RESOURCE", lines)
         }
+        ActionArgs::TimeStart {
+            project,
+            activity,
+            description,
+        } => {
+            let mut lines = vec![line("Project", project)];
+            if !activity.is_empty() {
+                lines.push(line("Atividade", activity));
+            }
+            if !description.is_empty() {
+                lines.push(line("Descrição", description));
+            }
+            ("INICIAR CRONÔMETRO", lines)
+        }
+        ActionArgs::TimeStop => (
+            "ENCERRAR CRONÔMETRO",
+            vec![line("Sessão", "grava o tempo contado até agora")],
+        ),
+        ActionArgs::TimeRecord {
+            project,
+            minutes,
+            day,
+            activity,
+            description,
+        } => {
+            // A duracao aparece nas DUAS formas — "2h30" e "150 min" — e isso e
+            // proposital. Este e o campo em que um engano do modelo vira erro de
+            // fatura, e ler o mesmo numero escrito de dois jeitos e o que faz o
+            // absurdo saltar: "12h00" ao lado de "720 min" e obviamente errado
+            // para quem trabalhou duas horas.
+            let mut lines = vec![
+                line("Project", project),
+                line(
+                    "Duração",
+                    &format!("{}h{:02} · {minutes} min", minutes / 60, minutes % 60),
+                ),
+                line("Dia", if day.is_empty() { "hoje" } else { day }),
+            ];
+            if !activity.is_empty() {
+                lines.push(line("Atividade", activity));
+            }
+            if !description.is_empty() {
+                lines.push(line("Descrição", description));
+            }
+            ("LANÇAR TEMPO", lines)
+        }
     };
 
     ActionPreview {
@@ -360,11 +534,28 @@ pub struct ActionEffect {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "step")]
 pub enum UndoStep {
-    ArchiveCapture { id: String },
-    ArchiveTask { id: String },
-    ArchiveProject { id: String },
-    ArchiveResource { id: String },
-    RestoreTaskState { id: String, state: String },
+    ArchiveCapture {
+        id: String,
+    },
+    ArchiveTask {
+        id: String,
+    },
+    ArchiveProject {
+        id: String,
+    },
+    ArchiveResource {
+        id: String,
+    },
+    RestoreTaskState {
+        id: String,
+        state: String,
+    },
+    /// Manda a sessao para a lixeira. Soft delete, entao ela continua no banco e
+    /// volta pela lixeira do Historico — o desfazer aqui obedece a mesma regra
+    /// do resto: some da vista, nao some do registro.
+    TrashTimeEntry {
+        id: String,
+    },
 }
 
 /// O contrato que desce no prompt.
@@ -397,6 +588,110 @@ pub fn action_contract() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn record(args: &str) -> Result<ActionArgs, CoreError> {
+        parse_action(&format!(r#"{{"action":"mos.time.record","args":{args}}}"#))
+    }
+
+    #[test]
+    fn parses_a_time_record() {
+        assert_eq!(
+            record(r#"{"project":"Rancho Queimado","minutes":150,"day":"2026-08-14"}"#).unwrap(),
+            ActionArgs::TimeRecord {
+                project: "Rancho Queimado".into(),
+                minutes: 150,
+                day: "2026-08-14".into(),
+                activity: String::new(),
+                description: String::new(),
+            }
+        );
+    }
+
+    /// O modo de falha mais caro do catalogo: "duas horas" ouvido como
+    /// "duzentas" viraria 12.000 minutos, e o numero so apareceria na fatura.
+    #[test]
+    fn a_session_longer_than_a_day_is_refused() {
+        let error = record(r#"{"project":"X","minutes":12000}"#).unwrap_err();
+        assert!(error.message.contains("24 horas"), "{}", error.message);
+
+        // A borda passa: 24h exatas sao um dia de trabalho absurdo mas possivel,
+        // e recusar o legitimo junto com o absurdo ensina a nao usar o recurso.
+        assert!(record(r#"{"project":"X","minutes":1440}"#).is_ok());
+    }
+
+    #[test]
+    fn zero_and_negative_durations_are_refused() {
+        assert!(record(r#"{"project":"X","minutes":0}"#).is_err());
+        assert!(record(r#"{"project":"X","minutes":-30}"#).is_err());
+    }
+
+    /// Sem `minutes` a acao nao tem o que gravar. Um default silencioso aqui
+    /// gravaria uma sessao de duracao inventada.
+    #[test]
+    fn a_record_without_minutes_is_refused() {
+        assert!(record(r#"{"project":"X"}"#).is_err());
+        // Texto tambem nao serve: `"120"` viraria zero num parse tolerante.
+        assert!(record(r#"{"project":"X","minutes":"120"}"#).is_err());
+    }
+
+    /// Um dia mal escrito jogaria a hora no mes errado, e o total do mes
+    /// fecharia errado sem nada parecer quebrado.
+    #[test]
+    fn a_malformed_day_is_refused() {
+        assert!(record(r#"{"project":"X","minutes":60,"day":"14/08/2026"}"#).is_err());
+        assert!(record(r#"{"project":"X","minutes":60,"day":"2026-8-14"}"#).is_err());
+        // Ausente e valido, e significa hoje.
+        assert!(record(r#"{"project":"X","minutes":60}"#).is_ok());
+    }
+
+    #[test]
+    fn an_unknown_activity_is_refused() {
+        assert!(record(r#"{"project":"X","minutes":60,"activity":"almoco"}"#).is_err());
+        assert!(record(r#"{"project":"X","minutes":60,"activity":"drawing"}"#).is_ok());
+    }
+
+    /// Encerrar nao tem argumento, e isso precisa continuar aceitando `args`
+    /// ausente: um modelo que manda `{"action":"mos.time.stop"}` esta certo.
+    #[test]
+    fn stopping_needs_no_arguments() {
+        assert_eq!(
+            parse_action(r#"{"action":"mos.time.stop"}"#).unwrap(),
+            ActionArgs::TimeStop
+        );
+    }
+
+    /// O preview e a ultima defesa antes de a hora virar fatura, e ele mostra a
+    /// duracao nas duas formas justamente para o absurdo saltar aos olhos.
+    #[test]
+    fn the_record_preview_spells_the_duration_twice() {
+        let preview = preview_of(&record(r#"{"project":"X","minutes":150}"#).unwrap());
+        let duration = preview
+            .lines
+            .iter()
+            .find(|line| line.label == "Duração")
+            .expect("o preview precisa dizer a duracao");
+        assert!(duration.value.contains("2h30"), "{}", duration.value);
+        assert!(duration.value.contains("150 min"), "{}", duration.value);
+        assert_eq!(preview.confirmation, FunctionConfirmation::Explicit);
+    }
+
+    /// Iniciar e barato; encerrar e lancar escrevem hora cobravel. Se os tres
+    /// tivessem o mesmo peso, ou a cerimonia atrapalharia o barato, ou o caro
+    /// passaria sem ninguem ler.
+    #[test]
+    fn starting_is_cheap_and_the_other_two_are_not() {
+        let start = preview_of(&ActionArgs::TimeStart {
+            project: "X".into(),
+            activity: String::new(),
+            description: String::new(),
+        });
+        assert_eq!(start.confirmation, FunctionConfirmation::None);
+        assert_eq!(start.risk, FunctionRisk::Low);
+
+        let stop = preview_of(&ActionArgs::TimeStop);
+        assert_eq!(stop.confirmation, FunctionConfirmation::Explicit);
+        assert_eq!(stop.risk, FunctionRisk::Medium);
+    }
 
     #[test]
     fn parses_a_task_proposal() {
