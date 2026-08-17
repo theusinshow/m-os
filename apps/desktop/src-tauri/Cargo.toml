@@ -51,3 +51,8 @@ tauri-plugin-process = "2.3.1"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2.10.1"
 windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_SystemInformation"] }
+# Cliente HTTP e credencial para a Action API do M-Finance. Mesmas versoes e
+# features de crates/mos-hermes/Cargo.toml, sem "cookies" (nao ha sessao aqui,
+# cada chamada manda o secret no header).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+keyring = { version = "3", features = ["windows-native"] }
