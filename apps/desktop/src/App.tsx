@@ -15,6 +15,7 @@ import { CalendarPage } from "./CalendarPage";
 import { Reminder } from "./Reminder";
 import { BudgetRing, TodayHours, useTrackedTime, WeekByProject } from "./TimeWidgets";
 import { TempoPage } from "./TempoPage";
+import { FinancePage } from "./FinancePage";
 import { Timer } from "./Timer";
 import { Icon, type IconName } from "./Icon";
 import { Ring, RingLabel } from "./Ring";
@@ -26,7 +27,7 @@ import "./App.css";
 /* `apps` continua sendo uma pagina, e so deixou de ser um destino do rail
    (ADR-038). Ela e alcancada pelo Command, pelo widget APPS da Home e pelos
    Workspaces — a pagina existe, o icone no rail e que saiu. */
-type Page = "home" | "hermes" | "inbox" | "projects" | "workspaces" | "apps" | "library" | "tasks" | "tempo" | "calendario" | "settings";
+type Page = "home" | "hermes" | "inbox" | "projects" | "workspaces" | "apps" | "library" | "tasks" | "tempo" | "calendario" | "finance" | "settings";
 type UndoAction = { message: string; run: () => Promise<unknown> };
 
 /**
@@ -2521,16 +2522,19 @@ function DesktopApp() {
      pagina ficaria inalcancavel para criar o primeiro — que e exatamente a
      falha que a ADR-031 registrou quando Workspaces foi rebaixado. */
   { page: "calendario", label: "Calendário", icon: "calendar" },
+  // ADR-039: onze destinos. Finance entra depois de Calendario porque, como
+  // Tempo, e de onde sai (ou vai) renda — nao e conveniencia.
+  { page: "finance", label: "Finance", icon: "finance" },
   { page: "library", label: "Library", icon: "library" }];
   /* Os grupos explicitam a leitura da ordem atual sem mudar a IA aprovada.
      No rail colapsado eles existem apenas semanticamente; labels aparecem
      quando o usuario pede contexto expandindo a navegacao. */
   const navGroups = [
     { label: "GERAL", items: nav.slice(0, 3) },
-    { label: "TRABALHO", items: nav.slice(3, 8) },
-    { label: "MEMÓRIA", items: nav.slice(8) },
+    { label: "TRABALHO", items: nav.slice(3, 9) },
+    { label: "MEMÓRIA", items: nav.slice(9) },
   ];
-  const pageLabels: Record<Page, string> = { home: "Home", hermes: "Hermes", inbox: "Inbox", tasks: "Tasks", projects: "Projects", tempo: "Tempo", calendario: "Calendário", library: "Library", apps: "Apps", workspaces: "Workspaces", settings: "Settings" };
+  const pageLabels: Record<Page, string> = { home: "Home", hermes: "Hermes", inbox: "Inbox", tasks: "Tasks", projects: "Projects", tempo: "Tempo", calendario: "Calendário", finance: "Finance", library: "Library", apps: "Apps", workspaces: "Workspaces", settings: "Settings" };
   const pageMeta = useMemo(() => {
     if (page !== "home") return pageLabels[page].toUpperCase();
     return new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date()).toUpperCase().replace(",", " ·");
@@ -2539,6 +2543,7 @@ function DesktopApp() {
     if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} />;
     if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} />;
     if (page === "tempo") return <TempoPage projects={projects} openProject={openProject} receipt={showReceipt} />;
+    if (page === "finance") return <FinancePage />;
     if (page === "calendario") return <CalendarPage />;
     if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} openResource={openResource} intent={functionIntent ?? undefined} />;
     if (page === "projects") return <ProjectsPage projects={projects} tasks={tasks} initialProjectId={selectedProjectId} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
