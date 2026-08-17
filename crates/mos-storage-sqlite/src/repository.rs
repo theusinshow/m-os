@@ -108,6 +108,34 @@ impl CaptureRepository for SqliteStorage {
         )
     }
 
+    fn captures_between(
+        &self,
+        since: time::OffsetDateTime,
+        until: time::OffsetDateTime,
+    ) -> Result<Vec<Capture>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        // Crescente, ao contrario das outras leituras: o Calendario le o dia na
+        // ordem em que ele aconteceu, e nao "o que houve por ultimo".
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT {CAPTURE_COLUMNS} FROM captures
+                 WHERE captured_at >= ?1 AND captured_at <= ?2
+                 ORDER BY captured_at ASC"
+            ))
+            .map_err(map_sql_error)?;
+        // O resultado e ligado antes de devolver, como nos vizinhos: devolver a
+        // expressao direto mantem `statement` emprestado ate depois do retorno.
+        let captures = collect_rows(
+            statement
+                .query_map(
+                    params![format_time(since)?, format_time(until)?],
+                    RawCapture::from_row,
+                )
+                .map_err(map_sql_error)?,
+        )?;
+        Ok(captures)
+    }
+
     fn by_lifecycle(
         &self,
         lifecycle: LifecycleState,
@@ -386,6 +414,36 @@ mod tests {
         )
         .unwrap();
         (directory, storage)
+    }
+
+    /// A janela e fechada nos dois lados.
+    ///
+    /// Sem ela o Calendario precisaria ler TODAS as Captures que existem para
+    /// desenhar um mes, ou usar `recent`, que tem teto de 50 — e um calendario
+    /// que para de mostrar Capture depois da quinquagesima fica errado em
+    /// silencio.
+    #[test]
+    fn captures_between_respects_the_window() {
+        let (_directory, storage) = storage();
+        for content in ["antes", "dentro", "depois"] {
+            storage
+                .create(NewCapture::create(content, CaptureSource::Home).unwrap())
+                .unwrap();
+        }
+
+        let now = time::OffsetDateTime::now_utc();
+        let all = storage
+            .captures_between(
+                now - time::Duration::hours(1),
+                now + time::Duration::hours(1),
+            )
+            .unwrap();
+        assert_eq!(all.len(), 3, "as tres foram criadas agora");
+
+        let none = storage
+            .captures_between(now - time::Duration::days(9), now - time::Duration::days(8))
+            .unwrap();
+        assert!(none.is_empty(), "nenhuma foi criada semana passada");
     }
 
     #[test]

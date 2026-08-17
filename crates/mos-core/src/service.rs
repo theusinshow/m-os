@@ -45,6 +45,18 @@ impl CaptureService {
         self.repository.recent(limit.min(50))
     }
 
+    /// As Captures de uma janela, sem teto.
+    ///
+    /// Quem pede uma janela ja sabe o tamanho dela — limitar aqui seria o
+    /// mesmo silencio que `recent` produz quando bate no teto.
+    pub fn between(
+        &self,
+        since: time::OffsetDateTime,
+        until: time::OffsetDateTime,
+    ) -> Result<Vec<Capture>, CoreError> {
+        self.repository.captures_between(since, until)
+    }
+
     pub fn inbox(&self, limit: usize) -> Result<Vec<Capture>, CoreError> {
         self.repository.inbox(limit.min(200))
     }

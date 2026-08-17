@@ -21,6 +21,16 @@ pub trait CaptureRepository: Send + Sync {
     fn get(&self, id: CaptureId) -> Result<Capture, CoreError>;
     fn recent(&self, limit: usize) -> Result<Vec<Capture>, CoreError>;
     fn inbox(&self, limit: usize) -> Result<Vec<Capture>, CoreError>;
+    /// As Captures entre dois instantes, da mais antiga para a mais nova.
+    ///
+    /// Existe para o Calendario. `recent` tem teto de 50, e um calendario que
+    /// para de mostrar Capture depois da quinquagesima fica errado em silencio
+    /// — o dia aparece vazio e nada indica que houve corte.
+    fn captures_between(
+        &self,
+        since: time::OffsetDateTime,
+        until: time::OffsetDateTime,
+    ) -> Result<Vec<crate::Capture>, CoreError>;
     fn by_lifecycle(
         &self,
         lifecycle: LifecycleState,
