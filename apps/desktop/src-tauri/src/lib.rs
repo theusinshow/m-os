@@ -23,6 +23,7 @@ use tauri::{
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod calendar;
+mod finance;
 mod hermes;
 mod jarvis;
 mod monitor;
@@ -1198,6 +1199,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            finance::finance_set_action_secret,
+            finance::finance_clear_action_secret,
+            finance::finance_action_secret_configured,
             hermes::hermes_status,
             hermes::hermes_set_credentials,
             hermes::hermes_clear_credentials,
