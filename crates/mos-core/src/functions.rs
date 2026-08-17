@@ -207,6 +207,14 @@ pub fn function_registry() -> Vec<FunctionDefinition> {
             FunctionConfirmation::None,
         ),
         function(
+            "m-finance.create_bill",
+            "Criar conta no M-Finance",
+            "Propõe uma conta (valor, descrição, vencimento) para o M-Finance, App externo. Dinheiro é sempre risco alto.",
+            FunctionCategory::App,
+            FunctionRisk::High,
+            FunctionConfirmation::Explicit,
+        ),
+        function(
             "data.backup",
             "Criar Backup",
             "Copia o dataset local para um arquivo portavel.",
@@ -286,7 +294,17 @@ fn function(
 
 #[cfg(test)]
 mod tests {
-    use super::{function_registry, search_functions};
+    use super::{function_registry, search_functions, FunctionConfirmation, FunctionRisk};
+
+    #[test]
+    fn m_finance_create_bill_is_registered_as_high_risk() {
+        let entry = function_registry()
+            .into_iter()
+            .find(|item| item.id == "m-finance.create_bill")
+            .expect("m-finance.create_bill deveria estar registrada");
+        assert_eq!(entry.risk, FunctionRisk::High);
+        assert_eq!(entry.confirmation, FunctionConfirmation::Explicit);
+    }
 
     #[test]
     fn registry_has_stable_ids() {
