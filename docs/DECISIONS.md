@@ -1255,3 +1255,68 @@ não pode cobrar.
   um número inventado é pior que um número faltando;
 - o custo assumido: um laço acordando a cada poucos segundos. Ele roda em tarefa própria,
   nunca no fio da interface, e o intervalo é configurável com piso de um segundo.
+
+## ADR-038 — O rail vai a dez, e Apps sai para o Calendário entrar
+
+**Data:** 2026-08-17
+**Status:** aceito, por decisão do proprietário do produto
+**Revisa:** ADR-036, ADR-031
+
+### Contexto
+
+A ADR-036 levou o rail a nove e manteve a regra: *"o décimo destino exige retirar
+um"*. Este é o décimo, e esta ADR existe para que ele seja troca e não omissão.
+
+O pedido: um calendário interativo. A primeira fase mostra o que aconteceu em
+cada dia — sessões, Tasks, Captures e programas abertos —, e a segunda traz
+prazos, que é o que responde a pergunta que o `ROADMAP` fixou como critério de
+sucesso da Fase 4: *"o que eu preciso lembrar hoje?"*.
+
+### Decisão
+
+**Apps sai do rail. Calendário entra. O teto passa a ser dez.**
+
+Dois motivos que se somam:
+
+1. **Evidência.** O banco do usuário tem **zero apps cadastrados**. Sair não tira
+   nada dele hoje.
+2. **O critério da própria ADR-036**, que definiu item de rail como *"algo de que
+   depende a renda ou a memória do usuário, não algo que ele usa com
+   frequência"*. Um lançador de aplicativos não é renda nem memória — é
+   conveniência. Library **é** memória, Inbox é a entrada dela, Workspaces é a
+   lente sobre tudo, e Tempo é de onde sai a renda.
+
+### Por que não Workspaces
+
+Foi considerado e descartado **por evidência registrada**. A ADR-031 conta que
+Workspaces já foi rebaixado uma vez e o resultado foi ficar *"invisível para quem
+não conhece o Command, até ser promovido de volta"*. Repetir um experimento
+sabendo o resultado não é rigor, é teimosia.
+
+### A porta que teve de ser construída junto
+
+Tirar Apps do rail quase repetiu exatamente aquela falha, por um motivo que só
+apareceu na implementação: o Command **não lista destinos** — ele busca
+entidades. Com zero apps cadastrados, a busca não acharia nada, e a página de
+Apps ficaria inalcançável **justamente para criar o primeiro**.
+
+Por isso o widget APPS da Home ganhou um botão `Gerenciar`, na mesma mudança e
+não depois. A diferença para o caso de Workspaces é essa: lá o item sumiu e a
+porta alternativa era hipotética; aqui a porta foi construída antes de a antiga
+fechar.
+
+### Consequências
+
+- o teto vira dez, e a regra de troca continua: o décimo primeiro exige retirar
+  um;
+- Apps segue alcançável por três caminhos — o botão do widget na Home, a busca do
+  Command quando houver app cadastrado, e a tela de Workspaces;
+- a evidência usada ("zero apps") mede **conteúdo, não frequência**. O M/OS não
+  registra clique de navegação, então este foi o melhor sinal disponível e não o
+  ideal. A decisão foi tomada com essa ressalva dita ao proprietário;
+- é reversível pelo mesmo caminho que trouxe Workspaces de volta: se Apps fizer
+  falta, uma ADR nova o repõe;
+- o risco assumido continua sendo o da ADR-036, agora um degrau maior: cada
+  revisão do teto torna a próxima mais fácil. A defesa não é o número, é a
+  exigência de ADR para mexer nele — e esta é a segunda em dois dias, o que é um
+  sinal a observar.
