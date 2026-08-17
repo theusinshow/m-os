@@ -492,7 +492,22 @@ pub async fn hermes_send<R: Runtime>(
     // Ele sai da maquina junto com o resto do prompt: nomes de acao e forma de
     // argumento vao para a VPS. Nao sao dados pessoais, mas sao um mapa do que o
     // sistema sabe fazer, e isso esta registrado na spec.
-    let prompt = format!("{}{}{}", mos_core::action_contract(), assembled.block, text);
+    //
+    // So desce no catalogo quando o App M-Finance tem can_write marcado no
+    // Registry — a mesma capacidade que ja existia, so passando a ter efeito
+    // real pela primeira vez (SPEC-ACOES-ENTRE-APPS.md).
+    let finance_enabled = app
+        .state::<AppState>()
+        .apps
+        .app("m-finance")
+        .map(|entry| entry.can_write)
+        .unwrap_or(false);
+    let prompt = format!(
+        "{}{}{}",
+        mos_core::action_contract(finance_enabled),
+        assembled.block,
+        text
+    );
     let sent = order(&app, Order::Submit(prompt)).await;
     if sent.is_err() {
         // Falhou antes de sair: a resposta aberta precisa parar de dizer
