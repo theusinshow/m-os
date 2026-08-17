@@ -23,8 +23,8 @@
    * O PESO tambem subiu no texto de interface, e isto e correcao otica, nao
    * gosto: texto claro sobre fundo escuro sangra e parece mais fino do que e.
    * O peso 500 devolve a espessura que o olho esperava ver em 400. */
-  --text-display: 700 48px/1.05 var(--font-product);
-  --text-title: 600 28px/1.2 var(--font-product);
+  --text-display: 500 48px/1.05 var(--font-product);
+  --text-title: 500 28px/1.2 var(--font-product);
   --text-capture: 400 21px/1.35 var(--font-product);
   --text-body: 400 16px/1.55 var(--font-product);
   --text-ui: 500 14px/1.45 var(--font-product);
@@ -60,6 +60,7 @@
   --stroke-16: 1px;
 
   --rail-width: 52px;
+  --rail-expanded-width: 208px;
   --sidebar-width: 232px;
   --drawer-width: 400px;
   --overlay-capture: 640px;
@@ -152,6 +153,7 @@
      para nao virarem literal dentro de componente. */
   --topbar-height: 44px;
   --rail-item: 40px;
+  --icon-size: 20px;
   --rail-symbol: 26px;
   --rail-symbol-radius: 5px;
   --rail-symbol-gap: var(--space-loose);
@@ -200,10 +202,10 @@
 
 [data-theme='light'] {
   --canvas: #F4F6F7;
-  --surface: #FFFFFF;
+  --surface: #FAFBFC;
   --surface-raised: #FFFFFF;
-  --surface-hover: #EAEDEF;
-  --surface-active: #E4E8EA;
+  --surface-hover: #EDF0F2;
+  --surface-active: #E5E9EB;
   --border: #D6DBDE;
   --border-strong: #C9CFD2;
 
@@ -255,11 +257,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Focus: idêntico em todos os componentes do sistema */
+/* Focus é um estado transitório, não uma seleção. Um único outline de 2px
+   permanece visível em qualquer surface e sobrevive a forced colors sem somar
+   border + ring + sombra. Componentes com focus-within próprio podem removê-lo
+   explicitamente no filho e acender a estrutura que já os delimita. */
 :focus-visible {
-  outline: none;
-  border-color: var(--signal-ink);
-  box-shadow: 0 0 0 3px var(--signal-ring);
+  outline: var(--marker) solid var(--signal-ink);
+  outline-offset: var(--line);
 }
 
 @media (prefers-reduced-motion: reduce) {

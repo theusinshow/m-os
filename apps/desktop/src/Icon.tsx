@@ -103,6 +103,7 @@ const SOLID_20: Partial<Record<IconName, ReactNode>> = {
  */
 const OUTLINE_16: Record<string, ReactNode> = {
   plus: <path d="M8 4v8M4 8h8" />,
+  close: <path d="m4 4 8 8M12 4l-8 8" />,
   trash: <><path d="M4.5 5.5h7l-.5 8h-6z" /><path d="M2.5 5.5h11" /><path d="M6.5 2.5h3l.4 3" /></>,
 };
 

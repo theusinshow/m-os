@@ -71,6 +71,34 @@ function clockOf(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 
+const HERMES_COMPACT_MEDIA = "(max-width: 1279px)";
+
+function compactHermesViewport() {
+  return typeof window !== "undefined" && window.matchMedia(HERMES_COMPACT_MEDIA).matches;
+}
+
+/** O erro cru continua disponível, mas deixa de disputar espaço com a ação
+ *  que resolve o problema. A causa provável é inferida apenas para a frase de
+ *  interface; o diagnóstico original permanece intacto no disclosure. */
+function unavailablePresentation(status: HermesStatus | null) {
+  if (!status) return { summary: "Verificando a conexão com o Hermes…", detail: "" };
+  if (!status.hasCredentials) {
+    return { summary: "Configure usuário e senha do Hermes em Settings.", detail: status.detail };
+  }
+
+  const detail = hermesUnavailableLabel(status);
+  if (/429|rate.?limit|tentativas demais/i.test(detail)) {
+    return { summary: "Muitas tentativas de conexão. Aguarde antes de tentar novamente.", detail };
+  }
+  if (/401|unauthorized|credencial|autentica|senha/i.test(detail)) {
+    return { summary: "O Hermes recusou as credenciais configuradas.", detail };
+  }
+  if (/t[uú]nel|sending request|api\/status|unreachable|connection|conex[aã]o/i.test(detail)) {
+    return { summary: "Hermes indisponível. Abra o túnel SSH e tente novamente.", detail };
+  }
+  return { summary: "Hermes indisponível. Verifique a conexão e tente novamente.", detail };
+}
+
 /** Agrupamento por tempo. Conversas nao sao arquivos: a maioria morre no mesmo
  *  dia, e a lista precisa refletir isso em vez de virar uma pilha unica (§05). */
 function groupOf(value: string) {
@@ -364,7 +392,8 @@ export function HermesPage({ inbox, projects, tasks, receipt }: {
   const [mentions, setMentions] = useState<SearchItem[]>([]);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [listQuery, setListQuery] = useState("");
-  const [railOpen, setRailOpen] = useState(true);
+  const [compact, setCompact] = useState(compactHermesViewport);
+  const [railOpen, setRailOpen] = useState(() => !compactHermesViewport());
   const [renaming, setRenaming] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const [pinnedBottom, setPinnedBottom] = useState(true);
@@ -372,6 +401,9 @@ export function HermesPage({ inbox, projects, tasks, receipt }: {
   const field = useRef<HTMLTextAreaElement>(null);
   const thread = useRef<HTMLDivElement>(null);
   const surface = useRef<HTMLDivElement>(null);
+  const rail = useRef<HTMLElement>(null);
+  const railToggle = useRef<HTMLButtonElement>(null);
+  const railClose = useRef<HTMLButtonElement>(null);
   const buffer = useRef<StreamBuffer>({ ...EMPTY_BUFFER });
   const frame = useRef(0);
   /** Ate onde a resposta ja foi anunciada. O leitor de tela recebe paragrafo
@@ -380,6 +412,29 @@ export function HermesPage({ inbox, projects, tasks, receipt }: {
 
   const conversationId = conversation?.id ?? "";
   const running = stream !== null;
+  const empty = !messages.length && !stream;
+  const unavailable = unavailablePresentation(status);
+
+  const closeRail = useCallback((restoreFocus = true) => {
+    setRailOpen(false);
+    if (restoreFocus) window.requestAnimationFrame(() => railToggle.current?.focus());
+  }, []);
+
+  const openRail = useCallback(() => {
+    setRailOpen(true);
+    window.requestAnimationFrame(() => railClose.current?.focus());
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia(HERMES_COMPACT_MEDIA);
+    const sync = () => {
+      setCompact(media.matches);
+      setRailOpen(!media.matches);
+    };
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
 
   const flush = useCallback(() => {
     if (frame.current) return;
@@ -618,8 +673,9 @@ export function HermesPage({ inbox, projects, tasks, receipt }: {
     buffer.current = { ...EMPTY_BUFFER };
     await hermes.selectConversation(created.id).catch(() => undefined);
     await reloadList();
+    if (compact) setRailOpen(false);
     field.current?.focus();
-  }, [reloadList]);
+  }, [compact, reloadList]);
 
   async function selectConversation(id: string) {
     if (id === conversationId) return;
@@ -631,6 +687,7 @@ export function HermesPage({ inbox, projects, tasks, receipt }: {
     setStream(null);
     buffer.current = { ...EMPTY_BUFFER };
     await hermes.selectConversation(id).catch(() => undefined);
+    if (compact) setRailOpen(false);
   }
 
   async function removeConversation(id: string) {
@@ -673,7 +730,27 @@ export function HermesPage({ inbox, projects, tasks, receipt }: {
     function handler(event: globalThis.KeyboardEvent) {
       const node = surface.current;
       if (!node || !node.contains(document.activeElement)) return;
+
+      if (compact && railOpen && event.key === "Tab") {
+        const focusable = [...(rail.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [])];
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (first && last && event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+          return;
+        }
+        if (first && last && !event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+          return;
+        }
+      }
+
       if (event.key === "Escape") {
+        if (compact && railOpen) { event.preventDefault(); closeRail(); return; }
         if (approval) { setApproval(null); void hermes.approve(false); event.preventDefault(); return; }
         // Limpar so o estado local deixava o agente bloqueado no `_block()` do
         // gateway com a caixa de resposta ja fora da tela — pensando para
@@ -683,11 +760,15 @@ export function HermesPage({ inbox, projects, tasks, receipt }: {
         return;
       }
       if (event.ctrlKey && event.key.toLowerCase() === "n") { event.preventDefault(); void newConversation(); }
-      if (event.ctrlKey && event.key === "/") { event.preventDefault(); setRailOpen((open) => !open); }
+      if (event.ctrlKey && event.key === "/") {
+        event.preventDefault();
+        if (railOpen) closeRail();
+        else openRail();
+      }
     }
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [approval, clarify, running, newConversation]);
+  }, [approval, clarify, closeRail, compact, newConversation, openRail, railOpen, running]);
 
   async function renameConversation(title: string) {
     if (!conversationId) return;
@@ -701,10 +782,21 @@ export function HermesPage({ inbox, projects, tasks, receipt }: {
 
   return <div className="hermes-page" data-rail={railOpen || undefined} ref={surface}>
     {railOpen ? (
-      <aside className="hermes-rail" aria-label="Conversas">
+      <aside
+        className="hermes-rail"
+        aria-label="Conversas"
+        aria-modal={compact || undefined}
+        ref={rail}
+        role={compact ? "dialog" : undefined}
+      >
         <div className="hermes-rail-head">
           <span className="micro-label">CONVERSAS</span>
           <button type="button" onClick={() => void newConversation()} title="Nova conversa · Ctrl+N" aria-label="Nova conversa"><SmallIcon name="plus" /></button>
+          {compact ? (
+            <button ref={railClose} type="button" onClick={() => closeRail()} title="Fechar conversas · Esc" aria-label="Fechar conversas">
+              <SmallIcon name="close" />
+            </button>
+          ) : null}
         </div>
         <input
           className="hermes-rail-search"
@@ -733,9 +825,17 @@ export function HermesPage({ inbox, projects, tasks, receipt }: {
         </div>
       </aside>
     ) : null}
+    {compact && railOpen ? (
+      <button className="hermes-rail-backdrop" type="button" aria-label="Fechar conversas" onClick={() => closeRail()} />
+    ) : null}
 
     <div className="hermes-main">
       <div className="hermes-seeing">
+        {!railOpen ? (
+          <button ref={railToggle} type="button" className="hermes-rail-toggle" onClick={openRail} title="Conversas · Ctrl+/">
+            CONVERSAS
+          </button>
+        ) : null}
         <span className="micro-label">VENDO</span>
         {/* So os chips rolam. Com a regua inteira rolando, o estado da conexao
             saia de vista quando havia contexto demais — e ele e justamente o
@@ -773,10 +873,10 @@ export function HermesPage({ inbox, projects, tasks, receipt }: {
           fazia o Narrator ler a resposta caractere a caractere (§20). */}
       <p className="visually-hidden" role="status" aria-live="polite">{announcement}</p>
 
-      <div className="hermes-thread-area" ref={thread}>
+      <div className="hermes-thread-area" data-empty={empty || undefined} ref={thread}>
         <div className="hermes-thread">
-          {!messages.length && !stream ? <div className="hermes-empty">
-            <p className="hermes-empty-title">Pergunte, mande fazer,<br />ou jogue alguma coisa aqui.</p>
+          {empty ? <div className="hermes-empty-state">
+            <p className="hermes-empty-title">Pergunte, mande fazer ou jogue alguma coisa aqui.</p>
             {suggestions.length ? <div className="hermes-suggestions">
               {suggestions.map((suggestion, index) => (
                 <button key={suggestion} type="button" disabled={!online} onClick={() => void ask(suggestion, [])}>
@@ -902,12 +1002,20 @@ export function HermesPage({ inbox, projects, tasks, receipt }: {
             : <button type="submit" className="hermes-send" disabled={!draft.trim() || !online} aria-label="Enviar">↑</button>}
         </div>
 
-        {!online ? <p className="hermes-offline">
-          {status ? hermesUnavailableLabel(status) : "Verificando o Hermes…"}
-          {status?.hasCredentials && status.state === "offline"
-            ? <button type="button" onClick={() => void hermes.connect().catch(() => undefined)}>RECONECTAR</button>
-            : null}
-        </p> : null}
+        {!online ? <div className="hermes-offline" role="status">
+          <div className="hermes-offline-head">
+            <span>{unavailable.summary}</span>
+            {status?.hasCredentials && status.state === "offline"
+              ? <button type="button" onClick={() => void hermes.connect().catch(() => undefined)}>RECONECTAR</button>
+              : null}
+          </div>
+          {unavailable.detail && unavailable.detail !== unavailable.summary ? (
+            <details className="hermes-offline-detail">
+              <summary>DETALHES TÉCNICOS</summary>
+              <code>{unavailable.detail}</code>
+            </details>
+          ) : null}
+        </div> : null}
       </form>
     </div>
   </div>;

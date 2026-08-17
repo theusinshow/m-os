@@ -781,3 +781,63 @@ AUTOMATE
 ```
 
 Cada camada deve ser confiável antes que a próxima tente esconder sua complexidade.
+
+---
+
+## 25. Trilha de refinamento UI/UX vNext
+
+Esta trilha registra a sequência operacional do refinamento visual iniciado em
+2026-08-17. Ela não cria fases de produto, não promove itens de `IDEAS.md` e não
+autoriza novas capacidades. Cada lote trabalha somente hierarquia, composição,
+densidade, interação, acessibilidade e acabamento sobre comportamentos que já
+existem.
+
+### Concluído
+
+- Foundations: tokens, tipografia, superfícies, borders, radius, spacing, motion e estados globais;
+- App Shell e Sidebar;
+- Command, menus e contrato compartilhado de Inspector;
+- Home e composição dos widgets existentes;
+- Hermes 3A: histórico responsivo, vazio e indisponibilidade;
+- Inbox;
+- Tasks e Kanban.
+
+O estado detalhado, evidências de QA e decisões de cada lote estão em
+`UI-UX-REFINEMENT.md`.
+
+### Próximos lotes priorizados
+
+1. **Projects — Lote 4C**
+   - corrigir a composição master-detail observada em 840×600;
+   - definir comportamento de seleção e detalhe abaixo de 960px;
+   - refinar hierarquia de título, descrição, fatos, Tasks e ações;
+   - preservar criação, edição, Archive e relações existentes.
+2. **Library / Resources — Lote 4D**
+   - resolver a compressão da grade no pane fixo e o excesso de largura do detalhe;
+   - escolher densidade apropriada entre rows, tiles e Inspector;
+   - validar URL, contexto, proveniência, vazio e estados de lifecycle em dark/light.
+3. **Calendar — Lote 4E**
+   - tratar a grade temporal como estrutura, reduzindo containers desnecessários;
+   - revisar densidade de dia, mês e detalhe sem alterar eventos ou regras temporais;
+   - validar 840, 1024, 1280, 1440, 1920 e ultrawide.
+4. **Apps, Workspaces e Settings — Lote 4F**
+   - aplicar os mesmos contratos de page header, listas, menus, formulários e estados;
+   - reduzir ruído e corrigir responsividade sem reorganizar capacidades do produto.
+5. **Hermes 3B — condicionado à conexão real**
+   - validar mensagens, streaming, tools, citations, clarify e approval de ponta a ponta;
+   - não fabricar respostas nem alterar o gateway apenas para produzir screenshots.
+6. **Motion e consistência transversal — Lote 5**
+   - executar somente depois das superfícies estruturais acima;
+   - consolidar transições de page, Inspector, popover, selected, saving e loading;
+   - verificar `prefers-reduced-motion`, teclado, forced colors e performance.
+
+### Gate de conclusão de cada lote
+
+- build e testes aprovados;
+- QA visual na aplicação Tauri real, não somente por leitura de JSX/CSS;
+- pelo menos Dark em 840×600, 1280×800, 1440×900 e 1920×1080;
+- Light nas larguras em que surfaces, borders ou seleção mudem materialmente;
+- accessibility tree, foco, teclado e reduced motion verificados;
+- fixtures de dogfood removidas ou arquivadas pelo fluxo normal;
+- nenhuma regra de negócio, API, banco ou contrato de domínio alterado silenciosamente;
+- achados fora do recorte documentados para o lote seguinte.

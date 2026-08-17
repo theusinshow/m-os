@@ -10,7 +10,7 @@ import { hermes, type HermesConnectionState, type HermesFailure, type HermesStat
 import { HermesPage } from "./HermesPage";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
-import { ContextPath, EmptyState, Panel } from "./Surface";
+import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel } from "./Surface";
 import { CalendarPage } from "./CalendarPage";
 import { Reminder } from "./Reminder";
 import { BudgetRing, TodayHours, useTrackedTime, WeekByProject } from "./TimeWidgets";
@@ -94,8 +94,8 @@ function resourceHost(url: string) {
 }
 
 
-function IconButton({ label, icon, active = false, onClick }: { label: string; icon: IconName; active?: boolean; onClick: () => void }) {
-  return <button className="icon-button" type="button" aria-label={label} title={label} onClick={onClick}><Icon name={icon} filled={active} /></button>;
+function IconButton({ label, icon, active = false, disabled = false, onClick }: { label: string; icon: IconName; active?: boolean; disabled?: boolean; onClick: () => void }) {
+  return <button className="icon-button" type="button" aria-label={label} title={label} disabled={disabled} onClick={onClick}><Icon name={icon} filled={active} /></button>;
 }
 
 
@@ -103,9 +103,18 @@ function IconButton({ label, icon, active = false, onClick }: { label: string; i
    que a etapa 2 (modo de edicao) mude posicao sem tocar em nenhum widget.
    `hidden` devolve null: a regra de visibilidade fica num lugar so, e a grade nao
    precisa saber de nada — os widgets restantes reflowam sozinhos. */
-function Widget({ id, size, hidden = false, children }: { id: string; size: "1x1" | "2x1" | "2x2" | "full"; hidden?: boolean; children: ReactNode }) {
+type HomeWidgetRole = "focus" | "attention" | "overview" | "collection" | "utility";
+type HomeWidgetSpan = 3 | 4 | 5 | 6 | 8 | 9 | 12;
+
+function Widget({ id, role, span, hidden = false, children }: { id: string; role: HomeWidgetRole; span: HomeWidgetSpan; hidden?: boolean; children: ReactNode }) {
   if (hidden) return null;
-  return <div className="widget" data-widget={id} data-size={size}>{children}</div>;
+  return <div className="widget" data-widget={id} data-role={role} data-span={span}>{children}</div>;
+}
+
+function HomeSection({ id, title, hidden = false, children }: { id: string; title: string; hidden?: boolean; children: ReactNode }) {
+  if (hidden) return null;
+  const headingId = `home-${id}-heading`;
+  return <section className="home-section" data-section={id} aria-labelledby={headingId}><header className="home-section-heading"><h2 id={headingId}>{title}</h2></header><div className="home-grid">{children}</div></section>;
 }
 
 /* A promessa central do produto e confianca: o que entrou esta guardado. Quando
@@ -328,6 +337,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
   // sem Workspace nao ha escolha a aplicar.
   const hiddenIds = useMemo(() => new Set(currentWorkspaceId ? hiddenWidgets.filter((entry) => entry.workspaceId === currentWorkspaceId).map((entry) => entry.widgetId) : []), [hiddenWidgets, currentWorkspaceId]);
   const allWidgetsHidden = HOME_WIDGETS.every((widget) => hiddenIds.has(widget.id));
+  const widgetVisible = (id: string) => !hiddenIds.has(id);
   // O tempo carrega por fora do `refresh()`: aquele é o caminho de boot do app
   // inteiro, e um erro no rastreio não pode ser motivo para a Home não abrir.
   const trackedTime = useTrackedTime();
@@ -344,106 +354,68 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
     <DotField />
     <ContextPath segments={["M", "HOME"]} />
     <CaptureComposer onSaved={(capture) => { markSaved(capture); void refresh(); }} focusKey={intent?.target === "home_capture" ? intent.key : undefined} />
-    <Panel label="CONTEXTO" rule action={currentWorkspace ? <Button variant="ghost" onClick={() => setCurrentWorkspaceId("")}>Todos</Button> : undefined}><div className="context-switcher">{activeWorkspaces.map((workspace) => <button key={workspace.id} type="button" data-selected={workspace.id === currentWorkspaceId || undefined} onClick={() => setCurrentWorkspaceId(workspace.id)} onDoubleClick={() => openWorkspace(workspace)}><strong>{workspace.name}</strong><small>{workspace.description || "Workspace"}</small></button>)}{!activeWorkspaces.length ? <EmptyState>Workspaces ativos aparecerão aqui.</EmptyState> : null}</div></Panel>
-    {/* A HOME É QUATRO FAIXAS, e cada uma responde a uma pergunta.
+    <section className="home-context" aria-labelledby="home-context-heading">
+      <span className="micro-label" id="home-context-heading">CONTEXTO ATUAL</span>
+      <div className="context-switcher" role="group" aria-label="Selecionar contexto da Home">
+        <button type="button" aria-pressed={!currentWorkspace} data-selected={!currentWorkspace || undefined} onClick={() => setCurrentWorkspaceId("")}><strong>Todos</strong></button>
+        {activeWorkspaces.map((workspace) => <button key={workspace.id} type="button" aria-pressed={workspace.id === currentWorkspaceId} data-selected={workspace.id === currentWorkspaceId || undefined} title={`Selecionar ${workspace.name}; clique duplo para abrir`} onClick={() => setCurrentWorkspaceId(workspace.id)} onDoubleClick={() => openWorkspace(workspace)}><strong>{workspace.name}</strong></button>)}
+      </div>
+    </section>
 
-        Onze widgets numa grade só liam como onze coisas do mesmo peso, e o
-        PRODUCT.md §4 avisa contra exatamente isso: a Home responde "o que está
-        acontecendo e o que preciso fazer?", não "tudo o que existe". A regra de
-        carga cognitiva diz o mesmo por outro caminho — grupos de até quatro.
+    {/* A primeira dobra responde às duas perguntas imediatas: em que contexto
+        estou e o que está acontecendo agora. TodayHours fica aqui porque horas
+        de hoje são estado presente; semana e mês continuam na visão ampla. */}
+    <HomeSection id="now" title="Agora" hidden={!(["now", "timer", "today_hours"].some(widgetVisible))}>
+      <Widget id="now" role="focus" span={6} hidden={hiddenIds.has("now")}><Panel label="EM ANDAMENTO" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel></Widget>
+      <Widget id="timer" role="focus" span={3} hidden={hiddenIds.has("timer")}><Panel label="CRONÔMETRO"><Timer projects={projects} onChanged={() => void refresh()} /></Panel></Widget>
+      <Widget id="today_hours" role="focus" span={3} hidden={hiddenIds.has("today_hours")}><Panel label="HORAS HOJE"><TodayHours time={trackedTime} /></Panel></Widget>
+    </HomeSection>
 
-        Faixas em vez de rótulos de seção porque o app já usa rótulo mono em
-        cada Panel; um segundo nível de rótulo acima deles seria rótulo sobre
-        rótulo. O que separa as faixas é ar, não mais texto.
-
-        Cada faixa é a sua própria grade de 12 colunas, e isso é o que torna o
-        arranjo robusto: fecha sozinha, e esconder um widget só reflowa a faixa
-        dele em vez de empurrar a Home inteira. Antes de existirem faixas, a
-        ordem abria três buracos de 3 colunas no meio — era isso que se lia como
-        bagunça, e não a quantidade.
-
-        Preferi isto a `grid-auto-flow: dense`, que taparia vãos movendo itens
-        para trás e faria a ordem visual divergir da ordem de foco. */}
-
-    {/* AGORA. O que está acontecendo neste minuto, e nada mais: a hora que está
-        correndo e o trabalho que está aberto. Os dois fecham a faixa em 12. */}
-    <div className="home-grid">
-      <Widget id="timer" hidden={hiddenIds.has("timer")} size="2x1"><Panel label="CRONÔMETRO"><Timer projects={projects} onChanged={() => void refresh()} /></Panel></Widget>
-      <Widget id="now" hidden={hiddenIds.has("now")} size="2x1"><Panel label="EM ANDAMENTO" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel></Widget>
-    </div>
-
-    {/* O TEMPO. Faixa própria, e não misturada com a de baixo, porque responde
-        outra pergunta: aquela fala do trabalho: aqui fala das HORAS — que é de
-        onde sai a renda de quem fatura por hora (ADR-036).
-
-        Fecha em 12 exatamente: 3 + 6 + 3. A META vai por ÚLTIMO de propósito —
-        ela some quando nenhum Project tem meta, e um vão no fim da faixa é só
-        ar, enquanto no meio seria o buraco de 3 colunas que fazia a Home ler
-        como bagunça.
-
-        Todos mostram HORAS, nunca dinheiro: o valor passa por arredondamento e
-        desconto de inatividade, que vivem no Rust, e repetir essa conta aqui
-        criaria um segundo número capaz de divergir do que vai na fatura. */}
-    <div className="home-grid">
-      <Widget id="today_hours" hidden={hiddenIds.has("today_hours")} size="1x1"><Panel label="HOJE"><TodayHours time={trackedTime} /></Panel></Widget>
-      <Widget id="week_by_project" hidden={hiddenIds.has("week_by_project")} size="2x1"><Panel label="SEMANA POR PROJECT"><WeekByProject time={trackedTime} projects={projects} onOpen={openTempoPage} /></Panel></Widget>
-      {/* Escondido quando nenhum Project tem meta: um anel preenchido contra um
-          alvo que ninguém definiu ensina a confiar numa medida que não existe. */}
-      <Widget id="budget_ring" hidden={hiddenIds.has("budget_ring") || !hasBudget} size="1x1"><Panel label="META"><BudgetRing time={trackedTime} projects={projects} onOpen={openProject} /></Panel></Widget>
-    </div>
-
-    {/* O QUE ESTÁ ACONTECENDO. Anel, densidade e lista curta — tudo de relance,
-        nada pedindo decisão, e é isso que os mantém no mesmo grupo.
-
-        São cinco, um a mais que a regra de quatro por grupo. A alternativa era
-        uma faixa pela metade, que lê pior que um grupo levemente cheio.
-
-        RECENTES entra aqui e não na faixa de cima: capture recente é o pulso do
-        que passou, não uma decisão pendente. A contagem verdadeira da Inbox é a
-        do anel — o badge de RECENTES foi removido porque `list_recent` não
-        filtra por `processing_state` (repository.rs:91) e o comando pede só 8
-        (lib.rs:80), então o número mentia duas vezes.
-
-        Os widgets do catálogo que ainda faltam dependem de calendário e de
-        hábitos, que não existem no domínio, e por isso não estão aqui. Os de
-        tempo rastreado saíram desta lista quando o CronoCAD foi absorvido, e
-        ganharam faixa própria acima. */}
-    <div className="home-grid">
-      <Widget id="month_density" hidden={hiddenIds.has("month_density")} size="2x2"><Panel label="MÊS"><MonthDensity tasks={tasks} captures={recent} /></Panel></Widget>
-      <Widget id="inbox_pulse" hidden={hiddenIds.has("inbox_pulse")} size="1x1"><Panel label="INBOX">{/* O numero cru vira anel. A proporcao mostrada e o que esta ENVELHECENDO
+    {/* Retomada vem antes de analytics: Inbox pede decisão, Recentes recupera o
+        fio, e Projects mostra os contextos de trabalho que mudaram. */}
+    <HomeSection id="resume" title="Retomar" hidden={!(["inbox_pulse", "recent", "projects"].some(widgetVisible))}>
+      <Widget id="inbox_pulse" role="attention" span={3} hidden={hiddenIds.has("inbox_pulse")}><Panel label="INBOX">{/* O numero cru vira anel. A proporcao mostrada e o que esta ENVELHECENDO
     dentro da Inbox, nao o tamanho dela: uma Inbox grande e processada hoje e
     saudavel, e uma pequena parada ha uma semana nao e. O anel vazio com o
     numero no centro le exatamente como "nada envelhecendo", que e o estado
     bom — e e por isso que zero nao desenha ponto de sodio. */}
 <button type="button" className="pulse" onClick={() => openInbox()}><Ring size={88} segments={[{ value: inbox.length ? staleInbox / inbox.length : 0 }]}><RingLabel value={inboxCapped ? `${INBOX_PAGE}+` : String(inbox.length)} /></Ring><small>{inbox.length === 1 ? "capture por processar" : "captures por processar"}</small>{staleInbox ? <small className="pulse-stale">{staleInbox === 1 && !inboxCapped ? "1 com mais de 3 dias" : `${staleInbox}${inboxCapped ? "+" : ""} com mais de 3 dias`}</small> : null}</button></Panel></Widget>
-      <Widget id="task_progress" hidden={hiddenIds.has("task_progress")} size="1x1"><Panel label="CONCLUÍDO"><TaskProgressRing tasks={tasks} /></Panel></Widget>
-      <Widget id="week_rings" hidden={hiddenIds.has("week_rings")} size="2x1"><Panel label="SEMANA"><WeekRings tasks={tasks} onOpen={openTasksPage} /></Panel></Widget>
-      <Widget id="recent" hidden={hiddenIds.has("recent")} size="2x1"><Panel label="RECENTES">{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nada capturado ainda. O que você escrever no campo acima aparece aqui.</EmptyState>}</Panel></Widget>
-    </div>
+      <Widget id="recent" role="attention" span={5} hidden={hiddenIds.has("recent")}><Panel label="RECENTES">{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nada capturado ainda. O que você escrever no campo acima aparece aqui.</EmptyState>}</Panel></Widget>
+      <Widget id="projects" role="attention" span={4} hidden={hiddenIds.has("projects")}><Panel label="PROJECTS" action={scopedProjects.length > 5 ? <Button variant="ghost" onClick={() => openProjectsPage()}>Ver todos</Button> : undefined}>{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} aria-hidden="true" />} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <ScopedEmptyState total={projects.filter((project) => project.lifecycleState === "active").length} workspace={currentWorkspace} noun="project" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
+    </HomeSection>
 
-    {/* O ACERVO. Aqui você navega, não processa — e é por isso que nada nesta
-        faixa tem contagem. O corte em 5 seria silencioso, então o link "Ver
-        todos" só aparece quando existe algo além do corte; se cabem todos, o
-        cabeçalho fica limpo. */}
-    <div className="home-grid">
-      <Widget id="projects" hidden={hiddenIds.has("projects")} size="2x2"><Panel label="PROJECTS" action={scopedProjects.length > 5 ? <Button variant="ghost" onClick={() => openProjectsPage()}>Ver todos</Button> : undefined}>{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} aria-hidden="true" />} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <ScopedEmptyState total={projects.filter((project) => project.lifecycleState === "active").length} workspace={currentWorkspace} noun="project" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
+    {/* Analytics ficam depois da retomada. Todos mostram trabalho ou horas já
+        registrados; nenhum deles precisa competir com o presente. */}
+    <HomeSection id="overview" title="Visão" hidden={!(["month_density", "week_rings", "week_by_project", "task_progress"].some(widgetVisible) || (hasBudget && widgetVisible("budget_ring")))}>
+      <Widget id="month_density" role="overview" span={6} hidden={hiddenIds.has("month_density")}><Panel label="MÊS"><MonthDensity tasks={tasks} captures={recent} /></Panel></Widget>
+      <Widget id="week_rings" role="overview" span={6} hidden={hiddenIds.has("week_rings")}><Panel label="TASKS NA SEMANA"><WeekRings tasks={tasks} onOpen={openTasksPage} /></Panel></Widget>
+      <Widget id="week_by_project" role="overview" span={6} hidden={hiddenIds.has("week_by_project")}><Panel label="HORAS POR PROJECT"><WeekByProject time={trackedTime} projects={projects} onOpen={openTempoPage} /></Panel></Widget>
+      <Widget id="task_progress" role="overview" span={3} hidden={hiddenIds.has("task_progress")}><Panel label="CONCLUÍDO"><TaskProgressRing tasks={tasks} /></Panel></Widget>
+      {/* Escondido quando nenhum Project tem meta: um anel preenchido contra um
+          alvo que ninguém definiu ensinaria a confiar numa medida inexistente. */}
+      <Widget id="budget_ring" role="overview" span={3} hidden={hiddenIds.has("budget_ring") || !hasBudget}><Panel label="META"><BudgetRing time={trackedTime} projects={projects} onOpen={openProject} /></Panel></Widget>
+    </HomeSection>
+
+    {/* O acervo é navegação, não processamento. O corte em cinco continua
+        explícito pelo link "Ver todos" quando há conteúdo além dele. */}
+    <HomeSection id="collection" title="Acervo" hidden={!(["recent_resources", "apps"].some(widgetVisible))}>
+      <Widget id="recent_resources" role="collection" span={8} hidden={hiddenIds.has("recent_resources")}><Panel label="RECURSOS" action={activeResources.length > 5 ? <Button variant="ghost" onClick={() => openLibraryPage()}>Ver todos</Button> : undefined}>{activeResources.length ? activeResources.slice(0, 5).map((resource) => <DataRow key={resource.id} primary={resource.title} secondary={resourceHost(resource.url)} meta={relativeTime(resource.updatedAt)} onClick={() => openResource(resource)} />) : <ScopedEmptyState total={allActiveResources.length} workspace={currentWorkspace} noun="resource" onLink={() => openLibraryPage()} linkLabel="Ver tudo" />}</Panel></Widget>
       {/* O nome do app nao entra: o icone com a inicial e o atalho ja o
           identificam, e a linha de nomes competiria com as rows ao lado. */}
       {/* O botao "Gerenciar" e a porta de Apps desde que ele saiu do rail
           (ADR-038). Sem ele, com zero apps cadastrados a busca do Command nao
           acha nada e a pagina fica inalcancavel para criar o primeiro — a
           mesma falha que a ADR-031 registrou com Workspaces. */}
-      <Widget id="apps" hidden={hiddenIds.has("apps")} size="2x1"><Panel label="APPS" action={<Button variant="ghost" onClick={() => openAppsPage()}>Gerenciar</Button>}><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><AppIcon app={app} />{index < 9 ? <span className="app-shortcut">Ctrl {index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
-      <Widget id="recent_resources" hidden={hiddenIds.has("recent_resources")} size="2x1"><Panel label="RECURSOS" action={activeResources.length > 5 ? <Button variant="ghost" onClick={() => openLibraryPage()}>Ver todos</Button> : undefined}>{activeResources.length ? activeResources.slice(0, 5).map((resource) => <DataRow key={resource.id} primary={resource.title} secondary={resourceHost(resource.url)} meta={relativeTime(resource.updatedAt)} onClick={() => openResource(resource)} />) : <ScopedEmptyState total={allActiveResources.length} workspace={currentWorkspace} noun="resource" onLink={() => openLibraryPage()} linkLabel="Ver tudo" />}</Panel></Widget>
-    </div>
+      <Widget id="apps" role="collection" span={4} hidden={hiddenIds.has("apps")}><Panel label="APPS" action={<Button variant="ghost" onClick={() => openAppsPage()}>Gerenciar</Button>}><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><AppIcon app={app} />{index < 9 ? <span className="app-shortcut">Ctrl {index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
+    </HomeSection>
 
-    {/* O SISTEMA. Última faixa de propósito: atalho e tranquilidade não são a
+    {/* Última faixa: atalho e tranquilidade não são a
         pergunta que abre a Home. SISTEMA não duplica INTEGRIDADE das Settings —
         aquele é diagnóstico (schema, WAL), este responde "está salvo?". */}
-    <div className="home-grid">
-      <Widget id="quick_actions" hidden={hiddenIds.has("quick_actions")} size="1x1"><Panel label="AÇÕES"><div className="quick-actions"><Button variant="outline" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button><Button variant="outline" size="sm" onClick={() => openTasksPage()}>Nova Task</Button><Button variant="outline" size="sm" onClick={() => openProjectsPage()}>Novo Project</Button></div></Panel></Widget>
-      <Widget id="system_health" hidden={hiddenIds.has("system_health")} size="1x1"><Panel label="SISTEMA"><SystemHealth status={status} /></Panel></Widget>
-    </div>
+    <HomeSection id="utilities" title="Utilidades" hidden={!(["quick_actions", "system_health"].some(widgetVisible))}>
+      <Widget id="quick_actions" role="utility" span={6} hidden={hiddenIds.has("quick_actions")}><Panel label="AÇÕES"><div className="quick-actions"><Button variant="outline" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button><Button variant="outline" size="sm" onClick={() => openTasksPage()}>Nova Task</Button><Button variant="outline" size="sm" onClick={() => openProjectsPage()}>Novo Project</Button></div></Panel></Widget>
+      <Widget id="system_health" role="utility" span={6} hidden={hiddenIds.has("system_health")}><Panel label="SISTEMA"><SystemHealth status={status} /></Panel></Widget>
+    </HomeSection>
     {/* Ocultar os sete e escolha legitima. O que nao pode e a Home virar um
         branco sem explicacao — quem escondeu tudo precisa do caminho de volta. */}
     {allWidgetsHidden ? <div className="scoped-empty"><EmptyState>Todos os widgets estão ocultos neste Workspace.</EmptyState><Button variant="outline" size="sm" onClick={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }}>Ajustar</Button></div> : null}
@@ -478,9 +450,12 @@ function CaptureTaskForm({ capture, projects, onCreated, cancel }: { capture: Ca
 
 function InboxPage({ captures, projects, refresh, receipt, openTask, openResource, intent }: { captures: Capture[]; projects: Project[]; refresh: () => Promise<void>; receipt: (action: UndoAction) => void; openTask: (task: Task) => void; openResource: (resource: Resource) => void; intent?: FunctionIntent }) {
   const [selectedId, setSelectedId] = useState(captures[0]?.id ?? "");
+  const [narrowPane, setNarrowPane] = useState<"list" | "detail">("list");
   const [taskForm, setTaskForm] = useState(false);
   const [resourceForm, setResourceForm] = useState(false);
   const [error, setError] = useState("");
+  const listPane = useRef<HTMLElement>(null);
+  const inspector = useRef<HTMLElement>(null);
   const detailActions = useRef<HTMLDivElement>(null);
   useEffect(() => { if (!captures.some((capture) => capture.id === selectedId)) setSelectedId(captures[0]?.id ?? ""); }, [captures, selectedId]);
   const selected = captures.find((capture) => capture.id === selectedId) ?? null;
@@ -520,23 +495,67 @@ function InboxPage({ captures, projects, refresh, receipt, openTask, openResourc
     } catch (nextError) { setError(appError(nextError).message); }
   }
 
-  if (!captures.length) return <div className="page"><ContextPath segments={["M", "INBOX"]} /><EmptyState>Inbox limpa — tudo que você capturou já foi processado.</EmptyState></div>;
-  return <div className="split-page">
-    <section className="list-pane">
-      <div className="pane-heading"><ContextPath segments={["M", "INBOX"]} /><span className="micro-label">{captures.length} {captures.length === 1 ? "ITEM" : "ITENS"}</span></div>
-      <div className="row-list">{captures.map((capture) => <DataRow key={capture.id} primary={capture.content} secondary={sourceLabel(capture.source)} secondaryKind="system" meta={relativeTime(capture.capturedAt)} selected={capture.id === selectedId} onClick={() => { setSelectedId(capture.id); setTaskForm(false); setResourceForm(false); }} />)}</div>
+  function selectCapture(capture: Capture) {
+    setSelectedId(capture.id);
+    setTaskForm(false);
+    setResourceForm(false);
+    setNarrowPane("detail");
+    if (window.matchMedia("(max-width: 960px)").matches) requestAnimationFrame(() => inspector.current?.focus());
+  }
+
+  function returnToInboxList() {
+    setTaskForm(false);
+    setResourceForm(false);
+    setNarrowPane("list");
+    requestAnimationFrame(() => listPane.current?.querySelector<HTMLButtonElement>(".data-row[data-selected]")?.focus());
+  }
+
+  if (!captures.length) return <div className="page inbox-empty-page">
+    <ContextPath segments={["M", "INBOX"]} />
+    <section className="inbox-empty-view" aria-labelledby="inbox-empty-title">
+      <span className="micro-label">0 ITENS</span>
+      <h1 id="inbox-empty-title">Inbox limpa.</h1>
+      <p>Novas captures aparecem aqui até você decidir o que fazer com elas.</p>
+      <Button variant="primary" onClick={() => void api.showQuickCapture()}>Capturar</Button>
     </section>
-    {selected ? <article className="detail-pane"><header className="detail-header"><div><span className="micro-label">SELECIONADO</span><h1>{selected.content}</h1><div className="chip-line"><span className="chip">{sourceLabel(selected.source)}</span><span className="chip">{relativeTime(selected.capturedAt)}</span></div></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => void mutate("archive")}>Arquivar</button><button className="danger-text" onClick={() => void mutate("trash")}>Mover para a Lixeira</button></div></details></header>
+  </div>;
+  return <div className="split-page inspector-page inbox-page" data-pane={narrowPane}>
+    <section ref={listPane} className="list-pane" aria-label="Captures na Inbox">
+      <PaneHeader
+        segments={["M", "INBOX"]}
+        meta={`${captures.length} ${captures.length === 1 ? "ITEM" : "ITENS"}`}
+        actions={<Button variant="ghost" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button>}
+      />
+      <div className="row-list">{captures.map((capture) => <DataRow
+        key={capture.id}
+        primary={capture.content}
+        secondary={sourceLabel(capture.source)}
+        secondaryKind="system"
+        meta={relativeTime(capture.capturedAt)}
+        selected={capture.id === selectedId}
+        onClick={() => selectCapture(capture)}
+        onKeyDown={(event) => {
+          const nextIndex = moveListFocus(event);
+          if (nextIndex === null) return;
+          const nextCapture = captures[nextIndex];
+          if (!nextCapture) return;
+          setSelectedId(nextCapture.id);
+          setTaskForm(false);
+          setResourceForm(false);
+        }}
+      />)}</div>
+    </section>
+    {selected ? <Inspector ref={inspector} label="Detalhe da Capture" onBack={returnToInboxList} onEscape={returnToInboxList}><header className="detail-header"><div><span className="micro-label">CAPTURE</span><h1>{selected.content}</h1><div className="chip-line"><span className="chip">{sourceLabel(selected.source)}</span><span className="chip">{relativeTime(selected.capturedAt)}</span></div></div><ActionMenu trigger={<Icon name="more" />} items={[{ label: "Arquivar", onSelect: () => void mutate("archive") }, { label: "Mover para a Lixeira", danger: true, onSelect: () => void mutate("trash") }]} /></header>
       {error ? <p className="inline-error" role="alert">! {error}</p> : null}
       {/* Moldura pronta, conteudo honesto. A interpretacao do Hermes e a fase 3
           da integracao; ate la este bloco diz o que e, em vez de fabricar uma
           interpretacao falsa para a tela parecer completa. */}
       <section className="hermes-block" aria-label="Interpretação do Hermes">
+        <span className="micro-label">HERMES</span>
         <p className="hermes-empty">Interpretação automática ainda não está ligada. Classifique manualmente abaixo — nada se perde.</p>
       </section>
-      {taskForm ? <CaptureTaskForm capture={selected} projects={projects} cancel={() => setTaskForm(false)} onCreated={(task) => { setTaskForm(false); void refresh(); openTask(task); }} /> : resourceForm ? <ResourceForm capture={selected} cancel={() => setResourceForm(false)} saved={(resource) => { setResourceForm(false); void refresh(); openResource(resource); }} /> : <div ref={detailActions} className="detail-actions"><Button variant="primary" onClick={() => { setTaskForm(true); setResourceForm(false); }}>Criar Task</Button><Button variant="secondary" onClick={() => { setTaskForm(false); setResourceForm(true); }}>Salvar Resource</Button><Button variant="secondary" data-function-action="capture.mark_processed" onClick={() => void mutate("processed")}>Arquivar</Button></div>}
-      <p className="pane-footnote">J / K percorre · Espaço processa · ⌘Z desfaz</p>
-    </article> : null}
+      {taskForm ? <CaptureTaskForm capture={selected} projects={projects} cancel={() => setTaskForm(false)} onCreated={(task) => { setTaskForm(false); void refresh(); openTask(task); }} /> : resourceForm ? <ResourceForm capture={selected} cancel={() => setResourceForm(false)} saved={(resource) => { setResourceForm(false); void refresh(); openResource(resource); }} /> : <div ref={detailActions} className="detail-actions"><Button variant="primary" onClick={() => { setTaskForm(true); setResourceForm(false); }}>Criar Task</Button><Button variant="secondary" onClick={() => { setTaskForm(false); setResourceForm(true); }}>Salvar Resource</Button><Button variant="secondary" data-function-action="capture.mark_processed" onClick={() => void mutate("processed")}>Marcar processada</Button></div>}
+    </Inspector> : null}
   </div>;
 }
 
@@ -589,7 +608,7 @@ function ProjectsPage({ projects, tasks, initialProjectId, refresh, receipt, ope
   const relatedTasks = tasks.filter((task) => task.projectId === selectedId && task.lifecycleState === "active");
   return <div className="split-page projects-page">
     <section className="list-pane"><ContextPath segments={["M", "PROJECTS"]} /><div className="list-command"><Button variant="outline" size="sm" onClick={() => setMode("new")}>Novo Project</Button></div><div className="row-list">{activeProjects.map((project) => <DataRow key={project.id} primary={project.name} secondary={project.description || undefined} progress={{ done: tasks.filter((task) => task.projectId === project.id && task.lifecycleState === "active" && task.state === "done").length, total: tasks.filter((task) => task.projectId === project.id && task.lifecycleState === "active").length }} selected={project.id === selectedId} onClick={() => { setSelectedId(project.id); setMode("view"); }} />)}</div>{!activeProjects.length && mode !== "new" ? <EmptyState>Crie um Project para reunir trabalho relacionado.</EmptyState> : null}</section>
-    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO PROJECT</span><ProjectForm cancel={() => setMode("view")} saved={(project) => { setSelectedId(project.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <ProjectForm project={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">PROJECT</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setProjectArchived(selected.id, true).then(async () => { receipt({ message: "Project arquivado.", run: () => api.setProjectArchived(selected.id, false) }); await refresh(); })}>Arquivar</button></div></details></header><dl className="fact-grid"><div><dt>REPOSITÓRIO</dt><dd className="mono-value">{selected.repository || <span className="fact-empty">Nenhum associado</span>}</dd></div><div><dt>ATUALIZADO</dt><dd>{relativeTime(selected.updatedAt)}</dd></div></dl>{mode === "task" ? <DirectTaskForm projectId={selected.id} projects={projects} cancel={() => setMode("view")} saved={(task) => { setMode("view"); void refresh(); openTask(task); }} /> : <Panel label="TASKS" action={<Button variant="primary" onClick={() => setMode("task")}>Criar Task</Button>}>{relatedTasks.length ? relatedTasks.map((task) => <DataRow key={task.id} primary={task.title} meta={stateLabels[task.state]} completed={task.state === "done"} onClick={() => openTask(task)} />) : <EmptyState>Nenhuma Task neste Project.</EmptyState>}</Panel>}</>}</> : null}</article>
+    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO PROJECT</span><ProjectForm cancel={() => setMode("view")} saved={(project) => { setSelectedId(project.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <ProjectForm project={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">PROJECT</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><ActionMenu trigger={<Icon name="more" />} items={[{ label: "Editar", onSelect: () => setMode("edit") }, { label: "Arquivar", danger: true, onSelect: () => void api.setProjectArchived(selected.id, true).then(async () => { receipt({ message: "Project arquivado.", run: () => api.setProjectArchived(selected.id, false) }); await refresh(); }) }]} /></header><dl className="fact-grid"><div><dt>REPOSITÓRIO</dt><dd className="mono-value">{selected.repository || <span className="fact-empty">Nenhum associado</span>}</dd></div><div><dt>ATUALIZADO</dt><dd>{relativeTime(selected.updatedAt)}</dd></div></dl>{mode === "task" ? <DirectTaskForm projectId={selected.id} projects={projects} cancel={() => setMode("view")} saved={(task) => { setMode("view"); void refresh(); openTask(task); }} /> : <Panel label="TASKS" action={<Button variant="primary" onClick={() => setMode("task")}>Criar Task</Button>}>{relatedTasks.length ? relatedTasks.map((task) => <DataRow key={task.id} primary={task.title} meta={stateLabels[task.state]} completed={task.state === "done"} onClick={() => openTask(task)} />) : <EmptyState>Nenhuma Task neste Project.</EmptyState>}</Panel>}</>}</> : null}</article>
   </div>;
 }
 
@@ -681,7 +700,7 @@ function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWork
   }
   return <div className="split-page workspaces-page">
     <section className="list-pane"><ContextPath segments={["M", "WORKSPACES"]} /><div className="list-command"><Button variant="outline" size="sm" onClick={() => setMode("new")}>Novo Workspace</Button></div><div className="row-list">{activeWorkspaces.map((workspace) => <DataRow key={workspace.id} primary={workspace.name} secondary={workspace.description || undefined} meta={relativeTime(workspace.updatedAt)} selected={workspace.id === selectedId} onClick={() => { setSelectedId(workspace.id); setMode("view"); setMessage(""); }} />)}</div>{!activeWorkspaces.length && mode !== "new" ? <EmptyState>Crie contextos amplos como Engineering, Finance ou Learning.</EmptyState> : null}</section>
-    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO WORKSPACE</span><WorkspaceForm cancel={() => setMode("view")} saved={(workspace) => { setSelectedId(workspace.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <WorkspaceForm workspace={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">WORKSPACE</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setWorkspaceArchived(selected.id, true).then(async () => { receipt({ message: "Workspace arquivado.", run: () => api.setWorkspaceArchived(selected.id, false) }); await refresh(); })}>Arquivar</button></div></details></header><div className="workspace-grid"><div data-function-section="workspace.link_project"><Panel label="PROJECTS">{activeProjects.length ? activeProjects.map((project) => <div className="relation-row" key={project.id}><label><input type="checkbox" checked={linkedProjectIds.has(project.id)} onChange={(event) => void toggleProject(project, event.currentTarget.checked)} /><span><strong>{project.name}</strong><small>{project.description || "Sem descrição."}</small></span></label><button type="button" onClick={() => openProject(project)}>Abrir</button></div>) : <EmptyState>Projects ativos aparecerão aqui.</EmptyState>}</Panel></div><div data-function-section="workspace.link_app"><Panel label="APPS">{activeApps.length ? activeApps.map((app) => <div className="relation-row" key={app.id}><label><input type="checkbox" checked={linkedAppIds.has(app.id)} onChange={(event) => void toggleApp(app, event.currentTarget.checked)} /><span><strong>{app.name}</strong><small>{app.description || app.launchTarget || "Sem descrição."}</small></span></label><button type="button" onClick={() => openApp(app)}>Abrir</button></div>) : <EmptyState>Apps ativos aparecerão aqui.</EmptyState>}</Panel></div>{/* Caixa marcada significa VISIVEL: a interface fala em visivel, so a
+    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO WORKSPACE</span><WorkspaceForm cancel={() => setMode("view")} saved={(workspace) => { setSelectedId(workspace.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <WorkspaceForm workspace={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">WORKSPACE</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><ActionMenu trigger={<Icon name="more" />} items={[{ label: "Editar", onSelect: () => setMode("edit") }, { label: "Arquivar", danger: true, onSelect: () => void api.setWorkspaceArchived(selected.id, true).then(async () => { receipt({ message: "Workspace arquivado.", run: () => api.setWorkspaceArchived(selected.id, false) }); await refresh(); }) }]} /></header><div className="workspace-grid"><div data-function-section="workspace.link_project"><Panel label="PROJECTS">{activeProjects.length ? activeProjects.map((project) => <div className="relation-row" key={project.id}><label><input type="checkbox" checked={linkedProjectIds.has(project.id)} onChange={(event) => void toggleProject(project, event.currentTarget.checked)} /><span><strong>{project.name}</strong><small>{project.description || "Sem descrição."}</small></span></label><button type="button" onClick={() => openProject(project)}>Abrir</button></div>) : <EmptyState>Projects ativos aparecerão aqui.</EmptyState>}</Panel></div><div data-function-section="workspace.link_app"><Panel label="APPS">{activeApps.length ? activeApps.map((app) => <div className="relation-row" key={app.id}><label><input type="checkbox" checked={linkedAppIds.has(app.id)} onChange={(event) => void toggleApp(app, event.currentTarget.checked)} /><span><strong>{app.name}</strong><small>{app.description || app.launchTarget || "Sem descrição."}</small></span></label><button type="button" onClick={() => openApp(app)}>Abrir</button></div>) : <EmptyState>Apps ativos aparecerão aqui.</EmptyState>}</Panel></div>{/* Caixa marcada significa VISIVEL: a interface fala em visivel, so a
                     tabela guarda o oculto. Sem botao Abrir — widget nao e entidade
                     que se abre. */}
       <div data-function-section="workspace.set_widget"><Panel label="WIDGETS">{HOME_WIDGETS.map((widget) => <div className="relation-row" key={widget.id}><label><input type="checkbox" checked={!hiddenWidgetIds.has(widget.id)} onChange={(event) => void toggleWidget(widget, event.currentTarget.checked)} /><span><strong>{widget.label}</strong><small>Widget da Home.</small></span></label></div>)}</Panel></div></div>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
@@ -774,7 +793,7 @@ function AppsPage({ apps, initialAppId, refresh, receipt, intent }: { apps: Regi
   }
   return <div className="split-page apps-page">
     <section className="list-pane"><ContextPath segments={["M", "APPS"]} /><div className="list-command"><Button variant="outline" size="sm" onClick={() => setMode("new")}>Novo App</Button>{missingSuggestions.length ? <Button variant="ghost" onClick={() => void addSuggestions()} disabled={creatingSuggestions}>{creatingSuggestions ? "Adicionando" : "Adicionar meus Apps"}</Button> : null}</div><div className="row-list">{visibleApps.map((app) => <DataRow key={app.id} primary={app.name} secondary={app.description || app.launchTarget || undefined} meta={app.lifecycleState === "archived" ? "ARQUIVADO" : launchKindLabel(app.launchKind)} selected={app.id === selectedId} onClick={() => { setSelectedId(app.id); setMode("view"); setMessage(""); }} />)}</div>{!visibleApps.length && mode !== "new" ? <EmptyState>Cadastre as ferramentas que você usa para não depender da memória.</EmptyState> : null}</section>
-    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO APP</span><RegisteredAppForm cancel={() => setMode("view")} saved={(app) => { setSelectedId(app.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <RegisteredAppForm app={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">APP</span><div className="app-identity"><AppIcon app={selected} /><div><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div></div></div><details className="menu"><summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary><div><button onClick={() => setMode("edit")}>Editar</button><button className="danger-text" onClick={() => void api.setRegisteredAppArchived(selected.id, true).then(async () => { receipt({ message: "App arquivado.", run: () => api.setRegisteredAppArchived(selected.id, false) }); await refresh(); })}>Arquivar</button></div></details></header><div className="detail-actions"><Button variant="primary" onClick={() => void openApp(selected)} disabled={!selected.launchTarget || selected.lifecycleState !== "active"}>Abrir</Button><Button variant="secondary" onClick={() => setMode("edit")}>Editar</Button></div><dl className="fact-grid" data-framed><div><dt>TIPO</dt><dd>{launchKindLabel(selected.launchKind)}</dd></div><div><dt>ORIGEM</dt><dd>{selected.sourceUrl || <span className="fact-empty">Não definida</span>}</dd></div><div><dt>DESTINO</dt><dd className="mono-value">{selected.launchTarget || <span className="fact-empty">Não definido</span>}</dd></div><div><dt>ÚLTIMA ABERTURA</dt><dd>{selected.lastOpenedAt ? relativeTime(selected.lastOpenedAt) : <span className="fact-empty">Nunca</span>}</dd></div></dl><Panel label="CAPACIDADES" className="capability-panel">{([["OPEN", selected.canOpen], ["READ", selected.canRead], ["WRITE", selected.canWrite], ["AUTOMATE", selected.canAutomate]] as const).map(([label, granted]) => <div className="capability-row" key={label}><span className="micro-label">{label}</span><span data-granted={granted || undefined}>{granted ? "✓" : "—"}</span></div>)}</Panel><p className="pane-footnote">Capacidade não declarada é capacidade que o Hermes não tenta usar.</p>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
+    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO APP</span><RegisteredAppForm cancel={() => setMode("view")} saved={(app) => { setSelectedId(app.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <RegisteredAppForm app={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">APP</span><div className="app-identity"><AppIcon app={selected} /><div><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div></div></div><ActionMenu trigger={<Icon name="more" />} items={[{ label: "Editar", onSelect: () => setMode("edit") }, { label: "Arquivar", danger: true, onSelect: () => void api.setRegisteredAppArchived(selected.id, true).then(async () => { receipt({ message: "App arquivado.", run: () => api.setRegisteredAppArchived(selected.id, false) }); await refresh(); }) }]} /></header><div className="detail-actions"><Button variant="primary" onClick={() => void openApp(selected)} disabled={!selected.launchTarget || selected.lifecycleState !== "active"}>Abrir</Button><Button variant="secondary" onClick={() => setMode("edit")}>Editar</Button></div><dl className="fact-grid" data-framed><div><dt>TIPO</dt><dd>{launchKindLabel(selected.launchKind)}</dd></div><div><dt>ORIGEM</dt><dd>{selected.sourceUrl || <span className="fact-empty">Não definida</span>}</dd></div><div><dt>DESTINO</dt><dd className="mono-value">{selected.launchTarget || <span className="fact-empty">Não definido</span>}</dd></div><div><dt>ÚLTIMA ABERTURA</dt><dd>{selected.lastOpenedAt ? relativeTime(selected.lastOpenedAt) : <span className="fact-empty">Nunca</span>}</dd></div></dl><Panel label="CAPACIDADES" className="capability-panel">{([["OPEN", selected.canOpen], ["READ", selected.canRead], ["WRITE", selected.canWrite], ["AUTOMATE", selected.canAutomate]] as const).map(([label, granted]) => <div className="capability-row" key={label}><span className="micro-label">{label}</span><span data-granted={granted || undefined}>{granted ? "✓" : "—"}</span></div>)}</Panel><p className="pane-footnote">Capacidade não declarada é capacidade que o Hermes não tenta usar.</p>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
   </div>;
 }
 
@@ -974,12 +993,12 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
 
   const libraryIsEmpty = !visibleResources.length && mode === "view";
 
-  return <div className="split-page library-page" data-pane={narrowPane} data-empty={libraryIsEmpty || undefined}>
+  return <div className="split-page inspector-page library-page" data-pane={narrowPane} data-empty={libraryIsEmpty || undefined}>
     <section className="list-pane" aria-labelledby="library-title">
       <h1 id="library-title" className="visually-hidden">Library</h1>
       {/* O caminho carrega o workspace ativo quando existe: M / WEB-DESIGN /
           LIBRARY. E o que diz de qual acervo voce esta olhando. */}
-      <div className="pane-heading"><ContextPath segments={workspaceSegment ? ["M", workspaceSegment, "LIBRARY"] : ["M", "LIBRARY"]} /><span className="micro-label">{contextResources.length} {contextResources.length === 1 ? "ITEM" : "ITENS"}</span></div>
+      <PaneHeader segments={workspaceSegment ? ["M", workspaceSegment, "LIBRARY"] : ["M", "LIBRARY"]} meta={`${contextResources.length} ${contextResources.length === 1 ? "ITEM" : "ITENS"}`} />
       {/* Filtros sao texto, nao chip: um chip por tipo viraria cinco caixas
           competindo com o acervo, que e o que importa nesta tela. */}
       <div className="filter-bar">
@@ -1029,22 +1048,12 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
           perda de dado. */}
       {!visibleResources.length && mode !== "new" ? (scoping && liveResources.length ? <div className="library-empty"><ScopedEmptyState total={liveResources.length} workspace={currentWorkspace} noun="resource" onLink={() => setScoped(false)} linkLabel="Ver tudo" /></div> : <div className="library-empty"><EmptyState>Guarde um link junto do motivo pelo qual ele merece ser lembrado.</EmptyState><Button variant="primary" onClick={startNew}>Salvar primeiro link</Button></div>) : null}
     </section>
-    <article
+    <Inspector
       ref={detail}
-      className="detail-pane"
-      tabIndex={-1}
-      aria-label="Detalhe do Resource"
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && mode === "view") {
-          event.preventDefault();
-          returnToList();
-        }
-      }}
+      label="Detalhe do Resource"
+      onBack={returnToList}
+      onEscape={mode === "view" ? returnToList : undefined}
     >
-      {/* Sem icone junto do texto: o design system lista "icone + texto em
-          botao" entre o que nao existe. O rotulo sozinho ja diz para onde
-          volta, que e mais do que a seta dizia. */}
-      <div className="library-detail-nav"><Button variant="ghost" onClick={returnToList}>Voltar à lista</Button></div>
       {mode === "new" ? <>
         <span className="micro-label">NOVO RESOURCE</span>
         <ResourceForm
@@ -1078,16 +1087,16 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
             <h1>{selected.title}</h1>
             <p className="resource-url">{selected.url}</p>
           </div>
-          <details className="menu">
-            <summary aria-label="Mais ações" title="Mais ações"><Icon name="more" /></summary>
-            <div>
-              <button disabled={pendingAction !== null} onClick={() => setMode("edit")}>Editar</button>
-              {selected.lifecycleState === "active" ? <>
-                <button disabled={pendingAction !== null} onClick={() => void archive(selected)}>{pendingAction === "archive" ? "Arquivando" : "Arquivar"}</button>
-                <button disabled={pendingAction !== null} className="danger-text" onClick={() => void trash(selected)}>{pendingAction === "trash" ? "Movendo" : "Mover para a Lixeira"}</button>
-              </> : <button disabled={pendingAction !== null} onClick={() => void restore(selected)}>{pendingAction === "restore" ? "Restaurando" : "Restaurar"}</button>}
-            </div>
-          </details>
+          <ActionMenu
+            trigger={<Icon name="more" />}
+            items={[
+              { label: "Editar", disabled: pendingAction !== null, onSelect: () => setMode("edit") },
+              ...(selected.lifecycleState === "active" ? [
+                { label: pendingAction === "archive" ? "Arquivando" : "Arquivar", disabled: pendingAction !== null, onSelect: () => void archive(selected) },
+                { label: pendingAction === "trash" ? "Movendo" : "Mover para a Lixeira", danger: true, disabled: pendingAction !== null, onSelect: () => void trash(selected) },
+              ] : [{ label: pendingAction === "restore" ? "Restaurando" : "Restaurar", disabled: pendingAction !== null, onSelect: () => void restore(selected) }]),
+            ]}
+          />
         </header>
         <div className="resource-note"><span className="micro-label">POR QUÊ?</span><p>{selected.note || "Nenhum contexto adicional foi registrado."}</p></div>
         {/* As duas perguntas se leem juntas: por que guardei isto, e a que lente
@@ -1102,7 +1111,7 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
         </div>
         {message ? <p className="settings-message" aria-live="polite">{message}</p> : null}
       </> : null}
-    </article>
+    </Inspector>
   </div>;
 }
 
@@ -1113,6 +1122,7 @@ function BoardPage({ tasks, projects, refresh, openTask, intent }: { tasks: Task
   const pointerDrag = useRef<{ taskId: string; x: number; y: number; active: boolean } | null>(null);
   const suppressClickTaskId = useRef<string | null>(null);
   const board = useRef<HTMLDivElement>(null);
+  const activeTasks = tasks.filter((task) => task.lifecycleState === "active");
   useEffect(() => {
     if (intent?.target === "tasks_create") setCreating(true);
     if (intent?.target === "tasks_move") window.requestAnimationFrame(() => board.current?.focus());
@@ -1182,10 +1192,33 @@ function BoardPage({ tasks, projects, refresh, openTask, intent }: { tasks: Task
       window.removeEventListener("pointercancel", finishDrag);
     };
   }, [tasks, refresh]);
-  return <div className="page board-page"><div className="board-heading"><ContextPath segments={["M", "TASKS"]} />{/* A alternativa ao arrasto existia desde sempre e era invisivel.
-          DESIGN-FOUNDATIONS 12 exige que o kanban ofereca caminho por teclado;
-          oferecer sem dizer que existe e o mesmo que nao oferecer. */}
-      <span className="board-hint micro-label">ALT ←→ MOVE</span>{!creating ? <Button variant="primary" onClick={() => setCreating(true)}>Criar Task</Button> : null}</div>{creating ? <DirectTaskForm projects={projects} cancel={() => setCreating(false)} saved={() => { setCreating(false); void refresh(); }} /> : null}<div ref={board} className="kanban" tabIndex={-1} aria-label="Kanban de Tasks">{stateOrder.map((state) => { const column = tasks.filter((task) => task.lifecycleState === "active" && task.state === state); const visible = column.slice(0, 20); return <section key={state} className="kanban-column" data-kanban-state={state} data-drop-target={dragOverState === state || undefined} onDragEnter={(event) => { event.preventDefault(); setDragOverState(state); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverState(state); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverState(null); }} onDrop={(event) => { event.preventDefault(); const task = draggedTask(event); finishDrag(); if (task) void move(task, state); }}><header><h2>{stateLabels[state]}</h2><span>{column.length}</span></header><div>{visible.map((task) => <DataRow key={task.id} primary={task.title} secondary={projects.find((project) => project.id === task.projectId)?.name} completed={task.state === "done"} dragging={draggingTaskId === task.id} onClick={() => { if (suppressClickTaskId.current === task.id) { suppressClickTaskId.current = null; return; } openTask(task); }} onKeyDown={(event) => keyboardMove(event, task)} onPointerDown={(event) => { if (event.button !== 0) return; pointerDrag.current = { taskId: task.id, x: event.clientX, y: event.clientY, active: false }; }} draggable onDragStart={(event) => { pointerDrag.current = null; setDraggingTaskId(task.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={finishDrag} />)}{!column.length ? <EmptyState>Nenhuma Task.</EmptyState> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</div></section>; })}</div></div>;
+  return <div className="page board-page" data-empty={!activeTasks.length && !creating || undefined}>
+    <header className="board-heading">
+      <ContextPath segments={["M", "TASKS"]} />
+      <div className="board-heading-actions">
+        {activeTasks.length ? <span className="micro-label">{activeTasks.length} {activeTasks.length === 1 ? "TASK ATIVA" : "TASKS ATIVAS"}</span> : null}
+        {/* A alternativa ao arrasto precisa estar perto do quadro, sem se colar
+            ao breadcrumb como se fizesse parte da localizacao da pagina. */}
+        {activeTasks.length ? <span className="board-hint" aria-label="Mover Task com Alt e seta para a esquerda ou direita"><kbd>ALT</kbd><span aria-hidden="true">← →</span><span>MOVER</span></span> : null}
+        {!creating && activeTasks.length ? <Button variant="primary" onClick={() => setCreating(true)}>Criar Task</Button> : null}
+      </div>
+    </header>
+    {creating ? <section className="task-create-panel" aria-label="Nova Task"><span className="micro-label">NOVA TASK</span><DirectTaskForm projects={projects} cancel={() => setCreating(false)} saved={() => { setCreating(false); void refresh(); }} /></section> : null}
+    {!activeTasks.length && !creating ? <section className="tasks-empty">
+      <span className="micro-label">0 TASKS ATIVAS</span>
+      <h1>Nenhuma Task ativa.</h1>
+      <p>Crie uma Task para começar a organizar o trabalho no quadro.</p>
+      <Button variant="primary" onClick={() => setCreating(true)}>Criar Task</Button>
+    </section> : null}
+    {activeTasks.length ? <div ref={board} className="kanban" tabIndex={-1} aria-label="Kanban de Tasks">{stateOrder.map((state) => {
+      const column = activeTasks.filter((task) => task.state === state);
+      const visible = column.slice(0, 20);
+      return <section key={state} className="kanban-column" data-kanban-state={state} data-drop-target={dragOverState === state || undefined} onDragEnter={(event) => { event.preventDefault(); setDragOverState(state); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverState(state); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverState(null); }} onDrop={(event) => { event.preventDefault(); const task = draggedTask(event); finishDrag(); if (task) void move(task, state); }}>
+        <header><h2>{stateLabels[state]}</h2><span>{column.length}</span></header>
+        <div>{visible.map((task) => <DataRow key={task.id} primary={task.title} secondary={projects.find((project) => project.id === task.projectId)?.name} completed={task.state === "done"} dragging={draggingTaskId === task.id} onClick={() => { if (suppressClickTaskId.current === task.id) { suppressClickTaskId.current = null; return; } openTask(task); }} onKeyDown={(event) => keyboardMove(event, task)} onPointerDown={(event) => { if (event.button !== 0) return; pointerDrag.current = { taskId: task.id, x: event.clientX, y: event.clientY, active: false }; }} draggable onDragStart={(event) => { pointerDrag.current = null; setDraggingTaskId(task.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={finishDrag} />)}{!column.length ? <p className="kanban-empty">Vazio</p> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</div>
+      </section>;
+    })}</div> : null}
+  </div>;
 }
 
 function TaskDrawer({ task, projects, close, refresh, receipt, openCapture }: { task: Task; projects: Project[]; close: () => void; refresh: () => Promise<void>; receipt: (action: UndoAction) => void; openCapture: (capture: Capture) => void }) {
@@ -1195,14 +1228,50 @@ function TaskDrawer({ task, projects, close, refresh, receipt, openCapture }: { 
   const [state, setState] = useState(task.state);
   const [source, setSource] = useState<Capture | null>(null);
   const [error, setError] = useState("");
+  const [pending, setPending] = useState<"save" | "archive" | null>(null);
   const drawer = useRef<HTMLElement>(null);
-  useEffect(() => { drawer.current?.focus(); if (task.sourceCaptureId) void api.getCapture(task.sourceCaptureId).then(setSource); }, [task.sourceCaptureId]);
+  const titleInput = useRef<HTMLInputElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  useEffect(() => {
+    titleInput.current?.focus();
+    if (task.sourceCaptureId) void api.getCapture(task.sourceCaptureId).then(setSource);
+    return () => {
+      const target = returnFocus.current;
+      if (target?.isConnected) requestAnimationFrame(() => target.focus());
+    };
+  }, [task.sourceCaptureId]);
   async function submit(event: FormEvent) {
     event.preventDefault();
+    setPending("save");
+    setError("");
     try { await api.updateTask(task.id, title, description, projectId || null); if (state !== task.state) await api.setTaskState(task.id, state); await refresh(); close(); }
-    catch (nextError) { setError(appError(nextError).message); }
+    catch (nextError) { setPending(null); setError(appError(nextError).message); }
   }
-  return <aside ref={drawer} className="task-drawer" aria-label="Detalhe da Task" tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") close(); }}><header><span className="micro-label">TASK</span><IconButton label="Fechar" icon="close" onClick={close} /></header><form className="stack-form" onSubmit={submit}><label><span>TÍTULO</span><input value={title} onChange={(event) => setTitle(event.currentTarget.value)} /></label><label><span>DESCRIÇÃO</span><textarea value={description} onChange={(event) => setDescription(event.currentTarget.value)} rows={4} /></label><label><span>PROJECT</span><select value={projectId} onChange={(event) => setProjectId(event.currentTarget.value)}><option value="">Sem Project</option>{projects.filter((project) => project.lifecycleState === "active").map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><label><span>ESTADO</span><select value={state} onChange={(event) => setState(event.currentTarget.value as TaskState)}>{stateOrder.map((value) => <option key={value} value={value}>{stateLabels[value]}</option>)}</select></label>{source ? <div className="provenance"><span className="micro-label">ORIGEM</span><button type="button" onClick={() => openCapture(source)}>{source.content}</button><small>{sourceLabel(source.source)} · {relativeTime(source.capturedAt)}</small></div> : null}{error ? <p className="inline-error" role="alert">! {error}</p> : null}<div className="form-actions spread"><Button variant="danger" onClick={() => void api.setTaskArchived(task.id, true).then(async () => { receipt({ message: "Task arquivada.", run: () => api.setTaskArchived(task.id, false) }); await refresh(); close(); })}>Arquivar</Button><Button variant="primary" type="submit" disabled={!title.trim()}>Salvar</Button></div></form></aside>;
+  async function archive() {
+    setPending("archive");
+    setError("");
+    try {
+      await api.setTaskArchived(task.id, true);
+      receipt({ message: "Task arquivada.", run: () => api.setTaskArchived(task.id, false) });
+      await refresh();
+      close();
+    } catch (nextError) {
+      setPending(null);
+      setError(appError(nextError).message);
+    }
+  }
+  return <aside ref={drawer} className="task-drawer" aria-label="Detalhe da Task" aria-busy={pending !== null} tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape" && !pending) close(); }}>
+    <header><span className="micro-label">DETALHE DA TASK</span><IconButton label="Fechar" icon="close" disabled={pending !== null} onClick={close} /></header>
+    <form className="stack-form" onSubmit={submit}>
+      <label><span>TÍTULO</span><input ref={titleInput} value={title} onChange={(event) => setTitle(event.currentTarget.value)} disabled={pending !== null} /></label>
+      <label><span>DESCRIÇÃO</span><textarea value={description} onChange={(event) => setDescription(event.currentTarget.value)} rows={3} disabled={pending !== null} /></label>
+      <label><span>PROJECT</span><select value={projectId} onChange={(event) => setProjectId(event.currentTarget.value)} disabled={pending !== null}><option value="">Sem Project</option>{projects.filter((project) => project.lifecycleState === "active").map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+      <label><span>ESTADO</span><select value={state} onChange={(event) => setState(event.currentTarget.value as TaskState)} disabled={pending !== null}>{stateOrder.map((value) => <option key={value} value={value}>{stateLabels[value]}</option>)}</select></label>
+      {source ? <div className="provenance"><span className="micro-label">ORIGEM</span><button type="button" onClick={() => openCapture(source)}>{source.content}</button><small>{sourceLabel(source.source)} · {relativeTime(source.capturedAt)}</small></div> : null}
+      {error ? <p className="inline-error" role="alert">! {error}</p> : null}
+      <div className="form-actions spread"><Button variant="danger" onClick={() => void archive()} disabled={pending !== null}>{pending === "archive" ? "Arquivando" : "Arquivar"}</Button><Button variant="primary" type="submit" disabled={!title.trim() || pending !== null}>{pending === "save" ? "Salvando" : "Salvar"}</Button></div>
+    </form>
+  </aside>;
 }
 
 function CaptureViewer({ capture, close }: { capture: Capture; close: () => void }) {
@@ -1227,6 +1296,7 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
   const [results, setResults] = useState<CommandResult[]>([]);
   const [includeArchived, setIncludeArchived] = useState(false);
   const [error, setError] = useState("");
+  const [searching, setSearching] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   // O desfoque de borda so aparece quando ha conteudo abaixo do corte. Sem esta
   // medida ele seria decoracao: uma nevoa sobre espaco vazio, dizendo que ha
@@ -1259,6 +1329,8 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
       if (requestId !== searchSequence.current) return;
       setResults([]);
       setError(appError(nextError).message);
+    } finally {
+      if (requestId === searchSequence.current) setSearching(false);
     }
   }
   useEffect(() => {
@@ -1266,6 +1338,7 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
     setResults([]);
     setActiveIndex(0);
     setError("");
+    setSearching(Boolean(query.trim()));
     if (!query.trim()) {
       return;
     }
@@ -1294,6 +1367,10 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
       const direction = event.key === "ArrowDown" ? 1 : -1;
       setActiveIndex((current) => (current + direction + results.length) % results.length);
     }
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      setActiveIndex(event.key === "Home" ? 0 : results.length - 1);
+    }
     if (event.key === "Enter") {
       event.preventDefault();
       openItem(results[activeIndex] ?? results[0]);
@@ -1301,17 +1378,17 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
   }
   return <div className="overlay-backdrop command-backdrop" data-closing={closing || undefined} onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
     <section className="command-surface" role="dialog" aria-modal="true" aria-label="Command" onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
-      <div className="command-input"><span className="slash">/</span><input ref={input} aria-controls="command-results" value={query} onChange={(event) => setQuery(event.currentTarget.value)} onKeyDown={handleInputKeyDown} placeholder="Buscar ou executar comando" aria-label="Buscar no M/OS" /><span className="micro-label">ESC FECHA</span></div>
-      {query ? <label className="check-control"><input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.currentTarget.checked)} /><span>Incluir arquivados</span></label> : null}
-      <div ref={resultsPane} id="command-results" className="command-results" aria-label="Resultados" aria-live="polite">
-        {error ? <div className="command-error"><p>! {error}</p><Button variant="outline" onClick={() => void searchCommand(++searchSequence.current)}>Tentar novamente</Button></div> : null}
-        {!query ? <EmptyState>Digite para buscar.</EmptyState> : null}
-        {query && !error && !results.length ? <EmptyState>Nenhum resultado para “{query}”.</EmptyState> : null}
+      <div className="command-input"><span className="slash">/</span><input ref={input} role="combobox" aria-autocomplete="list" aria-expanded={results.length > 0} aria-controls="command-results" aria-activedescendant={results.length ? `command-result-${activeIndex}` : undefined} value={query} onChange={(event) => setQuery(event.currentTarget.value)} onKeyDown={handleInputKeyDown} placeholder="Buscar ou executar comando" aria-label="Buscar no M/OS" spellCheck={false} autoCorrect="off" autoCapitalize="off" /><span className="micro-label">COMMAND</span></div>
+      {query ? <div className="command-options"><label className="check-control"><input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.currentTarget.checked)} /><span>Incluir arquivados</span></label><span className="command-status" role="status" aria-live="polite">{searching ? "BUSCANDO" : error ? "FALHA" : `${results.length} ${results.length === 1 ? "RESULTADO" : "RESULTADOS"}`}</span></div> : null}
+      <div ref={resultsPane} id="command-results" className="command-results" role={results.length ? "listbox" : undefined} aria-label="Resultados" aria-busy={searching}>
+        {error ? <div className="command-error"><p>! {error}</p><Button variant="outline" onClick={() => { setSearching(true); void searchCommand(++searchSequence.current); }}>Tentar novamente</Button></div> : null}
+        {!query ? <div className="command-prompt"><span className="micro-label">ENCONTRAR E EXECUTAR</span><p>Busque Tasks, Projects, Captures, Resources, Apps e comandos.</p></div> : null}
+        {query && !searching && !error && !results.length ? <div className="command-prompt"><span className="micro-label">SEM RESULTADOS</span><p>Nada corresponde a “{query}”.</p></div> : null}
         {results.map((item, index) => {
           const type = item.kind === "function" ? "FUNCTION" : item.kind === "project" ? "PROJECT" : item.kind === "workspace" ? "WORKSPACE" : item.kind === "task" ? "TASK" : item.kind === "app" ? "APP" : item.kind === "resource" ? "RESOURCE" : item.derivedTask ? "TASK + CAPTURE" : "CAPTURE";
           const title = item.kind === "function" ? item.function.name : item.kind === "project" ? item.project.name : item.kind === "workspace" ? item.workspace.name : item.kind === "task" ? item.task.title : item.kind === "app" ? item.app.name : item.kind === "resource" ? item.resource.title : item.derivedTask?.title ?? item.capture.content;
           const context = item.kind === "function" ? `${item.function.id} · risco ${functionRiskLabels[item.function.risk]}` : item.kind === "project" ? item.project.description : item.kind === "workspace" ? item.workspace.description : item.kind === "task" ? item.project?.name : item.kind === "app" ? item.app.description || item.app.launchTarget || "" : item.kind === "resource" ? `${resourceHost(item.resource.url)}${item.resource.note ? ` · ${item.resource.note}` : ""}` : item.project?.name ?? item.capture.content;
-          return <button id={`command-result-${index}`} aria-current={index === activeIndex ? "true" : undefined} data-active={index === activeIndex || undefined} key={`${item.kind}-${index}-${title}`} className="command-row" onFocus={() => setActiveIndex(index)} onMouseEnter={() => setActiveIndex(index)} onClick={() => openItem(item)}><span>{type}</span><strong>{title}</strong><small>{context}</small></button>;
+          return <button id={`command-result-${index}`} role="option" aria-selected={index === activeIndex} data-active={index === activeIndex || undefined} key={`${item.kind}-${index}-${title}`} className="command-row" onFocus={() => setActiveIndex(index)} onMouseEnter={() => setActiveIndex(index)} onClick={() => openItem(item)}><span>{type}</span><strong>{title}</strong><small>{context}</small></button>;
         })}
       </div>
       {/* Tres camadas de desfoque crescente, ancoradas acima do rodape. So
@@ -1532,6 +1609,7 @@ function QuickCapture() {
 
 function DesktopApp() {
   const [page, setPage] = useState<Page>("home");
+  const [railExpanded, setRailExpanded] = useState(() => localStorage.getItem("m-os-rail-expanded") === "true");
   const [recent, setRecent] = useState<Capture[]>([]);
   const [inbox, setInbox] = useState<Capture[]>([]);
   const [archived, setArchived] = useState<Capture[]>([]);
@@ -1737,6 +1815,13 @@ function DesktopApp() {
   }, [page]);
 
   function navigate(page: Page) { setFunctionIntent(null); setPage(page); }
+  function toggleRail() {
+    setRailExpanded((current) => {
+      const next = !current;
+      localStorage.setItem("m-os-rail-expanded", String(next));
+      return next;
+    });
+  }
   function openProject(project: Project) { setFunctionIntent(null); setSelectedProjectId(project.id); setPage("projects"); }
   function openWorkspace(workspace: Workspace) { setFunctionIntent(null); setSelectedWorkspaceId(workspace.id); setPage("workspaces"); }
   function openRegisteredApp(app: RegisteredApp) { setFunctionIntent(null); setSelectedAppId(app.id); setPage("apps"); }
@@ -1789,6 +1874,14 @@ function DesktopApp() {
      falha que a ADR-031 registrou quando Workspaces foi rebaixado. */
   { page: "calendario", label: "Calendário", icon: "calendar" },
   { page: "library", label: "Library", icon: "library" }];
+  /* Os grupos explicitam a leitura da ordem atual sem mudar a IA aprovada.
+     No rail colapsado eles existem apenas semanticamente; labels aparecem
+     quando o usuario pede contexto expandindo a navegacao. */
+  const navGroups = [
+    { label: "GERAL", items: nav.slice(0, 3) },
+    { label: "TRABALHO", items: nav.slice(3, 8) },
+    { label: "MEMÓRIA", items: nav.slice(8) },
+  ];
   const pageLabels: Record<Page, string> = { home: "Home", hermes: "Hermes", inbox: "Inbox", tasks: "Tasks", projects: "Projects", tempo: "Tempo", calendario: "Calendário", library: "Library", apps: "Apps", workspaces: "Workspaces", settings: "Settings" };
   const pageMeta = useMemo(() => {
     if (page !== "home") return pageLabels[page].toUpperCase();
@@ -1824,9 +1917,9 @@ function DesktopApp() {
         ? <section className="page startup-state" role="status"><p>Abrindo dados locais...</p></section>
         : null;
 
-  return <div className="app-shell"><aside className="nav-rail"><div className="rail-symbol" aria-hidden="true"><MosSymbol size={16} /></div><nav aria-label="Navegação principal">{nav.map((item) => <button key={item.page} aria-current={page === item.page ? "page" : undefined} aria-label={item.label} title={item.label} onClick={() => navigate(item.page)}><Icon name={item.icon} filled={page === item.page} />{/* Sem badge de contagem: o desenho nao tem, e um numero permanente no rail
+  return <div className="app-shell" data-rail-expanded={railExpanded || undefined}><aside className="nav-rail" data-expanded={railExpanded || undefined} aria-label="Navegação do M/OS"><button className="rail-toggle" type="button" aria-label={railExpanded ? "Recolher navegação" : "Expandir navegação"} aria-expanded={railExpanded} onClick={toggleRail}><span className="rail-symbol" aria-hidden="true"><MosSymbol size={16} /></span><span className="rail-brand" aria-hidden="true">M/OS</span></button><nav className="rail-navigation" aria-label="Navegação principal">{navGroups.map((group) => <div className="rail-group" role="group" aria-label={group.label} key={group.label}><span className="rail-group-label" aria-hidden="true">{group.label}</span>{group.items.map((item) => <button className="rail-destination" key={item.page} aria-current={page === item.page ? "page" : undefined} aria-label={item.label} onClick={() => navigate(item.page)}><Icon name={item.icon} filled={page === item.page} /><span className="rail-label" aria-hidden="true">{item.label}</span><span className="rail-tooltip" aria-hidden="true">{item.label}</span>{/* Sem badge de contagem: o desenho nao tem, e um numero permanente no rail
     vira ansiedade de fundo. A contagem da Inbox aparece na Home e na propria
-    tela, onde ela leva a uma acao. */}</button>)}</nav><div className="rail-footer"><IconButton label="Quick Capture" icon="capture" onClick={() => void api.showQuickCapture()} /><IconButton label="Settings" icon="settings" active={page === "settings"} onClick={() => navigate("settings")} /></div></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button>{/* O estado de sistema nao substitui o meta da pagina: os dois convivem, e o
+    tela, onde ela leva a uma acao. */}</button>)}</div>)}</nav><div className="rail-footer"><button className="rail-utility" type="button" aria-label="Quick Capture" onClick={() => void api.showQuickCapture()}><Icon name="capture" /><span className="rail-label" aria-hidden="true">Quick Capture</span><span className="rail-tooltip" aria-hidden="true">Quick Capture</span></button><button className="rail-utility" type="button" aria-current={page === "settings" ? "page" : undefined} aria-label="Settings" onClick={() => navigate("settings")}><Icon name="settings" filled={page === "settings"} /><span className="rail-label" aria-hidden="true">Settings</span><span className="rail-tooltip" aria-hidden="true">Settings</span></button></div></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button>{/* O estado de sistema nao substitui o meta da pagina: os dois convivem, e o
     indicador de ocupado entra antes sem apagar onde voce esta. */}
 <div className="system-state" aria-live="polite">{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content" ref={contentRef}>{content}</main></div>{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
 }

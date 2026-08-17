@@ -2,7 +2,7 @@ html,
 body,
 #root {
   width: 100%;
-  min-height: 100%;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -16,30 +16,6 @@ select {
 
 button {
   cursor: pointer;
-}
-
-/* Foco visivel em tudo que recebe foco.
- *
- * Antes disto o app tinha cinco regras de `:focus-visible` e o resto dependia do
- * anel padrao do WebView2 — que existe, mas nao e o anel do sistema, nao usa o
- * sodio e nao tem contraste verificado contra as superficies daqui.
- *
- * `outline` e nao `box-shadow` por exigencia de `forced-colors`: em alto
- * contraste o Windows repinta outline com a cor de sistema, e uma sombra
- * simplesmente desaparece. `DESIGN-FOUNDATIONS` §18 ja registrava essa regra.
- *
- * Componentes que substituem o anel por um tratamento proprio — a regua que
- * acende no Capture, no Command e no composer do Hermes — vencem por
- * especificidade, e continuam sendo a excecao deliberada. */
-:focus-visible {
-  outline: var(--marker) solid var(--signal-ink);
-  outline-offset: var(--line);
-}
-
-@media (forced-colors: active) {
-  :focus-visible {
-    outline-color: Highlight;
-  }
 }
 
 .visually-hidden {
@@ -140,7 +116,8 @@ button {
 }
 
 .icon-button,
-.nav-rail button,
+.rail-destination,
+.rail-utility,
 .menu summary {
   display: grid;
   width: var(--height-control);
@@ -154,18 +131,31 @@ button {
   transition: color var(--dur-instant) linear, background var(--dur-instant) linear;
 }
 
-.icon-button:hover,
-.nav-rail button:hover,
+.icon-button:not(:disabled):hover,
+.rail-destination:hover,
+.rail-utility:hover,
 .menu summary:hover {
   color: var(--text);
   background: var(--surface-hover);
 }
 
+.icon-button:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
 .app-shell {
+  --rail-current-width: var(--rail-width);
   display: grid;
-  grid-template-columns: var(--rail-width) minmax(0, 1fr);
+  grid-template-columns: var(--rail-current-width) minmax(0, 1fr);
   height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   background: var(--canvas);
+}
+
+.app-shell[data-rail-expanded] {
+  --rail-current-width: var(--rail-expanded-width);
 }
 
 .nav-rail {
@@ -173,23 +163,93 @@ button {
   z-index: var(--z-rail);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  width: var(--rail-width);
+  align-items: stretch;
+  width: 100%;
+  height: 100vh;
+  min-height: 0;
+  max-height: 100vh;
   padding: var(--space-3) 0;
+  overflow: visible;
   background: var(--surface);
   border-right: var(--line) solid var(--border);
 }
 
-/* Assinatura, nao destino: nao e clicavel e nao recebe foco. */
+/* A assinatura continua sem ser destino. O botao muda somente a quantidade de
+   contexto da navegacao, de modo que teclado e mouse tenham o mesmo caminho. */
+.rail-toggle {
+  position: relative;
+  display: flex;
+  width: var(--rail-item);
+  height: var(--rail-symbol);
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 var(--space-2) var(--rail-symbol-gap);
+  padding: 0 calc((var(--rail-item) - var(--rail-symbol)) / 2);
+  overflow: hidden;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius);
+  text-align: left;
+  transition: background var(--dur-instant) linear;
+}
+
+.rail-toggle:hover {
+  background: var(--surface-hover);
+}
+
+.rail-toggle::after {
+  position: absolute;
+  right: var(--space-1);
+  width: 5px;
+  height: 5px;
+  border-top: var(--line) solid currentColor;
+  border-right: var(--line) solid currentColor;
+  content: "";
+  transform: rotate(45deg);
+  transition: transform var(--dur-state) var(--ease-state);
+}
+
+.nav-rail[data-expanded] .rail-toggle {
+  width: calc(100% - (2 * var(--space-2)));
+}
+
+.nav-rail[data-expanded] .rail-toggle::after {
+  right: var(--space-2);
+  transform: rotate(225deg);
+}
+
 .rail-symbol {
   display: grid;
+  flex: none;
   width: var(--rail-symbol);
   height: var(--rail-symbol);
-  margin-bottom: var(--rail-symbol-gap);
   place-items: center;
   color: var(--on-signal);
   background: var(--signal-fill);
   border-radius: var(--rail-symbol-radius);
+}
+
+.rail-brand,
+.rail-label {
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+  transform: translateX(calc(-1 * var(--space-1)));
+  transition: opacity var(--dur-state) var(--ease-state), transform var(--dur-state) var(--ease-state);
+}
+
+.rail-brand {
+  color: var(--text);
+  font: var(--text-small);
+  font-weight: 500;
+}
+
+.nav-rail[data-expanded] .rail-brand,
+.nav-rail[data-expanded] .rail-label {
+  opacity: 1;
+  transform: none;
 }
 
 .slash,
@@ -199,27 +259,60 @@ button {
   font-weight: 400;
 }
 
-.nav-rail nav {
+.rail-navigation {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: 0 var(--space-2) calc(var(--height-control) + var(--height-control) + var(--space-1) + var(--space-3) + var(--space-2));
+  overflow: visible;
+}
+
+.rail-group {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
 
-.nav-rail button {
+.rail-group-label {
+  display: none;
+  min-height: var(--space-inset);
+  align-items: center;
+  padding: 0 var(--space-2);
+  color: var(--text-disabled);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+}
+
+.nav-rail[data-expanded] .rail-group-label {
+  display: flex;
+}
+
+.rail-destination,
+.rail-utility {
   position: relative;
-  width: var(--rail-item);
+  display: flex;
+  width: 100%;
   height: var(--rail-item);
+  flex: none;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-3);
+  padding: 0 calc((var(--rail-item) - var(--icon-size)) / 2);
   color: var(--text-system);
+  text-align: left;
 }
 
-/* Ativo e o icone em --text mais a barra. Sem fundo: o accent e sinal, nao
-   preenchimento de container. */
-.nav-rail button[aria-current="page"] {
+/* Ativo combina posição, surface e contraste. O sódio continua sendo um
+   indicador pequeno, não o único portador do estado. */
+.rail-destination[aria-current="page"],
+.rail-utility[aria-current="page"] {
   color: var(--text);
-  background: transparent;
+  background: var(--surface-hover);
 }
 
-.nav-rail button[aria-current="page"]::before {
+.rail-destination[aria-current="page"]::before {
   position: absolute;
   top: var(--marker-offset);
   left: 0;
@@ -232,24 +325,91 @@ button {
 /* Botao de 28px com borda, nao um icone solto: e uma acao, nao um destino, e
    o contorno e o que separa as duas coisas no rail. */
 .rail-footer {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-3);
+  left: var(--space-2);
   display: flex;
+  flex: none;
   flex-direction: column;
-  gap: var(--space-2);
-  margin-top: auto;
+  gap: var(--space-1);
+  margin: 0;
+  padding-top: var(--space-2);
+  background: var(--surface);
+  border-top: var(--line) solid var(--border);
 }
 
-.rail-footer .icon-button {
-  width: var(--height-control-sm);
-  height: var(--height-control-sm);
-  border: var(--line) solid var(--border-strong);
-  border-radius: var(--radius);
+.rail-footer .rail-utility {
+  height: var(--height-control);
   color: var(--text-secondary);
-  transition: border-color var(--dur-instant) var(--ease-state);
 }
 
-.rail-footer .icon-button:hover {
-  background: transparent;
-  border-color: var(--signal-ink);
+.nav-rail[data-expanded] .rail-destination,
+.nav-rail[data-expanded] .rail-utility {
+  padding-inline: var(--space-2);
+}
+
+/* O rail compacto precisa explicar ícones sem recorrer ao tooltip nativo do
+   sistema, cujo ritmo e contraste variam por plataforma. */
+.rail-tooltip {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + var(--space-2));
+  z-index: var(--z-overlay);
+  padding: var(--space-1) var(--space-2);
+  color: var(--text);
+  font: var(--text-small);
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  visibility: hidden;
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transform: translate(var(--space-1), -50%);
+  transition: opacity var(--dur-state) var(--ease-enter), transform var(--dur-state) var(--ease-enter), visibility 0s linear var(--dur-state);
+}
+
+.nav-rail:not([data-expanded]) :is(.rail-destination, .rail-utility):is(:hover, :focus-visible) .rail-tooltip {
+  visibility: visible;
+  opacity: 1;
+  transform: translate(0, -50%);
+  transition-delay: 0s;
+}
+
+.nav-rail[data-expanded] .rail-tooltip {
+  display: none;
+}
+
+.rail-toggle:focus-visible,
+.rail-destination:focus-visible,
+.rail-utility:focus-visible {
+  outline-offset: calc(-1 * var(--marker));
+}
+
+@media (max-height: 640px) {
+  .nav-rail {
+    padding-block: var(--space-2);
+  }
+
+  .rail-toggle {
+    margin-bottom: var(--space-2);
+  }
+
+  .rail-navigation,
+  .rail-group {
+    gap: 2px;
+  }
+
+  .rail-destination {
+    height: var(--height-row);
+  }
+
+  .rail-footer {
+    bottom: var(--space-2);
+    padding-top: var(--space-1);
+  }
 }
 
 .mos-symbol {
@@ -295,7 +455,10 @@ button {
 .main-column {
   display: grid;
   min-width: 0;
+  height: 100vh;
+  min-height: 0;
   grid-template-rows: var(--topbar-height) minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .topbar {
@@ -572,38 +735,60 @@ textarea::placeholder {
   color: var(--danger);
 }
 
-/* Quatro paineis em grade 2x2. Cada um se resolve sozinho; nenhum depende de
-   ler o vizinho. */
-/* Grade de 12 colunas do arranjo 1D. Uma celula do desenho vale 3 colunas, entao
-   cabem quatro celulas por linha. As media queries repetem as larguras que ja
-   existem no arquivo (1280 e 960) — nenhum breakpoint novo — mas ficam aqui, junto
-   das regras que governam, em vez de espalhadas nos blocos de padding. */
+/* A Home usa uma grade somente dentro de grupos semânticos. Os spans descrevem
+   proporção, enquanto `data-role` descreve por que o widget está na tela. Isso
+   evita confundir tamanho com importância e mantém a ordem DOM/foco intacta. */
 .home-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  /* Linha respira mais que coluna: 32 contra 20. Com onze widgets do mesmo
-     peso, o gap uniforme faz a grade ler como um bloco unico — a diferenca
-     agrupa cada faixa horizontalmente antes de o olho descer para a proxima. */
-  gap: var(--space-5) var(--space-4);
+  gap: var(--space-4);
+}
+
+.home-section {
   padding-top: var(--space-5);
 }
 
-/* O ar ENTRE faixas precisa ser maior que o ar DENTRO de uma (52 contra 32).
-   E a unica coisa que faz quatro grades seguidas lerem como quatro grupos em
-   vez de uma lista longa — e a razao de a Home nao precisar de um segundo nivel
-   de rotulo acima dos Panels para se organizar. */
-.home-grid + .home-grid {
-  padding-top: var(--space-6);
+.home-section-heading {
+  display: flex;
+  min-height: var(--height-row);
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.home-section-heading h2 {
+  margin: 0;
+}
+
+.home-section-heading h2 {
+  color: var(--text);
+  font: var(--text-body);
+  font-weight: 500;
 }
 
 .widget {
   min-width: 0;
 }
 
-.widget[data-size="1x1"] { grid-column: span 3; }
-.widget[data-size="2x1"] { grid-column: span 6; }
-.widget[data-size="2x2"] { grid-column: span 6; grid-row: span 2; }
-.widget[data-size="full"] { grid-column: span 12; }
+.widget[data-span="3"] { grid-column: span 3; }
+.widget[data-span="4"] { grid-column: span 4; }
+.widget[data-span="5"] { grid-column: span 5; }
+.widget[data-span="6"] { grid-column: span 6; }
+.widget[data-span="8"] { grid-column: span 8; }
+.widget[data-span="9"] { grid-column: span 9; }
+.widget[data-span="12"] { grid-column: span 12; }
+
+/* A primeira faixa é a única com altura mínima compartilhada: são três leituras
+   paralelas do presente. Os outros widgets deixam o próprio conteúdo governar
+   a altura, evitando o dashboard de cartões iguais. */
+.widget[data-role="focus"] .panel {
+  min-height: calc(var(--height-row) * 3);
+}
+
+.widget[data-role="utility"] .quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+}
 
 .pulse {
   display: grid;
@@ -1699,68 +1884,74 @@ tr:focus-within .tempo-row-actions {
   color: var(--success);
 }
 
-@media (max-width: 1280px) {
-  .home-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); }
-  .widget[data-size="1x1"] { grid-column: span 4; }
-  .widget[data-size="2x1"] { grid-column: span 8; }
-  .widget[data-size="2x2"] { grid-column: span 8; }
-  .widget[data-size="full"] { grid-column: span 8; }
+@media (max-width: 1100px) {
+  .home-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .widget[data-span="3"] { grid-column: span 3; }
+  .widget[data-span="4"],
+  .widget[data-span="5"],
+  .widget[data-span="6"],
+  .widget[data-span="8"],
+  .widget[data-span="9"],
+  .widget[data-span="12"] { grid-column: span 6; }
 }
 
-@media (max-width: 960px) {
-  .home-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .widget[data-size="1x1"],
-  .widget[data-size="2x1"],
-  .widget[data-size="2x2"],
-  .widget[data-size="full"] { grid-column: span 4; }
-  .widget[data-size="2x2"] { grid-row: span 1; }
+@media (max-width: 760px) {
+  .widget[data-span] { grid-column: span 6; }
 }
 
-/* auto-fill, nao auto-fit: preserva as trilhas vazias para que um unico
-   workspace continue do tamanho de um chip em vez de esticar pela tela. */
+/* Contexto é controle persistente, não conteúdo editorial. Uma faixa compacta
+   substitui o painel vazio que antes consumia quase 160px da primeira dobra. */
+.home-context {
+  display: flex;
+  min-height: var(--height-control);
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+  border-bottom: var(--line) solid var(--border);
+}
+
+.home-context > .micro-label {
+  min-width: 112px;
+}
+
 .context-switcher {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--column-min), 1fr));
-  gap: var(--space-3);
-  padding: var(--space-3) 0 var(--space-4);
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: var(--space-1);
 }
 
 .context-switcher button {
-  display: grid;
-  align-content: center;
-  gap: var(--space-1);
-  padding: var(--space-3);
-  color: var(--text);
-  background: transparent;
+  min-height: var(--height-control-sm);
+  padding: 0 var(--space-3);
+  color: var(--text-secondary);
+  background: var(--surface);
   border: var(--line) solid var(--border);
-  border-radius: var(--radius);
-  text-align: left;
+  border-radius: var(--radius-sm);
   transition: border-color var(--dur-instant) var(--ease-state),
-    background var(--dur-instant) var(--ease-state);
+    background var(--dur-instant) var(--ease-state),
+    color var(--dur-instant) var(--ease-state);
 }
 
 .context-switcher button strong {
-  font: var(--text-body);
+  font: var(--text-small);
   font-weight: 500;
 }
 
-.context-switcher button:hover {
+.context-switcher button:hover,
+.context-switcher button:focus-visible {
+  color: var(--text);
+  background: var(--surface-hover);
   border-color: var(--border-strong);
 }
 
 /* Ativo e borda em sodio mais um lavado de 6%. O accent marca qual contexto
    esta valendo — nao decora os outros. */
 .context-switcher button[data-selected] {
-  background: color-mix(in srgb, var(--signal-fill) 6%, transparent);
-  border-color: var(--signal-ink);
-}
-
-.context-switcher small {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font: var(--text-meta);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--text);
+  background: var(--surface-active);
+  border-color: var(--border-control);
 }
 
 /* Panel nu: sem borda, sem fundo. O que o delimita e o rotulo mono e a regua.
@@ -1933,6 +2124,18 @@ tr:focus-within .tempo-row-actions {
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.pane-heading .context-path {
+  margin-bottom: 0;
+}
+
+.pane-heading-meta {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 /* Fixado na base do pane: a dica de teclado fecha a coluna, nao flutua logo
@@ -1962,14 +2165,16 @@ tr:focus-within .tempo-row-actions {
   text-transform: uppercase;
 }
 
-/* A barra vertical de 2px em sodio marca tudo que o sistema produziu. E o
-   mesmo marcador de selecao: autoria e selecao sao o mesmo gesto visual. */
-/* Recuo de 16px do filete: e o que o desenho usa para o bloco de autoria do
-   sistema, na Inbox e no chat. */
+/* O Hermes ainda indisponível recua como contexto de sistema. Surface e duas
+   hairlines agrupam a explicação sem transformar ausência em alerta de accent. */
 .hermes-block {
-  margin: var(--space-5) 0;
-  padding-left: var(--space-inset);
-  border-left: var(--marker) solid var(--signal-fill);
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+  padding: var(--space-3) var(--space-inset);
+  background: var(--surface);
+  border-top: var(--line) solid var(--border);
+  border-bottom: var(--line) solid var(--border);
 }
 
 .hermes-empty {
@@ -2278,16 +2483,11 @@ tr:focus-within .tempo-row-actions {
 }
 
 .data-row[data-selected] {
-  background: var(--signal-wash);
+  background: var(--surface-active);
 }
 
-.data-row[data-selected]::before {
-  position: absolute;
-  inset-block: 0;
-  left: 0;
-  width: var(--marker);
-  background: var(--signal-fill);
-  content: "";
+.data-row[data-selected] .row-copy strong {
+  font-weight: 500;
 }
 
 .data-row[data-completed] {
@@ -2344,13 +2544,60 @@ tr:focus-within .tempo-row-actions {
   grid-template-columns: var(--list-pane-width) minmax(0, 1fr);
 }
 
+.inbox-page {
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: min(var(--list-pane-width), 42%) minmax(0, 1fr);
+}
+
+.inbox-page > .list-pane,
+.inbox-page > .detail-pane {
+  min-height: 0;
+  overflow: auto;
+}
+
+.inbox-page .detail-actions {
+  flex-wrap: wrap;
+  padding-top: 0;
+}
+
+.inbox-empty-page {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding-bottom: var(--space-5);
+}
+
+.inbox-empty-view {
+  display: grid;
+  max-width: var(--measure);
+  align-self: center;
+  justify-items: start;
+  gap: var(--space-2);
+}
+
+.inbox-empty-view h1 {
+  margin: 0;
+  font: var(--text-capture);
+  font-weight: 500;
+  letter-spacing: var(--tracking-capture);
+}
+
+.inbox-empty-view p {
+  margin: 0 0 var(--space-2);
+  color: var(--text-secondary);
+  font: var(--text-body);
+  text-wrap: pretty;
+}
+
 .list-pane {
   min-width: 0;
   padding: var(--space-5) var(--space-5) var(--space-5) var(--content-margin);
   border-right: var(--line) solid var(--border);
 }
 
-.list-pane .context-path {
+.list-pane > .context-path {
   margin-bottom: var(--space-4);
 }
 
@@ -2371,6 +2618,30 @@ tr:focus-within .tempo-row-actions {
 
 .detail-pane > .pane-footnote {
   margin-top: auto;
+}
+
+/* O Inspector é pane no desktop e etapa de navegação em janelas estreitas.
+   A volta existe no DOM em ambos para manter o contrato estável, mas só ganha
+   espaço quando uma das duas panes precisa ser ocultada. */
+.inspector-nav {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.inspector-nav button {
+  padding: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  font: var(--text-small);
+}
+
+.inspector-nav button:hover {
+  color: var(--text);
 }
 
 .detail-header {
@@ -2423,8 +2694,23 @@ tr:focus-within .tempo-row-actions {
   width: var(--overlay-menu);
   padding: var(--space-1);
   background: var(--surface-raised);
+  border: var(--line) solid var(--border-strong);
   border-radius: var(--radius);
   box-shadow: var(--shadow-overlay);
+  transform-origin: top right;
+  animation: menuEnter var(--dur-state) var(--ease-enter);
+}
+
+@keyframes menuEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .menu > div button {
@@ -2604,10 +2890,6 @@ select {
   margin-top: var(--space-5);
 }
 
-.library-detail-nav {
-  display: none;
-}
-
 /* Sem `gap`: o botao voltou a ser so rotulo, porque icone junto de texto em
    botao esta na lista do que o design system nao tem. */
 
@@ -2632,6 +2914,69 @@ select {
 
 .board-heading {
   justify-content: space-between;
+  min-height: var(--height-control);
+}
+
+.board-heading-actions,
+.board-hint {
+  display: flex;
+  align-items: center;
+}
+
+.board-heading-actions {
+  gap: var(--space-4);
+}
+
+.board-hint {
+  gap: var(--space-2);
+  color: var(--text-system);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-meta);
+}
+
+.board-hint kbd {
+  padding: 1px var(--space-1);
+  color: var(--text-secondary);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font: inherit;
+}
+
+.task-create-panel {
+  max-width: var(--overlay-capture);
+  padding-top: var(--space-5);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.task-create-panel .stack-form {
+  padding-top: var(--space-3);
+}
+
+.tasks-empty {
+  display: grid;
+  max-width: var(--overlay-dialog);
+  justify-items: start;
+  gap: var(--space-2);
+  padding-top: var(--space-7);
+}
+
+.tasks-empty h1,
+.tasks-empty p {
+  margin: 0;
+}
+
+.tasks-empty h1 {
+  font: var(--text-heading);
+}
+
+.tasks-empty p {
+  max-width: 44ch;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.tasks-empty .button {
+  margin-top: var(--space-2);
 }
 
 /* Seis colunas. A grade rola horizontalmente antes de espremer a coluna: um
@@ -2716,6 +3061,13 @@ select {
   color: var(--text-system);
 }
 
+.kanban-empty {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2);
+  color: var(--text-disabled);
+  font: var(--text-small);
+}
+
 /* Card de verdade: fundo, borda e padding. Uma row nua funciona numa lista,
    mas numa coluna de kanban o card precisa de corpo para ser arrastavel a
    olho — e o que voce pega e uma peca, nao uma linha. */
@@ -2768,11 +3120,11 @@ select {
   z-index: var(--z-drawer);
   inset-block: var(--rail-width) 0;
   right: 0;
-  width: min(var(--drawer-width), calc(100vw - var(--rail-width)));
+  width: min(380px, calc(100vw - var(--rail-current-width)));
   padding: var(--space-4) var(--space-5) var(--space-6);
   overflow: auto;
   background: var(--surface-raised);
-  box-shadow: var(--shadow-overlay);
+  border-left: var(--line) solid var(--border-strong);
   animation: drawer-in var(--dur-enter) var(--ease-enter);
 }
 
@@ -2781,6 +3133,22 @@ select {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.task-drawer > header {
+  padding-bottom: var(--space-3);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.task-drawer .stack-form {
+  max-width: none;
+  padding-top: var(--space-4);
+}
+
+.task-drawer .form-actions {
+  margin-top: var(--space-1);
+  padding-top: var(--space-4);
+  border-top: var(--line) solid var(--border);
 }
 
 .provenance {
@@ -2878,7 +3246,7 @@ select {
 .command-input {
   display: grid;
   min-height: var(--space-6);
-  grid-template-columns: var(--space-4) minmax(0, 1fr) var(--height-control);
+  grid-template-columns: var(--space-4) minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
   padding: 0 var(--space-3);
@@ -2902,6 +3270,26 @@ select {
   color: var(--text-secondary);
   font: var(--text-small);
   border-bottom: var(--line) solid var(--border);
+}
+
+.command-options {
+  display: flex;
+  align-items: center;
+  border-bottom: var(--line) solid var(--border);
+}
+
+.command-options .check-control {
+  flex: 1;
+  border-bottom: 0;
+}
+
+.command-status {
+  flex: none;
+  padding-right: var(--space-4);
+  color: var(--text-disabled);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-label);
 }
 
 /* Checkbox desenhado, nao o nativo com accent-color: o nativo renderiza a caixa
@@ -2974,13 +3362,28 @@ input[type="checkbox"]:disabled {
   padding: var(--space-4);
 }
 
+.command-prompt {
+  display: grid;
+  gap: var(--space-2);
+  min-height: calc(var(--height-row-two-line) * 2);
+  align-content: center;
+  padding: var(--space-4);
+}
+
+.command-prompt p {
+  max-width: 52ch;
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
 /* Coluna de tipo com largura fixa: os tipos alinham verticalmente e a lista
    fica varrivel pelo olho sem ler cada linha. */
 .command-row {
   display: grid;
   width: 100%;
-  min-height: var(--height-row-touch);
-  grid-template-columns: var(--command-type-column) minmax(0, 1fr) auto;
+  min-height: var(--height-row);
+  grid-template-columns: var(--command-type-column) minmax(0, 1fr) minmax(96px, 0.75fr);
   align-items: center;
   gap: 0 var(--space-3);
   padding: 0 var(--space-4);
@@ -3139,7 +3542,7 @@ input[type="checkbox"]:disabled {
 }
 
 .command-row strong {
-  align-self: end;
+  align-self: center;
   overflow: hidden;
   font-weight: 400;
   text-overflow: ellipsis;
@@ -3147,7 +3550,7 @@ input[type="checkbox"]:disabled {
 }
 
 .command-row small {
-  align-self: start;
+  align-self: center;
   overflow: hidden;
   color: var(--text-secondary);
   font: var(--text-small);
@@ -3610,30 +4013,38 @@ input[type="checkbox"]:disabled {
 }
 
 @media (max-width: 960px) {
-  .library-page {
+  .inspector-page {
     display: block;
   }
 
-  .library-page[data-pane="list"] .detail-pane,
-  .library-page[data-pane="detail"] .list-pane {
+  /* Em largura estreita o detalhe da Task deixa de sobrepor um fragmento
+     inutil do quadro e vira a segunda etapa do conteudo. O rail permanece
+     visivel como navegacao global; o Kanban volta ao fechar com Esc. */
+  .task-drawer {
+    left: var(--rail-current-width);
+    width: auto;
+  }
+
+  .inspector-page[data-pane="list"] .detail-pane,
+  .inspector-page[data-pane="detail"] .list-pane {
     display: none;
   }
 
-  .library-page .list-pane,
-  .library-page .detail-pane {
+  .inspector-page .list-pane,
+  .inspector-page .detail-pane {
     min-height: 100%;
     border-right: 0;
   }
 
-  .library-detail-nav {
+  .inspector-nav {
     display: flex;
-    margin-bottom: var(--space-4);
   }
 }
 
 @media (forced-colors: active) {
   .button.primary,
-  .nav-rail button[aria-current="page"] {
+  .rail-destination[aria-current="page"],
+  .rail-utility[aria-current="page"] {
     color: HighlightText;
     forced-color-adjust: auto;
   }
@@ -3666,6 +4077,8 @@ input[type="checkbox"]:disabled {
    ============================================================ */
 
 .hermes-page {
+  position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
   min-width: 0;
@@ -3688,12 +4101,35 @@ input[type="checkbox"]:disabled {
      literal acerta o valor de hoje e erra no dia em que a escala mudar. */
   .hermes-rail {
     position: absolute;
-    z-index: var(--z-drawer);
-    width: 260px;
+    z-index: var(--z-overlay);
+    width: min(260px, calc(100% - var(--space-5)));
     height: 100%;
     background: var(--surface);
     box-shadow: var(--shadow-overlay);
+    animation: hermesRailEnter var(--dur-enter) var(--ease-enter);
   }
+}
+
+@keyframes hermesRailEnter {
+  from {
+    opacity: 0;
+    transform: translateX(calc(var(--space-1) * -1));
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.hermes-rail-backdrop {
+  position: absolute;
+  z-index: var(--z-backdrop);
+  inset: 0;
+  border: 0;
+  background: var(--overlay-backdrop);
+  cursor: default;
+  animation: viewEnter var(--dur-enter) var(--ease-enter);
 }
 
 /* ---------- Plano 2 · conversas ---------- */
@@ -3769,32 +4205,44 @@ input[type="checkbox"]:disabled {
 .hermes-rail-row {
   display: flex;
   align-items: center;
-  /* 2px em sodio a esquerda marca a conversa aberta. Sem preenchimento de
-     fundo: a selecao e uma marca, nao uma faixa. */
-  border-left: var(--marker) solid transparent;
 }
 
 .hermes-rail-row[data-active] {
-  border-left-color: var(--signal-ink);
+  background: var(--surface-active);
 }
 
-.hermes-rail-row:hover {
+.hermes-rail-row:hover:not([data-active]) {
   background: var(--surface-hover);
 }
 
 .hermes-rail-open {
   display: grid;
+  grid-template-columns: var(--space-2) minmax(0, 1fr);
+  column-gap: var(--space-2);
   flex: 1;
-  gap: 2px;
   min-width: 0;
-  padding: var(--space-2) var(--space-2) var(--space-2) 10px;
+  padding: var(--space-2);
   border: 0;
   background: transparent;
   text-align: left;
   cursor: pointer;
 }
 
+.hermes-rail-open::before {
+  content: "";
+  grid-row: 1 / 3;
+  align-self: center;
+  width: var(--space-1);
+  height: var(--space-1);
+  background: transparent;
+}
+
+.hermes-rail-row[data-active] .hermes-rail-open::before {
+  background: var(--signal-fill);
+}
+
 .hermes-rail-title {
+  grid-column: 2;
   overflow: hidden;
   color: var(--text-secondary);
   font: 400 13.5px/1.3 var(--font-product);
@@ -3808,6 +4256,7 @@ input[type="checkbox"]:disabled {
 }
 
 .hermes-rail-meta {
+  grid-column: 2;
   color: var(--text-disabled);
   font: var(--text-micro);
   letter-spacing: var(--tracking-meta);
@@ -3841,6 +4290,24 @@ input[type="checkbox"]:disabled {
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
+}
+
+.hermes-rail-toggle {
+  flex: none;
+  height: var(--height-control-sm);
+  padding: 0 var(--space-2);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-meta);
+  cursor: pointer;
+}
+
+.hermes-rail-toggle:hover {
+  border-color: var(--signal-ink);
+  color: var(--text);
 }
 
 /* A regua VENDO responde a uma pergunta so: o que o Hermes esta vendo agora. */
@@ -3938,6 +4405,17 @@ input[type="checkbox"]:disabled {
   min-height: 0;
   overflow-y: auto;
   padding: var(--space-6) var(--space-4) var(--space-5);
+}
+
+.hermes-thread-area[data-empty] {
+  display: grid;
+  align-items: end;
+  padding-top: var(--space-5);
+  padding-bottom: var(--space-4);
+}
+
+.hermes-thread-area[data-empty] .hermes-thread {
+  width: 100%;
 }
 
 /* Em ultrawide a thread nao estica: sobra canvas dos dois lados. Uma linha de
@@ -4217,15 +4695,17 @@ input[type="checkbox"]:disabled {
 
 /* ---------- Vazio ---------- */
 
-.hermes-empty {
-  padding-top: var(--space-5);
+.hermes-empty-state {
+  max-width: 560px;
 }
 
 .hermes-empty-title {
-  margin: 0 0 var(--space-4);
+  max-width: 34ch;
+  margin: 0 0 var(--space-3);
   color: var(--text);
-  font: 400 28px/1.2 var(--font-product);
-  letter-spacing: -0.028em;
+  font: var(--text-capture);
+  letter-spacing: var(--tracking-capture);
+  text-wrap: balance;
 }
 
 .hermes-suggestions {
@@ -4450,9 +4930,8 @@ input[type="checkbox"]:disabled {
 }
 
 .hermes-offline {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  display: grid;
+  gap: var(--space-1);
   max-width: calc(108px + var(--space-loose) + 62ch);
   width: 100%;
   margin: 0 auto;
@@ -4460,7 +4939,20 @@ input[type="checkbox"]:disabled {
   font: var(--text-small);
 }
 
+.hermes-offline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.hermes-offline-head span {
+  min-width: 0;
+  text-wrap: pretty;
+}
+
 .hermes-offline button {
+  flex: none;
   border: var(--line) solid var(--border-strong);
   border-radius: var(--radius-sm);
   background: transparent;
@@ -4469,6 +4961,59 @@ input[type="checkbox"]:disabled {
   letter-spacing: var(--tracking-micro);
   padding: var(--space-1) var(--space-2);
   cursor: pointer;
+}
+
+.hermes-offline-detail {
+  max-width: var(--measure);
+  color: var(--text-disabled);
+}
+
+.hermes-offline-detail summary {
+  width: max-content;
+  color: var(--text-disabled);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-meta);
+  cursor: pointer;
+}
+
+.hermes-offline-detail code {
+  display: block;
+  max-height: var(--space-7);
+  margin-top: var(--space-2);
+  overflow: auto;
+  color: var(--text-system);
+  font: var(--text-micro);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 960px) {
+  .hermes-seeing,
+  .hermes-composer {
+    padding-inline: var(--space-3);
+  }
+
+  .hermes-seeing {
+    gap: var(--space-1);
+  }
+
+  .hermes-seeing-chips .hermes-quiet {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .hermes-title {
+    max-width: 14ch;
+  }
+
+  .hermes-thread-area,
+  .hermes-thread-area[data-empty] {
+    padding-inline: var(--space-3);
+  }
+
+  .hermes-offline-head {
+    align-items: flex-start;
+  }
 }
 
 /* ---------- Markdown ----------
@@ -4858,6 +5403,14 @@ input[type="checkbox"]:disabled {
 .home-page {
   position: relative;
   isolation: isolate;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+/* Capture continua dominante, mas deixa de consumir uma faixa editorial
+   inteira antes do contexto e do trabalho atual. */
+.home-page .capture-field {
+  padding: var(--space-4) 0 var(--space-3);
 }
 
 .dot-field {
@@ -5046,14 +5599,6 @@ input[type="checkbox"]:disabled {
 .kanban-column .data-row[data-dragging] {
   outline: var(--line) dashed var(--border-strong);
   outline-offset: calc(var(--line) * -1);
-}
-
-/* A dica de teclado do kanban fica encostada no fim do caminho, nao junto do
-   botao: e informacao sobre o quadro, nao uma acao. margin-right auto empurra
-   o "Criar Task" para a direita e mantem os tres itens numa linha so. */
-.board-hint {
-  margin-right: auto;
-  color: var(--text-system);
 }
 
 /* ---------- Barra de rolagem visivel ----------
