@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import { EmptyState, Panel } from "./Surface";
+import { Card, EmptyState, PageHeader } from "./Surface";
 import {
   ACTIVITY,
   dateInputOf,
@@ -18,13 +18,13 @@ import type { ActivityType, Client, Project, ProjectTracking, TimeEntry } from "
 type Preset = "tudo" | "hoje" | "semana" | "mes" | "mes-passado" | "personalizado";
 
 const PRESETS: { value: Preset; label: string }[] = [
-  { value: "tudo", label: "Tudo" },
   { value: "hoje", label: "Hoje" },
-  { value: "semana", label: "Esta semana" },
+  { value: "semana", label: "Semana" },
   { value: "mes", label: "Este mês" },
   { value: "mes-passado", label: "Mês passado" },
-  { value: "personalizado", label: "Escolher datas" },
+  { value: "tudo", label: "Tudo" },
 ];
+
 
 /**
  * As bordas de cada recorte, em dia local.
@@ -78,16 +78,21 @@ export function TempoHistory({ projects, entries, onChanged, receipt }: {
   const [tracking, setTracking] = useState<ProjectTracking[]>([]);
   const [trashOpen, setTrashOpen] = useState(false);
   const [trashed, setTrashed] = useState<TimeEntry[]>([]);
+  const [amounts, setAmounts] = useState<Record<string, number>>({});
   const [note, setNote] = useState("");
 
   useEffect(() => {
     void (async () => {
-      const [people, rows] = await Promise.all([
+      const [people, rows, report] = await Promise.all([
         api.clients(true).catch(() => [] as Client[]),
         api.projectTracking().catch(() => [] as ProjectTracking[]),
+        // O valor por sessão vem do Rust, calculado com a taxa que valia no dia.
+        // Multiplicar aqui criaria um segundo caminho para o mesmo número.
+        api.trackingReport(null, null).catch(() => []),
       ]);
       setClients(people);
       setTracking(rows);
+      setAmounts(Object.fromEntries(report.map((line) => [line.entryId, line.rawAmountCents])));
     })();
   }, []);
 
@@ -153,14 +158,18 @@ export function TempoHistory({ projects, entries, onChanged, receipt }: {
           visto sem rolar por trinta sessões. */}
       {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
 
-      <Panel label="RECORTE" rule>
+      <PageHeader
+        title="Histórico"
+        subtitle="Sessões registradas: filtre, corrija, remova ou restaure."
+        actions={
+          <Button variant="secondary" size="sm" onClick={() => setTrashOpen((open) => !open)}>
+            {trashOpen ? "Ver sessões" : "Ver lixeira"}
+          </Button>
+        }
+      />
+
+      <Card>
         <div className="tempo-filters">
-          <div className="tempo-field">
-            <label htmlFor="hist-preset">Período</label>
-            <select id="hist-preset" value={preset} onChange={(event) => choose(event.currentTarget.value as Preset)}>
-              {PRESETS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
-          </div>
           <div className="tempo-field">
             <label htmlFor="hist-from">De</label>
             <input
@@ -216,16 +225,32 @@ export function TempoHistory({ projects, entries, onChanged, receipt }: {
             </select>
           </div>
         </div>
-      </Panel>
 
-      <Panel
-        label="SESSÕES"
-        count={filtered.length ? `${filtered.length} · ${hoursOf(totalSeconds)}` : undefined}
-        action={
-          <Button variant="ghost" size="sm" onClick={() => setTrashOpen((open) => !open)}>
-            {trashOpen ? "Ver sessões" : "Ver lixeira"}
-          </Button>
+        {/* Atalhos de período como chips, e não mais um `select`: são cinco
+            recortes que se pedem o tempo todo, e um menu suspenso cobra dois
+            cliques e uma leitura para cada um deles. */}
+        <div className="tempo-presets">
+          {PRESETS.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              aria-pressed={preset === item.value}
+              onClick={() => choose(item.value)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      <Card
+        label={trashOpen ? "LIXEIRA" : "SESSÕES"}
+        count={
+          trashOpen
+            ? (trashed.length ? String(trashed.length) : undefined)
+            : (filtered.length ? `${filtered.length} sessões · ${hoursOf(totalSeconds)}` : undefined)
         }
+        className="flush"
       >
         {trashOpen ? (
           trashed.length ? (
@@ -237,7 +262,7 @@ export function TempoHistory({ projects, entries, onChanged, receipt }: {
                     <small>{dayOf(entry.startedAt)} · removida</small>
                   </span>
                   <span className="tempo-session-duration">{durationOf(entry.durationSeconds)}</span>
-                  <span className="tempo-session-actions">
+                  <span className="tempo-session-actions" data-always>
                     <Button variant="ghost" size="sm" onClick={() => void restore(entry)}>Restaurar</Button>
                   </span>
                 </div>
@@ -248,6 +273,8 @@ export function TempoHistory({ projects, entries, onChanged, receipt }: {
           )
         ) : (
           <TempoSessions
+            variant="table"
+            amounts={amounts}
             entries={filtered}
             projects={projects}
             onChanged={onChanged}
@@ -255,7 +282,7 @@ export function TempoHistory({ projects, entries, onChanged, receipt }: {
             onError={setNote}
           />
         )}
-      </Panel>
+      </Card>
     </>
   );
 }

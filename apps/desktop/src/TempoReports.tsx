@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import { EmptyState, Panel } from "./Surface";
+import { Card, EmptyState, PageHeader, Stat } from "./Surface";
 import {
   ACTIVITY_LABEL,
   dateInputOf,
-  dayOf,
   endOfDay,
   hoursOf,
   moneyOf,
@@ -15,6 +14,50 @@ import {
 import type { Client, Project, ProjectTracking, ReportLine, Totals } from "./types";
 
 const EMPTY: Totals = { grossSeconds: 0, idleSeconds: 0, billableSeconds: 0, amountCents: 0 };
+
+/** `2026-08-16` no fuso LOCAL. */
+const iso = (date: Date) => dateInputOf(date.toISOString());
+
+/**
+ * Os recortes que se pede na prática.
+ *
+ * Cada um preenche AS DUAS datas, em vez de esconder o intervalo: quem vai
+ * faturar precisa ver de quando até quando está somando, e um atalho que some
+ * com o campo obriga a confiar sem conferir.
+ */
+const PRESETS: { label: string; apply: (setFrom: (v: string) => void, setTo: (v: string) => void) => void }[] = [
+  {
+    label: "Hoje",
+    apply: (setFrom, setTo) => {
+      const today = iso(new Date());
+      setFrom(today);
+      setTo(today);
+    },
+  },
+  {
+    label: "Este mês",
+    apply: (setFrom, setTo) => {
+      const now = new Date();
+      setFrom(iso(new Date(now.getFullYear(), now.getMonth(), 1)));
+      setTo(iso(now));
+    },
+  },
+  {
+    label: "Mês passado",
+    apply: (setFrom, setTo) => {
+      const now = new Date();
+      setFrom(iso(new Date(now.getFullYear(), now.getMonth() - 1, 1)));
+      setTo(iso(new Date(now.getFullYear(), now.getMonth(), 0)));
+    },
+  },
+  {
+    label: "Tudo",
+    apply: (setFrom, setTo) => {
+      setFrom("");
+      setTo("");
+    },
+  },
+];
 
 function sum(lines: ReportLine[]): Totals {
   return lines.reduce(
@@ -236,7 +279,22 @@ export function TempoReports({ projects }: { projects: Project[] }) {
           adiante. Um recibo que exige rolar é um recibo que ninguém lê. */}
       {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
 
-      <Panel label="RECORTE" rule>
+      <PageHeader
+        title="Relatórios"
+        subtitle="Horas reais, faturáveis e valores por período."
+        actions={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => window.print()}>Imprimir</Button>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => void exportCsv()}>Exportar CSV</Button>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => void exportPdf()}>Exportar PDF</Button>
+            <Button variant="primary" size="sm" disabled={busy || !clientId} onClick={() => void exportInvoice()}>
+              Gerar fatura
+            </Button>
+          </>
+        }
+      />
+
+      <Card>
         <div className="tempo-filters">
           <div className="tempo-field">
             <label htmlFor="rep-from">De</label>
@@ -272,130 +330,111 @@ export function TempoReports({ projects }: { projects: Project[] }) {
             />
           </div>
         </div>
-      </Panel>
 
-      <Panel label="RESUMO" count={period}>
-        {filtered.length ? (
-          <>
-            <div className="tempo-stats">
-              <div>
-                <span className="micro-label">TRABALHADO</span>
-                <strong>{hoursOf(totals.grossSeconds)}</strong>
-              </div>
-              <div>
-                <span className="micro-label">COBRÁVEL</span>
-                <strong>{hoursOf(totals.billableSeconds)}</strong>
-              </div>
-              <div>
-                <span className="micro-label">{percent ? "VALOR BRUTO" : "VALOR"}</span>
-                <strong>{moneyOf(totals.amountCents)}</strong>
-              </div>
-              {/* O ajustado aparece ao LADO do bruto, nunca no lugar dele: quem
-                  vai cobrar precisa ver os dois para conferir o desconto. */}
-              {percent ? (
-                <div>
-                  <span className="micro-label">{percent > 0 ? `COM +${percent}%` : `COM ${percent}%`}</span>
-                  <strong>{moneyOf(finalAmount)}</strong>
-                </div>
-              ) : (
-                <div>
-                  <span className="micro-label">SESSÕES</span>
-                  <strong>{filtered.length}</strong>
-                </div>
-              )}
-            </div>
-            <div className="form-actions tempo-exports">
-              <Button variant="ghost" size="sm" disabled={busy} onClick={() => void exportCsv()}>Exportar CSV</Button>
-              <Button variant="ghost" size="sm" disabled={busy} onClick={() => void exportPdf()}>Exportar PDF</Button>
-              {/* Impressão do sistema: no Windows ela abre a caixa com
-                  "Microsoft Print to PDF", então também é uma segunda saída em
-                  papel para quem prefere ver antes de salvar. */}
-              <Button variant="ghost" size="sm" onClick={() => window.print()}>Imprimir</Button>
-              <Button variant="primary" size="sm" disabled={busy || !clientId} onClick={() => void exportInvoice()}>
-                Fatura do cliente
-              </Button>
-            </div>
-            {!clientId ? (
-              <p className="support-copy">A fatura sai por cliente — escolha um acima para habilitá-la.</p>
+        <div className="tempo-presets">
+          {PRESETS.map((item) => (
+            <button key={item.label} type="button" onClick={() => item.apply(setFrom, setTo)}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {!clientId ? (
+          <p className="support-copy">A fatura sai por cliente — escolha um acima para habilitá-la.</p>
+        ) : null}
+      </Card>
+
+      {filtered.length ? (
+        <Card count={period}>
+          {/* A linha de números é a resposta inteira do relatório: quem abre
+              esta tela quer saber quanto vale o período, e o resto é detalhe de
+              conferência. Por isso ela vem antes das tabelas, e não depois. */}
+          <div className="tempo-stat-row">
+            <Stat label="HORAS REAIS" value={hoursOf(totals.grossSeconds)} />
+            <Stat label="HORAS INATIVAS" value={hoursOf(totals.idleSeconds)} />
+            <Stat label="HORAS FATURÁVEIS" value={hoursOf(totals.billableSeconds)} />
+            {/* O ajustado aparece ao LADO do bruto, nunca no lugar dele: quem
+                vai cobrar precisa ver os dois para conferir o desconto. */}
+            <Stat
+              label={percent ? "VALOR BRUTO" : "VALOR TOTAL"}
+              value={moneyOf(totals.amountCents)}
+              hint={`${filtered.length} sessões`}
+            />
+            {percent ? (
+              <Stat
+                label={percent > 0 ? `COM +${percent}%` : `COM ${percent}%`}
+                value={moneyOf(finalAmount)}
+              />
             ) : null}
-          </>
-        ) : (
+          </div>
+        </Card>
+      ) : (
+        <Card count={period}>
           <EmptyState>Nenhuma sessão neste recorte.</EmptyState>
-        )}
-      </Panel>
+        </Card>
+      )}
 
       {filtered.length ? (
         <>
-          <Panel label="POR PROJECT">
-            <table className="tempo-table">
-              <thead>
-                <tr>
-                  <th scope="col">Project</th>
-                  <th scope="col">Sessões</th>
-                  <th scope="col">Cobrável</th>
-                  <th scope="col">Valor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {byProject.map((group) => (
-                  <tr key={group.key}>
-                    <th scope="row">{named(group.key)}</th>
-                    <td>{group.lines.length}</td>
-                    <td>{hoursOf(group.totals.billableSeconds)}</td>
-                    <td>{moneyOf(group.totals.amountCents)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Panel>
+          <div className="tempo-cols" data-cols="2">
+            <div className="tempo-stack">
+              <Card label="POR PROJECT" className="flush">
+                <table className="tempo-table tempo-table-compact">
+                  <tbody>
+                    {byProject.map((group) => (
+                      <tr key={group.key}>
+                        <th scope="row">{named(group.key)}</th>
+                        <td>
+                          <strong>{moneyOf(group.totals.amountCents)}</strong>
+                          <small>{hoursOf(group.totals.billableSeconds)}</small>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
 
-          <Panel label="POR ATIVIDADE">
-            <table className="tempo-table">
-              <thead>
-                <tr>
-                  <th scope="col">Atividade</th>
-                  <th scope="col">Sessões</th>
-                  <th scope="col">Cobrável</th>
-                  <th scope="col">Valor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {byActivity.map((group) => (
-                  <tr key={group.key}>
-                    <th scope="row">{ACTIVITY_LABEL[group.key] ?? group.key}</th>
-                    <td>{group.lines.length}</td>
-                    <td>{hoursOf(group.totals.billableSeconds)}</td>
-                    <td>{moneyOf(group.totals.amountCents)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Panel>
+              <Card label="POR TIPO DE ATIVIDADE" className="flush">
+                <table className="tempo-table tempo-table-compact">
+                  <tbody>
+                    {byActivity.map((group) => (
+                      <tr key={group.key}>
+                        <th scope="row">{ACTIVITY_LABEL[group.key] ?? group.key}</th>
+                        <td>
+                          <strong>{moneyOf(group.totals.amountCents)}</strong>
+                          <small>{hoursOf(group.totals.billableSeconds)}</small>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
+            </div>
 
-          <Panel label="LINHAS" count={String(filtered.length)}>
-            <table className="tempo-table tempo-table-lines">
-              <thead>
-                <tr>
-                  <th scope="col">Data</th>
-                  <th scope="col">Project</th>
-                  <th scope="col">Atividade</th>
-                  <th scope="col">Cobrável</th>
-                  <th scope="col">Valor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((line) => (
-                  <tr key={line.entryId}>
-                    <th scope="row">{dayOf(line.startedAt)}</th>
-                    <td>{named(line.projectId)}</td>
-                    <td>{ACTIVITY_LABEL[line.activityType] ?? line.activityType}</td>
-                    <td>{hoursOf(line.totals.billableSeconds)}</td>
-                    <td>{moneyOf(line.totals.amountCents)}</td>
+            <Card label="SESSÕES DETALHADAS" count={String(filtered.length)} className="flush">
+              <table className="tempo-table tempo-table-lines">
+                <thead>
+                  <tr>
+                    <th scope="col">Data</th>
+                    <th scope="col">Project</th>
+                    <th scope="col">Faturável</th>
+                    <th scope="col">Valor</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </Panel>
+                </thead>
+                <tbody>
+                  {filtered.map((line) => (
+                    <tr key={line.entryId}>
+                      <th scope="row">{fullDay(line.startedAt)}</th>
+                      <td>{named(line.projectId)}</td>
+                      <td>{hoursOf(line.totals.billableSeconds)}</td>
+                      <td>{moneyOf(line.totals.amountCents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          </div>
+
         </>
       ) : null}
     </>

@@ -258,6 +258,10 @@ impl TrackingService {
                     },
                     rounding,
                 ),
+                raw_amount_cents: crate::amount_for_duration(
+                    crate::net_duration(entry.duration_seconds, entry.idle_seconds),
+                    entry.hourly_rate_snapshot_cents,
+                ),
                 entry_id: entry.id,
                 project_id: entry.project_id,
                 started_at: entry.started_at,

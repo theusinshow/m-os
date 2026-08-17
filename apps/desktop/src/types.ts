@@ -378,6 +378,14 @@ export type ReportLine = {
   description: string;
   hourlyRateSnapshotCents: number;
   totals: Totals;
+  /**
+   * O valor do tempo REAL, sem arredondar.
+   *
+   * O Histórico mostra este; o Relatório mostra `totals.amountCents`. Com
+   * arredondamento ligado os dois divergem de propósito — e é o registro real
+   * que o histórico existe para guardar.
+   */
+  rawAmountCents: number;
 };
 
 /** Quem está cobrando. Sai no cabeçalho da fatura, e em nenhum outro lugar. */

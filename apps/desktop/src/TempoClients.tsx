@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import { EmptyState, Panel } from "./Surface";
+import { Card, EmptyState } from "./Surface";
 import type { Client, ClientInput } from "./types";
 
 const EMPTY: ClientInput = { name: "", companyName: "", email: "", phone: "", notes: "" };
@@ -57,7 +57,7 @@ export function TempoClients({ onChanged }: { onChanged?: () => void }) {
   }
 
   return (
-    <Panel
+    <Card
       label="CLIENTES"
       count={clients.length ? String(clients.length) : undefined}
       action={<Button variant="ghost" size="sm" onClick={startNew}>Novo</Button>}
@@ -159,6 +159,6 @@ export function TempoClients({ onChanged }: { onChanged?: () => void }) {
         Mostrar arquivados
       </label>
       {note ? <p className="support-copy" aria-live="polite">{note}</p> : null}
-    </Panel>
+    </Card>
   );
 }

@@ -578,6 +578,14 @@ pub struct ReportLine {
     pub description: String,
     pub hourly_rate_snapshot_cents: i64,
     pub totals: Totals,
+    /// O valor do tempo REAL, sem arredondar.
+    ///
+    /// Existe ao lado de `totals.amount_cents` porque as duas telas perguntam
+    /// coisas diferentes: o Histórico mostra o que aconteceu, e o Relatório o
+    /// que se cobra. Com arredondamento ligado os dois números divergem de
+    /// propósito — 20 min viram 15 na cobrança —, e mostrar o cobrável no
+    /// histórico esconderia o registro real que o banco existe para guardar.
+    pub raw_amount_cents: i64,
 }
 
 /// Soma as sessões por projeto.

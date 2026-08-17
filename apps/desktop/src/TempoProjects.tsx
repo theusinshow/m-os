@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import { EmptyState, Panel } from "./Surface";
+import { Card, EmptyState, PageHeader } from "./Surface";
 import { durationOf, hoursOf, moneyOf } from "./TempoShared";
 import type { Client, Project, ProjectTracking, Totals, TrackingStatus } from "./types";
 
@@ -138,20 +138,21 @@ export function TempoProjects({ projects, totals, openProject }: {
           rolar por vinte Projects. */}
       {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
 
-      <Panel
-        label="PROJECTS"
-        count={sum.cents ? moneyOf(sum.cents) : undefined}
-        action={
+      <PageHeader
+        title="Projetos"
+        subtitle="Projects, valor/hora e estado. Dados guardados localmente."
+        actions={
           <input
             className="tempo-search"
             value={query}
-            placeholder="Filtrar por nome ou código"
-            aria-label="Filtrar Projects"
+            placeholder="Pesquisar projeto ou código…"
+            aria-label="Pesquisar Project"
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
         }
-        rule
-      >
+      />
+
+      <Card className="flush">
         {listed.length ? (
           <table className="tempo-table tempo-table-projects">
             <thead>
@@ -206,7 +207,7 @@ export function TempoProjects({ projects, totals, openProject }: {
               : "Projects nascem na página de Projects — aqui eles ganham valor/hora, cliente e meta."}
           </EmptyState>
         )}
-      </Panel>
+      </Card>
 
       <dialog ref={dialog} className="restore-dialog" onCancel={() => { dialog.current?.close(); setEditing(null); }}>
         <span className="micro-label">COBRANÇA</span>

@@ -1,8 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import { EmptyState, Panel } from "./Surface";
-import type { ActivityType, Period, Project } from "./types";
+import { Card, EmptyState, PageHeader } from "./Surface";
+import type { ActivityEvent, ActivityType, Period, Project } from "./types";
+
+/**
+ * O que cada evento observado quer dizer, em português.
+ *
+ * O nome técnico (`app_opened`) atravessa a ponte e vive no banco com CHECK
+ * constraint; ele não deve aparecer na tela. Traduzir aqui, e não renomear lá,
+ * mantém as duas coisas separadas.
+ */
+const EVENT_LABEL: Record<string, string> = {
+  app_opened: "programa aberto",
+  app_closed: "programa fechado",
+  idle_started: "inatividade iniciada",
+  idle_ended: "atividade retomada",
+  timer_started: "cronômetro iniciado",
+  timer_paused: "cronômetro pausado",
+  timer_resumed: "cronômetro retomado",
+  timer_stopped: "cronômetro encerrado",
+};
 
 /** `2026-08-16` no fuso LOCAL: `toISOString` devolve UTC e vira o dia errado à noite. */
 function todayInput() {
@@ -45,6 +63,7 @@ export function TempoTimeline({ projects, onChanged }: {
 }) {
   const [day, setDay] = useState(todayInput);
   const [gaps, setGaps] = useState<Period[]>([]);
+  const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [choice, setChoice] = useState<Record<string, string>>({});
   const [activity, setActivity] = useState<ActivityType>("drawing");
   const [note, setNote] = useState("");
@@ -53,7 +72,12 @@ export function TempoTimeline({ projects, onChanged }: {
   const load = useCallback(async () => {
     setLoading(true);
     const { since, until } = boundsOf(day);
-    setGaps(await api.monitoringTimeline(since, until).catch(() => []));
+    const [nextGaps, nextEvents] = await Promise.all([
+      api.monitoringTimeline(since, until).catch(() => []),
+      api.activityEvents(since, until).catch(() => [] as ActivityEvent[]),
+    ]);
+    setGaps(nextGaps);
+    setEvents(nextEvents);
     setLoading(false);
   }, [day]);
 
@@ -80,18 +104,22 @@ export function TempoTimeline({ projects, onChanged }: {
   );
 
   return (
-    <Panel
-      label="LINHA DO TEMPO"
-      count={gaps.length ? durationOf(total) : undefined}
-      action={
-        <input
-          type="date"
-          value={day}
-          aria-label="Dia da linha do tempo"
-          onChange={(event) => setDay(event.currentTarget.value)}
-        />
-      }
-    >
+    <>
+      <PageHeader
+        title="Linha do tempo detectada"
+        subtitle="Eventos do dia e períodos sem registro para reconstruir."
+        actions={
+          <input
+            type="date"
+            value={day}
+            aria-label="Dia da linha do tempo"
+            onChange={(event) => setDay(event.currentTarget.value)}
+          />
+        }
+      />
+
+      <div className="tempo-cols" data-cols="2">
+        <Card label="LACUNAS DETECTADAS" count={gaps.length ? durationOf(total) : undefined}>
       <p className="support-copy">
         Períodos com um programa monitorado aberto e <strong>sem sessão registrada</strong>. Nada vira hora sozinho —
         o sistema observou, e quem decide se foi trabalho é você.
@@ -159,10 +187,33 @@ export function TempoTimeline({ projects, onChanged }: {
         </>
       ) : (
         <EmptyState>
-          Nada sem registro neste dia. Ou tudo já virou sessão, ou nenhum programa monitorado esteve aberto.
+          Nenhum período com programa aberto sem registro neste dia.
         </EmptyState>
       )}
       {note ? <p className="support-copy" aria-live="polite">{note}</p> : null}
-    </Panel>
+        </Card>
+
+        {/* O que o sistema VIU, sem interpretação. A coluna da esquerda propõe
+            trabalho; esta só presta contas — e é ela que permite conferir por
+            que uma lacuna existe, ou por que nenhuma apareceu. */}
+        <Card label="EVENTOS DO DIA" count={events.length ? String(events.length) : undefined}>
+          {events.length ? (
+            <ul className="tempo-events">
+              {events.map((event) => (
+                <li key={event.id}>
+                  <span className="tempo-event-time">{clockOf(event.detectedAt)}</span>
+                  <span>
+                    {EVENT_LABEL[event.kind] ?? event.kind}
+                    {event.processName ? ` · ${event.processName}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState>Nada observado neste dia.</EmptyState>
+          )}
+        </Card>
+      </div>
+    </>
   );
 }

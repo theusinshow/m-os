@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import { ContextPath, EmptyState, Panel } from "./Surface";
+import { Card, ContextPath, EmptyState, PageHeader, Panel, Stat } from "./Surface";
 import { TempoClients } from "./TempoClients";
 import { TempoHistory } from "./TempoHistory";
 import { TempoProjects } from "./TempoProjects";
@@ -11,6 +11,7 @@ import { TempoSessions } from "./TempoSessions";
 import { TempoTimeline } from "./TempoTimeline";
 import {
   DraftFields,
+  durationOf,
   emptyDraft,
   hoursOf,
   moneyOf,
@@ -173,6 +174,15 @@ export function TempoPage({ projects, openProject, receipt }: {
     .sort(([, left], [, right]) => right.grossSeconds - left.grossSeconds);
 
   const trackedTotal = ranked.reduce((sum, [, total]) => sum + total.grossSeconds, 0);
+  const billedTotal = ranked.reduce((sum, [, total]) => sum + total.amountCents, 0);
+
+  // Horas de hoje, em dia LOCAL. `toDateString` compara ano, mês e dia sem
+  // passar por fuso — que é o que estraga a comparação depois das 21h.
+  const todayLabel = new Date().toDateString();
+  const todaySeconds = entries
+    .filter((entry) => new Date(entry.startedAt).toDateString() === todayLabel)
+    .reduce((sum, entry) => sum + Math.max(0, entry.durationSeconds), 0);
+
   const label = VIEWS.find((item) => item.value === view)?.label ?? "";
 
   return (
@@ -230,90 +240,111 @@ export function TempoPage({ projects, openProject, receipt }: {
 
       {view === "painel" ? (
         <>
-          <Panel label="CRONÔMETRO" rule>
-            <Timer projects={projects} entries={entries} onChanged={() => void load()} />
-          </Panel>
+          <PageHeader
+            title="Painel"
+            subtitle="Cronômetro atual, resumo do dia e sessões recentes."
+          />
 
-          <Panel label="LANÇAR TEMPO ESQUECIDO">
-            {active.length ? (
-              <form className="tempo-form" onSubmit={(event) => { event.preventDefault(); void record(); }}>
-                <div className="tempo-field">
-                  <label htmlFor="record-project">Project</label>
-                  <select id="record-project" value={choice} onChange={(event) => setChoice(event.currentTarget.value)}>
-                    <option value="">Escolha</option>
-                    {active.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-                  </select>
-                </div>
-                <DraftFields draft={draft} onChange={setDraft} idPrefix="record" />
-                <Button variant="primary" size="sm" type="submit" disabled={!choice || secondsOf(draft) <= 0}>Lançar</Button>
-                {/* Dito na tela, e não escondido no banco: hora lançada a mão é
-                    estimativa, e quem fatura precisa saber a diferença. */}
-                <p className="support-copy">Entra marcada como <strong>manual</strong> — hora estimada depois não é hora medida.</p>
-              </form>
-            ) : (
-              <EmptyState>Crie um Project para lançar tempo nele.</EmptyState>
-            )}
-          </Panel>
+          {/* Duas colunas de peso diferente: o cronômetro é o que se usa, os
+              números são o que se confere. Empilham numa janela estreita. */}
+          <div className="tempo-cols" data-cols="main">
+            <Card label="INICIAR TRABALHO">
+              <Timer projects={projects} entries={entries} onChanged={() => void load()} />
 
-          <Panel label="POR PROJECT" count={trackedTotal ? hoursOf(trackedTotal) : undefined}>
-            {ranked.length ? (
-              <table className="tempo-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Project</th>
-                    <th scope="col">Trabalhado</th>
-                    <th scope="col">Cobrável</th>
-                    <th scope="col">Valor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ranked.map(([id, total]) => {
-                    const project = named(id);
-                    return (
-                      <tr key={id}>
-                        <th scope="row">
-                          {project ? (
-                            <button type="button" onClick={() => openProject(project)}>{project.name}</button>
-                          ) : (
-                            "Project removido"
-                          )}
-                        </th>
-                        {/* Bruto e cobrável lado a lado de propósito: são perguntas
-                            diferentes — quanto eu trabalhei, e quanto eu cobro. */}
-                        <td>{hoursOf(total.grossSeconds)}</td>
-                        <td>{hoursOf(total.billableSeconds)}</td>
-                        <td>{moneyOf(total.amountCents)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            ) : (
-              <EmptyState>Nenhuma hora registrada ainda. Inicie o cronômetro acima, ou importe o CronoCAD em Configurações.</EmptyState>
-            )}
-          </Panel>
+              {active.length ? (
+                <details className="tempo-forgot">
+                  {/* Dobrado, e não escondido em outra tela: lançar tempo esquecido
+                      é a segunda coisa mais feita aqui, mas não a primeira — e
+                      aberto o tempo todo ele competia com o cronômetro. */}
+                  <summary>Esqueceu de registrar? Adicionar tempo</summary>
+                  <form className="tempo-form" onSubmit={(event) => { event.preventDefault(); void record(); }}>
+                    <div className="tempo-field">
+                      <label htmlFor="record-project">Project</label>
+                      <select id="record-project" value={choice} onChange={(event) => setChoice(event.currentTarget.value)}>
+                        <option value="">Escolha</option>
+                        {active.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                      </select>
+                    </div>
+                    <DraftFields draft={draft} onChange={setDraft} idPrefix="record" />
+                    <Button variant="primary" size="sm" type="submit" disabled={!choice || secondsOf(draft) <= 0}>Lançar</Button>
+                    {/* Dito na tela, e não escondido no banco: hora lançada a mão é
+                        estimativa, e quem fatura precisa saber a diferença. */}
+                    <p className="support-copy">Entra marcada como <strong>manual</strong> — hora estimada depois não é hora medida.</p>
+                  </form>
+                </details>
+              ) : null}
+            </Card>
 
-          <Panel
-            label="ÚLTIMAS SESSÕES"
-            count={entries.length > RECENT ? `${RECENT} de ${entries.length}` : undefined}
-            action={
-              entries.length > RECENT ? (
-                <Button variant="ghost" size="sm" onClick={() => setView("historico")}>Ver todas</Button>
-              ) : undefined
-            }
-          >
-            {entries.length ? (
-              <TempoSessions
-                entries={entries.slice(0, RECENT)}
-                projects={projects}
-                onChanged={() => void load()}
-                receipt={receipt}
-                onError={setNote}
-              />
-            ) : (
-              <EmptyState>As sessões encerradas aparecem aqui, da mais recente para a mais antiga.</EmptyState>
-            )}
-          </Panel>
+            <Card>
+              <div className="tempo-stat-column">
+                <Stat label="TRABALHADO HOJE" value={durationOf(todaySeconds)} />
+                <Stat label="ACUMULADO" value={hoursOf(trackedTotal)} hint={moneyOf(billedTotal)} />
+                <Stat label="SESSÕES REGISTRADAS" value={String(entries.length)} />
+                <Stat label="PROJECTS ATIVOS" value={String(active.length)} />
+              </div>
+            </Card>
+          </div>
+
+          {/* Três colunas: por Project, últimas sessões, e o convite da linha do
+              tempo. Nenhuma pede decisão — são as três leituras de relance. */}
+          <div className="tempo-cols" data-cols="3">
+            <Card label="POR PROJECT" count={trackedTotal ? hoursOf(trackedTotal) : undefined}>
+              {ranked.length ? (
+                <table className="tempo-table tempo-table-compact">
+                  <tbody>
+                    {ranked.map(([id, total]) => {
+                      const project = named(id);
+                      return (
+                        <tr key={id}>
+                          <th scope="row">
+                            {project ? (
+                              <button type="button" onClick={() => openProject(project)}>{project.name}</button>
+                            ) : (
+                              "Project removido"
+                            )}
+                          </th>
+                          <td>
+                            <strong>{moneyOf(total.amountCents)}</strong>
+                            <small>{hoursOf(total.grossSeconds)}</small>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <EmptyState>Nenhuma hora registrada ainda.</EmptyState>
+              )}
+            </Card>
+
+            <Card
+              label="SESSÕES RECENTES"
+              action={
+                entries.length > RECENT ? (
+                  <Button variant="ghost" size="sm" onClick={() => setView("historico")}>Ver todas</Button>
+                ) : undefined
+              }
+            >
+              {entries.length ? (
+                <TempoSessions
+                  entries={entries.slice(0, RECENT)}
+                  projects={projects}
+                  onChanged={() => void load()}
+                  receipt={receipt}
+                  onError={setNote}
+                />
+              ) : (
+                <EmptyState>As sessões encerradas aparecem aqui.</EmptyState>
+              )}
+            </Card>
+
+            <Card label="LINHA DO TEMPO DETECTADA">
+              <p className="support-copy">
+                Veja os programas monitorados abertos hoje e transforme períodos sem registro em sessões.
+              </p>
+              <Button variant="ghost" size="sm" onClick={() => setView("linha")}>Abrir linha do tempo</Button>
+            </Card>
+          </div>
         </>
       ) : null}
 
@@ -336,8 +367,20 @@ export function TempoPage({ projects, openProject, receipt }: {
 
       {view === "config" ? (
         <>
-          <TempoClients />
-          <TempoSettings onChanged={() => void load()} />
+          <PageHeader
+            title="Configurações"
+            subtitle="Arredondamento, observação, clientes e emissor da fatura."
+          />
+          {/* Duas colunas: clientes e emissor de um lado, o que o sistema faz
+              sozinho do outro. Sete cards numa coluna só era rolagem sem fim. */}
+          <div className="tempo-cols" data-cols="2">
+            <div className="tempo-stack">
+              <TempoClients />
+            </div>
+            <div className="tempo-stack">
+              <TempoSettings onChanged={() => void load()} />
+            </div>
+          </div>
         </>
       ) : null}
     </div>

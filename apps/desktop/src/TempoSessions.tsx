@@ -11,10 +11,21 @@ import {
   durationOf,
   emptyDraft,
   momentOf,
+  moneyOf,
   secondsOf,
+  SOURCE_LABEL,
   type Draft,
 } from "./TempoShared";
 import type { Project, TimeEntry } from "./types";
+
+/** `22:33` — a hora de parede, que é como se lembra de uma sessão. */
+function clockOf(iso: string) {
+  return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function fullDay(iso: string) {
+  return new Date(iso).toLocaleDateString("pt-BR");
+}
 
 /**
  * A lista de sessões, com correção e remoção.
@@ -23,12 +34,23 @@ import type { Project, TimeEntry } from "./types";
  * listas parecidas divergiriam: o dia em que "Corrigir" ganhasse um campo, uma
  * das duas ficaria para trás — e seria a que o usuário estivesse usando.
  */
-export function TempoSessions({ entries, projects, onChanged, receipt, onError }: {
+export function TempoSessions({ entries, projects, onChanged, receipt, onError, variant = "list", amounts }: {
   entries: TimeEntry[];
   projects: Project[];
   onChanged: () => void;
   receipt?: (action: { message: string; run: () => Promise<unknown> }) => void;
   onError: (message: string) => void;
+  /**
+   * `list` na coluna estreita do Painel; `table` no Histórico.
+   *
+   * Duas apresentações e UMA lógica. Separar em dois componentes faria a
+   * correção de sessão existir duas vezes, e no dia em que ela ganhasse um
+   * campo, uma das duas ficaria para trás — justamente a que o usuário
+   * estivesse usando.
+   */
+  variant?: "list" | "table";
+  /** Valor REAL por sessão, calculado no Rust. Só a tabela usa. */
+  amounts?: Record<string, number>;
 }) {
   const [editing, setEditing] = useState<TimeEntry | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
@@ -92,6 +114,60 @@ export function TempoSessions({ entries, projects, onChanged, receipt, onError }
 
   return (
     <>
+      {variant === "table" ? (
+        <table className="tempo-table tempo-table-sessions">
+          <thead>
+            <tr>
+              <th scope="col">Data</th>
+              <th scope="col">Project</th>
+              <th scope="col">Atividade</th>
+              {/* O PERÍODO é o que faz a sessão ser reconhecível: "22:33—22:53"
+                  devolve a lembrança de quando aquilo aconteceu, coisa que
+                  "20min" sozinho não faz. */}
+              <th scope="col">Período</th>
+              <th scope="col">Duração</th>
+              <th scope="col">Valor</th>
+              <th scope="col"><span className="visually-hidden">Ações</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry) => {
+              const suspicion = inspectEntry(entry);
+              const amount = amounts?.[entry.id];
+              return (
+                <tr key={entry.id}>
+                  <th scope="row">{fullDay(entry.startedAt)}</th>
+                  <td>
+                    {named(entry.projectId)?.name ?? "Project removido"}
+                    {entry.description ? <small>{entry.description}</small> : null}
+                  </td>
+                  <td>
+                    {ACTIVITY_LABEL[entry.activityType] ?? entry.activityType}
+                    {entry.source === "timer" ? null : <small>{SOURCE_LABEL[entry.source]}</small>}
+                  </td>
+                  <td>
+                    {entry.endedAt ? `${clockOf(entry.startedAt)}—${clockOf(entry.endedAt)}` : clockOf(entry.startedAt)}
+                    {suspicion.length ? (
+                      <small className="tempo-flag" title={suspicionText(suspicion)}>Conferir?</small>
+                    ) : null}
+                  </td>
+                  <td>{durationOf(entry.durationSeconds)}</td>
+                  <td>
+                    {amount === undefined ? "—" : moneyOf(amount)}
+                    {entry.billable ? null : <small>não cobrável</small>}
+                  </td>
+                  <td>
+                    <span className="tempo-row-actions">
+                      <Button variant="ghost" size="sm" onClick={() => openEdit(entry)}>Corrigir</Button>
+                      <Button variant="ghost" size="sm" onClick={() => void trash(entry)}>Remover</Button>
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      ) : (
       <div className="tempo-sessions">
         {entries.map((entry) => {
           const suspicion = inspectEntry(entry);
@@ -123,6 +199,7 @@ export function TempoSessions({ entries, projects, onChanged, receipt, onError }
           );
         })}
       </div>
+      )}
 
       <dialog ref={dialog} className="restore-dialog" onCancel={() => { dialog.current?.close(); setEditing(null); }}>
         <span className="micro-label">CORRIGIR SESSÃO</span>

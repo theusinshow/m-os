@@ -805,6 +805,328 @@ textarea::placeholder {
   opacity: 1;
 }
 
+/* Cabecalho de tela: titulo, subtitulo e acoes.
+ *
+ * O titulo e maior que qualquer coisa da tela e por isso nao precisa de regua
+ * embaixo — o tamanho ja separa. */
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin: var(--space-5) 0 var(--space-4);
+}
+
+.page-head h1 {
+  margin: 0;
+  color: var(--text);
+  font: var(--text-title);
+}
+
+.page-head p {
+  margin: var(--space-1) 0 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.page-head-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Card com moldura. A borda e de 1px e o cabecalho leva regua propria: e ela
+   que faz duas colunas lado a lado se lerem como duas coisas, e nao como um
+   paragrafo desalinhado. */
+.tempo-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: var(--line) solid var(--border);
+  background: var(--surface-raised);
+}
+
+.tempo-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.tempo-card-head h2 {
+  flex: 1;
+  margin: 0;
+  color: var(--text-system);
+}
+
+.tempo-card-count {
+  color: var(--text-system);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-meta);
+}
+
+.tempo-card-body {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-3);
+}
+
+/* O card sem padding, para tabela encostar na moldura como no original. */
+.tempo-card-body[data-flush],
+.tempo-card.flush .tempo-card-body {
+  padding: 0;
+}
+
+/* Colunas. `auto-fit` com minimo real: numa janela estreita a faixa vira uma
+   coluna sozinha em vez de espremer tres cards ate o texto quebrar em cada
+   palavra. */
+.tempo-cols {
+  display: grid;
+  gap: var(--space-3);
+  align-items: start;
+  margin-bottom: var(--space-3);
+}
+
+.tempo-cols[data-cols="2"] {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.tempo-cols[data-cols="3"] {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+/* Duas colunas de peso diferente: o cronometro manda, os numeros acompanham. */
+.tempo-cols[data-cols="main"] {
+  grid-template-columns: minmax(320px, 2fr) minmax(200px, 1fr);
+}
+
+@media (max-width: 860px) {
+  .tempo-cols[data-cols="main"] {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Numeros grandes. Empilhados quando estao numa coluna estreita, lado a lado
+   quando a faixa e larga — o mesmo componente serve os dois. */
+.tempo-stat {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tempo-stat strong {
+  color: var(--text);
+  font: var(--text-capture);
+  font-variant-numeric: tabular-nums;
+}
+
+.tempo-stat small {
+  color: var(--text-system);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.tempo-stat-column {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.tempo-stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-4);
+}
+
+/* Atalhos de periodo. Texto com regua embaixo do ativo, e nao botao com fundo:
+   sao filtros e nao acoes, e um bloco de quatro botoes solidos competiria com o
+   botao que de fato executa alguma coisa na tela. */
+.tempo-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+
+.tempo-presets button {
+  padding: 0 0 2px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color var(--dur-state) var(--ease-state);
+}
+
+.tempo-presets button:hover {
+  color: var(--text);
+}
+
+.tempo-presets button[aria-pressed="true"] {
+  border-bottom-color: var(--signal-ink);
+  color: var(--signal-ink);
+}
+
+/* Atalhos de "comecar agora" por Project, com o codigo da obra na frente. */
+.tempo-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+.tempo-chips button {
+  padding: var(--space-1) var(--space-2);
+  border: var(--line) solid var(--border);
+  background: none;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  cursor: pointer;
+  transition: border-color var(--dur-state) var(--ease-state), color var(--dur-state) var(--ease-state);
+}
+
+.tempo-chips button:hover {
+  border-color: var(--signal-ink);
+  color: var(--text);
+}
+
+/* Dois cards empilhados dentro de uma coluna da grade. */
+.tempo-stack {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+}
+
+/* Tabela dentro de card `flush`: as celulas ganham o respiro lateral que o
+   corpo do card perdeu, e a ultima linha nao desenha regua porque a moldura do
+   card ja fecha ali. */
+.tempo-card.flush .tempo-table {
+  margin-top: 0;
+}
+
+.tempo-card.flush .tempo-table th,
+.tempo-card.flush .tempo-table td {
+  padding: var(--space-2) var(--space-3);
+}
+
+.tempo-card.flush .tempo-table tbody tr:last-child th,
+.tempo-card.flush .tempo-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Tabela de duas colunas para coluna estreita: rotulo a esquerda, valor com a
+   hora embaixo a direita. E a forma que cabe em 260px sem virar rolagem. */
+.tempo-table-compact th[scope="row"] {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tempo-table-compact td strong {
+  display: block;
+  color: var(--text);
+  font: var(--text-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A tabela do Historico. `Project`, `Atividade` e `Periodo` sao TEXTO e ficam a
+   esquerda; so duracao e valor sao grandeza e vao para a direita. Alinhar tudo
+   a direita, como na tabela de totais, faria o nome do Project flutuar longe da
+   data a que pertence. */
+.tempo-table-sessions td:nth-child(2),
+.tempo-table-sessions td:nth-child(3),
+.tempo-table-sessions td:nth-child(4) {
+  color: var(--text-secondary);
+  text-align: left;
+}
+
+.tempo-table-sessions td:nth-child(2) {
+  color: var(--text);
+}
+
+.tempo-table-sessions td small {
+  display: block;
+  color: var(--text-system);
+  font: var(--text-meta);
+}
+
+.tempo-table-sessions td:last-child {
+  width: 1%;
+  white-space: nowrap;
+}
+
+/* As acoes da linha aparecem no hover, como na lista — mas com `focus-within`
+   junto, senao quem navega por teclado nunca as alcanca. */
+.tempo-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  opacity: 0;
+  transition: opacity var(--dur-state) var(--ease-state);
+}
+
+tr:hover .tempo-row-actions,
+tr:focus-within .tempo-row-actions {
+  opacity: 1;
+}
+
+/* O que o sistema observou, em ordem. Hora em mono e largura fixa para as
+   colunas se alinharem sem tabela. */
+.tempo-events {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tempo-events li {
+  display: flex;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.tempo-event-time {
+  flex: none;
+  min-width: 5ch;
+  color: var(--text-system);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Lancar tempo esquecido, dobrado dentro do card do cronometro. */
+.tempo-forgot {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: var(--line) solid var(--border);
+}
+
+.tempo-forgot summary {
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color var(--dur-state) var(--ease-state);
+}
+
+.tempo-forgot summary:hover {
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tempo-row-actions {
+    transition: none;
+  }
+}
+
 /* A navegacao entre as seis telas do Tempo.
  *
  * Texto e regua, sem caixa: a barra lateral ja e a navegacao do M/OS, e uma
@@ -1027,10 +1349,45 @@ textarea::placeholder {
   .topbar,
   .tempo-nav,
   .tempo-filters,
+  .tempo-presets,
   .tempo-exports,
+  .page-head-actions,
+  .tempo-row-actions,
   .receipt,
   .context-path {
     display: none !important;
+  }
+
+  /* O titulo e o subtitulo FICAM: numa folha solta, sem eles ninguem sabe do
+     que e o relatorio nem de que periodo. */
+  .page-head h1,
+  .page-head p {
+    color: #000;
+  }
+
+  /* Colunas viram uma so no papel. Duas colunas de 260px numa A4 sobram espaco
+     nas laterais e quebram a tabela no meio. */
+  .tempo-cols,
+  .tempo-stat-row {
+    display: block;
+  }
+
+  .tempo-card {
+    margin-bottom: 12px;
+    border-color: #ccc;
+    background: #fff;
+    break-inside: avoid;
+  }
+
+  .tempo-card-head {
+    border-bottom-color: #ccc;
+  }
+
+  .tempo-card-head h2,
+  .tempo-card-count,
+  .tempo-stat strong,
+  .tempo-stat small {
+    color: #000;
   }
 
   .app-shell,
