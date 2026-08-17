@@ -251,7 +251,7 @@ pub fn proposal_part(raw: &str) -> PartBody {
 ///
 /// Nunca SQL proprio, nunca um atalho: e a invariante que faz a acao do Hermes
 /// obedecer as mesmas regras que a acao do usuario (ADR-024, ADR-032).
-fn run_action<R: Runtime>(
+async fn run_action<R: Runtime>(
     app: &AppHandle<R>,
     args: &mos_core::ActionArgs,
 ) -> Result<mos_core::ActionEffect, CoreError> {
@@ -423,6 +423,30 @@ fn run_action<R: Runtime>(
                 undo: Some(mos_core::UndoStep::TrashTimeEntry {
                     id: entry.id.to_string(),
                 }),
+            })
+        }
+        mos_core::ActionArgs::MFinanceCreateBill {
+            amount_cents,
+            description,
+            due_day,
+            is_recurring,
+        } => {
+            let message = crate::finance::execute_create_bill(
+                *amount_cents,
+                description,
+                *due_day,
+                *is_recurring,
+            )
+            .await
+            .map_err(|error| CoreError::new(mos_core::ErrorCode::Io, error, true))?;
+            Ok(mos_core::ActionEffect {
+                message,
+                // Sem desfazer: o M/OS nao tem um comando de "apagar conta" no
+                // M-Finance, e inventar um so para o Undo seria dar ao Hermes um
+                // poder que a Action API (Fase 3 da spec) nao expoe. Corrigir uma
+                // conta criada por engano e manual, dentro do proprio M-Finance —
+                // igual e como as outras contas de la sempre foram corrigidas.
+                undo: None,
             })
         }
     }
@@ -617,7 +641,11 @@ pub async fn action_resolve<R: Runtime>(
             None,
         )
     } else {
-        match mos_core::parse_action(&raw).and_then(|args| run_action(&app, &args)) {
+        let resolved = match mos_core::parse_action(&raw) {
+            Ok(args) => run_action(&app, &args).await,
+            Err(error) => Err(error),
+        };
+        match resolved {
             Ok(effect) => (ProposalStatus::Executed, effect.message, effect.undo),
             Err(error) => (ProposalStatus::Failed, error.message, None),
         }
