@@ -998,6 +998,129 @@ textarea::placeholder {
   color: var(--text);
 }
 
+/* A grade do mes. Sete colunas iguais, e as celulas com proporcao fixa para a
+   grade nao mudar de altura conforme o conteudo do mes. */
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.calendar-weekday {
+  padding-bottom: var(--space-2);
+  color: var(--text-system);
+  text-align: center;
+}
+
+.calendar-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  aspect-ratio: 1 / 0.72;
+  padding: var(--space-2);
+  border: var(--line) solid var(--border);
+  background: none;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-state) var(--ease-state),
+    background var(--dur-state) var(--ease-state);
+}
+
+.calendar-cell:hover {
+  background: var(--surface-hover);
+}
+
+/* Dia de outro mes: continua clicavel e legivel, so recua. Esconder faria a
+   primeira e a ultima semana ficarem com buracos, e o buraco se le como erro. */
+.calendar-cell[data-outside] .calendar-day {
+  color: var(--text-disabled);
+}
+
+.calendar-cell[data-today] .calendar-day {
+  color: var(--signal-ink);
+}
+
+.calendar-cell[aria-pressed='true'] {
+  border-color: var(--signal-ink);
+}
+
+.calendar-day {
+  color: var(--text);
+  font: var(--text-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+/* As horas sao o unico numero da celula, e por isso levam a cor cheia: e a
+   pergunta que se faz olhando um mes de trabalho. */
+.calendar-hours {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-dots {
+  display: flex;
+  gap: 3px;
+  margin-top: auto;
+}
+
+.calendar-dots span {
+  width: var(--dot-size);
+  height: var(--dot-size);
+  background: var(--text-system);
+}
+
+/* Sessao em sodio; o resto em cinza. O sodio marca de onde sai a renda, que e
+   a razao de o Tempo ter endereco proprio (ADR-036) — e nao ha cor sobrando
+   para distinguir os outros quatro tipos entre si sem virar semaforo. */
+.calendar-dots span[data-kind='session'] {
+  background: var(--signal-fill);
+}
+
+.calendar-day-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.calendar-day-list li {
+  display: grid;
+  grid-template-columns: 5ch 12ch 1fr auto;
+  gap: var(--space-3);
+  align-items: baseline;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.calendar-item-time,
+.calendar-item-duration {
+  color: var(--text-system);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-item-kind {
+  color: var(--text-system);
+  font: var(--text-meta);
+}
+
+.calendar-item-title {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .calendar-cell {
+    transition: none;
+  }
+}
+
 /* Dois cards empilhados dentro de uma coluna da grade. */
 .tempo-stack {
   display: grid;
