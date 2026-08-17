@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
 import { groupByLocalDay, monthGrid, startOfLocalDay } from "./calendarDays";
-import { Card, ContextPath, EmptyState, PageHeader } from "./Surface";
+import { EmptyState, Inspector, PaneHeader } from "./Surface";
 import type { CalendarItem, CalendarKind } from "./types";
 
 const WEEKDAYS = ["SEG", "TER", "QUA", "QUI", "SEX", "SÁB", "DOM"];
@@ -48,7 +49,10 @@ export function CalendarPage() {
   });
   const [items, setItems] = useState<CalendarItem[]>([]);
   const [chosen, setChosen] = useState<number | null>(null);
+  const [narrowPane, setNarrowPane] = useState<"list" | "detail">("list");
   const [note, setNote] = useState("");
+  const gridRef = useRef<HTMLDivElement>(null);
+  const inspector = useRef<HTMLElement>(null);
 
   const grid = useMemo(() => monthGrid(month), [month]);
 
@@ -75,39 +79,77 @@ export function CalendarPage() {
     .toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
     .toUpperCase();
 
-  const step = (months: number) =>
+  const step = (months: number) => {
     setMonth(new Date(month.getFullYear(), month.getMonth() + months, 1));
+    setChosen(null);
+    setNarrowPane("list");
+  };
 
   function goToday() {
     const now = new Date();
     setMonth(new Date(now.getFullYear(), now.getMonth(), 1));
-    setChosen(today);
+    selectDay(today);
   }
 
+  function selectDay(key: number) {
+    setChosen(key);
+    setNarrowPane("detail");
+    if (window.matchMedia("(max-width: 960px)").matches) {
+      requestAnimationFrame(() => inspector.current?.focus());
+    }
+  }
+
+  function returnToGrid() {
+    setNarrowPane("list");
+    requestAnimationFrame(() => {
+      const selected = gridRef.current?.querySelector<HTMLButtonElement>(".calendar-cell[aria-pressed='true']");
+      selected?.focus();
+    });
+  }
+
+  function moveDayFocus(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    if (!["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    let next = index;
+    if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = grid.length - 1;
+    else if (event.key === "ArrowLeft") next = Math.max(0, index - 1);
+    else if (event.key === "ArrowRight") next = Math.min(grid.length - 1, index + 1);
+    else if (event.key === "ArrowUp") next = Math.max(0, index - 7);
+    else next = Math.min(grid.length - 1, index + 7);
+    const cells = gridRef.current?.querySelectorAll<HTMLButtonElement>(".calendar-cell");
+    cells?.[next]?.focus();
+    const day = grid[next];
+    if (day) {
+      setChosen(startOfLocalDay(day).getTime());
+      setNarrowPane(window.matchMedia("(max-width: 960px)").matches ? "list" : "detail");
+    }
+  }
+
+  const chosenItems = chosen !== null ? byDay.get(chosen) ?? [] : [];
+
   return (
-    <div className="page tempo-page">
-      <ContextPath segments={["M", "CALENDÁRIO"]} />
+    <div className="split-page inspector-page calendar-page" data-pane={narrowPane} data-has-day={chosen !== null || undefined}>
+      <section className="list-pane calendar-month-pane" aria-label="Grade do mês">
+        <PaneHeader
+          segments={["M", "CALENDÁRIO"]}
+          meta={monthLabel}
+          actions={
+            <div className="calendar-nav" role="group" aria-label="Navegação do mês">
+              <Button variant="ghost" size="sm" onClick={() => step(-1)} aria-label="Mês anterior" title="Mês anterior">‹</Button>
+              <Button variant="ghost" size="sm" onClick={goToday} title="Ir para hoje">Hoje</Button>
+              <Button variant="ghost" size="sm" onClick={() => step(1)} aria-label="Próximo mês" title="Próximo mês">›</Button>
+            </div>
+          }
+        />
 
-      <PageHeader
-        title="Calendário"
-        subtitle="O que aconteceu em cada dia."
-        actions={
-          <>
-            <Button variant="ghost" size="sm" onClick={() => step(-1)} aria-label="Mês anterior">‹</Button>
-            <Button variant="ghost" size="sm" onClick={goToday}>Hoje</Button>
-            <Button variant="ghost" size="sm" onClick={() => step(1)} aria-label="Próximo mês">›</Button>
-          </>
-        }
-      />
+        {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
 
-      {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
-
-      <Card label={monthLabel}>
-        <div className="calendar-grid">
+        <div ref={gridRef} className="calendar-grid" role="grid" aria-label={monthLabel}>
           {WEEKDAYS.map((weekday) => (
-            <span className="micro-label calendar-weekday" key={weekday}>{weekday}</span>
+            <span className="micro-label calendar-weekday" key={weekday} role="columnheader">{weekday}</span>
           ))}
-          {grid.map((day) => {
+          {grid.map((day, index) => {
             const key = startOfLocalDay(day).getTime();
             const dayItems = byDay.get(key) ?? [];
             const worked = dayItems
@@ -115,20 +157,27 @@ export function CalendarPage() {
               .reduce((sum, item) => sum + item.seconds, 0);
             // Um ponto por TIPO presente, nunca um por item: três Tasks
             // concluídas fazem um ponto, e não três. A célula responde "houve
-            // Task aqui"; a contagem exata é o que o detalhe do dia dá. Sem
-            // isso, um dia movimentado vira uma nuvem que não se conta de
-            // relance nem se lê como número.
+            // Task aqui"; a contagem exata é o que o detalhe do dia dá.
             const kinds = [...new Set(dayItems.map((item) => item.kind))];
             return (
               <button
                 type="button"
                 key={key}
+                role="gridcell"
                 className="calendar-cell"
                 data-outside={day.getMonth() !== month.getMonth() || undefined}
                 data-today={key === today || undefined}
                 aria-pressed={key === chosen}
-                aria-label={`${day.getDate()} — ${dayItems.length} registros`}
-                onClick={() => setChosen(key)}
+                aria-label={`${day.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })} — ${dayItems.length} registros`}
+                onClick={() => selectDay(key)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    selectDay(key);
+                    return;
+                  }
+                  moveDayFocus(event, index);
+                }}
               >
                 <span className="calendar-day">{day.getDate()}</span>
                 {worked ? <span className="calendar-hours">{durationOf(worked)}</span> : null}
@@ -141,9 +190,23 @@ export function CalendarPage() {
             );
           })}
         </div>
-      </Card>
+      </section>
 
-      {chosen !== null ? <DayDetail at={chosen} items={byDay.get(chosen) ?? []} /> : null}
+      {chosen !== null ? (
+        <Inspector
+          ref={inspector}
+          label="Detalhe do dia"
+          onBack={returnToGrid}
+          onEscape={returnToGrid}
+        >
+          <DayDetail at={chosen} items={chosenItems} />
+        </Inspector>
+      ) : (
+        <aside className="detail-pane calendar-day-placeholder" aria-label="Detalhe do dia">
+          <span className="micro-label">DIA</span>
+          <p className="empty-state">Selecione um dia na grade para ver o que aconteceu.</p>
+        </aside>
+      )}
     </div>
   );
 }
@@ -163,7 +226,14 @@ function DayDetail({ at, items }: { at: number; items: CalendarItem[] }) {
   });
 
   return (
-    <Card label={label.toUpperCase()} count={items.length ? String(items.length) : undefined}>
+    <>
+      <header className="detail-header">
+        <div>
+          <span className="micro-label">DIA</span>
+          <h1>{label}</h1>
+          <p>{items.length ? `${items.length} ${items.length === 1 ? "registro" : "registros"}` : "Sem registros."}</p>
+        </div>
+      </header>
       {items.length ? (
         <ul className="calendar-day-list">
           {items.map((item, index) => (
@@ -180,6 +250,6 @@ function DayDetail({ at, items }: { at: number; items: CalendarItem[] }) {
       ) : (
         <EmptyState>Nada registrado neste dia.</EmptyState>
       )}
-    </Card>
+    </>
   );
 }

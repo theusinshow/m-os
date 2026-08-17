@@ -1009,3 +1009,151 @@ A `List` segmentada mencionada em `DESIGN-FOUNDATIONS.md` não foi criada neste 
 Durante a limpeza das fixtures em 840×600, Projects revelou um pane de detalhe estreito demais para título, menu e ação. A arquitetura master-detail de Projects deve receber tratamento responsivo próprio no próximo lote de Projects; ampliar sua largura dentro de Tasks apenas deslocaria o problema.
 
 Nenhuma regra de negócio, API, banco, schema, estado de trabalho ou contrato de domínio foi alterado. O próximo lote recomendado é **Lote 4C — Projects**, corrigindo sua composição master-detail e o comportamento abaixo de 960px antes de avançar para Library e Calendar.
+
+## 24. Estado de execução — Lote 4C
+
+Implementado em 2026-08-17 como refinamento de Projects no contrato master-detail compartilhado. Criação, edição, Archive, Tasks relacionadas e o campo `repository` foram preservados.
+
+### Auditoria da superfície
+
+- o detalhe usava `article.detail-pane` fora do `Inspector`, sem pane única abaixo de 960px;
+- em 840×600, título, menu e fatos competiam numa coluna estreita ao lado da lista;
+- o empty state ficava confinado ao pane esquerdo enquanto o detalhe vazio dominava a página;
+- a lista não movia preview com setas e não devolvia foco ao voltar do detalhe;
+- Archive não expunha estado pendente nem erro contextual.
+
+### Composição e responsividade
+
+- Projects adota `inspector-page` com o mesmo breakpoint de 960px de Inbox e Library;
+- em desktop, lista e detalhe permanecem lado a lado; a coluna da lista cede até 42% e o detalhe recebe o restante;
+- abaixo de 960px, seleção ou criação abre o Inspector em pane única, com `Voltar à lista` e `Esc`;
+- empty state passa a ser página inteira com contagem, explicação curta e uma ação `Novo Project`;
+- header do detalhe, fact-grid e painel de Tasks usam o ritmo compacto já consolidado, com quebra segura de títulos longos.
+
+### Lista, seleção e lifecycle
+
+- `PaneHeader` concentra caminho, contagem de ativos e a ação silenciosa `Novo Project`;
+- rows preservam nome, descrição e progresso de Tasks; setas, `Home` e `End` movem preview;
+- `Enter`/`Espaço` abrem o detalhe e, no compacto, transferem o foco ao Inspector;
+- Archive mostra `Arquivando`, desabilita ações concorrentes e devolve erro no Inspector quando falha;
+- após arquivar, a superfície retorna à lista e o receipt de desfazer permanece idêntico.
+
+### Evidência de QA
+
+- `npm run build`: aprovado;
+- `npm test -- --run`: 2 arquivos e 12 testes aprovados;
+- `git diff --check`: aprovado;
+- inspeção visual no cliente Tauri deve validar Dark em 840×600, 1280×800, 1440×900 e 1920×1080, além de Light onde borders/seleção mudem.
+
+### Limite deste lote
+
+Nenhuma regra de negócio, API, banco, schema ou contrato de domínio foi alterado. Workspaces e Apps ainda repetem o master-detail antigo e entram no **Lote 4F**. O próximo lote recomendado é **Lote 4D — Library / Resources**.
+
+## 25. Estado de execução — Lote 4D
+
+Implementado em 2026-08-17 como refinamento de Library/Resources. Filtros, kinds, lifecycle, proveniência e vínculos de Workspace foram preservados.
+
+### Auditoria da superfície
+
+- a grade fixava quatro colunas dentro de um pane de 400px, comprimindo títulos em 1920×1080;
+- o Inspector ocupava o restante da largura e espalhava nota/URL além da medida de leitura;
+- a barra de filtros competia horizontalmente sem grupos claros quando contexto + tipo + view coexistiam;
+- teclado da grade não movia preview; retorno de foco ignorava tiles selecionados;
+- labels de detalhe diziam `LINK` mesmo para note/image/library.
+
+### Composição e densidade
+
+- Library inverte a proporção operacional: acervo `1fr` + Inspector contido em até `min(400px, 36%)`;
+- tiles usam `auto-fill` com mínimo ~9.5rem, caindo para ~8.75rem abaixo de 1280px;
+- títulos e motivos limitam-se a duas linhas com quebra segura; origem mono elide;
+- conteúdo do Inspector (header, nota, contexto, form e ações) respeita `--measure`;
+- URL aparece em mono secundário e some quando o Resource não tem endereço;
+- empty state continua expandindo a coleção e ocultando o detalhe.
+
+### Filtros, seleção e teclado
+
+- `Novo Resource` sobe para o `PaneHeader` como ação silenciosa;
+- grupos de filtro quebram linha e separam-se por hairline até 1100px; abaixo disso empilham sem borda lateral;
+- setas, `Home` e `End` movem preview em grid e lista; `Enter`/`Espaço` abrem o detalhe;
+- no compacto (<960px), seleção/criação foca o Inspector; `Esc` e Voltar devolvem foco ao tile/row/ação;
+- detalhe nomeia o kind real (`SITE`, `LIBRARY`, `IMAGEM`, `NOTA`) e só oferece `Abrir link` quando há URL.
+
+### Evidência de QA
+
+- `npm run build`: aprovado;
+- `npm test -- --run`: 2 arquivos e 12 testes aprovados;
+- `git diff --check`: aprovado;
+- inspeção visual no cliente Tauri deve validar Dark em 840×600, 1280×800, 1440×900 e 1920×1080, além de Light onde surfaces/borders mudem.
+
+### Limite deste lote
+
+Nenhuma regra de negócio, API, banco, schema ou contrato de domínio foi alterado. O próximo lote recomendado é **Lote 4E — Calendar**.
+
+## 26. Estado de execução — Lote 4E
+
+Implementado em 2026-08-17 como refinamento do Calendar retrospectivo. Fontes, `CalendarItem`, janela da grade e regras temporais foram preservados.
+
+### Auditoria da superfície
+
+- o detalhe do dia abria abaixo das seis semanas, fora do primeiro viewport;
+- a grade vivia dentro de `Card`/`PageHeader` herdados do Tempo, com chrome de produto absorvido;
+- navegação de mês usava glifos sem tooltip/grupo explícito;
+- células com `aspect-ratio` fixo competiam com o card e o detalhe empilhado;
+- teclado não movia a seleção pela grade.
+
+### Composição e detalhe
+
+- Calendar adota `inspector-page`: grade à esquerda, dia à direita;
+- o detalhe deixa de empilhar abaixo do mês e passa a ser Inspector lateral sempre visível no desktop;
+- abaixo de 960px, seleção abre pane única com Voltar/`Esc` e devolve foco à célula;
+- sem dia escolhido, o placeholder lateral orienta a seleção; no compacto ele some para não roubar a grade;
+- `Card` e título de página pesado saem; `PaneHeader` + mês + nav compacta bastam.
+
+### Grade, densidade e teclado
+
+- a grade usa hairlines como estrutura (sem card ao redor de cada célula);
+- selected = surface-active + marcador lateral; today = sódio no número do dia;
+- setas movem o preview em passos de 1/7; `Home`/`End` vão aos extremos; `Enter`/`Espaço` abrem o dia;
+- lista do dia vira rows densas (hora, kind, título, duração) com quebra segura;
+- domínio permanece retrospectivo: nenhum prazo, compromisso ou agenda foi introduzido.
+
+### Evidência de QA
+
+- `npm run build`: aprovado;
+- `npm test -- --run`: 2 arquivos e 12 testes aprovados (inclui `calendarDays`);
+- `git diff --check`: aprovado;
+- inspeção visual no cliente Tauri deve validar Dark em 840×600, 1280×800, 1440×900 e 1920×1080.
+
+### Limite deste lote
+
+Nenhuma regra de negócio, API, banco, schema ou contrato de domínio foi alterado. O próximo lote recomendado é **Lote 4F — Apps, Workspaces e Settings**.
+
+## 27. Estado de execução — Lote 4F
+
+Implementado em 2026-08-17 como fechamento das superfícies master-detail restantes e organização visual do Settings. Capacidades, vínculos, catálogo, backup, Functions e lifecycle foram preservados.
+
+### Workspaces e Apps
+
+- ambas adotam `inspector-page` com o mesmo breakpoint de 960px de Projects/Inbox;
+- empty state em página inteira; lista com `PaneHeader`, contagem e ação silenciosa;
+- setas/`Home`/`End` movem preview; `Enter`/`Espaço` abrem o detalhe;
+- Archive expõe pendência e erro contextual; Apps também sinaliza abertura pendente;
+- relações de Workspace (Projects, Apps, Widgets) e fatos/capacidades de App permanecem no Inspector;
+- proporção de lista/detalhe alinhada a Projects (`min(list-pane, 42%)`).
+
+### Settings
+
+- `PaneHeader` substitui o breadcrumb solto;
+- painéis existentes foram agrupados em seções nomeadas: conexão/aparência, atualizações/entrada, dados/ciclo de vida e avançado;
+- nenhuma capacidade foi removida, reordenada entre domínios ou escondida atrás de navegação nova;
+- densidade e formulários reutilizam o ritmo já consolidado de panels e setting-rows.
+
+### Evidência de QA
+
+- `npm run build`: aprovado;
+- `npm test -- --run`: 2 arquivos e 12 testes aprovados;
+- inspeção visual no cliente Tauri deve validar Dark em 840×600, 1280×800, 1440×900 e 1920×1080.
+
+### Limite deste lote
+
+Nenhuma regra de negócio, API, banco, schema ou contrato de domínio foi alterado. Hermes 3B permanece condicionado à conexão real. O próximo lote estrutural restante é **Lote 5 — Motion e consistência transversal**, após validação visual das superfícies 4C–4F.

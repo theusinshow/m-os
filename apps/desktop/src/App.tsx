@@ -601,14 +601,202 @@ function ProjectsPage({ projects, tasks, initialProjectId, refresh, receipt, ope
   const activeProjects = projects.filter((project) => project.lifecycleState === "active");
   const [selectedId, setSelectedId] = useState(initialProjectId || activeProjects[0]?.id || "");
   const [mode, setMode] = useState<"view" | "edit" | "new" | "task">("view");
-  useEffect(() => { if (initialProjectId) setSelectedId(initialProjectId); }, [initialProjectId]);
-  useEffect(() => { if (intent?.target === "projects_create") setMode("new"); }, [intent?.key]);
-  useEffect(() => { if (!activeProjects.some((project) => project.id === selectedId)) setSelectedId(activeProjects[0]?.id ?? ""); }, [activeProjects, selectedId]);
+  const [narrowPane, setNarrowPane] = useState<"list" | "detail">(initialProjectId || intent?.target === "projects_create" ? "detail" : "list");
+  const [pendingAction, setPendingAction] = useState<"archive" | null>(null);
+  const [error, setError] = useState("");
+  const listPane = useRef<HTMLElement>(null);
+  const inspector = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!initialProjectId) return;
+    setSelectedId(initialProjectId);
+    setMode("view");
+    setNarrowPane("detail");
+  }, [initialProjectId]);
+
+  useEffect(() => {
+    if (intent?.target !== "projects_create") return;
+    setMode("new");
+    setNarrowPane("detail");
+    setError("");
+  }, [intent?.key]);
+
+  useEffect(() => {
+    if (mode === "new") return;
+    if (!activeProjects.some((project) => project.id === selectedId)) {
+      setSelectedId(activeProjects[0]?.id ?? "");
+      if (!activeProjects.length) setNarrowPane("list");
+    }
+  }, [activeProjects, selectedId, mode]);
+
   const selected = activeProjects.find((project) => project.id === selectedId) ?? null;
   const relatedTasks = tasks.filter((task) => task.projectId === selectedId && task.lifecycleState === "active");
-  return <div className="split-page projects-page">
-    <section className="list-pane"><ContextPath segments={["M", "PROJECTS"]} /><div className="list-command"><Button variant="outline" size="sm" onClick={() => setMode("new")}>Novo Project</Button></div><div className="row-list">{activeProjects.map((project) => <DataRow key={project.id} primary={project.name} secondary={project.description || undefined} progress={{ done: tasks.filter((task) => task.projectId === project.id && task.lifecycleState === "active" && task.state === "done").length, total: tasks.filter((task) => task.projectId === project.id && task.lifecycleState === "active").length }} selected={project.id === selectedId} onClick={() => { setSelectedId(project.id); setMode("view"); }} />)}</div>{!activeProjects.length && mode !== "new" ? <EmptyState>Crie um Project para reunir trabalho relacionado.</EmptyState> : null}</section>
-    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO PROJECT</span><ProjectForm cancel={() => setMode("view")} saved={(project) => { setSelectedId(project.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <ProjectForm project={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">PROJECT</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><ActionMenu trigger={<Icon name="more" />} items={[{ label: "Editar", onSelect: () => setMode("edit") }, { label: "Arquivar", danger: true, onSelect: () => void api.setProjectArchived(selected.id, true).then(async () => { receipt({ message: "Project arquivado.", run: () => api.setProjectArchived(selected.id, false) }); await refresh(); }) }]} /></header><dl className="fact-grid"><div><dt>REPOSITÓRIO</dt><dd className="mono-value">{selected.repository || <span className="fact-empty">Nenhum associado</span>}</dd></div><div><dt>ATUALIZADO</dt><dd>{relativeTime(selected.updatedAt)}</dd></div></dl>{mode === "task" ? <DirectTaskForm projectId={selected.id} projects={projects} cancel={() => setMode("view")} saved={(task) => { setMode("view"); void refresh(); openTask(task); }} /> : <Panel label="TASKS" action={<Button variant="primary" onClick={() => setMode("task")}>Criar Task</Button>}>{relatedTasks.length ? relatedTasks.map((task) => <DataRow key={task.id} primary={task.title} meta={stateLabels[task.state]} completed={task.state === "done"} onClick={() => openTask(task)} />) : <EmptyState>Nenhuma Task neste Project.</EmptyState>}</Panel>}</>}</> : null}</article>
+  const projectsEmpty = !activeProjects.length && mode !== "new";
+
+  function projectProgress(projectId: string) {
+    const owned = tasks.filter((task) => task.projectId === projectId && task.lifecycleState === "active");
+    return { done: owned.filter((task) => task.state === "done").length, total: owned.length };
+  }
+
+  function selectProject(project: Project) {
+    setSelectedId(project.id);
+    setMode("view");
+    setError("");
+    setNarrowPane("detail");
+    if (window.matchMedia("(max-width: 960px)").matches) requestAnimationFrame(() => inspector.current?.focus());
+  }
+
+  function startNew() {
+    setMode("new");
+    setError("");
+    setNarrowPane("detail");
+    if (window.matchMedia("(max-width: 960px)").matches) requestAnimationFrame(() => inspector.current?.focus());
+  }
+
+  function returnToList() {
+    setMode("view");
+    setError("");
+    setNarrowPane("list");
+    requestAnimationFrame(() => {
+      const selectedRow = listPane.current?.querySelector<HTMLButtonElement>(".data-row[data-selected]");
+      const createAction = listPane.current?.querySelector<HTMLButtonElement>(".pane-heading-meta .button");
+      (selectedRow ?? createAction)?.focus();
+    });
+  }
+
+  async function archiveProject(project: Project) {
+    setPendingAction("archive");
+    setError("");
+    try {
+      await api.setProjectArchived(project.id, true);
+      receipt({ message: "Project arquivado.", run: () => api.setProjectArchived(project.id, false) });
+      setSelectedId(activeProjects.find((candidate) => candidate.id !== project.id)?.id ?? "");
+      setMode("view");
+      setNarrowPane("list");
+      await refresh();
+    } catch (nextError) {
+      setError(appError(nextError).message);
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  if (projectsEmpty) {
+    return <div className="page projects-empty-page">
+      <ContextPath segments={["M", "PROJECTS"]} />
+      <section className="projects-empty-view" aria-labelledby="projects-empty-title">
+        <span className="micro-label">0 PROJECTS</span>
+        <h1 id="projects-empty-title">Nenhum Project ainda.</h1>
+        <p>Reúna Tasks e contexto de um trabalho num único lugar.</p>
+        <Button variant="primary" onClick={startNew}>Novo Project</Button>
+      </section>
+    </div>;
+  }
+
+  return <div className="split-page inspector-page projects-page" data-pane={narrowPane}>
+    <section ref={listPane} className="list-pane" aria-label="Projects ativos">
+      <PaneHeader
+        segments={["M", "PROJECTS"]}
+        meta={`${activeProjects.length} ${activeProjects.length === 1 ? "ATIVO" : "ATIVOS"}`}
+        actions={<Button variant="ghost" size="sm" onClick={startNew}>Novo Project</Button>}
+      />
+      <div className="row-list">{activeProjects.map((project) => <DataRow
+        key={project.id}
+        primary={project.name}
+        secondary={project.description || undefined}
+        progress={projectProgress(project.id)}
+        selected={project.id === selectedId && mode !== "new"}
+        onClick={() => selectProject(project)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            selectProject(project);
+            return;
+          }
+          const nextIndex = moveListFocus(event);
+          if (nextIndex === null) return;
+          const nextProject = activeProjects[nextIndex];
+          if (!nextProject) return;
+          setSelectedId(nextProject.id);
+          setMode("view");
+          setError("");
+        }}
+      />)}</div>
+    </section>
+    <Inspector
+      ref={inspector}
+      label="Detalhe do Project"
+      onBack={returnToList}
+      onEscape={mode === "view" || mode === "new" ? returnToList : undefined}
+    >
+      {mode === "new" ? <>
+        <span className="micro-label">NOVO PROJECT</span>
+        <ProjectForm
+          cancel={() => {
+            if (selected) {
+              setMode("view");
+              setNarrowPane("detail");
+              requestAnimationFrame(() => inspector.current?.focus());
+            } else {
+              returnToList();
+            }
+          }}
+          saved={(project) => {
+            setSelectedId(project.id);
+            setMode("view");
+            setNarrowPane("detail");
+            void refresh().then(() => requestAnimationFrame(() => inspector.current?.focus()));
+          }}
+        />
+      </> : selected ? mode === "edit" ? <>
+        <span className="micro-label">EDITAR PROJECT</span>
+        <ProjectForm
+          project={selected}
+          cancel={() => { setMode("view"); requestAnimationFrame(() => inspector.current?.focus()); }}
+          saved={() => { setMode("view"); void refresh().then(() => requestAnimationFrame(() => inspector.current?.focus())); }}
+        />
+      </> : <>
+        <header className="detail-header">
+          <div>
+            <span className="micro-label">PROJECT</span>
+            <h1>{selected.name}</h1>
+            <p>{selected.description || "Sem descrição."}</p>
+          </div>
+          <ActionMenu
+            trigger={<Icon name="more" />}
+            items={[
+              { label: "Editar", disabled: pendingAction !== null, onSelect: () => setMode("edit") },
+              { label: pendingAction === "archive" ? "Arquivando" : "Arquivar", danger: true, disabled: pendingAction !== null, onSelect: () => void archiveProject(selected) },
+            ]}
+          />
+        </header>
+        {error ? <p className="inline-error" role="alert">! {error}</p> : null}
+        <dl className="fact-grid">
+          <div>
+            <dt>REPOSITÓRIO</dt>
+            <dd className="mono-value">{selected.repository || <span className="fact-empty">Nenhum associado</span>}</dd>
+          </div>
+          <div>
+            <dt>ATUALIZADO</dt>
+            <dd>{relativeTime(selected.updatedAt)}</dd>
+          </div>
+        </dl>
+        {mode === "task" ? <DirectTaskForm
+          projectId={selected.id}
+          projects={projects}
+          cancel={() => { setMode("view"); requestAnimationFrame(() => inspector.current?.focus()); }}
+          saved={(task) => {
+            setMode("view");
+            void refresh();
+            openTask(task);
+          }}
+        /> : <Panel label="TASKS" action={<Button variant="primary" onClick={() => setMode("task")} disabled={pendingAction !== null}>Criar Task</Button>}>
+          {relatedTasks.length
+            ? relatedTasks.map((task) => <DataRow key={task.id} primary={task.title} meta={stateLabels[task.state]} completed={task.state === "done"} onClick={() => openTask(task)} />)
+            : <EmptyState>Nenhuma Task neste Project.</EmptyState>}
+        </Panel>}
+      </> : null}
+    </Inspector>
   </div>;
 }
 
@@ -635,14 +823,27 @@ function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWork
   const activeApps = apps.filter((app) => app.lifecycleState === "active");
   const [selectedId, setSelectedId] = useState(initialWorkspaceId || activeWorkspaces[0]?.id || "");
   const [mode, setMode] = useState<"view" | "edit" | "new">("view");
+  const [narrowPane, setNarrowPane] = useState<"list" | "detail">(initialWorkspaceId || intent?.target === "workspaces_create" ? "detail" : "list");
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
   const [workspaceApps, setWorkspaceApps] = useState<RegisteredApp[]>([]);
   const [message, setMessage] = useState("");
-  useEffect(() => { if (initialWorkspaceId) setSelectedId(initialWorkspaceId); }, [initialWorkspaceId]);
+  const [pendingAction, setPendingAction] = useState<"archive" | null>(null);
+  const [error, setError] = useState("");
+  const listPane = useRef<HTMLElement>(null);
+  const inspector = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!initialWorkspaceId) return;
+    setSelectedId(initialWorkspaceId);
+    setMode("view");
+    setNarrowPane("detail");
+  }, [initialWorkspaceId]);
+
   useEffect(() => {
     if (!intent) return;
     if (intent.target === "workspaces_create" || !activeWorkspaces.length) {
       setMode("new");
+      setNarrowPane("detail");
       return;
     }
     const sections: Partial<Record<FunctionIntentTarget, string>> = {
@@ -653,14 +854,25 @@ function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWork
     const relation = sections[intent.target];
     if (relation) {
       setMode("view");
+      setNarrowPane("detail");
       window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-function-section='${relation}'] input`)?.focus());
     }
   }, [intent?.key]);
-  useEffect(() => { if (!activeWorkspaces.some((workspace) => workspace.id === selectedId)) setSelectedId(activeWorkspaces[0]?.id ?? ""); }, [activeWorkspaces, selectedId]);
+
+  useEffect(() => {
+    if (mode === "new") return;
+    if (!activeWorkspaces.some((workspace) => workspace.id === selectedId)) {
+      setSelectedId(activeWorkspaces[0]?.id ?? "");
+      if (!activeWorkspaces.length) setNarrowPane("list");
+    }
+  }, [activeWorkspaces, selectedId, mode]);
+
   const selected = activeWorkspaces.find((workspace) => workspace.id === selectedId) ?? null;
   const linkedProjectIds = new Set(workspaceProjects.map((project) => project.id));
   const linkedAppIds = new Set(workspaceApps.map((app) => app.id));
   const hiddenWidgetIds = new Set(hiddenWidgets.filter((entry) => entry.workspaceId === selectedId).map((entry) => entry.widgetId));
+  const workspacesEmpty = !activeWorkspaces.length && mode !== "new";
+
   const refreshLinks = useCallback(async () => {
     if (!selectedId) {
       setWorkspaceProjects([]);
@@ -671,7 +883,37 @@ function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWork
     setWorkspaceProjects(nextProjects);
     setWorkspaceApps(nextApps);
   }, [selectedId]);
-  useEffect(() => { void refreshLinks().catch((error) => setMessage(appError(error).message)); }, [refreshLinks]);
+  useEffect(() => { void refreshLinks().catch((nextError) => setMessage(appError(nextError).message)); }, [refreshLinks]);
+
+  function selectWorkspace(workspace: Workspace) {
+    setSelectedId(workspace.id);
+    setMode("view");
+    setMessage("");
+    setError("");
+    setNarrowPane("detail");
+    if (window.matchMedia("(max-width: 960px)").matches) requestAnimationFrame(() => inspector.current?.focus());
+  }
+
+  function startNew() {
+    setMode("new");
+    setMessage("");
+    setError("");
+    setNarrowPane("detail");
+    if (window.matchMedia("(max-width: 960px)").matches) requestAnimationFrame(() => inspector.current?.focus());
+  }
+
+  function returnToList() {
+    setMode("view");
+    setMessage("");
+    setError("");
+    setNarrowPane("list");
+    requestAnimationFrame(() => {
+      const selectedRow = listPane.current?.querySelector<HTMLButtonElement>(".data-row[data-selected]");
+      const createAction = listPane.current?.querySelector<HTMLButtonElement>(".pane-heading-meta .button");
+      (selectedRow ?? createAction)?.focus();
+    });
+  }
+
   async function toggleProject(project: Project, linked: boolean) {
     if (!selected) return;
     try {
@@ -680,6 +922,7 @@ function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWork
       await refreshLinks();
     } catch (nextError) { setMessage(appError(nextError).message); }
   }
+
   async function toggleApp(app: RegisteredApp, linked: boolean) {
     if (!selected) return;
     try {
@@ -688,6 +931,7 @@ function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWork
       await refreshLinks();
     } catch (nextError) { setMessage(appError(nextError).message); }
   }
+
   // `refresh` e nao `refreshLinks`: o dado dos ocultos vem do componente raiz,
   // nao do estado local desta pagina.
   async function toggleWidget(widget: { id: string; label: string }, visible: boolean) {
@@ -698,14 +942,145 @@ function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWork
       await refresh();
     } catch (nextError) { setMessage(appError(nextError).message); }
   }
-  return <div className="split-page workspaces-page">
-    <section className="list-pane"><ContextPath segments={["M", "WORKSPACES"]} /><div className="list-command"><Button variant="outline" size="sm" onClick={() => setMode("new")}>Novo Workspace</Button></div><div className="row-list">{activeWorkspaces.map((workspace) => <DataRow key={workspace.id} primary={workspace.name} secondary={workspace.description || undefined} meta={relativeTime(workspace.updatedAt)} selected={workspace.id === selectedId} onClick={() => { setSelectedId(workspace.id); setMode("view"); setMessage(""); }} />)}</div>{!activeWorkspaces.length && mode !== "new" ? <EmptyState>Crie contextos amplos como Engineering, Finance ou Learning.</EmptyState> : null}</section>
-    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO WORKSPACE</span><WorkspaceForm cancel={() => setMode("view")} saved={(workspace) => { setSelectedId(workspace.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <WorkspaceForm workspace={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">WORKSPACE</span><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div><ActionMenu trigger={<Icon name="more" />} items={[{ label: "Editar", onSelect: () => setMode("edit") }, { label: "Arquivar", danger: true, onSelect: () => void api.setWorkspaceArchived(selected.id, true).then(async () => { receipt({ message: "Workspace arquivado.", run: () => api.setWorkspaceArchived(selected.id, false) }); await refresh(); }) }]} /></header><div className="workspace-grid"><div data-function-section="workspace.link_project"><Panel label="PROJECTS">{activeProjects.length ? activeProjects.map((project) => <div className="relation-row" key={project.id}><label><input type="checkbox" checked={linkedProjectIds.has(project.id)} onChange={(event) => void toggleProject(project, event.currentTarget.checked)} /><span><strong>{project.name}</strong><small>{project.description || "Sem descrição."}</small></span></label><button type="button" onClick={() => openProject(project)}>Abrir</button></div>) : <EmptyState>Projects ativos aparecerão aqui.</EmptyState>}</Panel></div><div data-function-section="workspace.link_app"><Panel label="APPS">{activeApps.length ? activeApps.map((app) => <div className="relation-row" key={app.id}><label><input type="checkbox" checked={linkedAppIds.has(app.id)} onChange={(event) => void toggleApp(app, event.currentTarget.checked)} /><span><strong>{app.name}</strong><small>{app.description || app.launchTarget || "Sem descrição."}</small></span></label><button type="button" onClick={() => openApp(app)}>Abrir</button></div>) : <EmptyState>Apps ativos aparecerão aqui.</EmptyState>}</Panel></div>{/* Caixa marcada significa VISIVEL: a interface fala em visivel, so a
-                    tabela guarda o oculto. Sem botao Abrir — widget nao e entidade
-                    que se abre. */}
-      <div data-function-section="workspace.set_widget"><Panel label="WIDGETS">{HOME_WIDGETS.map((widget) => <div className="relation-row" key={widget.id}><label><input type="checkbox" checked={!hiddenWidgetIds.has(widget.id)} onChange={(event) => void toggleWidget(widget, event.currentTarget.checked)} /><span><strong>{widget.label}</strong><small>Widget da Home.</small></span></label></div>)}</Panel></div></div>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
+
+  async function archiveWorkspace(workspace: Workspace) {
+    setPendingAction("archive");
+    setError("");
+    try {
+      await api.setWorkspaceArchived(workspace.id, true);
+      receipt({ message: "Workspace arquivado.", run: () => api.setWorkspaceArchived(workspace.id, false) });
+      setSelectedId(activeWorkspaces.find((candidate) => candidate.id !== workspace.id)?.id ?? "");
+      setMode("view");
+      setNarrowPane("list");
+      await refresh();
+    } catch (nextError) {
+      setError(appError(nextError).message);
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  if (workspacesEmpty) {
+    return <div className="page workspaces-empty-page">
+      <ContextPath segments={["M", "WORKSPACES"]} />
+      <section className="workspaces-empty-view" aria-labelledby="workspaces-empty-title">
+        <span className="micro-label">0 WORKSPACES</span>
+        <h1 id="workspaces-empty-title">Nenhum Workspace ainda.</h1>
+        <p>Crie contextos amplos como Engineering, Finance ou Learning.</p>
+        <Button variant="primary" onClick={startNew}>Novo Workspace</Button>
+      </section>
+    </div>;
+  }
+
+  return <div className="split-page inspector-page workspaces-page" data-pane={narrowPane}>
+    <section ref={listPane} className="list-pane" aria-label="Workspaces ativos">
+      <PaneHeader
+        segments={["M", "WORKSPACES"]}
+        meta={`${activeWorkspaces.length} ${activeWorkspaces.length === 1 ? "ATIVO" : "ATIVOS"}`}
+        actions={<Button variant="ghost" size="sm" onClick={startNew}>Novo Workspace</Button>}
+      />
+      <div className="row-list">{activeWorkspaces.map((workspace) => <DataRow
+        key={workspace.id}
+        primary={workspace.name}
+        secondary={workspace.description || undefined}
+        meta={relativeTime(workspace.updatedAt)}
+        selected={workspace.id === selectedId && mode !== "new"}
+        onClick={() => selectWorkspace(workspace)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            selectWorkspace(workspace);
+            return;
+          }
+          const nextIndex = moveListFocus(event);
+          if (nextIndex === null) return;
+          const nextWorkspace = activeWorkspaces[nextIndex];
+          if (!nextWorkspace) return;
+          setSelectedId(nextWorkspace.id);
+          setMode("view");
+          setMessage("");
+          setError("");
+        }}
+      />)}</div>
+    </section>
+    <Inspector
+      ref={inspector}
+      label="Detalhe do Workspace"
+      onBack={returnToList}
+      onEscape={mode === "view" || mode === "new" ? returnToList : undefined}
+    >
+      {mode === "new" ? <>
+        <span className="micro-label">NOVO WORKSPACE</span>
+        <WorkspaceForm
+          cancel={() => {
+            if (selected) {
+              setMode("view");
+              setNarrowPane("detail");
+              requestAnimationFrame(() => inspector.current?.focus());
+            } else {
+              returnToList();
+            }
+          }}
+          saved={(workspace) => {
+            setSelectedId(workspace.id);
+            setMode("view");
+            setNarrowPane("detail");
+            void refresh().then(() => requestAnimationFrame(() => inspector.current?.focus()));
+          }}
+        />
+      </> : selected ? mode === "edit" ? <>
+        <span className="micro-label">EDITAR WORKSPACE</span>
+        <WorkspaceForm
+          workspace={selected}
+          cancel={() => { setMode("view"); requestAnimationFrame(() => inspector.current?.focus()); }}
+          saved={() => { setMode("view"); void refresh().then(() => requestAnimationFrame(() => inspector.current?.focus())); }}
+        />
+      </> : <>
+        <header className="detail-header">
+          <div>
+            <span className="micro-label">WORKSPACE</span>
+            <h1>{selected.name}</h1>
+            <p>{selected.description || "Sem descrição."}</p>
+          </div>
+          <ActionMenu
+            trigger={<Icon name="more" />}
+            items={[
+              { label: "Editar", disabled: pendingAction !== null, onSelect: () => setMode("edit") },
+              { label: pendingAction === "archive" ? "Arquivando" : "Arquivar", danger: true, disabled: pendingAction !== null, onSelect: () => void archiveWorkspace(selected) },
+            ]}
+          />
+        </header>
+        {error ? <p className="inline-error" role="alert">! {error}</p> : null}
+        <div className="workspace-grid">
+          <div data-function-section="workspace.link_project">
+            <Panel label="PROJECTS">
+              {activeProjects.length
+                ? activeProjects.map((project) => <div className="relation-row" key={project.id}><label><input type="checkbox" checked={linkedProjectIds.has(project.id)} onChange={(event) => void toggleProject(project, event.currentTarget.checked)} /><span><strong>{project.name}</strong><small>{project.description || "Sem descrição."}</small></span></label><button type="button" onClick={() => openProject(project)}>Abrir</button></div>)
+                : <EmptyState>Projects ativos aparecerão aqui.</EmptyState>}
+            </Panel>
+          </div>
+          <div data-function-section="workspace.link_app">
+            <Panel label="APPS">
+              {activeApps.length
+                ? activeApps.map((app) => <div className="relation-row" key={app.id}><label><input type="checkbox" checked={linkedAppIds.has(app.id)} onChange={(event) => void toggleApp(app, event.currentTarget.checked)} /><span><strong>{app.name}</strong><small>{app.description || app.launchTarget || "Sem descrição."}</small></span></label><button type="button" onClick={() => openApp(app)}>Abrir</button></div>)
+                : <EmptyState>Apps ativos aparecerão aqui.</EmptyState>}
+            </Panel>
+          </div>
+          {/* Caixa marcada significa VISIVEL: a interface fala em visivel, so a
+              tabela guarda o oculto. Sem botao Abrir — widget nao e entidade
+              que se abre. */}
+          <div data-function-section="workspace.set_widget">
+            <Panel label="WIDGETS">
+              {HOME_WIDGETS.map((widget) => <div className="relation-row" key={widget.id}><label><input type="checkbox" checked={!hiddenWidgetIds.has(widget.id)} onChange={(event) => void toggleWidget(widget, event.currentTarget.checked)} /><span><strong>{widget.label}</strong><small>Widget da Home.</small></span></label></div>)}
+            </Panel>
+          </div>
+        </div>
+        {message ? <p className="settings-message" aria-live="polite">{message}</p> : null}
+      </> : null}
+    </Inspector>
   </div>;
 }
+
 
 function launchKindLabel(kind: AppLaunchKind | null) {
   if (kind === "url") return "URL";
@@ -757,31 +1132,113 @@ function AppsPage({ apps, initialAppId, refresh, receipt, intent }: { apps: Regi
   const visibleApps = apps.filter((app) => app.lifecycleState === "active" || app.id === initialAppId);
   const [selectedId, setSelectedId] = useState(initialAppId || visibleApps[0]?.id || "");
   const [mode, setMode] = useState<"view" | "edit" | "new">("view");
+  const [narrowPane, setNarrowPane] = useState<"list" | "detail">(initialAppId || intent?.target === "apps_register" ? "detail" : "list");
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [pendingAction, setPendingAction] = useState<"open" | "archive" | null>(null);
   const [creatingSuggestions, setCreatingSuggestions] = useState(false);
   const [catalog, setCatalog] = useState<AppCatalogEntry[]>([]);
+  const listPane = useRef<HTMLElement>(null);
+  const inspector = useRef<HTMLElement>(null);
   const missingSuggestions = catalog.filter((suggestion) => !apps.some((app) => app.sourceUrl === suggestion.sourceUrl || app.name.toLowerCase() === suggestion.name.toLowerCase()));
-  useEffect(() => { void api.appCatalog().then(setCatalog).catch((error) => setMessage(appError(error).message)); }, []);
-  useEffect(() => { if (initialAppId) setSelectedId(initialAppId); }, [initialAppId]);
-  useEffect(() => { if (intent?.target === "apps_register") setMode("new"); }, [intent?.key]);
-  useEffect(() => { if (!visibleApps.some((app) => app.id === selectedId)) setSelectedId(visibleApps[0]?.id ?? ""); }, [visibleApps, selectedId]);
+
+  useEffect(() => { void api.appCatalog().then(setCatalog).catch((nextError) => setMessage(appError(nextError).message)); }, []);
+
+  useEffect(() => {
+    if (!initialAppId) return;
+    setSelectedId(initialAppId);
+    setMode("view");
+    setNarrowPane("detail");
+  }, [initialAppId]);
+
+  useEffect(() => {
+    if (intent?.target !== "apps_register") return;
+    setMode("new");
+    setNarrowPane("detail");
+  }, [intent?.key]);
+
+  useEffect(() => {
+    if (mode === "new") return;
+    if (!visibleApps.some((app) => app.id === selectedId)) {
+      setSelectedId(visibleApps[0]?.id ?? "");
+      if (!visibleApps.length) setNarrowPane("list");
+    }
+  }, [visibleApps, selectedId, mode]);
+
   const selected = visibleApps.find((app) => app.id === selectedId) ?? null;
+  const appsEmpty = !visibleApps.length && mode !== "new";
+
+  function selectApp(app: RegisteredApp) {
+    setSelectedId(app.id);
+    setMode("view");
+    setMessage("");
+    setError("");
+    setNarrowPane("detail");
+    if (window.matchMedia("(max-width: 960px)").matches) requestAnimationFrame(() => inspector.current?.focus());
+  }
+
+  function startNew() {
+    setMode("new");
+    setMessage("");
+    setError("");
+    setNarrowPane("detail");
+    if (window.matchMedia("(max-width: 960px)").matches) requestAnimationFrame(() => inspector.current?.focus());
+  }
+
+  function returnToList() {
+    setMode("view");
+    setMessage("");
+    setError("");
+    setNarrowPane("list");
+    requestAnimationFrame(() => {
+      const selectedRow = listPane.current?.querySelector<HTMLButtonElement>(".data-row[data-selected]");
+      const createAction = listPane.current?.querySelector<HTMLButtonElement>(".pane-heading-meta .button");
+      (selectedRow ?? createAction)?.focus();
+    });
+  }
+
   async function openApp(app: RegisteredApp) {
+    setPendingAction("open");
+    setMessage("");
+    setError("");
     try {
       await api.openRegisteredApp(app.id);
       setMessage("App aberto.");
       await refresh();
     } catch (nextError) {
-      setMessage(appError(nextError).message);
+      setError(appError(nextError).message);
+    } finally {
+      setPendingAction(null);
     }
   }
+
+  async function archiveApp(app: RegisteredApp) {
+    setPendingAction("archive");
+    setError("");
+    try {
+      await api.setRegisteredAppArchived(app.id, true);
+      receipt({ message: "App arquivado.", run: () => api.setRegisteredAppArchived(app.id, false) });
+      setSelectedId(visibleApps.find((candidate) => candidate.id !== app.id)?.id ?? "");
+      setMode("view");
+      setNarrowPane("list");
+      await refresh();
+    } catch (nextError) {
+      setError(appError(nextError).message);
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
   async function addSuggestions() {
     if (!missingSuggestions.length || creatingSuggestions) return;
     setCreatingSuggestions(true);
     try {
       const created = await api.registerAppCatalog(missingSuggestions.map((suggestion) => suggestion.id));
       const lastCreated = created[created.length - 1] ?? null;
-      if (lastCreated) setSelectedId(lastCreated.id);
+      if (lastCreated) {
+        setSelectedId(lastCreated.id);
+        setNarrowPane("detail");
+      }
       setMode("view");
       setMessage(`${missingSuggestions.length} Apps conhecidos adicionados.`);
       await refresh();
@@ -791,11 +1248,135 @@ function AppsPage({ apps, initialAppId, refresh, receipt, intent }: { apps: Regi
       setCreatingSuggestions(false);
     }
   }
-  return <div className="split-page apps-page">
-    <section className="list-pane"><ContextPath segments={["M", "APPS"]} /><div className="list-command"><Button variant="outline" size="sm" onClick={() => setMode("new")}>Novo App</Button>{missingSuggestions.length ? <Button variant="ghost" onClick={() => void addSuggestions()} disabled={creatingSuggestions}>{creatingSuggestions ? "Adicionando" : "Adicionar meus Apps"}</Button> : null}</div><div className="row-list">{visibleApps.map((app) => <DataRow key={app.id} primary={app.name} secondary={app.description || app.launchTarget || undefined} meta={app.lifecycleState === "archived" ? "ARQUIVADO" : launchKindLabel(app.launchKind)} selected={app.id === selectedId} onClick={() => { setSelectedId(app.id); setMode("view"); setMessage(""); }} />)}</div>{!visibleApps.length && mode !== "new" ? <EmptyState>Cadastre as ferramentas que você usa para não depender da memória.</EmptyState> : null}</section>
-    <article className="detail-pane">{mode === "new" ? <><span className="micro-label">NOVO APP</span><RegisteredAppForm cancel={() => setMode("view")} saved={(app) => { setSelectedId(app.id); setMode("view"); void refresh(); }} /></> : selected ? <>{mode === "edit" ? <RegisteredAppForm app={selected} cancel={() => setMode("view")} saved={() => { setMode("view"); void refresh(); }} /> : <><header className="detail-header"><div><span className="micro-label">APP</span><div className="app-identity"><AppIcon app={selected} /><div><h1>{selected.name}</h1><p>{selected.description || "Sem descrição."}</p></div></div></div><ActionMenu trigger={<Icon name="more" />} items={[{ label: "Editar", onSelect: () => setMode("edit") }, { label: "Arquivar", danger: true, onSelect: () => void api.setRegisteredAppArchived(selected.id, true).then(async () => { receipt({ message: "App arquivado.", run: () => api.setRegisteredAppArchived(selected.id, false) }); await refresh(); }) }]} /></header><div className="detail-actions"><Button variant="primary" onClick={() => void openApp(selected)} disabled={!selected.launchTarget || selected.lifecycleState !== "active"}>Abrir</Button><Button variant="secondary" onClick={() => setMode("edit")}>Editar</Button></div><dl className="fact-grid" data-framed><div><dt>TIPO</dt><dd>{launchKindLabel(selected.launchKind)}</dd></div><div><dt>ORIGEM</dt><dd>{selected.sourceUrl || <span className="fact-empty">Não definida</span>}</dd></div><div><dt>DESTINO</dt><dd className="mono-value">{selected.launchTarget || <span className="fact-empty">Não definido</span>}</dd></div><div><dt>ÚLTIMA ABERTURA</dt><dd>{selected.lastOpenedAt ? relativeTime(selected.lastOpenedAt) : <span className="fact-empty">Nunca</span>}</dd></div></dl><Panel label="CAPACIDADES" className="capability-panel">{([["OPEN", selected.canOpen], ["READ", selected.canRead], ["WRITE", selected.canWrite], ["AUTOMATE", selected.canAutomate]] as const).map(([label, granted]) => <div className="capability-row" key={label}><span className="micro-label">{label}</span><span data-granted={granted || undefined}>{granted ? "✓" : "—"}</span></div>)}</Panel><p className="pane-footnote">Capacidade não declarada é capacidade que o Hermes não tenta usar.</p>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}</>}</> : null}</article>
+
+  if (appsEmpty) {
+    return <div className="page apps-empty-page">
+      <ContextPath segments={["M", "APPS"]} />
+      <section className="apps-empty-view" aria-labelledby="apps-empty-title">
+        <span className="micro-label">0 APPS</span>
+        <h1 id="apps-empty-title">Nenhum App cadastrado.</h1>
+        <p>Cadastre as ferramentas que você usa para não depender da memória.</p>
+        <div className="button-line">
+          <Button variant="primary" onClick={startNew}>Novo App</Button>
+          {missingSuggestions.length ? <Button variant="ghost" onClick={() => void addSuggestions()} disabled={creatingSuggestions}>{creatingSuggestions ? "Adicionando" : "Adicionar meus Apps"}</Button> : null}
+        </div>
+      </section>
+    </div>;
+  }
+
+  return <div className="split-page inspector-page apps-page" data-pane={narrowPane}>
+    <section ref={listPane} className="list-pane" aria-label="Apps registrados">
+      <PaneHeader
+        segments={["M", "APPS"]}
+        meta={`${visibleApps.length} ${visibleApps.length === 1 ? "ITEM" : "ITENS"}`}
+        actions={
+          <div className="pane-heading-actions">
+            {missingSuggestions.length ? <Button variant="ghost" size="sm" onClick={() => void addSuggestions()} disabled={creatingSuggestions}>{creatingSuggestions ? "Adicionando" : "Adicionar meus Apps"}</Button> : null}
+            <Button variant="ghost" size="sm" onClick={startNew}>Novo App</Button>
+          </div>
+        }
+      />
+      <div className="row-list">{visibleApps.map((app) => <DataRow
+        key={app.id}
+        primary={app.name}
+        secondary={app.description || app.launchTarget || undefined}
+        meta={app.lifecycleState === "archived" ? "ARQUIVADO" : launchKindLabel(app.launchKind)}
+        selected={app.id === selectedId && mode !== "new"}
+        onClick={() => selectApp(app)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            selectApp(app);
+            return;
+          }
+          const nextIndex = moveListFocus(event);
+          if (nextIndex === null) return;
+          const nextApp = visibleApps[nextIndex];
+          if (!nextApp) return;
+          setSelectedId(nextApp.id);
+          setMode("view");
+          setMessage("");
+          setError("");
+        }}
+      />)}</div>
+    </section>
+    <Inspector
+      ref={inspector}
+      label="Detalhe do App"
+      onBack={returnToList}
+      onEscape={mode === "view" || mode === "new" ? returnToList : undefined}
+    >
+      {mode === "new" ? <>
+        <span className="micro-label">NOVO APP</span>
+        <RegisteredAppForm
+          cancel={() => {
+            if (selected) {
+              setMode("view");
+              setNarrowPane("detail");
+              requestAnimationFrame(() => inspector.current?.focus());
+            } else {
+              returnToList();
+            }
+          }}
+          saved={(app) => {
+            setSelectedId(app.id);
+            setMode("view");
+            setNarrowPane("detail");
+            void refresh().then(() => requestAnimationFrame(() => inspector.current?.focus()));
+          }}
+        />
+      </> : selected ? mode === "edit" ? <>
+        <span className="micro-label">EDITAR APP</span>
+        <RegisteredAppForm
+          app={selected}
+          cancel={() => { setMode("view"); requestAnimationFrame(() => inspector.current?.focus()); }}
+          saved={() => { setMode("view"); void refresh().then(() => requestAnimationFrame(() => inspector.current?.focus())); }}
+        />
+      </> : <>
+        <header className="detail-header">
+          <div>
+            <span className="micro-label">APP{selected.lifecycleState === "archived" ? " · ARQUIVADO" : ""}</span>
+            <div className="app-identity">
+              <AppIcon app={selected} />
+              <div>
+                <h1>{selected.name}</h1>
+                <p>{selected.description || "Sem descrição."}</p>
+              </div>
+            </div>
+          </div>
+          <ActionMenu
+            trigger={<Icon name="more" />}
+            items={[
+              { label: "Editar", disabled: pendingAction !== null, onSelect: () => setMode("edit") },
+              { label: pendingAction === "archive" ? "Arquivando" : "Arquivar", danger: true, disabled: pendingAction !== null, onSelect: () => void archiveApp(selected) },
+            ]}
+          />
+        </header>
+        {error ? <p className="inline-error" role="alert">! {error}</p> : null}
+        <div className="detail-actions">
+          <Button variant="primary" onClick={() => void openApp(selected)} disabled={!selected.launchTarget || selected.lifecycleState !== "active" || pendingAction !== null}>{pendingAction === "open" ? "Abrindo" : "Abrir"}</Button>
+          <Button variant="ghost" onClick={() => setMode("edit")} disabled={pendingAction !== null}>Editar</Button>
+        </div>
+        <dl className="fact-grid" data-framed>
+          <div><dt>TIPO</dt><dd>{launchKindLabel(selected.launchKind)}</dd></div>
+          <div><dt>ORIGEM</dt><dd className="mono-value">{selected.sourceUrl || <span className="fact-empty">Não definida</span>}</dd></div>
+          <div><dt>DESTINO</dt><dd className="mono-value">{selected.launchTarget || <span className="fact-empty">Não definido</span>}</dd></div>
+          <div><dt>ÚLTIMA ABERTURA</dt><dd>{selected.lastOpenedAt ? relativeTime(selected.lastOpenedAt) : <span className="fact-empty">Nunca</span>}</dd></div>
+        </dl>
+        <Panel label="CAPACIDADES" className="capability-panel">
+          {([["OPEN", selected.canOpen], ["READ", selected.canRead], ["WRITE", selected.canWrite], ["AUTOMATE", selected.canAutomate]] as const).map(([label, granted]) => (
+            <div className="capability-row" key={label}>
+              <span className="micro-label">{label}</span>
+              <span data-granted={granted || undefined}>{granted ? "Concedida" : "Não"}</span>
+            </div>
+          ))}
+        </Panel>
+        {message ? <p className="settings-message" aria-live="polite">{message}</p> : null}
+      </> : null}
+    </Inspector>
   </div>;
 }
+
 
 function ResourceForm({ resource, capture, cancel, saved }: { resource?: Resource; capture?: Capture; cancel: () => void; saved: (resource: Resource) => void }) {
   const captureContent = capture?.content.trim() ?? "";
@@ -902,6 +1483,7 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
     setMode("new");
     setNarrowPane("detail");
     setMessage("");
+    if (window.matchMedia("(max-width: 960px)").matches) requestAnimationFrame(() => detail.current?.focus());
   }
 
   function selectResource(resource: Resource) {
@@ -909,16 +1491,36 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
     setMode("view");
     setNarrowPane("detail");
     setMessage("");
+    if (window.matchMedia("(max-width: 960px)").matches) requestAnimationFrame(() => detail.current?.focus());
   }
 
   function returnToList() {
     setMode("view");
     setNarrowPane("list");
     requestAnimationFrame(() => {
+      const selectedTile = document.querySelector<HTMLButtonElement>(".library-page .tile[data-selected]");
       const selectedRow = list.current?.querySelector<HTMLButtonElement>(".data-row[data-selected]");
-      const emptyAction = list.current?.closest(".list-pane")?.querySelector<HTMLButtonElement>(".library-empty .button");
-      (selectedRow ?? emptyAction)?.focus();
+      const emptyAction = document.querySelector<HTMLButtonElement>(".library-page .library-empty .button");
+      const createAction = document.querySelector<HTMLButtonElement>(".library-page .pane-heading-meta .button");
+      (selectedTile ?? selectedRow ?? emptyAction ?? createAction)?.focus();
     });
+  }
+
+  function moveCollectionFocus(event: KeyboardEvent<HTMLButtonElement>, resourcesList: Resource[]) {
+    if (!["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return null;
+    const container = event.currentTarget.closest(".tile-grid, .row-list");
+    if (!container) return null;
+    const items = Array.from(container.querySelectorAll<HTMLButtonElement>(".tile, .data-row"));
+    const currentIndex = items.indexOf(event.currentTarget);
+    if (currentIndex < 0 || !items.length) return null;
+    event.preventDefault();
+    let nextIndex = currentIndex;
+    if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = items.length - 1;
+    else if (event.key === "ArrowUp" || event.key === "ArrowLeft") nextIndex = Math.max(0, currentIndex - 1);
+    else nextIndex = Math.min(items.length - 1, currentIndex + 1);
+    items[nextIndex]?.focus();
+    return resourcesList[nextIndex] ?? null;
   }
 
   // Sem mensagem de sucesso: a caixa marcada ja e a confirmacao, e uma frase a
@@ -993,12 +1595,18 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
 
   const libraryIsEmpty = !visibleResources.length && mode === "view";
 
-  return <div className="split-page inspector-page library-page" data-pane={narrowPane} data-empty={libraryIsEmpty || undefined}>
+  const kindLabels: Record<ResourceKind, string> = { site: "SITE", library: "LIBRARY", image: "IMAGEM", note: "NOTA" };
+
+  return <div className="split-page inspector-page library-page" data-pane={narrowPane} data-empty={libraryIsEmpty || undefined} data-view={view}>
     <section className="list-pane" aria-labelledby="library-title">
       <h1 id="library-title" className="visually-hidden">Library</h1>
       {/* O caminho carrega o workspace ativo quando existe: M / WEB-DESIGN /
           LIBRARY. E o que diz de qual acervo voce esta olhando. */}
-      <PaneHeader segments={workspaceSegment ? ["M", workspaceSegment, "LIBRARY"] : ["M", "LIBRARY"]} meta={`${contextResources.length} ${contextResources.length === 1 ? "ITEM" : "ITENS"}`} />
+      <PaneHeader
+        segments={workspaceSegment ? ["M", workspaceSegment, "LIBRARY"] : ["M", "LIBRARY"]}
+        meta={`${contextResources.length} ${contextResources.length === 1 ? "ITEM" : "ITENS"}`}
+        actions={visibleResources.length ? <Button variant="ghost" size="sm" onClick={startNew}>Novo Resource</Button> : undefined}
+      />
       {/* Filtros sao texto, nao chip: um chip por tipo viraria cinco caixas
           competindo com o acervo, que e o que importa nesta tela. */}
       <div className="filter-bar">
@@ -1015,12 +1623,31 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
           {([["grid", "GRID"], ["list", "LISTA"]] as const).map(([value, label]) => <button key={value} type="button" className="filter-label" data-active={view === value || undefined} aria-pressed={view === value} onClick={() => setView(value)}>{label}</button>)}
         </div>
       </div>
-      {visibleResources.length ? <div className="list-command"><Button variant="outline" size="sm" onClick={startNew}>Novo Resource</Button></div> : null}
-      {view === "grid" ? <div className="tile-grid" aria-label="Resources salvos">{visibleResources.map((resource) => <button key={resource.id} type="button" className="tile" data-selected={resource.id === selectedId || undefined} onClick={() => selectResource(resource)} onDoubleClick={() => { if (resource.url) void api.openResource(resource.id); }}><span className="tile-face" aria-hidden="true"><span className="tile-kind">{resource.kind.toUpperCase()}</span></span><strong className="tile-title">{resource.title}</strong>{/* O motivo e o que torna o acervo recuperavel: ele nunca e omitido. */}<span className="tile-reason" data-missing={resource.note ? undefined : true}>{resource.note || "Sem motivo registrado — abra e diga por que isto merece ser lembrado."}</span><span className="tile-origin">{resourceHost(resource.url) || "LOCAL"}</span></button>)}</div> : <div ref={list} className="row-list" aria-label="Resources salvos">
+      {view === "grid" ? <div className="tile-grid" aria-label="Resources salvos">{visibleResources.map((resource) => <button
+        key={resource.id}
+        type="button"
+        className="tile"
+        data-selected={resource.id === selectedId || undefined}
+        aria-current={resource.id === selectedId ? "true" : undefined}
+        onClick={() => selectResource(resource)}
+        onDoubleClick={() => { if (resource.url) void api.openResource(resource.id); }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            selectResource(resource);
+            return;
+          }
+          const nextResource = moveCollectionFocus(event, visibleResources);
+          if (!nextResource) return;
+          setSelectedId(nextResource.id);
+          setMode("view");
+          setMessage("");
+        }}
+      ><span className="tile-face" aria-hidden="true"><span className="tile-kind">{kindLabels[resource.kind]}</span></span><strong className="tile-title">{resource.title}</strong>{/* O motivo e o que torna o acervo recuperavel: ele nunca e omitido. */}<span className="tile-reason" data-missing={resource.note ? undefined : true}>{resource.note || "Sem motivo registrado — abra e diga por que isto merece ser lembrado."}</span><span className="tile-origin">{resourceHost(resource.url) || "LOCAL"}</span></button>)}</div> : <div ref={list} className="row-list" aria-label="Resources salvos">
         {visibleResources.map((resource) => <DataRow
           key={resource.id}
           primary={resource.title}
-          secondary={resourceHost(resource.url)}
+          secondary={resourceHost(resource.url) || kindLabels[resource.kind]}
           meta={resource.lifecycleState === "archived" ? "ARQUIVADO" : relativeTime(resource.updatedAt)}
           selected={resource.id === selectedId}
           onClick={() => selectResource(resource)}
@@ -1028,17 +1655,13 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
               selectResource(resource);
-              requestAnimationFrame(() => detail.current?.focus());
               return;
             }
-            const nextIndex = moveListFocus(event);
-            if (nextIndex === null) return;
-            const nextResource = visibleResources[nextIndex];
-            if (nextResource) {
-              setSelectedId(nextResource.id);
-              setMode("view");
-              setMessage("");
-            }
+            const nextResource = moveCollectionFocus(event, visibleResources);
+            if (!nextResource) return;
+            setSelectedId(nextResource.id);
+            setMode("view");
+            setMessage("");
           }}
         />)}
       </div>}
@@ -1052,7 +1675,7 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
       ref={detail}
       label="Detalhe do Resource"
       onBack={returnToList}
-      onEscape={mode === "view" ? returnToList : undefined}
+      onEscape={mode === "view" || mode === "new" ? returnToList : undefined}
     >
       {mode === "new" ? <>
         <span className="micro-label">NOVO RESOURCE</span>
@@ -1083,9 +1706,9 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
       </> : <>
         <header className="detail-header">
           <div>
-            <span className="micro-label">RESOURCE · LINK{selected.lifecycleState === "archived" ? " · ARQUIVADO" : ""}</span>
+            <span className="micro-label">RESOURCE · {kindLabels[selected.kind]}{selected.lifecycleState === "archived" ? " · ARQUIVADO" : ""}</span>
             <h1>{selected.title}</h1>
-            <p className="resource-url">{selected.url}</p>
+            {selected.url ? <p className="resource-url">{selected.url}</p> : null}
           </div>
           <ActionMenu
             trigger={<Icon name="more" />}
@@ -1106,8 +1729,8 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
         {source ? <div className="provenance"><span className="micro-label">ORIGEM</span><button type="button" onClick={() => openCapture(source)}>{source.content}</button><small>{sourceLabel(source.source)} · {relativeTime(source.capturedAt)}</small></div> : null}
         {sourceError ? <p className="inline-error" role="status">Não foi possível carregar a Capture de origem agora.</p> : null}
         <div className="detail-actions">
-          <Button variant="primary" onClick={() => void openLink(selected)} disabled={selected.lifecycleState !== "active" || pendingAction !== null}>{pendingAction === "open" ? "Abrindo" : "Abrir link"}</Button>
-          <Button variant="ghost" onClick={() => setMode("edit")} disabled={pendingAction !== null}>Editar</Button>
+          {selected.url ? <Button variant="primary" onClick={() => void openLink(selected)} disabled={selected.lifecycleState !== "active" || pendingAction !== null}>{pendingAction === "open" ? "Abrindo" : "Abrir link"}</Button> : null}
+          <Button variant={selected.url ? "ghost" : "primary"} onClick={() => setMode("edit")} disabled={pendingAction !== null}>Editar</Button>
         </div>
         {message ? <p className="settings-message" aria-live="polite">{message}</p> : null}
       </> : null}
@@ -1584,7 +2207,7 @@ function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrash
   const archivedResources = resources.filter((resource) => resource.lifecycleState === "archived");
   const archivedWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "archived");
   const functionsByCategory = functionCategories.map((category) => ({ category, items: functions.filter((item) => item.category === category) })).filter((group) => group.items.length);
-  return <div className="page settings-page"><ContextPath segments={["M", "SETTINGS"]} /><HermesSettings /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateStatusLine() ? <p className="support-copy" aria-live="polite">{updateStatusLine()}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then(setMessage).catch((error) => setMessage(appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="ATALHOS"><p className="support-copy">O M/OS é operável quase inteiro pelo teclado. Nada aqui precisa ser decorado — esta lista existe para quando você quiser.</p><dl className="shortcut-list">{SHORTCUTS.map((entry) => <div key={entry.keys}><dt>{entry.keys}</dt><dd>{entry.does}</dd></div>)}</dl></Panel><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="CRONOCAD"><div className="setting-row"><div><strong>Importar horas do CronoCAD</strong><p>Traz projetos, sessões e pendências para o M/OS. As horas passam a pertencer aos Projects daqui, e o valor/hora de cada sessão é preservado como estava na época.</p><p className="support-copy">Vem tudo: sessões, pendências, programas monitorados, o histórico observado pelo sistema e a sua configuração de arredondamento — sem ela o valor cobrável aqui daria diferente do que o CronoCAD mostra. Roda uma vez, e o banco de origem é aberto somente para leitura. Compare o total com a tela dele antes de desinstalar.</p>{importReport ? <p className="support-copy" aria-live="polite">{importReport.projects} {importReport.projects === 1 ? "project" : "projects"} · {importReport.entries} {importReport.entries === 1 ? "sessão" : "sessões"} · {importReport.tasks} {importReport.tasks === 1 ? "task" : "tasks"} · <strong>{(importReport.trackedSeconds / 3600).toFixed(1)} h</strong>{importReport.activityEvents ? ` · ${importReport.activityEvents} eventos observados` : ""}{importReport.monitoredApps ? ` · ${importReport.monitoredApps} programas` : ""}{importReport.clients ? ` · ${importReport.clients} clientes` : ""}</p> : null}{importNote ? <p className="support-copy" aria-live="polite">{importNote}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void importCronocad()} disabled={importing || Boolean(importedAt)}>{importing ? "Importando" : importedAt ? "Importado" : "Importar"}</Button></div></div></Panel><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Project", project.name, () => api.deleteProject(project.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Workspace", workspace.name, () => api.deleteWorkspace(workspace.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("App", app.name, () => api.deleteRegisteredApp(app.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Task", task.title, () => api.deleteTask(task.id))}>Excluir</Button></div>)}</details></Panel><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}<dialog ref={deleteDialog} className="restore-dialog" onCancel={() => { deleteDialog.current?.close(); setPendingDelete(null); }}><span className="micro-label">EXCLUSÃO DEFINITIVA</span><h2>Excluir {pendingDelete?.noun.toLowerCase()} “{pendingDelete?.label}”?</h2><p>Isto apaga o registro do banco. Não há Desfazer: o único caminho de volta é restaurar um backup anterior a esta ação.</p><div className="form-actions"><Button variant="ghost" onClick={() => { deleteDialog.current?.close(); setPendingDelete(null); }}>Cancelar</Button><Button variant="danger" onClick={() => void confirmDelete()}>Excluir</Button></div></dialog><dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></div>;
+  return <div className="page settings-page"><PaneHeader segments={["M", "SETTINGS"]} meta="SISTEMA" /><section className="settings-section" aria-labelledby="settings-connection"><h2 id="settings-connection" className="settings-section-title">Conexão e aparência</h2><HermesSettings /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel></section><section className="settings-section" aria-labelledby="settings-updates"><h2 id="settings-updates" className="settings-section-title">Atualizações e entrada</h2><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateStatusLine() ? <p className="support-copy" aria-live="polite">{updateStatusLine()}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then(setMessage).catch((error) => setMessage(appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="ATALHOS"><p className="support-copy">O M/OS é operável quase inteiro pelo teclado. Nada aqui precisa ser decorado — esta lista existe para quando você quiser.</p><dl className="shortcut-list">{SHORTCUTS.map((entry) => <div key={entry.keys}><dt>{entry.keys}</dt><dd>{entry.does}</dd></div>)}</dl></Panel></section><section className="settings-section" aria-labelledby="settings-advanced"><h2 id="settings-advanced" className="settings-section-title">Avançado</h2><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="CRONOCAD"><div className="setting-row"><div><strong>Importar horas do CronoCAD</strong><p>Traz projetos, sessões e pendências para o M/OS. As horas passam a pertencer aos Projects daqui, e o valor/hora de cada sessão é preservado como estava na época.</p><p className="support-copy">Vem tudo: sessões, pendências, programas monitorados, o histórico observado pelo sistema e a sua configuração de arredondamento — sem ela o valor cobrável aqui daria diferente do que o CronoCAD mostra. Roda uma vez, e o banco de origem é aberto somente para leitura. Compare o total com a tela dele antes de desinstalar.</p>{importReport ? <p className="support-copy" aria-live="polite">{importReport.projects} {importReport.projects === 1 ? "project" : "projects"} · {importReport.entries} {importReport.entries === 1 ? "sessão" : "sessões"} · {importReport.tasks} {importReport.tasks === 1 ? "task" : "tasks"} · <strong>{(importReport.trackedSeconds / 3600).toFixed(1)} h</strong>{importReport.activityEvents ? ` · ${importReport.activityEvents} eventos observados` : ""}{importReport.monitoredApps ? ` · ${importReport.monitoredApps} programas` : ""}{importReport.clients ? ` · ${importReport.clients} clientes` : ""}</p> : null}{importNote ? <p className="support-copy" aria-live="polite">{importNote}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void importCronocad()} disabled={importing || Boolean(importedAt)}>{importing ? "Importando" : importedAt ? "Importado" : "Importar"}</Button></div></div></Panel><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Project", project.name, () => api.deleteProject(project.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Workspace", workspace.name, () => api.deleteWorkspace(workspace.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("App", app.name, () => api.deleteRegisteredApp(app.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Task", task.title, () => api.deleteTask(task.id))}>Excluir</Button></div>)}</details></Panel></section><section className="settings-section" aria-labelledby="settings-data"><h2 id="settings-data" className="settings-section-title">Dados e ciclo de vida</h2><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel>{message ? <p className="settings-message" aria-live="polite">{message}</p> : null}<dialog ref={deleteDialog} className="restore-dialog" onCancel={() => { deleteDialog.current?.close(); setPendingDelete(null); }}><span className="micro-label">EXCLUSÃO DEFINITIVA</span><h2>Excluir {pendingDelete?.noun.toLowerCase()} “{pendingDelete?.label}”?</h2><p>Isto apaga o registro do banco. Não há Desfazer: o único caminho de volta é restaurar um backup anterior a esta ação.</p><div className="form-actions"><Button variant="ghost" onClick={() => { deleteDialog.current?.close(); setPendingDelete(null); }}>Cancelar</Button><Button variant="danger" onClick={() => void confirmDelete()}>Excluir</Button></div></dialog><dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></section></div>;
 }
 
 function QuickCapture() {
@@ -1921,7 +2544,7 @@ function DesktopApp() {
     vira ansiedade de fundo. A contagem da Inbox aparece na Home e na propria
     tela, onde ela leva a uma acao. */}</button>)}</div>)}</nav><div className="rail-footer"><button className="rail-utility" type="button" aria-label="Quick Capture" onClick={() => void api.showQuickCapture()}><Icon name="capture" /><span className="rail-label" aria-hidden="true">Quick Capture</span><span className="rail-tooltip" aria-hidden="true">Quick Capture</span></button><button className="rail-utility" type="button" aria-current={page === "settings" ? "page" : undefined} aria-label="Settings" onClick={() => navigate("settings")}><Icon name="settings" filled={page === "settings"} /><span className="rail-label" aria-hidden="true">Settings</span><span className="rail-tooltip" aria-hidden="true">Settings</span></button></div></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button>{/* O estado de sistema nao substitui o meta da pagina: os dois convivem, e o
     indicador de ocupado entra antes sem apagar onde voce esta. */}
-<div className="system-state" aria-live="polite">{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content" ref={contentRef}>{content}</main></div>{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
+<div className="system-state" aria-live="polite" data-busy={busy || undefined}>{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main></div>{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
 }
 
 /**

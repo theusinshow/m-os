@@ -499,6 +499,10 @@ button {
   color: var(--text-system);
 }
 
+.system-state[data-busy] {
+  color: var(--text-secondary);
+}
+
 .page-meta {
   color: var(--text-disabled);
   font: var(--text-meta);
@@ -510,6 +514,20 @@ button {
   width: var(--symbol-inline);
   height: var(--symbol-inline);
   color: var(--signal-ink);
+}
+
+.content {
+  position: relative;
+}
+
+/* Troca de página: uma entrada curta por destino, nunca coreografia de layout. */
+.page-surface {
+  min-height: 100%;
+  animation: viewEnter var(--dur-enter) var(--ease-enter);
+}
+
+.content[data-busy] {
+  cursor: progress;
 }
 
 .command-trigger > span:nth-child(2) {
@@ -1183,17 +1201,58 @@ textarea::placeholder {
   color: var(--text);
 }
 
-/* A grade do mes. Sete colunas iguais, e as celulas com proporcao fixa para a
-   grade nao mudar de altura conforme o conteudo do mes. */
-.calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+/* Calendário: a grade é estrutura, não um card empilhado. O detalhe do dia
+   fica no Inspector lateral — clicar não exige scroll para descobrir o efeito. */
+.calendar-page {
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) min(22rem, 34%);
+}
+
+.calendar-page > .list-pane,
+.calendar-page > .detail-pane {
+  min-height: 0;
+  overflow: auto;
+}
+
+.calendar-month-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.calendar-nav {
+  display: flex;
+  align-items: center;
   gap: var(--space-1);
 }
 
+.calendar-nav .button {
+  min-width: var(--height-control);
+  padding-inline: var(--space-2);
+}
+
+/* A grade do mes. Sete colunas iguais; celulas baixas o bastante para caber
+   seis semanas sem card extra ao redor. */
+.calendar-grid {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-rows: minmax(3.25rem, 1fr);
+  gap: var(--line);
+  min-height: 0;
+  border: var(--line) solid var(--border);
+  background: var(--border);
+}
+
 .calendar-weekday {
-  padding-bottom: var(--space-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--height-control);
+  padding: var(--space-2) 0;
   color: var(--text-system);
+  background: var(--surface);
   text-align: center;
 }
 
@@ -1202,16 +1261,15 @@ textarea::placeholder {
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-1);
-  aspect-ratio: 1 / 0.72;
+  min-height: 0;
   padding: var(--space-2);
-  border: var(--line) solid var(--border);
-  background: none;
+  border: 0;
+  background: var(--surface);
   color: var(--text-secondary);
   font: var(--text-meta);
   text-align: left;
   cursor: pointer;
-  transition: border-color var(--dur-state) var(--ease-state),
-    background var(--dur-state) var(--ease-state);
+  transition: background var(--dur-instant) var(--ease-state);
 }
 
 .calendar-cell:hover {
@@ -1224,12 +1282,17 @@ textarea::placeholder {
   color: var(--text-disabled);
 }
 
+.calendar-cell[data-outside] {
+  background: var(--canvas);
+}
+
 .calendar-cell[data-today] .calendar-day {
   color: var(--signal-ink);
 }
 
 .calendar-cell[aria-pressed='true'] {
-  border-color: var(--signal-ink);
+  background: var(--surface-active);
+  box-shadow: inset var(--marker) 0 0 0 var(--signal-fill);
 }
 
 .calendar-day {
@@ -1264,9 +1327,28 @@ textarea::placeholder {
   background: var(--signal-fill);
 }
 
+.calendar-day-placeholder {
+  justify-content: flex-start;
+  gap: var(--space-2);
+}
+
+.calendar-day-placeholder .empty-state {
+  max-width: 28ch;
+}
+
+.calendar-page .detail-header {
+  padding-bottom: var(--space-4);
+}
+
+.calendar-page .detail-header h1 {
+  font: var(--text-title);
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
 .calendar-day-list {
   display: grid;
-  gap: var(--space-2);
+  gap: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1274,11 +1356,35 @@ textarea::placeholder {
 
 .calendar-day-list li {
   display: grid;
-  grid-template-columns: 5ch 12ch 1fr auto;
-  gap: var(--space-3);
+  grid-template-columns: 4.5ch minmax(0, 1fr) auto;
+  gap: var(--space-2) var(--space-3);
   align-items: baseline;
+  padding: var(--space-3) 0;
+  border-bottom: var(--line) solid var(--border);
   color: var(--text-secondary);
   font: var(--text-small);
+}
+
+.calendar-day-list li .calendar-item-kind {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.calendar-day-list li .calendar-item-title {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.calendar-day-list li .calendar-item-time {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  align-self: start;
+}
+
+.calendar-day-list li .calendar-item-duration {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  align-self: start;
 }
 
 .calendar-item-time,
@@ -1291,13 +1397,43 @@ textarea::placeholder {
 .calendar-item-kind {
   color: var(--text-system);
   font: var(--text-meta);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-meta);
 }
 
 .calendar-item-title {
   overflow: hidden;
   color: var(--text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1280px) {
+  .calendar-page {
+    grid-template-columns: minmax(0, 1fr) min(20rem, 38%);
+  }
+
+  .calendar-grid {
+    grid-auto-rows: minmax(2.75rem, 1fr);
+  }
+}
+
+@media (max-width: 960px) {
+  .calendar-page:not([data-has-day]) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .calendar-page:not([data-has-day]) .calendar-day-placeholder {
+    display: none;
+  }
+
+  .calendar-day-list li {
+    grid-template-columns: 4.5ch minmax(0, 1fr);
+  }
+
+  .calendar-day-list li .calendar-item-duration {
+    grid-column: 2;
+    grid-row: 3;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2257,16 +2393,23 @@ tr:focus-within .tempo-row-actions {
    e tipografica, nao cromatica. */
 .filter-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-2) var(--space-5);
   padding: var(--space-3) 0;
   border-bottom: var(--line) solid var(--border);
 }
 
 .filter-group {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-3);
+}
+
+.filter-group + .filter-group {
+  padding-left: var(--space-5);
+  border-left: var(--line) solid var(--border);
 }
 
 .filter-label {
@@ -2288,11 +2431,12 @@ tr:focus-within .tempo-row-actions {
   color: var(--text);
 }
 
-/* Quatro colunas fixas, como o desenho. Auto-fill mudaria a contagem conforme
-   a janela e o acervo perderia o ritmo de leitura. */
+/* A contagem de colunas acompanha a largura real do acervo. Em pane estreito
+   (antes do Inspector) 4 colunas fixas esmagavam títulos; auto-fill preserva
+   densidade sem inventar um segundo layout. */
 .tile-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
   gap: var(--space-4);
   padding: var(--space-4) 0;
 }
@@ -2361,17 +2505,25 @@ tr:focus-within .tempo-row-actions {
 }
 
 .tile-title {
+  display: -webkit-box;
   padding-top: var(--space-2);
   overflow: hidden;
   color: var(--text);
   font: var(--text-body);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
 }
 
 .tile-reason {
+  display: -webkit-box;
+  overflow: hidden;
   color: var(--text-secondary);
   font: var(--text-small);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .tile-reason[data-missing] {
@@ -2379,10 +2531,13 @@ tr:focus-within .tempo-row-actions {
 }
 
 .tile-origin {
+  overflow: hidden;
   color: var(--text-system);
   font: var(--text-meta);
   letter-spacing: var(--tracking-meta);
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .capability-fieldset {
@@ -2544,16 +2699,43 @@ tr:focus-within .tempo-row-actions {
   grid-template-columns: var(--list-pane-width) minmax(0, 1fr);
 }
 
-.inbox-page {
+.inbox-page,
+.projects-page,
+.workspaces-page,
+.apps-page {
   height: 100%;
   min-height: 0;
   grid-template-columns: min(var(--list-pane-width), 42%) minmax(0, 1fr);
 }
 
 .inbox-page > .list-pane,
-.inbox-page > .detail-pane {
+.inbox-page > .detail-pane,
+.projects-page > .list-pane,
+.projects-page > .detail-pane,
+.workspaces-page > .list-pane,
+.workspaces-page > .detail-pane,
+.apps-page > .list-pane,
+.apps-page > .detail-pane {
   min-height: 0;
   overflow: auto;
+}
+
+.pane-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.workspaces-page .workspace-grid,
+.apps-page .capability-panel {
+  margin-top: var(--space-5);
+}
+
+.workspaces-page .detail-header h1,
+.apps-page .detail-header h1 {
+  overflow-wrap: anywhere;
 }
 
 .inbox-page .detail-actions {
@@ -2561,7 +2743,10 @@ tr:focus-within .tempo-row-actions {
   padding-top: 0;
 }
 
-.inbox-empty-page {
+.inbox-empty-page,
+.projects-empty-page,
+.workspaces-empty-page,
+.apps-empty-page {
   display: grid;
   height: 100%;
   min-height: 0;
@@ -2569,7 +2754,10 @@ tr:focus-within .tempo-row-actions {
   padding-bottom: var(--space-5);
 }
 
-.inbox-empty-view {
+.inbox-empty-view,
+.projects-empty-view,
+.workspaces-empty-view,
+.apps-empty-view {
   display: grid;
   max-width: var(--measure);
   align-self: center;
@@ -2577,14 +2765,20 @@ tr:focus-within .tempo-row-actions {
   gap: var(--space-2);
 }
 
-.inbox-empty-view h1 {
+.inbox-empty-view h1,
+.projects-empty-view h1,
+.workspaces-empty-view h1,
+.apps-empty-view h1 {
   margin: 0;
   font: var(--text-capture);
   font-weight: 500;
   letter-spacing: var(--tracking-capture);
 }
 
-.inbox-empty-view p {
+.inbox-empty-view p,
+.projects-empty-view p,
+.workspaces-empty-view p,
+.apps-empty-view p {
   margin: 0 0 var(--space-2);
   color: var(--text-secondary);
   font: var(--text-body);
@@ -2823,7 +3017,19 @@ select {
 }
 
 .projects-page .panel {
-  margin-top: var(--space-6);
+  margin-top: var(--space-5);
+}
+
+.projects-page .detail-header {
+  gap: var(--space-3);
+}
+
+.projects-page .detail-header h1 {
+  overflow-wrap: anywhere;
+}
+
+.projects-page .fact-grid {
+  margin-top: var(--space-4);
 }
 
 /* A identidade do App e o icone ao lado do nome, nao o nome sozinho: e o mesmo
@@ -2845,22 +3051,27 @@ select {
 
 .resource-url {
   overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font: var(--text-small);
+  font-family: var(--font-system);
 }
 
 .resource-note {
   display: grid;
   gap: var(--space-2);
+  max-width: var(--measure);
   padding: var(--space-5) 0;
   border-bottom: var(--line) solid var(--border);
 }
 
 .resource-note p {
-  max-width: 70ch;
+  max-width: var(--measure);
   margin: 0;
   color: var(--text-secondary);
   font: var(--text-body);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+  text-wrap: pretty;
 }
 
 /* Segue o mesmo ritmo do bloco de cima: mesma respiracao vertical, mesma
@@ -2868,8 +3079,15 @@ select {
 .resource-context {
   display: grid;
   gap: var(--space-2);
+  max-width: var(--measure);
   padding: var(--space-5) 0;
   border-bottom: var(--line) solid var(--border);
+}
+
+.library-page .detail-header > div,
+.library-page .detail-actions,
+.library-page .stack-form {
+  max-width: var(--measure);
 }
 
 .resource-context div {
@@ -2887,7 +3105,39 @@ select {
 }
 
 .library-page .provenance {
+  max-width: var(--measure);
   margin-top: var(--space-5);
+}
+
+/* Library inverte a proporção do master-detail operacional: o acervo é o
+   trabalho principal; o Inspector fica contido e legível. */
+.library-page:not([data-empty]) {
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) min(var(--list-pane-width), 36%);
+}
+
+.library-page > .list-pane,
+.library-page > .detail-pane {
+  min-height: 0;
+  overflow: auto;
+}
+
+.library-page .list-pane {
+  border-right: var(--line) solid var(--border);
+}
+
+.library-page .detail-pane {
+  border-left: 0;
+  background: var(--surface);
+}
+
+.library-page .filter-bar {
+  margin-bottom: var(--space-1);
+}
+
+.library-page .pane-heading-meta .button {
+  flex: none;
 }
 
 /* Sem `gap`: o botao voltou a ser so rotulo, porque icone junto de texto em
@@ -2898,6 +3148,7 @@ select {
   max-width: var(--overlay-dialog);
   justify-items: start;
   gap: var(--space-2);
+  padding-top: var(--space-6);
 }
 
 .library-page[data-empty] {
@@ -2910,6 +3161,23 @@ select {
 
 .library-page[data-empty] .detail-pane {
   display: none;
+}
+
+@media (max-width: 1280px) {
+  .library-page:not([data-empty]) {
+    grid-template-columns: minmax(0, 1fr) min(22rem, 40%);
+  }
+
+  .tile-grid {
+    grid-template-columns: repeat(auto-fill, minmax(8.75rem, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  .filter-group + .filter-group {
+    padding-left: 0;
+    border-left: 0;
+  }
 }
 
 .board-heading {
@@ -3605,6 +3873,24 @@ input[type="checkbox"]:disabled {
   display: grid;
   gap: var(--space-6);
   max-width: var(--content-max);
+}
+
+.settings-page .pane-heading {
+  margin-bottom: 0;
+}
+
+.settings-section {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.settings-section-title {
+  margin: 0;
+  color: var(--text-system);
+  font: var(--text-meta);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
 }
 
 .settings-page .panel {
