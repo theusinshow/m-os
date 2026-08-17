@@ -22,6 +22,7 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+mod calendar;
 mod hermes;
 mod jarvis;
 mod monitor;
@@ -1208,6 +1209,7 @@ pub fn run() {
             hermes::hermes_clarify,
             hermes::hermes_clarify_cancel,
             jarvis::action_undo,
+            calendar::calendar_window,
             tracking::tracking_default_cronocad_path,
             tracking::tracking_import_cronocad,
             tracking::tracking_cronocad_imported_at,
