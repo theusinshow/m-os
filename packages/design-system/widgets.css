@@ -180,17 +180,26 @@
    resultado é exatamente o desenho, parado. */
 @media (prefers-reduced-motion: reduce) {
   .mos-ring-value,
-  .mos-density-cell {
+  .mos-density-cell,
+  .mos-bars-value,
+  .mos-stack-value,
+  .mos-bullet-value {
     animation: none;
   }
 }
 
 /* ---------- Plot (ADR-040) ----------
    A terceira família, ao lado do anel e da densidade: formas que comparam uma
-   série. Todas são retângulo com `rx`, exceto o `Spark`.
+   série.
 
-   `rx` arredonda para DENTRO da geometria — a barra mantém a altura exata do
-   valor, e nenhuma delas precisa da compensação que o anel precisa. */
+   As três primeiras são HTML, e não SVG, de propósito. Um SVG que preenche a
+   largura do card precisa de `preserveAspectRatio="none"`, e aí a escala
+   horizontal deixa de ser igual à vertical: todo `rx` vira elipse e a pílula
+   sai como ovo. Em HTML o `border-radius` é resolvido em pixels reais, iguais
+   nos dois eixos, e nunca distorce.
+
+   `border-radius` arredonda para DENTRO da geometria, então nenhuma delas
+   precisa da compensação que o anel precisa. */
 
 @keyframes mos-bar-grow {
   from {
@@ -211,25 +220,38 @@
 }
 
 .mos-bars-figure {
-  width: 100%;
+  position: relative;
   height: 64px;
 }
 
+/* Raio fixo, e não `999px`. O raio total é limitado pelo CSS a metade da MENOR
+   dimensão: com sete barras num card largo, a menor é a altura, e o trilho
+   viraria um oval em vez de uma coluna. A referência oferece as duas variantes
+   — `Full Radius` e `Corner Radius: 8px All` —, e só a segunda se mantém em pé
+   em qualquer largura de card. */
+.mos-bars-track,
+.mos-bars-value {
+  position: absolute;
+  bottom: 0;
+  border-radius: var(--radius-lg);
+}
+
 .mos-bars-track {
-  fill: var(--surface-hover);
+  top: 0;
+  background: var(--surface-hover);
 }
 
 .mos-bars-value {
-  fill: var(--signal-fill);
+  background: var(--signal-fill);
   transform-origin: bottom;
   animation: mos-bar-grow var(--dur-enter) var(--ease-enter) both;
   animation-delay: var(--ring-delay, 0ms);
 }
 
-/* Hoje é traço branco, nunca sódio mais forte: a escala de sódio já significa
-   carga, e usá-la também para "agora" faria a mesma cor dizer duas coisas. */
+/* Hoje é branco, nunca sódio mais forte: a escala de sódio já significa carga,
+   e usá-la também para "agora" faria a mesma cor dizer duas coisas. */
 .mos-bars-value[data-now] {
-  fill: var(--text);
+  background: var(--text);
 }
 
 .mos-bars-labels {
@@ -240,23 +262,32 @@
 }
 
 .mos-stack-figure {
-  width: 100%;
+  position: relative;
   height: 16px;
 }
 
 .mos-stack-value {
-  fill: var(--signal-fill);
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: var(--signal-fill);
   transform-origin: left;
   animation: mos-stack-grow var(--dur-enter) var(--ease-enter) both;
   animation-delay: var(--ring-delay, 0ms);
 }
 
-.mos-stack-value[data-depth="2"] {
-  fill: color-mix(in srgb, var(--signal-fill) 55%, transparent);
+/* Os degraus misturam com a SUPERFÍCIE, não com `transparent`, como a densidade
+   já faz. O anel pode se dar ao luxo do transparente porque é um traço fino
+   sobre o trilho; uma área preenchida a 30% sobre branco simplesmente some. */
+.mos-stack-value[data-depth="2"],
+.mos-stack-chip[data-depth="2"] {
+  background: color-mix(in srgb, var(--signal-fill) 55%, var(--surface-hover));
 }
 
-.mos-stack-value[data-depth="3"] {
-  fill: color-mix(in srgb, var(--signal-fill) 30%, transparent);
+.mos-stack-value[data-depth="3"],
+.mos-stack-chip[data-depth="3"] {
+  background: color-mix(in srgb, var(--signal-fill) 30%, var(--surface-hover));
 }
 
 .mos-stack-legend {
@@ -283,34 +314,37 @@
   flex: none;
 }
 
-.mos-stack-chip[data-depth="2"] {
-  background: color-mix(in srgb, var(--signal-fill) 55%, transparent);
-}
-
-.mos-stack-chip[data-depth="3"] {
-  background: color-mix(in srgb, var(--signal-fill) 30%, transparent);
-}
-
 .mos-bullet {
-  width: 100%;
+  position: relative;
   height: 16px;
-}
-
-.mos-bullet-track {
-  fill: var(--surface-hover);
+  border-radius: 999px;
+  background: var(--surface-hover);
 }
 
 .mos-bullet-value {
-  fill: var(--signal-fill);
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 999px;
+  background: var(--signal-fill);
   transform-origin: left;
   animation: mos-stack-grow var(--dur-enter) var(--ease-enter) both;
 }
 
+/* Dois pixels de branco, atravessando a barra inteira: a marca precisa ser
+   legível por cima do sódio E por cima do trilho. */
 .mos-bullet-mark {
-  fill: var(--text);
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
 }
 
 .mos-spark {
+  display: block;
   width: 100%;
   height: 32px;
 }
@@ -330,12 +364,12 @@
   .mos-bars-value,
   .mos-stack-value,
   .mos-bullet-value {
-    fill: Highlight;
+    background: Highlight;
   }
 
   .mos-bars-track,
-  .mos-bullet-track {
-    fill: Canvas;
-    stroke: ButtonBorder;
+  .mos-bullet {
+    background: Canvas;
+    border: 1px solid ButtonBorder;
   }
 }
