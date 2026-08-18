@@ -1368,3 +1368,91 @@ Finance entra no grupo `TRABALHO`, depois de Calendário, antes do grupo
 - esta ADR não reabre nem contradiz a ADR-032 (M-Finance continua Next.js,
   Postgres e Vercel, rodando exatamente como hoje; só o lugar onde a mesma URL
   é exibida muda).
+
+## ADR-040 — A ponta arredondada entra compensada, e a moldura entra só na Home
+
+**Data:** 2026-08-17
+**Status:** aceito, por decisão do proprietário do produto
+**Revisa:** ADR-034
+
+### Contexto
+
+O proprietário trouxe `https://amicro.vercel.app/mono-charts` como referência
+para os widgets: 30 visualizadores monocromáticos construídos sobre geometria
+arredondada, cada um num card com superfície aninhada e rodapé de metas.
+
+A ADR-034 fixou o contrário em dois pontos. Primeiro, "ponta reta, sempre",
+com a justificativa de que "cap arredondado mente sobre o valor em anéis
+pequenos". Segundo, a Home nunca teve moldura de card — o `Panel` é rótulo e
+ar, e a nota em `Surface.tsx` registra que "card é a resposta preguiçosa".
+
+Os dois pontos foram reafirmados pelo proprietário depois de a colisão ser
+apontada.
+
+### Decisão
+
+**1. A ponta passa a ser arredondada, com compensação aritmética.**
+
+A regra antiga estava certa sobre o problema e o resolvia proibindo. A nova
+resolve compensando: desenha-se `L' = max(ε, L − espessura)`, de modo que a
+extensão *pintada* — que o cap estende em meia espessura por ponta — volte a
+ser exatamente `L`.
+
+O erro que a regra antiga evitava, medido nos tamanhos da própria família:
+2,3 pontos percentuais no anel de 88px, 3,4 no de 44px e 6,9 no de 14px. É o
+último que justifica a proibição ter sido escrita, e é ele que a compensação
+zera.
+
+O limite fica declarado em vez de escondido: abaixo de uma espessura de traço,
+`L'` cai no piso e o cap pinta um disco. Ali o anel **para de medir e passa a
+afirmar presença** — "existe algo, menor que o menor traço que este anel sabe
+desenhar". Zero continua não desenhando nada.
+
+E uma distinção que a ADR-034 não precisava fazer, porque não havia retângulos
+na família: **`rx` não mente, `linecap` mente**. O canto arredondado de um
+`rect` arredonda para dentro da geometria e a barra mantém a altura exata do
+valor; a ponta arredondada de um traço estende para fora. Só a segunda é
+compensada, e é por isso que as formas retangulares novas não precisam de
+correção nenhuma.
+
+**2. A moldura de card entra, e só na Home.**
+
+Os 15 widgets da Home ganham moldura, superfície aninhada para a forma e
+rodapé de metas. A reversão da posição anti-cardização vale **apenas nesse
+escopo**: o `Panel` sem moldura continua sendo a resposta em Settings, no
+Inspector de Workspaces e no Tempo, e a nota do `Surface.tsx` segue valendo
+para o resto do sistema. A regra é escopada a `.home-grid .widget` justamente
+para não poder vazar.
+
+**3. O raio ganha charter novo, sem mexer no padrão.**
+
+`--radius-widget: 12px` para a moldura externa e `--radius-lg: 8px` — que era
+reservado a "somente app icon e overlay grande" — liberado também para a
+superfície aninhada de widget. `--radius: 3px` continua valendo para botão,
+campo, linha e todo o resto. Subir o raio global foi considerado e recusado:
+vazaria a maciez para o sistema inteiro sem ninguém ter pedido.
+
+### O que foi recusado
+
+**A paleta monocromática da referência.** O sódio continua reservado para
+carga e agora/hoje continuam traço branco de 2px. Metade do charme da
+referência vem do cinza puro, e a recusa precisa estar escrita para que quem
+reabrir o assunto encontre uma decisão em vez de supor esquecimento.
+
+**As formas sem domínio** — candlestick, Sankey, pirâmide, scatter, donut de
+quatro fatias. A razão é a da própria ADR-034: "um anel bonito preenchido com
+número inventado é pior que a ausência".
+
+### Consequências
+
+- a família de widgets ganha uma terceira classe ao lado do anel e da
+  densidade: as formas de plot (`Bars`, `Stack`, `Bullet`, `Spark`), todas
+  sobre dado que já estava na tela;
+- o `Bullet` resolve uma limitação que estava escrita no código do
+  `BudgetRing` — o anel parava em cheio e o estouro da meta só existia no
+  texto;
+- a compensação vira responsabilidade de um módulo puro e testado, e não de
+  cada chamador;
+- o risco assumido: uma linguagem visual macia é mais fácil de esticar para
+  onde não foi decidida. A defesa é o escopo `.home-grid`, que faz o
+  vazamento exigir uma edição deliberada em vez de acontecer por herança.

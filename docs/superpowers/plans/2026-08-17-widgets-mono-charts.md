@@ -482,11 +482,14 @@ git commit -m "feat(widgets): a Home ganha moldura de card (ADR-040)"
 
 **Files:**
 - Modify: `apps/desktop/src/App.tsx:111-114` (componente `Widget`)
+- Modify: `apps/desktop/src/Surface.tsx:209` (componente `Panel`)
 - Modify: `apps/desktop/src/App.css` (depois das regras da Task 3)
 
 **Interfaces:**
 - Consumes: `.home-grid .widget` (Task 3).
-- Produces: `<Widget>` com as props opcionais `value?: string`, `unit?: string`, `footLeft?: string`, `footRight?: string`. As Tasks 7, 8 e 9 as preenchem.
+- Produces: `<Widget>` com as props opcionais `footLeft?: string`, `footRight?: string`; `<Panel>` com as props opcionais `value?: string`, `unit?: string`. As Tasks 7, 8 e 9 as preenchem.
+
+**Correção sobre a versão original desta task:** a manchete não pode morar no `<Widget>`. O `Panel` traz rótulo e conteúdo como um bloco só, então um número irmão dele — mesmo com `order: -1` — cairia **antes** do rótulo, invertendo a ordem da referência (eyebrow, depois número). A manchete passa a ser prop opcional do `Panel`, renderizada logo abaixo do `<header>`. Os 8 usos fora da Home não a passam e não mudam: a restrição protegia a moldura de vazar, e uma prop opcional não vaza nada.
 
 - [ ] **Step 1: Estender o componente**
 
@@ -499,17 +502,14 @@ Em `apps/desktop/src/App.tsx`, substituir o componente `Widget` por:
    `hidden` devolve null: a regra de visibilidade fica num lugar so, e a grade nao
    precisa saber de nada — os widgets restantes reflowam sozinhos.
 
-   Os quatro slots sao opcionais porque nem todo widget tem o que pôr neles. A
-   manchete existe quando a FORMA nao carrega o numero — anel com `RingLabel` ja
-   o tem no centro, e repetir seria o mesmo numero duas vezes no mesmo card. O
-   rodape diz escala e extremo, e lista nao tem escala. */
-function Widget({ id, role, span, hidden = false, value, unit, footLeft, footRight, children }: {
+   O rodape e opcional porque diz escala e extremo, e lista nao tem escala. A
+   manchete NAO mora aqui: ela precisa ficar entre o rotulo e o conteudo, que
+   sao o mesmo bloco dentro do Panel. */
+function Widget({ id, role, span, hidden = false, footLeft, footRight, children }: {
   id: string;
   role: HomeWidgetRole;
   span: HomeWidgetSpan;
   hidden?: boolean;
-  value?: string;
-  unit?: string;
   footLeft?: string;
   footRight?: string;
   children: ReactNode;
@@ -518,12 +518,6 @@ function Widget({ id, role, span, hidden = false, value, unit, footLeft, footRig
   return (
     <div className="widget" data-widget={id} data-role={role} data-span={span}>
       {children}
-      {value ? (
-        <p className="widget-head">
-          <span className="widget-value">{value}</span>
-          {unit ? <span className="widget-unit">{unit}</span> : null}
-        </p>
-      ) : null}
       {footLeft || footRight ? (
         <p className="widget-foot">
           <span>{footLeft}</span>
@@ -535,21 +529,29 @@ function Widget({ id, role, span, hidden = false, value, unit, footLeft, footRig
 }
 ```
 
+E em `apps/desktop/src/Surface.tsx`, o `Panel` ganha a manchete:
+
+```tsx
+export function Panel({ label, count, action, rule = false, value, unit, children, className = "" }: { label: string; count?: string; action?: ReactNode; rule?: boolean; value?: string; unit?: string; children: ReactNode; className?: string }) {
+  return <section className={`panel ${className}`} data-panel={label} data-rule={rule || undefined}><header className="panel-header"><h2>{label}</h2>{rule ? <span className="panel-rule" aria-hidden="true" /> : null}{count ? <span className="panel-count">{count}</span> : null}{action}</header>{value ? <p className="widget-head"><span className="widget-value">{value}</span>{unit ? <span className="widget-unit">{unit}</span> : null}</p> : null}{children}</section>;
+}
+```
+
+A manchete fica entre o `<header>` e o conteúdo: o rótulo é anunciado primeiro, o número depois, que é a ordem da referência e a ordem certa para leitor de tela.
+
 - [ ] **Step 2: Escrever o CSS dos slots**
 
 Em `apps/desktop/src/App.css`, depois do bloco `.widget-plot`:
 
 ```css
-/* A manchete vem DEPOIS do Panel no DOM e sobe pela ordem visual: o `Panel` já
-   emite o `h2` do rótulo, e um número antes dele no fluxo faria a árvore de
-   acessibilidade anunciar o valor antes de dizer do que ele é. */
+/* Coluna para o rodapé poder grudar no fim do card com `margin-top: auto`,
+   mesmo quando o conteúdo é curto. */
 .home-grid .widget {
   display: flex;
   flex-direction: column;
 }
 
 .widget-head {
-  order: -1;
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
@@ -581,7 +583,7 @@ Em `apps/desktop/src/App.css`, depois do bloco `.widget-plot`:
 }
 ```
 
-Nota sobre `order: -1`: o `Panel` traz o `h2` do rótulo e precisa vir antes do número na leitura assistiva. A ordem visual é rótulo → número → forma → rodapé; a ordem do DOM é rótulo/forma → número → rodapé, com o número reposicionado por `order`. O rodapé usa `margin-top: auto` para grudar no fim do card mesmo quando o conteúdo é curto.
+A ordem, no DOM e em tela, é a mesma: rótulo → número → forma → rodapé. O rodapé usa `margin-top: auto` para grudar no fim do card mesmo quando o conteúdo é curto.
 
 - [ ] **Step 3: Verificar**
 
@@ -591,8 +593,8 @@ Expected: build limpo. Nenhum widget passa as props ainda, então nada muda em t
 - [ ] **Step 4: Commit**
 
 ```bash
-git add apps/desktop/src/App.tsx apps/desktop/src/App.css
-git commit -m "feat(widgets): Widget ganha slots de manchete e rodape"
+git add apps/desktop/src/App.tsx apps/desktop/src/Surface.tsx apps/desktop/src/App.css
+git commit -m "feat(widgets): Panel ganha manchete e Widget ganha rodape"
 ```
 
 ---
@@ -1494,6 +1496,8 @@ git commit -m "docs: registra a execucao dos widgets com geometria macia"
 ---
 
 ## Notas de execução
+
+**`value`/`unit` vão no `<Panel>`, `footLeft`/`footRight` vão no `<Widget>`.** Os blocos de código das Tasks 7, 8 e 9 mostram os quatro juntos no `<Widget>` por terem sido escritos antes da correção da Task 4 — ao aplicá-los, mover `value` e `unit` para o `<Panel>` interno.
 
 **A ordem importa em três pontos e só neles:** a Task 1 autoriza as demais; a Task 2 é dependência das Tasks 5 e 6; a Task 4 é dependência das Tasks 7, 8 e 9. As Tasks 7, 8 e 9 são independentes entre si e podem ser feitas em qualquer ordem.
 
