@@ -51,9 +51,11 @@
 
 .mos-ring-value {
   fill: none;
-  /* Ponta reta, sempre. Cap arredondado mente sobre o valor em anéis pequenos
-     e amolece a geometria do sistema. */
-  stroke-linecap: butt;
+  /* Ponta arredondada, compensada em `Ring.tsx` por `compensatedLength`: o cap
+     estende meia espessura por ponta, e o traço já vem encurtado disso. Sem a
+     compensação o erro seria de 2,3 pp no anel de 88px e 6,9 pp no de 14px
+     (ADR-040). */
+  stroke-linecap: round;
   stroke: var(--signal-fill);
   animation: mos-ring-draw var(--dur-enter) var(--ease-enter) both;
   animation-delay: var(--ring-delay, 0ms);
@@ -134,7 +136,8 @@
   place-items: center;
   height: 30px;
   border: 0;
-  border-radius: var(--radius-sm);
+  /* `rx` de célula arredonda para dentro e não distorce a leitura de carga. */
+  border-radius: var(--radius);
   background: var(--surface-hover);
   color: var(--text-disabled);
   font: 400 9px/1 var(--font-system);

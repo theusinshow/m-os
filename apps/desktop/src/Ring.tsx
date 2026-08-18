@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { compensatedLength } from "./plotGeometry";
 
 /**
  * Família anel — `M-OS Widgets - Visuais e Animados v0.1`.
@@ -8,7 +9,9 @@ import type { ReactNode } from "react";
  *
  * Quatro regras que o desenho fixa e que não são negociáveis aqui:
  *
- * - ponta reta, sempre. Cap arredondado mente sobre o valor em anéis pequenos;
+ * - ponta arredondada, compensada. O cap estende meia espessura por ponta, e o
+ *   traço é encurtado de uma espessura inteira para o PINTADO bater com o valor
+ *   (ADR-040). Abaixo de uma espessura o anel afirma presença, não mede;
  * - começa às 12h, sentido horário;
  * - zero mostra só o trilho e o número, **nunca** um ponto solto de sódio;
  * - agora e hoje são traço branco, porque o sódio está reservado para carga.
@@ -103,6 +106,9 @@ export function Ring({
             // reta some, mas deixar o elemento no DOM manteria o `dasharray`
             // ativo e, com sub-pixel, o navegador pinta um ponto de sódio.
             if (drawn <= 0) return null;
+            // O cap redondo pinta meia espessura além de cada ponta, então o
+            // traço desenhado é encurtado de uma espessura inteira (ADR-040).
+            const painted = compensatedLength(length * drawn, stroke);
             return (
               <circle
                 key={index}
@@ -114,7 +120,7 @@ export function Ring({
                 strokeWidth={stroke}
                 strokeDasharray={length}
                 style={{
-                  strokeDashoffset: length * (1 - drawn),
+                  strokeDashoffset: length - painted,
                   ["--ring-circumference" as string]: `${length}`,
                   ["--ring-delay" as string]: delay,
                 }}
