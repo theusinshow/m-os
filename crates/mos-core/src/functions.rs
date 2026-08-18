@@ -10,6 +10,11 @@ pub enum FunctionCategory {
     /// esta na ADR-036: e dele que sai a renda de quem fatura por hora.
     Time,
     Memory,
+    /// Lembretes e o que precisa da atencao da pessoa. Categoria propria
+    /// pelo mesmo criterio que deu uma a `Time`: e um substantivo central
+    /// do produto, e nao uma faceta de outro. `CORE.md` §1 lista Reminder
+    /// entre os onze conceitos fundamentais desde o inicio.
+    Attention,
     App,
     Data,
     System,
@@ -43,6 +48,14 @@ pub struct FunctionDefinition {
 
 pub fn function_registry() -> Vec<FunctionDefinition> {
     vec![
+        function(
+            "attention.create_reminder",
+            "Criar lembrete",
+            "Agenda um lembrete para um instante escolhido.",
+            FunctionCategory::Attention,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
         function(
             "capture.create",
             "Criar Capture",

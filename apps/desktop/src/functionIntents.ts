@@ -15,6 +15,7 @@ export type FunctionIntentTarget =
   | "workspaces_link_app"
   | "workspaces_set_widget"
   | "apps_register"
+  | "attention_create"
   | "updates_check"
   | "function_registry";
 
@@ -33,6 +34,7 @@ const lowRiskTargets: Readonly<Record<string, FunctionIntentTarget>> = {
   "workspace.link_app": "workspaces_link_app",
   "workspace.set_widget": "workspaces_set_widget",
   "app.register": "apps_register",
+  "attention.create_reminder": "attention_create",
   "system.update_check": "updates_check",
 };
 

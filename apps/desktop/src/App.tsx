@@ -14,6 +14,7 @@ import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel, Stat
 import { CalendarPage } from "./CalendarPage";
 import { Reminder } from "./Reminder";
 import { AttentionCenter } from "./AttentionCenter";
+import { ReminderComposer } from "./ReminderComposer";
 import { BudgetRing, TodayHours, useTrackedTime, WeekByProject } from "./TimeWidgets";
 import { TempoPage } from "./TempoPage";
 import { FinancePage } from "./FinancePage";
@@ -69,7 +70,7 @@ const INBOX_PAGE = 200;
 const stateOrder: TaskState[] = ["inbox", "backlog", "planned", "doing", "review", "done"];
 const stateLabels: Record<TaskState, string> = { inbox: "Inbox", backlog: "Backlog", planned: "Planned", doing: "Doing", review: "Review", done: "Done" };
 const functionCategories: FunctionDefinition["category"][] = ["capture", "work", "time", "memory", "app", "data", "system"];
-const functionCategoryLabels: Record<FunctionDefinition["category"], string> = { capture: "CAPTURE", work: "WORK", time: "TEMPO", memory: "MEMORY", app: "APP", data: "DATA", system: "SYSTEM" };
+const functionCategoryLabels: Record<FunctionDefinition["category"], string> = { capture: "CAPTURE", work: "WORK", time: "TEMPO", attention: "ATENÇÃO", memory: "MEMORY", app: "APP", data: "DATA", system: "SYSTEM" };
 const functionRiskLabels: Record<FunctionDefinition["risk"], string> = { low: "baixo", medium: "medio", high: "alto" };
 const functionConfirmationLabels: Record<FunctionDefinition["confirmation"], string> = { none: "sem confirmacao", explicit: "confirmacao explicita" };
 const relativeFormatter = new Intl.RelativeTimeFormat("pt-BR", { numeric: "auto" });
@@ -2333,6 +2334,7 @@ function DesktopApp() {
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState(() => localStorage.getItem("m-os-current-workspace") ?? "");
   const [commandOpen, setCommandOpen] = useState(false);
   const [attentionOpen, setAttentionOpen] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
   // O badge conta itens que ESPERAM ACAO, e nao notificacoes nao lidas.
   // Um numero que sobe com coisa que nao pede acao e um numero que se
   // aprende a ignorar. Quem decide o que conta e o backend (§21.1).
@@ -2560,6 +2562,13 @@ function DesktopApp() {
       void api.showQuickCapture();
       return;
     }
+    // O compositor e sobreposicao e nao pagina: criar lembrete nao tira a
+    // pessoa de onde ela estava. Sair da tela para agendar algo e exatamente
+    // a interrupcao que o §85 do UX-PRINCIPLES manda medir e reduzir.
+    if (target === "attention_create") {
+      setComposerOpen(true);
+      return;
+    }
     functionIntentKey.current += 1;
     setFunctionIntent({ target, key: functionIntentKey.current });
     if (target === "home_capture") setPage("home");
@@ -2653,7 +2662,7 @@ function DesktopApp() {
     vira ansiedade de fundo. A contagem da Inbox aparece na Home e na propria
     tela, onde ela leva a uma acao. */}</button>)}</div>)}</nav><div className="rail-footer"><button className="rail-utility" type="button" aria-label={attentionCount > 0 ? `Atencao, ${attentionCount} itens` : "Atencao"} onClick={() => setAttentionOpen(true)}><Icon name="attention" filled={attentionCount > 0} />{attentionCount > 0 ? <span className="rail-badge num">{attentionCount > 9 ? "9+" : attentionCount}</span> : null}<span className="rail-label" aria-hidden="true">Atencao</span><span className="rail-tooltip" aria-hidden="true">Atencao</span></button><button className="rail-utility" type="button" aria-label="Quick Capture" onClick={() => void api.showQuickCapture()}><Icon name="capture" /><span className="rail-label" aria-hidden="true">Quick Capture</span><span className="rail-tooltip" aria-hidden="true">Quick Capture</span></button><button className="rail-utility" type="button" aria-current={page === "settings" ? "page" : undefined} aria-label="Settings" onClick={() => navigate("settings")}><Icon name="settings" filled={page === "settings"} /><span className="rail-label" aria-hidden="true">Settings</span><span className="rail-tooltip" aria-hidden="true">Settings</span></button></div></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button>{/* O estado de sistema nao substitui o meta da pagina: os dois convivem, e o
     indicador de ocupado entra antes sem apagar onde voce esta. */}
-<div className="system-state" aria-live="polite" data-busy={busy || undefined}>{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main></div>{attentionOpen ? <AttentionCenter close={() => { setAttentionOpen(false); void api.attentionCount().then(setAttentionCount).catch(() => undefined); }} /> : null}{delivered ? <AttentionToast event={delivered} close={() => setDelivered(null)} open={() => { setDelivered(null); setAttentionOpen(true); }} /> : null}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
+<div className="system-state" aria-live="polite" data-busy={busy || undefined}>{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main></div>{composerOpen ? <ReminderComposer close={() => setComposerOpen(false)} created={() => { void api.attentionCount().then(setAttentionCount).catch(() => undefined); setAttentionOpen(true); }} /> : null}{attentionOpen ? <AttentionCenter compose={() => { setAttentionOpen(false); setComposerOpen(true); }} close={() => { setAttentionOpen(false); void api.attentionCount().then(setAttentionCount).catch(() => undefined); }} /> : null}{delivered ? <AttentionToast event={delivered} close={() => setDelivered(null)} open={() => { setDelivered(null); setAttentionOpen(true); }} /> : null}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
 }
 
 /**

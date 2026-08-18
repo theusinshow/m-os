@@ -6375,3 +6375,53 @@ input[type="checkbox"]:disabled {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------- Reminder Composer
+
+   Sobreposicao e nao pagina: criar lembrete nao tira a pessoa de onde ela
+   estava. Sair da tela para agendar algo e exatamente a interrupcao que o §85
+   do UX-PRINCIPLES manda medir e reduzir. */
+
+.reminder-composer {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: calc(var(--z-rail) + 3);
+  width: min(26rem, calc(100vw - var(--space-6)));
+  padding: var(--space-5);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  transform: translate(-50%, -50%);
+  animation: viewEnter var(--dur-enter) var(--ease-enter);
+}
+
+.composer-when {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.composer-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* O instante resolvido fica sempre visivel. Um lembrete que dispara em hora
+   diferente da que a pessoa achou que escolheu e pior que um que nao dispara. */
+.composer-resolved {
+  margin: 0;
+  color: var(--text-meta);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reminder-composer {
+    animation: none;
+  }
+}

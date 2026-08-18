@@ -88,7 +88,7 @@ function tomorrowMorning(): Date {
   return when;
 }
 
-export function AttentionCenter({ close }: { close: () => void }) {
+export function AttentionCenter({ close, compose }: { close: () => void; compose: () => void }) {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -163,9 +163,14 @@ export function AttentionCenter({ close }: { close: () => void }) {
       >
         <header className="attention-header">
           <span className="micro-label">ATENÇÃO</span>
-          <button aria-label="Fechar" className="icon-button" onClick={close} type="button">
-            <Icon name="close" />
-          </button>
+          <div className="button-line">
+            <Button onClick={compose} size="sm" variant="secondary">
+              Novo lembrete
+            </Button>
+            <button aria-label="Fechar" className="icon-button" onClick={close} type="button">
+              <Icon name="close" />
+            </button>
+          </div>
         </header>
 
         {error ? (
@@ -176,7 +181,7 @@ export function AttentionCenter({ close }: { close: () => void }) {
 
         {empty ? (
           <p className="attention-empty">
-            Nada esperando por você. Lembretes criados aqui ou pelo Hermes aparecem nesta lista.
+            Nada esperando por você.
           </p>
         ) : (
           (["action", "now", "later"] as const).map((bucket) =>
