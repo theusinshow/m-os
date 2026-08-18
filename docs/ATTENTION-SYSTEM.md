@@ -794,7 +794,9 @@ Três alternativas, avaliadas:
 | **B. Processo em background separado** | ❌ Dois processos, dois donos do banco, contenção de WAL. Contradiz `ARCHITECTURE.md` §4 (monólito modular) |
 | **C. Agendador de Tarefas do Windows** | ⚠️ Sobreviveria ao app fechado, mas a entrega precisaria do app ou de um segundo binário, recaindo em B. Guardado como contingência |
 
-**Isto é a "necessidade observada" que a ADR-016 pedia.** Vira ADR nova (D-5), com `Iniciar com o Windows` e `Iniciar minimizado` **opt-in**, desligados por default.
+**Isto é a "necessidade observada" que a ADR-016 pedia.** Virou a **ADR-040**, com `Iniciar com o Windows` e `Iniciar minimizado` **opt-in**, desligados por default.
+
+A ADR trouxe uma consequência que este documento não previa: o `auto-launch` também escreve na chave que o **Gerenciador de Tarefas** usa, então o Windows dá ao usuário um interruptor fora do M/OS. O toggle passa a **ler `is_enabled()`** em vez de espelhar uma configuração nossa — duas fontes de verdade divergiriam no primeiro clique feito por lá.
 
 ---
 
@@ -984,7 +986,7 @@ Fechadas em 2026-08-18 pelo proprietário do produto. Ficam registradas com o qu
 | **D-2** | Hermes lê por **tipo de contexto `attention`** | leitura só acontece quando o usuário anexa o contexto; o modelo não consulta por iniciativa própria |
 | **D-3** | Canal Windows por **`notify-rust` direto** | dependência direta de um crate hoje transitivo, e um caminho fora do plugin oficial |
 | **D-4** | Entidade `Event` **decidida separadamente** | tudo que precisa de âncora de evento fica fora; a página Calendar segue significando "o que aconteceu" |
-| **D-5** | **Autostart opt-in em P1**, desligado por default | ADR nova promovendo o que a ADR-016 deixou aberto; o usuário precisa ligar para ter a confiabilidade completa |
+| **D-5** | **Autostart opt-in em P1**, desligado por default — **ADR-040**, escrita em 2026-08-18 | o usuário precisa ligar para ter a confiabilidade completa; a superfície não pode prometer o que depende de uma opção desligada |
 | **D-6** | Attention Center no **rodapé do rail** | não é destino de conteúdo; some da contagem de onze e vive na zona de Quick Capture e Settings |
 | **D-7** | Aviso do monitor e Reminder são **coisas declaradamente diferentes** | o monitor mantém falha em silêncio; só o nome muda no código |
 
@@ -1100,7 +1102,7 @@ Seguindo a ADR-037, o texto na tela explica em português o que o sistema faz, o
 
 ## 41. O que este documento não autoriza
 
-- **P1 em diante** — P0 está autorizado; P1 exige a ADR de autostart (D-5);
+- **P1 em diante** — P0 está autorizado; a ADR-040 destravou o autostart, o resto de P1 segue por fazer;
 - entidade `Event` ou `Task.due_at` — negados por D-4 e D-1; voltam por decisão própria, não por conveniência de uma fase;
 - oferecer na UI qualquer opção que dependa de âncora de tempo futuro (§35.1);
 - connectors externos;

@@ -377,6 +377,7 @@ Task utiliza estado de trabalho separado de `lifecycle_state`.
 ## ADR-016 — Quick Capture depende do processo no tray
 
 **Estado:** Accepted
+**Revisada pela ADR-040** em 2026-08-18: a condicao "promover startup automatico depende de necessidade observada" foi cumprida, e o startup entra como opcao desligada por padrao. O resto desta ADR continua valendo.
 
 **Aceita em:** 2026-08-13, após lifecycle e tray serem validados no spike.
 
@@ -1368,3 +1369,128 @@ Finance entra no grupo `TRABALHO`, depois de Calendário, antes do grupo
 - esta ADR não reabre nem contradiz a ADR-032 (M-Finance continua Next.js,
   Postgres e Vercel, rodando exatamente como hoje; só o lugar onde a mesma URL
   é exibida muda).
+
+---
+
+## ADR-040 — O M/OS pode iniciar com o Windows, e o registro é quem manda
+
+**Data:** 2026-08-18
+**Status:** aceito, por decisão do proprietário do produto
+**Revisa:** ADR-016
+**Complementa:** `ATTENTION-SYSTEM.md` (decisão D-5)
+
+### Contexto
+
+A ADR-016 fechou o lifecycle do processo desktop: fechar a janela esconde no
+tray, `Quit` encerra, e *"startup com Windows não entra na v0.1"*. Ela também
+registrou a condição de revisão, e é ela que este documento cumpre:
+
+> promover startup automático depende de necessidade observada.
+
+A necessidade apareceu. O Attention System promete, na §1.1 do documento dele,
+que **nenhum Reminder é perdido em silêncio**. Um Reminder só dispara com o
+processo vivo — o agendador mora no backend, e o backend morre junto com o app.
+Sem iniciar com o sistema, a promessa passa a ter uma condição escondida:
+
+> nenhum Reminder é perdido em silêncio, *desde que você tenha aberto o M/OS
+> depois do login*.
+
+Isso não é uma promessa mais fraca. É outra promessa. Um lembrete para as 9h da
+manhã, criado na véspera, não dispara se a pessoa liga a máquina às 8h50 e só
+abre o M/OS às 11h — e o pior é que o sistema teria funcionado exatamente como
+foi construído, sem nada quebrar, sem nada avisar.
+
+O Attention System já trata esse caso: a reconciliação da abertura marca o
+Reminder como `missed` e mostra há quanto tempo. Mas "perdido há duas horas" é
+o que se faz quando o aviso falhou, não o que se promete como funcionamento
+normal.
+
+### As alternativas, e por que a escolhida
+
+**Tarefa agendada no logon.** O M/OS já tem esse padrão em casa: o túnel do
+Hermes usa uma tarefa `AtLogOn` registrada por `scripts/install-hermes-tunnel.ps1`.
+Ela funciona, mas exige um script de instalação separado, aparece num lugar que
+o usuário não associa ao aplicativo, e some do radar quando ele procurar onde
+desligar. Serve para uma peça de infraestrutura; não serve para uma preferência
+do produto.
+
+**Processo de segundo plano separado.** Sobreviveria ao app fechado, mas
+significaria dois processos disputando o mesmo SQLite. Contradiz a ADR-005
+(monólito modular) e a ADR-008, que fez do banco local a fonte de verdade única.
+Rejeitada.
+
+**Plugin oficial `tauri-plugin-autostart`.** Escolhida. O que ele faz de fato,
+verificado na fonte da dependência e não na documentação: por baixo usa
+`auto-launch 0.5`, que no Windows grava em
+`HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`. Chave por
+usuário: **não pede elevação**, o que preserva a promessa da ADR-016 de que o
+M/OS não pede admin, e não escreve fora do perfil do usuário.
+
+### Decisão
+
+**O M/OS pode iniciar com o Windows, por opção explícita, desligada por padrão.**
+
+Duas preferências em Settings, ambas começando desligadas:
+
+```text
+Iniciar com o Windows        [ ]
+Iniciar minimizado           [ ]
+```
+
+E três regras que decidem como isso se comporta.
+
+**O registro é a fonte de verdade, e não uma configuração nossa.**
+
+O `auto-launch` também escreve em
+`SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run` —
+a chave que o **Gerenciador de Tarefas** usa na aba Inicializar. Ou seja: o
+Windows dá ao usuário um interruptor para este recurso fora do nosso aplicativo,
+e ele pode desligar por lá sem nos avisar.
+
+Portanto o toggle **lê `is_enabled()` a cada vez que a tela abre**, em vez de
+espelhar um booleano nosso. Guardar a preferência num arquivo próprio criaria
+duas fontes de verdade que divergem no primeiro clique feito no Gerenciador de
+Tarefas — e a tela passaria a afirmar "ligado" sobre algo desligado.
+
+Isso é a mesma regra que a ADR-016 já aplicou ao atalho global: *"a interface
+nunca afirma que o atalho está disponível depois de `Quit`"*. Interface que
+afirma capacidade que não tem é pior que interface sem a capacidade.
+
+**Desligado por padrão, e por decisão.**
+
+Um aplicativo que se instala na inicialização sem ser convidado é um aplicativo
+que decidiu pelo dono da máquina. A `VISION.md` §14 diz que o M/OS existe para
+reduzir carga mental, e um programa a mais subindo no logon sem pedido é carga.
+Quem quiser a confiabilidade completa liga; quem não ligar recebe um sistema que
+funciona com o app aberto, e a superfície não promete mais que isso.
+
+O espírito é o mesmo da ADR-037: *"observação que não pode ser desligada é
+vigilância, mesmo quando o observado é o dono da máquina."* Inicialização que
+não pode ser desligada é da mesma família.
+
+**`Iniciar minimizado` depende de `Iniciar com o Windows`.**
+
+Sozinha ela não significa nada, e o M/OS já sabe nascer sem janela visível — é o
+que a ADR-016 estabeleceu ao separar fechar de encerrar. O argumento vai por
+linha de comando, que o plugin suporta (`.arg()`), e o `setup` decide não
+mostrar a janela principal quando ele está presente.
+
+### Consequências
+
+- a promessa do Attention System deixa de ter condição escondida **para quem
+  ligar**, e continua condicionada para quem não ligar. A superfície precisa
+  dizer isso, e não sugerir confiabilidade que depende de uma opção desligada;
+- o M/OS passa a poder aparecer na aba Inicializar do Gerenciador de Tarefas,
+  onde o usuário pode desligá-lo sem abrir o aplicativo. Isso é bom e é
+  deliberado — não vamos tentar reverter o que ele decidir por lá;
+- o toggle nunca guarda estado próprio: ele pergunta ao sistema. Um PR que
+  introduza um booleano espelhando isso reintroduz a divergência que esta ADR
+  existe para evitar;
+- a ADR-016 continua valendo em tudo o mais: fechar esconde no tray, `Quit`
+  encerra, e o atalho global só funciona com o processo vivo;
+- desinstalar o M/OS deve remover a entrada do registro. Um programa que some do
+  disco e continua listado na inicialização deixa lixo que o usuário não sabe de
+  onde veio;
+- esta ADR autoriza a preferência, não o P1 inteiro. Canal de notificação do
+  Windows, tray com "Próximo" e ações no toast continuam sendo trabalho próprio,
+  descrito no `ATTENTION-SYSTEM.md` §11 e §34.
