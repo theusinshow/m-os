@@ -92,7 +92,9 @@ A maciez entra de graça em tudo que é retângulo — barras, empilhada, bullet
 
 ### 5.2 A compensação
 
-Desenha-se `L' = max(0, L − espessura)`, onde `L = valor × circunferência`. O pintado volta a ser `L`.
+Desenha-se `L' = max(ε, L − espessura)` para `L > 0`, e `L' = 0` para `L = 0`, onde `L = valor × circunferência`. O pintado volta a ser `L`.
+
+O piso `ε` é um traço quase-zero (`0.01`), e não zero puro, por uma razão de renderização: um dash de comprimento zero com cap redondo fica a critério do renderizador, enquanto um dash de 0,01 pinta o disco de forma determinística. É ele que garante o comportamento descrito abaixo.
 
 Sem ela, o erro é a espessura sobre a circunferência, nos tamanhos que a família já usa:
 
