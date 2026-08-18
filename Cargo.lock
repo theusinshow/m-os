@@ -2374,7 +2374,7 @@ dependencies = [
 
 [[package]]
 name = "mos-core"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2385,7 +2385,7 @@ dependencies = [
 
 [[package]]
 name = "mos-desktop"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "keyring",
  "mos-core",
@@ -2411,7 +2411,7 @@ dependencies = [
 
 [[package]]
 name = "mos-hermes"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "futures-util",
  "keyring",
@@ -2425,7 +2425,7 @@ dependencies = [
 
 [[package]]
 name = "mos-storage-sqlite"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "hex",
  "mos-core",
