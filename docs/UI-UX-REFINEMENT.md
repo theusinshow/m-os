@@ -1195,3 +1195,87 @@ Implementado em 2026-08-17 como fechamento transversal da trilha UI/UX vNext. O 
 ### Limite deste lote
 
 Tempo não foi redesenhado neste fechamento transversal. Hermes 3B continua condicionado a uma conexão real para que mensagens, streaming, tools, citations, clarify e approval sejam observados de ponta a ponta, sem estados fabricados.
+
+## 29. Estado de execução — Widgets com geometria macia
+
+Implementado em 2026-08-17 a partir da referência `amicro.vercel.app/mono-charts`,
+trazida pelo proprietário. Autorizado pela ADR-040, que é pré-requisito e não
+consequência: sem ela o código contradiria a ADR-034 em três pontos.
+
+Este não é um lote da trilha vNext — ela se encerrou no Lote 5. É um recorte
+pedido à parte, e segue os mesmos gates.
+
+### O que a referência deu, e o que ela não deu
+
+Adotados: formas novas, o acabamento de card **em todos** os 15 widgets, e a
+geometria arredondada. Recusada a paleta monocromática — o sódio continua
+reservado para carga, e agora/hoje continuam em `--text`.
+
+### Moldura
+
+- regra escopada a `.home-grid .widget`: card em `--surface-raised`, forma em
+  `--surface`, e nenhum alcance sobre o `Panel` de Settings, do Inspector de
+  Workspaces ou do Tempo;
+- a superfície aninhada se declara **por preenchimento no escuro e por borda no
+  claro** — no claro `#FFFFFF` sobre `#FAFBFC` são 2% e o preenchimento não
+  desenha nada. O mesmo mecanismo cobre `forced-colors` sem exceção própria;
+- raios concêntricos: `--radius-widget: 12px` fora, `--radius-lg: 8px` dentro,
+  `--space-3` entre as bordas. `--radius: 3px` segue intocado no resto do sistema;
+- manchete como prop opcional do `Panel`, e não do `<Widget>`: o `Panel` traz
+  rótulo e conteúdo como um bloco só, então um número irmão dele cairia antes do
+  rótulo. Os 8 usos fora da Home não passam a prop e não mudam.
+
+### Formas
+
+- `plotGeometry.ts` concentra a aritmética, com 15 testes de nó. Nenhum
+  componente calcula;
+- **`rx` não mente, `linecap` mente**: só as formas de traço são compensadas;
+- o anel passou a ponta arredondada com `L' = max(ε, L − espessura)`. Abaixo de
+  uma espessura ele afirma presença em vez de medir; zero continua não desenhando;
+- TASKS NA SEMANA → `Bars`; HORAS POR PROJECT → `Stack`; META → `Bullet`;
+  HORAS HOJE ganhou `Spark`. Todos sobre dado que já estava na tela;
+- o `Bullet` resolveu uma limitação escrita no código do `BudgetRing`: o anel
+  parava em cheio e o estouro da meta vivia só no texto.
+
+### Duas correções que só a renderização revelou
+
+Nenhum teste pegaria as duas, e nenhuma leitura de JSX também:
+
+1. **SVG esticado distorce geometria arredondada.** Um SVG que preenche a
+   largura do card precisa de `preserveAspectRatio="none"`, e aí a escala
+   horizontal deixa de ser igual à vertical: todo `rx` virava elipse e a pílula
+   saía como ovo. As três formas retangulares passaram a HTML com
+   `border-radius`, resolvido em pixels reais nos dois eixos. O `Spark` ficou em
+   SVG com `non-scaling-stroke`, pelo mesmo motivo aplicado à espessura.
+2. **`border-radius: 999px` produz oval, não pílula.** O CSS limita o raio a
+   metade da MENOR dimensão, e com sete barras num card largo a menor é a
+   altura. A referência oferece as duas variantes — `Full Radius` e
+   `Corner Radius: 8px All` — e só a segunda se sustenta em qualquer largura.
+3. **Degrau de profundidade sobre branco some.** A empilhada misturava com
+   `transparent`, como o anel faz; mas o anel é traço fino sobre trilho, e uma
+   área preenchida a 30% sobre `#FFFFFF` desaparece. Passou a misturar com
+   `--surface-hover`, como a densidade já fazia.
+
+### Evidência de QA
+
+- `npm run build`, `npm test -- --run` (3 arquivos, 27 testes),
+  `npx impeccable detect src` e `git diff --check`: aprovados;
+- bancada de renderização headless com os arquivos de estilo reais, em Dark e
+  Light, cobrindo as quatro formas novas, a moldura, a manchete, o rodapé e a
+  compensação do anel em 88px, 44px e 14px a 5%, 0,5% e zero. Foi ela que
+  revelou as três correções acima;
+- **pendente, e do proprietário:** a janela do Tauri em Dark e Light nas quatro
+  larguras (840×600, 1280×800, 1440×900, 1920×1080), a confirmação de que a
+  moldura não vazou para Settings/Workspaces/Tempo, teclado e foco, e
+  `reduced-motion` e `forced-colors` ligados no sistema. A bancada não substitui
+  isso: ela renderiza as formas, não a Home com dado real.
+
+Um ponto para julgar em tela: no claro, a barra de HOJE é `--text`, quase preta.
+É a regra da família (agora/hoje nunca em sódio) aplicada a uma área maior que a
+de um traço, e pode pesar demais.
+
+### Limite deste recorte
+
+Nenhuma regra de negócio, API, banco, schema ou contrato de domínio foi alterado.
+Nenhum widget novo entrou, e os sete que a ADR-034 deixou de fora continuam fora.
+Tempo e Hermes 3B seguem pendentes como estavam.
