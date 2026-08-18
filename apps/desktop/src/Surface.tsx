@@ -206,8 +206,8 @@ export function StateMessage({ state, label, detail, className = "" }: {
  * rótulo e atravessa a linha. É como o desenho separa uma seção que abre a
  * página de um painel que mostra conteúdo.
  */
-export function Panel({ label, count, action, rule = false, children, className = "" }: { label: string; count?: string; action?: ReactNode; rule?: boolean; children: ReactNode; className?: string }) {
-  return <section className={`panel ${className}`} data-panel={label} data-rule={rule || undefined}><header className="panel-header"><h2>{label}</h2>{rule ? <span className="panel-rule" aria-hidden="true" /> : null}{count ? <span className="panel-count">{count}</span> : null}{action}</header>{children}</section>;
+export function Panel({ label, count, action, rule = false, value, unit, children, className = "" }: { label: string; count?: string; action?: ReactNode; rule?: boolean; value?: string; unit?: string; children: ReactNode; className?: string }) {
+  return <section className={`panel ${className}`} data-panel={label} data-rule={rule || undefined}><header className="panel-header"><h2>{label}</h2>{rule ? <span className="panel-rule" aria-hidden="true" /> : null}{count ? <span className="panel-count">{count}</span> : null}{action}</header>{value ? <p className="widget-head"><span className="widget-value">{value}</span>{unit ? <span className="widget-unit">{unit}</span> : null}</p> : null}{children}</section>;
 }
 
 export function EmptyState({ children }: { children: ReactNode }) {

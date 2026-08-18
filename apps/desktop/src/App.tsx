@@ -108,9 +108,18 @@ function IconButton({ label, icon, active = false, disabled = false, onClick }: 
 type HomeWidgetRole = "focus" | "attention" | "overview" | "collection" | "utility";
 type HomeWidgetSpan = 3 | 4 | 5 | 6 | 8 | 9 | 12;
 
-function Widget({ id, role, span, hidden = false, children }: { id: string; role: HomeWidgetRole; span: HomeWidgetSpan; hidden?: boolean; children: ReactNode }) {
+function Widget({ id, role, span, hidden = false, footLeft, footRight, children }: { id: string; role: HomeWidgetRole; span: HomeWidgetSpan; hidden?: boolean; footLeft?: string; footRight?: string; children: ReactNode }) {
   if (hidden) return null;
-  return <div className="widget" data-widget={id} data-role={role} data-span={span}>{children}</div>;
+  return (
+    <div className="widget" data-widget={id} data-role={role} data-span={span}>
+      {children}
+      {/* Escala à esquerda, extremo à direita — o rodapé diz contra o que a forma
+          mede. Lista não tem escala, e por isso lista não recebe rodapé. A
+          manchete NÃO mora aqui: ela precisa ficar entre o rótulo e o conteúdo,
+          que são o mesmo bloco dentro do Panel. */}
+      {footLeft || footRight ? <p className="widget-foot"><span>{footLeft}</span><span>{footRight}</span></p> : null}
+    </div>
+  );
 }
 
 function HomeSection({ id, title, hidden = false, children }: { id: string; title: string; hidden?: boolean; children: ReactNode }) {
