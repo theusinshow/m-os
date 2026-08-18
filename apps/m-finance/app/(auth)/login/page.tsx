@@ -77,7 +77,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             </div>
             <h2 className="font-display text-2xl font-semibold text-text-primary">Acesso restrito</h2>
             <p className="mt-2 text-sm leading-6 text-text-muted">
-              Mando um código de 6 dígitos para o e-mail autorizado. Sem senha para lembrar,
+              Mando um código para o e-mail autorizado. Sem senha para lembrar,
               e sem sair desta janela.
             </p>
 

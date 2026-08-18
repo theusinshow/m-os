@@ -27,7 +27,7 @@ export function LoginForm({ configured }: { configured: boolean }) {
 
       {noCodigo && state.sent ? (
         <p className="text-sm leading-6 text-text-muted" aria-live="polite">
-          Enviei um código de 6 dígitos para <b className="text-text-secondary">{state.email}</b>.
+          Enviei um código para <b className="text-text-secondary">{state.email}</b>.
           Ele vale por uma hora.
         </p>
       ) : null}
@@ -40,11 +40,11 @@ export function LoginForm({ configured }: { configured: boolean }) {
             <input
               autoComplete="one-time-code"
               autoFocus
-              className={`${campo} text-center text-lg tracking-[0.5em] tabular-nums`}
+              className={`${campo} text-center text-lg tracking-[0.35em] tabular-nums`}
               inputMode="numeric"
-              maxLength={6}
+              maxLength={10}
               name="codigo"
-              pattern="[0-9]{6}"
+              pattern="[0-9]{6,10}"
               placeholder="000000"
               required
             />

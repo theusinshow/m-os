@@ -172,12 +172,36 @@ describe("confirmacao do codigo", () => {
     );
   });
 
-  it("recusa codigo com tamanho errado sem chamar o Supabase", async () => {
+  it("recusa codigo curto demais sem chamar o Supabase", async () => {
     const estado = await continuarLogin(NO_CODIGO, form({ codigo: "12345" }));
 
-    expect(estado).toMatchObject({ step: "code", error: "O código tem 6 dígitos." });
+    expect(estado).toMatchObject({ step: "code" });
+    expect(estado.error).toMatch(/entre 6 e 10/);
     expect(auth().verifyOtp).not.toHaveBeenCalled();
     expect(redirectMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * O tamanho do codigo e ajustavel no painel do Supabase. Este projeto manda
+   * 8, e a versao anterior desta tela exigia exatamente 6 — o codigo certo era
+   * recusado antes mesmo de sair daqui.
+   */
+  it.each([["6 digitos", "123456"], ["8 digitos", "12345678"], ["10 digitos", "1234567890"]])(
+    "aceita codigo de %s",
+    async (_nome, codigo) => {
+      await expect(
+        continuarLogin(NO_CODIGO, form({ codigo })),
+      ).rejects.toThrow("NEXT_REDIRECT");
+
+      expect(auth().verifyOtp).toHaveBeenCalledWith(expect.objectContaining({ token: codigo }));
+    },
+  );
+
+  it("recusa codigo longo demais", async () => {
+    const estado = await continuarLogin(NO_CODIGO, form({ codigo: "123456789012" }));
+
+    expect(estado.step).toBe("code");
+    expect(auth().verifyOtp).not.toHaveBeenCalled();
   });
 
   it("mantem o usuario na tela quando o codigo e invalido", async () => {

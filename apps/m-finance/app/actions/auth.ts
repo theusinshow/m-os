@@ -105,8 +105,13 @@ async function confirmarCodigo(anterior: LoginState, formData: FormData): Promis
   const email = String(formData.get("email") ?? anterior.email).trim().toLowerCase();
   const codigo = String(formData.get("codigo") ?? "").replace(/\D/g, "");
 
-  if (codigo.length !== 6) {
-    return { step: "code", email, error: "O código tem 6 dígitos." };
+  // O comprimento do codigo e ajustavel no painel do Supabase (6 a 10). Cravar
+  // um numero aqui duplicaria uma configuracao que vive em outro lugar, e a
+  // copia sairia do ar no dia em que alguem mexesse la — foi o que aconteceu
+  // quando isto exigia 6 e o projeto estava mandando 8. Validamos so o formato
+  // e deixamos o Supabase ser dono do tamanho.
+  if (!/^\d{6,10}$/.test(codigo)) {
+    return { step: "code", email, error: "O código tem só dígitos, entre 6 e 10." };
   }
 
   if (!emailAutorizado(email)) {
