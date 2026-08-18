@@ -14,7 +14,7 @@
 
 Dar ao M/OS uma presença que mostre, em qualquer tela, o que o sistema está fazendo agora — usando uma criatura cujas poses são fatos, e não enfeite.
 
-Argos é a **face do M/OS**, não do Hermes. Ele mostra boot, ocupado, cronômetro e conexão tanto quanto mostra o assistente trabalhando. É essa amplitude que o separa de um avatar de IA.
+Argos é a **face do M/OS**, não do Hermes. Ele mostra boot, operação em curso e cronômetro tanto quanto mostra o assistente trabalhando. É essa amplitude que o separa de um avatar de IA.
 
 ## 2. Escopo
 
