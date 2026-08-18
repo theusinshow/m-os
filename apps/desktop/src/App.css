@@ -516,6 +516,67 @@ button {
   color: var(--signal-ink);
 }
 
+/* ---------- Argos (ADR-041) ----------
+   A face do estado, ao lado do texto que diz a mesma coisa em palavras.
+
+   Três pesos, e cada um significa uma coisa: repouso é o mesmo peso do texto de
+   estado ao lado — Argos não pesa mais que a topbar; atento clareou porque há o
+   que acompanhar; chamando é o único caso em que ele puxa o olho.
+
+   `--signal-fill` não entra: a ADR-034 o reservou para carga, e Argos não mostra
+   carga. */
+.argos {
+  flex: none;
+  color: var(--text-system);
+  transition: color var(--dur-state) linear;
+}
+
+.argos[data-weight="atento"] {
+  color: var(--text);
+}
+
+.argos[data-weight="chamando"] {
+  color: var(--signal-ink);
+}
+
+.argos-body {
+  fill: currentColor;
+}
+
+/* O olho é o buraco: ele leva a cor do fundo da topbar, não uma cor própria. */
+.argos-eye {
+  fill: var(--canvas);
+}
+
+/* O movimento de Argos é a TRANSIÇÃO ENTRE POSES, e nada mais: não há loop nem
+   piscada ociosa, porque o sistema já gastou seu único loop na barra inclinada
+   do símbolo. `cx`/`cy`/`rx`/`ry` são propriedades de geometria animáveis no
+   Chromium, que é o motor do WebView2.
+
+   `prefers-reduced-motion` não precisa de regra própria: a fonte única em
+   `tokens.css` zera `--dur-state` e a troca passa a ser instantânea. */
+.argos-eye {
+  transition:
+    cx var(--dur-state) var(--ease-enter),
+    cy var(--dur-state) var(--ease-enter),
+    rx var(--dur-state) var(--ease-enter),
+    ry var(--dur-state) var(--ease-enter);
+}
+
+@media (forced-colors: active) {
+  .argos-body {
+    fill: CanvasText;
+  }
+
+  .argos[data-weight="chamando"] .argos-body {
+    fill: Highlight;
+  }
+
+  .argos-eye {
+    fill: Canvas;
+  }
+}
+
 .content {
   position: relative;
 }
