@@ -53,7 +53,8 @@
   /* ---------- Geometria ---------- */
   --radius-sm: 2px;   /* elementos de 14-20px */
   --radius: 3px;      /* padrão de todo o sistema */
-  --radius-lg: 8px;   /* somente app icon e overlay grande */
+  --radius-lg: 8px;   /* app icon, overlay grande e superfície aninhada de widget (ADR-040) */
+  --radius-widget: 12px; /* moldura de widget da Home, e nada além dela (ADR-040) */
 
   --stroke-24: 1.5px;
   --stroke-20: 1.25px;

@@ -809,6 +809,68 @@ textarea::placeholder {
 .widget[data-span="9"] { grid-column: span 9; }
 .widget[data-span="12"] { grid-column: span 12; }
 
+/* ---------- Moldura de widget (ADR-040) ----------
+   Escopada a `.home-grid` de propósito: o `Panel` é o mesmo componente usado em
+   Settings, no Inspector de Workspaces e no Tempo, e a moldura não pode
+   alcançá-los. Vazar daqui exige uma edição deliberada, não acontece por
+   herança.
+
+   Coluna para o rodapé poder grudar no fim do card com `margin-top: auto`,
+   mesmo quando o conteúdo é curto. */
+.home-grid .widget {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-widget);
+  background: var(--surface-raised);
+}
+
+/* A superfície onde a forma é desenhada, um degrau abaixo do card.
+
+   As duas propriedades existem nos dois temas, e muda qual faz o trabalho: no
+   escuro `#101316` sobre `#171B1F` se lê pelo preenchimento; no claro
+   `#FAFBFC` sobre `#FFFFFF` são 2% e é a borda que desenha o retângulo. Em
+   `forced-colors` o preenchimento some e sobra a borda — o mesmo mecanismo do
+   claro, e por isso não há exceção a escrever. */
+.widget-plot {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.widget-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+}
+
+.widget-value {
+  font: var(--text-title);
+  letter-spacing: var(--tracking-title);
+  color: var(--text);
+}
+
+.widget-unit {
+  font: var(--text-small);
+  color: var(--text-secondary);
+}
+
+.widget-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: auto 0 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  color: var(--text-system);
+}
+
 /* A primeira faixa é a única com altura mínima compartilhada: são três leituras
    paralelas do presente. Os outros widgets deixam o próprio conteúdo governar
    a altura, evitando o dashboard de cartões iguais. */
