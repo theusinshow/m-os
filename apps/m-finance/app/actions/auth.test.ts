@@ -99,13 +99,20 @@ describe("pedido do codigo", () => {
     expect(auth().signInWithOtp).not.toHaveBeenCalled();
   });
 
-  it("nao avanca de passo quando o envio falha", async () => {
-    auth().signInWithOtp.mockResolvedValue({ error: { message: "rate limit" } });
+  /**
+   * A causa do provedor precisa chegar na tela. Sem ela, "Error sending magic
+   * link email" (SMTP recusando) fica indistinguivel de "usuario nao existe",
+   * e as duas pedem correcoes bem diferentes.
+   */
+  it("nao avanca de passo quando o envio falha, e mostra o motivo", async () => {
+    auth().signInWithOtp.mockResolvedValue({
+      error: { message: "Error sending magic link email" },
+    });
 
     const estado = await continuarLogin(NO_EMAIL, form({ email: "dono@exemplo.com" }));
 
     expect(estado.step).toBe("email");
-    expect(estado.error).toMatch(/Não consegui enviar/);
+    expect(estado.error).toContain("Error sending magic link email");
   });
 });
 

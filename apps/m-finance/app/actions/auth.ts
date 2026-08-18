@@ -67,7 +67,15 @@ async function pedirCodigo(_anterior: LoginState, formData: FormData): Promise<L
   });
 
   if (error) {
-    return { step: "email", email, error: "Não consegui enviar o código agora." };
+    // A mensagem do provedor vai junto de proposito. Um app de um dono so nao
+    // ganha nada escondendo "Error sending magic link email" atras de um texto
+    // generico: quem le a tela e quem configura o SMTP, e sem a causa a falha
+    // vira adivinhacao.
+    return {
+      step: "email",
+      email,
+      error: `Não consegui enviar o código: ${error.message}`,
+    };
   }
 
   return { step: "code", email, sent: true };
