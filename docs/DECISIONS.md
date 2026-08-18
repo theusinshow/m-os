@@ -1456,3 +1456,88 @@ número inventado é pior que a ausência".
 - o risco assumido: uma linguagem visual macia é mais fácil de esticar para
   onde não foi decidida. A defesa é o escopo `.home-grid`, que faz o
   vazamento exigir uma edição deliberada em vez de acontecer por herança.
+
+## ADR-041 — Argos, a face do estado, e por que ela não é AI slop
+
+**Data:** 2026-08-18
+**Status:** aceito, por decisão do proprietário do produto
+**Revisa:** nada. Convive com `UX-PRINCIPLES.md` §16 e `HERMES-PREMIUM-CHAT.md` §7.6
+pela distinção fixada abaixo.
+
+### Contexto
+
+O proprietário trouxe `https://bloub.vercel.app/` como referência: um gerador de
+avatar SVG animado, com estados que espelham situações de sistema — pensando,
+alerta, notificação, espera.
+
+Dois documentos encostam nisso. O `UX-PRINCIPLES.md` §16 manda evitar
+"orbes decorativos" e "interfaces que parecem demos de IA". O
+`HERMES-PREMIUM-CHAT.md` §7.6 é literal: "Proibido: bolha de chat, avatar, orb,
+sparkle, gradiente 'AI', glow permanente, partícula, spinner grande".
+
+### Decisão
+
+**Entra uma criatura no shell, chamada Argos, sob três condições que a tornam o
+oposto de enfeite.**
+
+**1. Ela não é avatar do assistente, é a face do M/OS.** Argos tem pose para
+boot, para operação em curso e para cronômetro correndo, tanto quanto tem para o
+Hermes gerando. Um avatar de IA não teria pose para "o banco está abrindo". É
+essa amplitude que o separa do que o §7.6 proíbe — e ele nunca aparece dentro da
+superfície do Hermes, onde a proibição é literal.
+
+**2. Cada pose é um fato, e nenhuma existe sem sinal.** É a mesma doutrina que a
+ADR-034 aplicou ao movimento e que o próprio §7.6 enuncia: o efeito É o estado,
+nunca enfeite. Onde não há sinal, não há pose — por isso Argos não dorme (ver
+abaixo) e não tem ponto de notificação.
+
+**3. Ela não tem loop nem piscada ociosa.** O orçamento de movimento da ADR-034
+dá um loop por tela, e o sistema já gastou o dele na barra inclinada do
+`Symbol.tsx`, que é declarada "o único spinner do sistema". Uma piscada periódica
+não carregaria dado nenhum — seria exatamente o enfeite que o §16 proíbe. O
+movimento de Argos é a transição entre poses, que só acontece porque um fato
+mudou.
+
+### O desenho do bloub foi recusado
+
+O autor da referência escreve que "The MIT licence covers the code in this
+repository, not the design it imitates", e junto: "Not affiliated with, endorsed
+by or connected to x.ai". O blob dele é uma reimplementação do mascote da x.ai.
+Vestir o M/OS com a cara de outro produto seria cair no "interfaces que parecem
+demos de IA" do §16 por um caminho mais curto ainda.
+
+Da referência foram adotados o mecanismo e a doutrina: uma silhueta preenchida
+com a expressão inteira nos olhos, estados como dado, e um motor puro sem relógio
+— o mesmo padrão de `plotGeometry.ts`.
+
+A silhueta é um quadrado de cantos macios, herdando a família geométrica do
+símbolo do rail — sem herdar a marca: nunca campo sódio, nunca a barra dentro.
+
+### Argos só escuta
+
+Ele assina o barramento `hermes-event` e **nunca responde**, em particular nunca
+chama `hermes.approve`. A ADR-024 fixou que Hermes é superfície, não segundo
+agente; e o próprio `hermes.ts` registra o problema que a endereçagem de evento
+veio corrigir — "sem isto, duas superfícies assinando o mesmo barramento dividiam
+a mesma resposta entre si". Um bicho que respondesse seria um terceiro
+respondente.
+
+### O nome
+
+Argos Panoptes é o vigia de cem olhos: uma criatura cuja única característica é o
+olhar, que é literalmente o caso aqui — toda a expressão são duas cápsulas. A
+repartição com Hermes é exata: **Hermes fala, Argos olha**, e o nome carrega a
+restrição de segurança acima.
+
+E o mito já contém o escopo: Argos é o que não dorme. O nosso também não — não
+por esquecimento, mas porque o sinal de inatividade real mora no Rust, no monitor
+da ADR-037, e fingir sono com um temporizador de renderer seria inventar o dado.
+
+### Consequências
+
+- a topbar ganha um segundo espelho de estado ao lado do que já existe;
+- o dia em que a ADR-037 alimentar o sono, Argos dorme pela primeira vez, e isso
+  é uma nota de release;
+- o risco assumido: uma criatura é mais fácil de esticar do que uma barra. A
+  defesa é esta ADR — qualquer pose nova exige um sinal que já exista, e qualquer
+  pose sem sinal é a mudança silenciosa que `UI-UX-REFINEMENT.md` §15 proíbe.
