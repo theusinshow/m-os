@@ -826,6 +826,244 @@ mod tests {
         }
     }
 
+    // ------------------------------------------------- o servico de ponta a ponta
+    //
+    // Estes exercitam `AttentionService` contra o banco de verdade com relogio
+    // falso. O agendador do desktop e uma casca fina em volta disto — dorme,
+    // acorda e chama — e o binario de teste do `mos-desktop` nao sobe nesta
+    // maquina, entao e aqui que a logica precisa ficar coberta.
+
+    use mos_core::{AttentionService, ReconcileReason};
+    use std::sync::Arc;
+
+    fn service() -> (AttentionService, FixedClock, tempfile::TempDir) {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = Arc::new(
+            SqliteStorage::open(
+                directory.path().join("mos.db"),
+                directory.path().join("backups"),
+            )
+            .unwrap(),
+        );
+        let clock = clock();
+        let service = AttentionService::new(storage, Arc::new(clock.clone()));
+        (service, clock, directory)
+    }
+
+    /// O ciclo inteiro: criar, esperar, vencer, entregar, concluir.
+    #[test]
+    fn the_whole_life_of_a_reminder() {
+        let (service, clock, _guard) = service();
+        let created = service
+            .create_at(
+                "Enviar proposta",
+                "",
+                clock.now() + Duration::hours(2),
+                None,
+                ReminderSource::User,
+            )
+            .unwrap();
+
+        // Antes da hora, nada acontece.
+        assert!(service.reconcile().unwrap().is_empty());
+        assert_eq!(service.needs_attention_count().unwrap(), 0);
+        assert_eq!(
+            service.next_wake().unwrap(),
+            Some(clock.now() + Duration::hours(2))
+        );
+
+        clock.advance(Duration::hours(2));
+
+        let rang = service.reconcile().unwrap();
+        assert_eq!(rang.len(), 1);
+        assert_eq!(rang[0].1, ReconcileReason::DueNow);
+        assert_eq!(rang[0].0.status, ReminderStatus::Due);
+        assert_eq!(service.needs_attention_count().unwrap(), 1);
+
+        let queued = service
+            .queue_delivery(created.id, Channel::InApp, "reminder-due", VisualLevel::Normal)
+            .unwrap()
+            .expect("primeira entrega e criada");
+        service.mark_delivered(&queued).unwrap();
+
+        let after = service.reminder(created.id).unwrap();
+        assert_eq!(after.status, ReminderStatus::Delivered);
+        assert_eq!(after.delivered_count, 1);
+
+        service
+            .transition(created.id, Transition::Complete)
+            .unwrap();
+        assert_eq!(service.needs_attention_count().unwrap(), 0);
+        assert!(service.next_wake().unwrap().is_none());
+    }
+
+    /// Chamada a cada acordada do laco. Se nao fosse idempotente, um tick
+    /// duplicado entregaria duas vezes.
+    #[test]
+    fn reconciling_twice_changes_nothing_the_second_time() {
+        let (service, clock, _guard) = service();
+        service
+            .create_at("X", "", clock.now() + Duration::hours(1), None, ReminderSource::User)
+            .unwrap();
+
+        clock.advance(Duration::hours(1));
+
+        assert_eq!(service.reconcile().unwrap().len(), 1);
+        assert!(
+            service.reconcile().unwrap().is_empty(),
+            "a segunda passada nao acha nada, porque a primeira tirou da espera"
+        );
+    }
+
+    /// O caso do PC que dormiu, atravessando servico e banco.
+    #[test]
+    fn what_expired_while_away_comes_back_as_missed_with_its_original_delay() {
+        let (service, clock, _guard) = service();
+        let created = service
+            .create_at("Ligar", "", clock.now() + Duration::hours(1), None, ReminderSource::User)
+            .unwrap();
+
+        clock.advance(Duration::hours(9));
+
+        let found = service.reconcile().unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].1, ReconcileReason::MissedWhileAway);
+        assert_eq!(found[0].0.status, ReminderStatus::Missed);
+        assert_eq!(
+            found[0].0.overdue_by(clock.now()),
+            Some(Duration::hours(8)),
+            "o atraso conta do vencimento original, e nao de agora"
+        );
+
+        assert_eq!(service.reminder(created.id).unwrap().status, ReminderStatus::Missed);
+        assert_eq!(service.needs_attention_count().unwrap(), 1);
+    }
+
+    /// Sem isto, "Task atrasada" a cada acordada do laco.
+    #[test]
+    fn a_second_delivery_of_the_same_subject_is_blocked_while_the_first_lives() {
+        let (service, clock, _guard) = service();
+        let created = service
+            .create_at("X", "", clock.now() + Duration::minutes(1), None, ReminderSource::User)
+            .unwrap();
+        clock.advance(Duration::minutes(1));
+        service.reconcile().unwrap();
+
+        assert!(service
+            .queue_delivery(created.id, Channel::InApp, "reminder-due", VisualLevel::Normal)
+            .unwrap()
+            .is_some());
+        assert!(
+            service
+                .queue_delivery(created.id, Channel::InApp, "reminder-due", VisualLevel::Normal)
+                .unwrap()
+                .is_none(),
+            "a segunda com a mesma chave e recusada"
+        );
+
+        // Assunto diferente NAO e bloqueado: "venceu" e "foi perdido" sao
+        // avisos diferentes sobre o mesmo Reminder.
+        assert!(service
+            .queue_delivery(created.id, Channel::InApp, "reminder-missed", VisualLevel::Normal)
+            .unwrap()
+            .is_some());
+    }
+
+    /// A invariante central do sistema, exercitada onde ela pode falhar.
+    #[test]
+    fn a_failed_delivery_leaves_the_reminder_needing_attention() {
+        let (service, clock, _guard) = service();
+        let created = service
+            .create_at("X", "", clock.now() + Duration::minutes(1), None, ReminderSource::User)
+            .unwrap();
+        clock.advance(Duration::minutes(1));
+        service.reconcile().unwrap();
+
+        let queued = service
+            .queue_delivery(created.id, Channel::Windows, "reminder-due", VisualLevel::Normal)
+            .unwrap()
+            .unwrap();
+        service.mark_failed(&queued, "toast recusado").unwrap();
+
+        let after = service.reminder(created.id).unwrap();
+        assert_eq!(after.status, ReminderStatus::Due, "falha nao resolve nada");
+        assert!(after.status.needs_attention());
+        assert_eq!(service.needs_attention_count().unwrap(), 1);
+
+        // E como a entrega morreu, o dedupe libera a proxima tentativa.
+        assert!(service
+            .queue_delivery(created.id, Channel::Windows, "reminder-due", VisualLevel::Normal)
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn snoozing_takes_it_out_of_attention_and_puts_it_back_later() {
+        let (service, clock, _guard) = service();
+        let created = service
+            .create_at("X", "", clock.now() + Duration::minutes(1), None, ReminderSource::User)
+            .unwrap();
+        clock.advance(Duration::minutes(1));
+        service.reconcile().unwrap();
+        assert_eq!(service.needs_attention_count().unwrap(), 1);
+
+        let until = clock.now() + Duration::hours(3);
+        service
+            .transition(created.id, Transition::Snooze { until })
+            .unwrap();
+
+        assert_eq!(
+            service.needs_attention_count().unwrap(),
+            0,
+            "adiado nao cobra atencao: a pessoa ja decidiu quando quer ver"
+        );
+        assert_eq!(service.next_wake().unwrap(), Some(until));
+
+        clock.advance(Duration::hours(3));
+        let rang = service.reconcile().unwrap();
+        assert_eq!(rang.len(), 1);
+        assert_eq!(rang[0].0.status, ReminderStatus::Due);
+    }
+
+    /// Arquivar tira das superficies sem apagar — ADR-035.
+    #[test]
+    fn archiving_removes_it_from_the_scheduler_without_destroying_it() {
+        let (service, clock, _guard) = service();
+        let created = service
+            .create_at("X", "", clock.now() + Duration::hours(1), None, ReminderSource::User)
+            .unwrap();
+
+        service
+            .set_lifecycle(created.id, LifecycleState::Archived)
+            .unwrap();
+
+        assert!(service.next_wake().unwrap().is_none());
+        assert!(service.open().unwrap().is_empty());
+        assert_eq!(
+            service.reminder(created.id).unwrap().title,
+            "X",
+            "arquivado continua consultavel"
+        );
+    }
+
+    /// O servico le do banco antes de decidir, e nao do que a interface tinha.
+    #[test]
+    fn a_transition_decides_on_the_stored_state_not_the_callers_copy() {
+        let (service, clock, _guard) = service();
+        let created = service
+            .create_at("X", "", clock.now() + Duration::hours(1), None, ReminderSource::User)
+            .unwrap();
+
+        service.transition(created.id, Transition::Cancel).unwrap();
+
+        // Quem ainda segura a copia antiga tenta concluir; o servico recusa
+        // porque o banco diz `cancelled`.
+        let error = service
+            .transition(created.id, Transition::Complete)
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidTransition);
+    }
+
     /// A promessa central, exercitada contra o banco: fechar e reabrir nao
     /// perde nada, e o que venceu enquanto ninguem olhava volta como perdido
     /// com o instante original.

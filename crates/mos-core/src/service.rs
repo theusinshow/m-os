@@ -294,6 +294,167 @@ impl TrackingService {
 /// separados torna essa fronteira visivel na assinatura em vez de depender de
 /// alguem lembrar dela.
 #[derive(Clone)]
+/// O Attention System, do lado do dominio.
+///
+/// Toda mudanca de estado passa por aqui, e nunca pelo repositorio direto: e
+/// este servico que garante a ordem "validar, persistir, so entao agendar" do
+/// `ATTENTION-SYSTEM.md` §7.5. Um Reminder que existe no agendador e nao no
+/// banco e um Reminder que o proximo restart apaga.
+pub struct AttentionService {
+    repository: Arc<dyn crate::AttentionRepository>,
+    clock: Arc<dyn crate::Clock>,
+}
+
+impl AttentionService {
+    pub fn new(
+        repository: Arc<dyn crate::AttentionRepository>,
+        clock: Arc<dyn crate::Clock>,
+    ) -> Self {
+        Self { repository, clock }
+    }
+
+    pub fn create_at(
+        &self,
+        title: &str,
+        body: &str,
+        instant: time::OffsetDateTime,
+        target: Option<crate::ReminderTarget>,
+        source: crate::ReminderSource,
+    ) -> Result<crate::Reminder, CoreError> {
+        let mut draft =
+            crate::NewReminder::at(title, body, instant, self.clock.as_ref())?.from_source(source);
+        if let Some(target) = target {
+            draft = draft.with_target(target);
+        }
+        self.repository.create_reminder(draft)
+    }
+
+    pub fn reminder(&self, id: crate::ReminderId) -> Result<crate::Reminder, CoreError> {
+        self.repository.reminder(id)
+    }
+
+    /// O que a superficie mostra.
+    pub fn open(&self) -> Result<Vec<crate::Reminder>, CoreError> {
+        self.repository.open_reminders()
+    }
+
+    /// O que o agendador precisa ver.
+    pub fn waiting(&self) -> Result<Vec<crate::Reminder>, CoreError> {
+        self.repository.waiting_reminders()
+    }
+
+    /// Quantos itens realmente esperam uma acao da pessoa (§21.1).
+    pub fn needs_attention_count(&self) -> Result<usize, CoreError> {
+        Ok(self
+            .repository
+            .open_reminders()?
+            .iter()
+            .filter(|reminder| reminder.status.needs_attention())
+            .count())
+    }
+
+    /// Aplica uma transicao e grava.
+    ///
+    /// Le do banco antes de decidir, para nao decidir sobre um estado que a
+    /// interface tinha em cache — a tela pode estar aberta desde antes de o
+    /// lembrete vencer.
+    pub fn transition(
+        &self,
+        id: crate::ReminderId,
+        transition: crate::Transition,
+    ) -> Result<crate::Reminder, CoreError> {
+        let current = self.repository.reminder(id)?;
+        let next = crate::apply(&current, transition, self.clock.now())?;
+        self.repository.save_reminder(&next)
+    }
+
+    pub fn set_lifecycle(
+        &self,
+        id: crate::ReminderId,
+        state: crate::LifecycleState,
+    ) -> Result<crate::Reminder, CoreError> {
+        self.repository.set_reminder_lifecycle(id, state)
+    }
+
+    /// Quando o agendador precisa acordar, se precisar.
+    pub fn next_wake(&self) -> Result<Option<time::OffsetDateTime>, CoreError> {
+        Ok(crate::next_wake(&self.repository.waiting_reminders()?))
+    }
+
+    /// O que venceu enquanto ninguem olhava, e o que acabou de vencer.
+    ///
+    /// Aplica as transicoes e devolve o que mudou, para quem chamou poder
+    /// entregar. Idempotente: rodar duas vezes seguidas nao produz nada na
+    /// segunda, porque a primeira tirou os Reminders do estado de espera.
+    pub fn reconcile(&self) -> Result<Vec<(crate::Reminder, crate::ReconcileReason)>, CoreError> {
+        let waiting = self.repository.waiting_reminders()?;
+        let now = self.clock.now();
+        let mut changed = Vec::new();
+
+        for found in crate::reconcile(&waiting, now) {
+            let current = self.repository.reminder(found.id)?;
+            let transition = match found.reason {
+                crate::ReconcileReason::DueNow => crate::Transition::Ring,
+                crate::ReconcileReason::MissedWhileAway => crate::Transition::Miss,
+            };
+            let next = crate::apply(&current, transition, now)?;
+            changed.push((self.repository.save_reminder(&next)?, found.reason));
+        }
+
+        Ok(changed)
+    }
+
+    /// Registra uma entrega, respeitando o dedupe (§17).
+    ///
+    /// Devolve `None` quando ja existe entrega viva com a mesma chave — e o que
+    /// impede "Task atrasada" quatro vezes seguidas.
+    pub fn queue_delivery(
+        &self,
+        reminder: crate::ReminderId,
+        channel: crate::Channel,
+        subject: &str,
+        level: crate::VisualLevel,
+    ) -> Result<Option<crate::Notification>, CoreError> {
+        let key = crate::NewNotification::dedupe_key(subject, reminder);
+        if self.repository.live_notification(&key)?.is_some() {
+            return Ok(None);
+        }
+        let queued =
+            crate::NewNotification::queued(reminder, channel, subject, level, self.clock.now());
+        self.repository.record_notification(queued).map(Some)
+    }
+
+    /// Marca a entrega como entregue e conta no Reminder.
+    pub fn mark_delivered(
+        &self,
+        notification: &crate::Notification,
+    ) -> Result<crate::Notification, CoreError> {
+        let mut next = notification.clone();
+        next.status = crate::NotificationStatus::Delivered;
+        next.delivered_at = Some(self.clock.now());
+        let saved = self.repository.save_notification(&next)?;
+        // A falha aqui NAO desfaz a entrega: o toast ja apareceu. Contar de
+        // menos e melhor que afirmar que nao entregou o que entregou.
+        let _ = self.transition(notification.reminder_id, crate::Transition::Deliver);
+        Ok(saved)
+    }
+
+    /// Registra falha de canal.
+    ///
+    /// NAO mexe no Reminder: falha de entrega nunca resolve uma intencao (§27).
+    pub fn mark_failed(
+        &self,
+        notification: &crate::Notification,
+        reason: &str,
+    ) -> Result<crate::Notification, CoreError> {
+        let mut next = notification.clone();
+        next.status = crate::NotificationStatus::Failed;
+        next.failure = Some(reason.to_owned());
+        next.resolved_at = Some(self.clock.now());
+        self.repository.save_notification(&next)
+    }
+}
+
 pub struct MonitoringService {
     repository: Arc<dyn MonitoringRepository>,
 }

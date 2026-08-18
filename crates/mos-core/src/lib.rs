@@ -55,7 +55,7 @@ pub use resource::{
     validate_resource_url, NewResource, Resource, ResourceId, ResourceKind, ResourceWorkspace,
 };
 pub use service::{
-    AppService, CaptureService, ConversationService, CreateAppInput, CreateCaptureInput,
+    AppService, AttentionService, CaptureService, ConversationService, CreateAppInput, CreateCaptureInput,
     CreateProjectInput, CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService,
     MemoryService, MonitoringService, TrackingService, UpdateAppInput, UpdateProjectInput,
     UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, WorkService,

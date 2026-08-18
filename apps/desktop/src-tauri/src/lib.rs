@@ -5,6 +5,7 @@ use std::{
 };
 
 use mos_core::{
+    AttentionService,
     AppCatalogEntry, AppLaunchKind, AppService, BackupInspection, BackupReceipt, Capture,
     CaptureService, ConversationService, CoreError, CreateAppInput, CreateCaptureInput,
     CreateProjectInput, CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService,
@@ -23,6 +24,7 @@ use tauri::{
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod calendar;
+mod attention;
 mod finance;
 mod hermes;
 mod jarvis;
@@ -41,6 +43,8 @@ struct AppState {
     tracking: TrackingService,
     monitoring: MonitoringService,
     data: DataService,
+    attention: AttentionService,
+    clock: Arc<dyn mos_core::Clock>,
     storage: Arc<SqliteStorage>,
     shortcut_status: Mutex<String>,
     active_shortcut: Mutex<Option<String>>,
@@ -1144,6 +1148,11 @@ pub fn run() {
                 .map_err(|error| std::io::Error::other(error.to_string()))?,
             );
             app.manage(hermes::HermesState::default());
+            // Um relogio so para o processo inteiro. O agendador e o
+            // servico precisam do MESMO: dois relogios discordariam sobre o
+            // que "agora" significa, e o sono deixaria de ser detectavel.
+            let clock: Arc<dyn mos_core::Clock> = Arc::new(mos_core::SystemClock);
+
             app.manage(AppState {
                 captures: CaptureService::new(storage.clone()),
                 work: WorkService::new(storage.clone()),
@@ -1153,6 +1162,8 @@ pub fn run() {
                 tracking: TrackingService::new(storage.clone()),
                 monitoring: MonitoringService::new(storage.clone()),
                 data: DataService::new(storage.clone()),
+                attention: AttentionService::new(storage.clone(), clock.clone()),
+                clock,
                 storage,
                 shortcut_status: Mutex::new("Registrando...".into()),
                 active_shortcut: Mutex::new(None),
@@ -1190,6 +1201,7 @@ pub fn run() {
             app.manage(monitor::Monitor::default());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(monitor::run(handle));
+            tauri::async_runtime::spawn(attention::run(app.handle().clone()));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1242,6 +1254,14 @@ pub fn run() {
             tracking::tracking_clients,
             tracking::tracking_save_client,
             tracking::tracking_set_client_archived,
+            attention::attention_create,
+            attention::attention_list,
+            attention::attention_count,
+            attention::attention_snooze,
+            attention::attention_complete,
+            attention::attention_acknowledge,
+            attention::attention_cancel,
+            attention::attention_archive,
             monitor::reminder_pending,
             monitor::reminder_dismiss,
             monitor::reminder_suppress,
