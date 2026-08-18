@@ -241,6 +241,57 @@ pub enum SearchItem {
 /// Espelha o CHECK da migration 0008: minuscula inicial, depois minuscula,
 /// digito ou `_`. O core valida forma, nao vocabulario — quem conhece o catalogo
 /// de widgets e o front, em HOME_WIDGETS.
+/// A posicao de um widget na Home de um Workspace.
+///
+/// Espelha a inversao de `workspace_hidden_widgets`: **ausencia de linha
+/// significa a ordem do catalogo.** Workspace novo nao precisa de nenhuma
+/// escrita, e widget criado depois nasce onde o catalogo o pos, em vez de
+/// nascer no lugar que uma tabela vazia sortear.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetPosition {
+    pub workspace_id: WorkspaceId,
+    pub widget_id: String,
+    pub position: i64,
+}
+
+/// Ordena ids de widget aplicando as posicoes guardadas.
+///
+/// O core NAO conhece o catalogo — ele vive no front, em `HOME_WIDGETS`, e a
+/// mesma razao que fez `workspace_hidden_widgets` guardar string opaca vale
+/// aqui: enum no nucleo faria de cada widget novo uma migration.
+///
+/// Tres regras, e cada uma existe para um caso que da errado sozinho:
+///
+/// 1. quem tem posicao guardada vem primeiro, na ordem dela;
+/// 2. quem nao tem vai para o fim, preservando a ordem em que chegou — que e a
+///    do catalogo. Widget novo aparecendo no meio de um arranjo que a pessoa
+///    montou seria o sistema desfazendo a escolha dela;
+/// 3. posicao repetida ou salteada nao quebra nada: o desempate e a ordem de
+///    chegada. Banco com linha orfa ou meio gravada nao pode sumir com widget.
+pub fn order_widgets(catalog: &[String], saved: &[WidgetPosition]) -> Vec<String> {
+    let mut ordered: Vec<(Option<i64>, usize, &String)> = catalog
+        .iter()
+        .enumerate()
+        .map(|(index, id)| {
+            let position = saved
+                .iter()
+                .find(|entry| &entry.widget_id == id)
+                .map(|entry| entry.position);
+            (position, index, id)
+        })
+        .collect();
+
+    ordered.sort_by(|left, right| match (left.0, right.0) {
+        (Some(a), Some(b)) => a.cmp(&b).then(left.1.cmp(&right.1)),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => left.1.cmp(&right.1),
+    });
+
+    ordered.into_iter().map(|(_, _, id)| id.clone()).collect()
+}
+
 pub fn validate_widget_id(value: &str) -> Result<String, CoreError> {
     let value = value.trim();
     let valid = !value.is_empty()
@@ -308,5 +359,103 @@ mod tests {
     fn unknown_task_state_is_rejected() {
         assert!(TaskState::parse("arquivado").is_err());
         assert!(TaskState::parse("").is_err());
+    }
+
+    // ------------------------------------------------------ ordem dos widgets
+
+    fn catalog() -> Vec<String> {
+        ["timer", "now", "today_hours", "inbox_pulse"]
+            .iter()
+            .map(|id| (*id).to_owned())
+            .collect()
+    }
+
+    fn placed(workspace: WorkspaceId, id: &str, position: i64) -> WidgetPosition {
+        WidgetPosition {
+            workspace_id: workspace,
+            widget_id: id.to_owned(),
+            position,
+        }
+    }
+
+    /// Sem nenhuma escrita, a Home e a do catalogo. E o caso de quem nunca
+    /// arrastou nada, que e a maioria.
+    #[test]
+    fn without_saved_positions_the_catalog_order_wins() {
+        assert_eq!(order_widgets(&catalog(), &[]), catalog());
+    }
+
+    #[test]
+    fn saved_positions_decide_the_order() {
+        let workspace = WorkspaceId::new();
+        let saved = [
+            placed(workspace, "inbox_pulse", 0),
+            placed(workspace, "timer", 1),
+            placed(workspace, "now", 2),
+            placed(workspace, "today_hours", 3),
+        ];
+        assert_eq!(
+            order_widgets(&catalog(), &saved),
+            ["inbox_pulse", "timer", "now", "today_hours"]
+        );
+    }
+
+    /// O caso que decide se a feature envelhece bem: alguem arrumou a Home, e
+    /// meses depois um widget novo entra no catalogo. Ele NAO pode aparecer no
+    /// meio do arranjo — isso seria o sistema desfazendo a escolha da pessoa.
+    #[test]
+    fn a_widget_added_later_goes_to_the_end_of_an_arranged_home() {
+        let workspace = WorkspaceId::new();
+        let saved = [
+            placed(workspace, "inbox_pulse", 0),
+            placed(workspace, "timer", 1),
+        ];
+        let mut with_newcomer = catalog();
+        with_newcomer.push("brand_new".to_owned());
+
+        assert_eq!(
+            order_widgets(&with_newcomer, &saved),
+            ["inbox_pulse", "timer", "now", "today_hours", "brand_new"],
+            "os sem posicao vao para o fim, na ordem do catalogo"
+        );
+    }
+
+    /// Linha de widget que nao existe mais e inofensiva, do mesmo jeito que a
+    /// tabela de ocultos ja trata.
+    #[test]
+    fn a_position_for_a_widget_that_no_longer_exists_is_ignored() {
+        let workspace = WorkspaceId::new();
+        let saved = [placed(workspace, "widget_extinto", 0), placed(workspace, "now", 1)];
+        assert_eq!(
+            order_widgets(&catalog(), &saved),
+            ["now", "timer", "today_hours", "inbox_pulse"]
+        );
+    }
+
+    /// Banco meio gravado nao pode sumir com widget nenhum.
+    #[test]
+    fn repeated_or_gapped_positions_never_drop_a_widget() {
+        let workspace = WorkspaceId::new();
+        let saved = [
+            placed(workspace, "now", 5),
+            placed(workspace, "timer", 5),
+            placed(workspace, "inbox_pulse", 900),
+        ];
+        let result = order_widgets(&catalog(), &saved);
+
+        assert_eq!(result.len(), catalog().len(), "ninguem se perde");
+        for id in catalog() {
+            assert!(result.contains(&id), "{id} sumiu");
+        }
+        assert_eq!(
+            &result[..2],
+            ["timer", "now"],
+            "empate desempata pela ordem do catalogo"
+        );
+    }
+
+    #[test]
+    fn an_empty_catalog_orders_to_nothing() {
+        assert!(order_widgets(&[], &[]).is_empty());
     }
 }

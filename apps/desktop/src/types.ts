@@ -513,3 +513,9 @@ export type DeliveryEvent = {
   overdueSeconds: number;
   level: string;
 };
+
+export type WidgetPosition = {
+  workspaceId: string;
+  widgetId: string;
+  position: number;
+};

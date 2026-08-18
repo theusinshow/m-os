@@ -104,6 +104,19 @@ pub trait WorkRepository: Send + Sync {
         hidden: bool,
     ) -> Result<(), CoreError>;
     fn hidden_widgets(&self) -> Result<Vec<HiddenWidget>, CoreError>;
+
+    fn widget_positions(&self) -> Result<Vec<crate::WidgetPosition>, CoreError>;
+
+    /// Grava a ordem de um conjunto de widgets, numa transacao.
+    ///
+    /// Recebe a lista inteira e nao um movimento: gravar "o widget X foi para
+    /// a posicao 3" obrigaria o banco a saber o que acontece com quem estava
+    /// la, e essa regra ja existe no front, que e quem conhece a secao.
+    fn set_widget_order(
+        &self,
+        workspace: crate::WorkspaceId,
+        ordered: &[String],
+    ) -> Result<Vec<crate::WidgetPosition>, CoreError>;
     fn create_project(&self, project: NewProject) -> Result<Project, CoreError>;
     fn update_project(
         &self,

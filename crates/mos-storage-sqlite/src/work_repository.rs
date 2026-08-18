@@ -472,6 +472,73 @@ impl WorkRepository for SqliteStorage {
         Ok(hidden)
     }
 
+    /// Devolve todas as posicoes de uma vez, pelo mesmo motivo de
+    /// `hidden_widgets`: sao poucas linhas, e uma chamada so deixa a troca de
+    /// contexto na Home filtrar em memoria em vez de ir ao core a cada clique.
+    fn widget_positions(&self) -> Result<Vec<mos_core::WidgetPosition>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let mut statement = connection
+            .prepare(
+                "SELECT workspace_id, widget_id, position FROM workspace_widget_order
+                 ORDER BY workspace_id, position",
+            )
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .map_err(map_sql_error)?;
+
+        let mut found = Vec::new();
+        for row in rows {
+            let (workspace_id, widget_id, position) = row.map_err(map_sql_error)?;
+            found.push(mos_core::WidgetPosition {
+                workspace_id: WorkspaceId::parse(&workspace_id)?,
+                widget_id,
+                position,
+            });
+        }
+        Ok(found)
+    }
+
+    fn set_widget_order(
+        &self,
+        workspace: WorkspaceId,
+        ordered: &[String],
+    ) -> Result<Vec<mos_core::WidgetPosition>, CoreError> {
+        // Valida ANTES de abrir a transacao: um id fora de formato no meio da
+        // lista deixaria metade da secao gravada e metade nao.
+        let ids: Vec<String> = ordered
+            .iter()
+            .map(|id| mos_core::validate_widget_id(id))
+            .collect::<Result<_, _>>()?;
+
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+
+        for (position, id) in ids.iter().enumerate() {
+            transaction
+                .execute(
+                    "INSERT INTO workspace_widget_order
+                     (workspace_id, widget_id, position, created_at)
+                     VALUES (?1, ?2, ?3, ?4)
+                     ON CONFLICT(workspace_id, widget_id)
+                     DO UPDATE SET position = excluded.position",
+                    params![workspace.to_string(), id, position as i64, now],
+                )
+                .map_err(map_sql_error)?;
+        }
+
+        transaction.commit().map_err(map_sql_error)?;
+        drop(connection);
+        self.widget_positions()
+    }
+
     fn create_project(&self, project: NewProject) -> Result<Project, CoreError> {
         let now = format_time(project.created_at)?;
         let connection = self.connection.lock().map_err(map_lock_error)?;
@@ -1384,5 +1451,161 @@ mod tests {
             .unwrap();
 
         assert!(storage.hidden_widgets().unwrap().is_empty());
+    }
+
+    // ------------------------------------------------------ ordem dos widgets
+
+    /// Sem nenhuma escrita a tabela fica vazia — e a inversao herdada da 0008:
+    /// quem nunca arrastou nada nao gera linha nenhuma.
+    #[test]
+    fn a_home_never_arranged_stores_nothing() {
+        let (_guard, storage) = storage();
+        assert!(storage.widget_positions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_saved_order_comes_back_in_order() {
+        let (_guard, storage) = storage();
+        let workspace = storage
+            .create_workspace(NewWorkspace::create("Web Design", "").unwrap())
+            .unwrap();
+
+        let ordered = ["inbox_pulse", "timer", "now"].map(str::to_owned).to_vec();
+        let saved = storage.set_widget_order(workspace.id, &ordered).unwrap();
+
+        assert_eq!(saved.len(), 3);
+        assert_eq!(
+            saved.iter().map(|p| p.widget_id.as_str()).collect::<Vec<_>>(),
+            ["inbox_pulse", "timer", "now"]
+        );
+        assert_eq!(saved[0].position, 0);
+        assert_eq!(saved[2].position, 2);
+    }
+
+    /// Arrastar de novo reescreve, e nao acumula: sem o `ON CONFLICT` cada
+    /// arrasto deixaria uma linha morta com a posicao antiga.
+    #[test]
+    fn arranging_twice_replaces_instead_of_piling_up() {
+        let (_guard, storage) = storage();
+        let workspace = storage
+            .create_workspace(NewWorkspace::create("Engenharia", "").unwrap())
+            .unwrap();
+
+        storage
+            .set_widget_order(workspace.id, &["timer".into(), "now".into()])
+            .unwrap();
+        let saved = storage
+            .set_widget_order(workspace.id, &["now".into(), "timer".into()])
+            .unwrap();
+
+        assert_eq!(saved.len(), 2, "duas linhas, nao quatro");
+        assert_eq!(saved[0].widget_id, "now");
+        assert_eq!(saved[1].widget_id, "timer");
+    }
+
+    /// Cada Workspace arruma a propria Home. Sem isso, arrumar em um bagunçaria
+    /// o outro — que e o oposto do que Workspace significa.
+    #[test]
+    fn each_workspace_arranges_its_own_home() {
+        let (_guard, storage) = storage();
+        let design = storage
+            .create_workspace(NewWorkspace::create("Design", "").unwrap())
+            .unwrap();
+        let financas = storage
+            .create_workspace(NewWorkspace::create("Financas", "").unwrap())
+            .unwrap();
+
+        storage
+            .set_widget_order(design.id, &["timer".into(), "now".into()])
+            .unwrap();
+        storage
+            .set_widget_order(financas.id, &["now".into(), "timer".into()])
+            .unwrap();
+
+        let all = storage.widget_positions().unwrap();
+        let of = |id: WorkspaceId| {
+            all.iter()
+                .filter(|p| p.workspace_id == id)
+                .map(|p| p.widget_id.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(of(design.id), ["timer", "now"]);
+        assert_eq!(of(financas.id), ["now", "timer"]);
+    }
+
+    /// Id fora de formato e recusado ANTES de abrir a transacao. Recusar no
+    /// meio deixaria metade da secao gravada e metade nao.
+    #[test]
+    fn a_malformed_id_is_refused_without_writing_anything() {
+        let (_guard, storage) = storage();
+        let workspace = storage
+            .create_workspace(NewWorkspace::create("Testes", "").unwrap())
+            .unwrap();
+
+        let error = storage
+            .set_widget_order(
+                workspace.id,
+                &["timer".into(), "NAO PODE".into(), "now".into()],
+            )
+            .unwrap_err();
+
+        assert_eq!(error.code, ErrorCode::InvalidInput);
+        assert!(
+            storage.widget_positions().unwrap().is_empty(),
+            "nem o `timer`, que vinha antes do invalido, foi gravado"
+        );
+    }
+
+    /// Apagar o Workspace leva a arrumacao junto: ela so significa alguma coisa
+    /// dentro dele. E o mesmo `ON DELETE CASCADE` da tabela de ocultos.
+    #[test]
+    fn deleting_the_workspace_takes_its_arrangement() {
+        let (_guard, storage) = storage();
+        let workspace = storage
+            .create_workspace(NewWorkspace::create("Efemero", "").unwrap())
+            .unwrap();
+        storage
+            .set_widget_order(workspace.id, &["timer".into()])
+            .unwrap();
+        assert_eq!(storage.widget_positions().unwrap().len(), 1);
+
+        // Arquivar antes: o dominio recusa excluir Workspace ativo, e essa
+        // regra e do produto, nao um detalhe do teste.
+        storage
+            .set_workspace_lifecycle(workspace.id, LifecycleState::Archived)
+            .unwrap();
+        storage.delete_workspace(workspace.id).unwrap();
+        assert!(storage.widget_positions().unwrap().is_empty());
+    }
+
+    /// O que o domínio faz com o que o banco devolve: a ponta a ponta da
+    /// feature, sem interface.
+    #[test]
+    fn the_stored_order_drives_the_catalog() {
+        let (_guard, storage) = storage();
+        let workspace = storage
+            .create_workspace(NewWorkspace::create("Web", "").unwrap())
+            .unwrap();
+
+        let catalog: Vec<String> = ["timer", "now", "today_hours"]
+            .iter()
+            .map(|id| (*id).to_owned())
+            .collect();
+
+        assert_eq!(
+            mos_core::order_widgets(&catalog, &storage.widget_positions().unwrap()),
+            catalog,
+            "sem arrumacao, a ordem e a do catalogo"
+        );
+
+        storage
+            .set_widget_order(workspace.id, &["today_hours".into(), "timer".into()])
+            .unwrap();
+
+        assert_eq!(
+            mos_core::order_widgets(&catalog, &storage.widget_positions().unwrap()),
+            ["today_hours", "timer", "now"],
+            "o nao arrumado cai para o fim"
+        );
     }
 }

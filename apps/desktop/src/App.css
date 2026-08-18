@@ -818,13 +818,13 @@ textarea::placeholder {
   min-width: 0;
 }
 
-.widget[data-span="3"] { grid-column: span 3; }
-.widget[data-span="4"] { grid-column: span 4; }
-.widget[data-span="5"] { grid-column: span 5; }
-.widget[data-span="6"] { grid-column: span 6; }
-.widget[data-span="8"] { grid-column: span 8; }
-.widget[data-span="9"] { grid-column: span 9; }
-.widget[data-span="12"] { grid-column: span 12; }
+:is(.widget, .arrangeable)[data-span="3"] { grid-column: span 3; }
+:is(.widget, .arrangeable)[data-span="4"] { grid-column: span 4; }
+:is(.widget, .arrangeable)[data-span="5"] { grid-column: span 5; }
+:is(.widget, .arrangeable)[data-span="6"] { grid-column: span 6; }
+:is(.widget, .arrangeable)[data-span="8"] { grid-column: span 8; }
+:is(.widget, .arrangeable)[data-span="9"] { grid-column: span 9; }
+:is(.widget, .arrangeable)[data-span="12"] { grid-column: span 12; }
 
 /* A primeira faixa é a única com altura mínima compartilhada: são três leituras
    paralelas do presente. Os outros widgets deixam o próprio conteúdo governar
@@ -6434,5 +6434,62 @@ input[type="checkbox"]:disabled {
 @media (prefers-reduced-motion: reduce) {
   .reminder-composer {
     animation: none;
+  }
+}
+
+/* ------------------------------------------------------- Arrumar a Home
+
+   Os botoes de mover so aparecem no foco e no hover. Eles existem para quem
+   precisa deles — e para quem nao pode arrastar, que e a razao de existirem
+   (DESIGN-FOUNDATIONS §12) — sem cobrar presenca visual de quem so quer ler a
+   Home. O ADR-034 pede que a Home seja lida em meio segundo; controles sempre
+   visiveis competiriam com o dado. */
+
+.arrangeable {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.arrangeable > * {
+  flex: 1;
+}
+
+.arrangeable[data-over] {
+  outline: var(--line) dashed var(--signal-ink);
+  outline-offset: var(--space-1);
+}
+
+.arrangeable-handles {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  z-index: 1;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity var(--dur-state) var(--ease-enter);
+}
+
+.arrangeable:hover .arrangeable-handles,
+.arrangeable:focus-within .arrangeable-handles {
+  opacity: 1;
+}
+
+.arrangeable-handles .icon-button {
+  width: var(--height-control-sm, 24px);
+  height: var(--height-control-sm, 24px);
+  font: var(--text-meta);
+  line-height: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arrangeable-handles {
+    transition: none;
   }
 }

@@ -1005,6 +1005,22 @@ impl WorkService {
             .set_widget_hidden(WorkspaceId::parse(workspace_id)?, widget_id, hidden)
     }
 
+    pub fn widget_positions(&self) -> Result<Vec<crate::WidgetPosition>, CoreError> {
+        self.repository.widget_positions()
+    }
+
+    /// Grava a ordem de uma secao da Home.
+    ///
+    /// Recebe a lista inteira porque a regra de o que acontece com quem estava
+    /// na posicao ja e do front — e ele que conhece a secao e o catalogo.
+    pub fn set_widget_order(
+        &self,
+        workspace: &str,
+        ordered: &[String],
+    ) -> Result<Vec<crate::WidgetPosition>, CoreError> {
+        self.repository
+            .set_widget_order(crate::WorkspaceId::parse(workspace)?, ordered)
+    }
     pub fn hidden_widgets(&self) -> Result<Vec<HiddenWidget>, CoreError> {
         self.repository.hidden_widgets()
     }
