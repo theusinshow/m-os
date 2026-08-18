@@ -6,6 +6,26 @@ import type { Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType
 let pendingUpdate: Update | null = null;
 
 export const api = {
+  // --- Inicializacao com o Windows (ADR-040) ---
+  //
+  // `autostartEnabled` pergunta ao SISTEMA e nao a uma configuracao nossa: o
+  // `auto-launch` tambem escreve na chave que o Gerenciador de Tarefas usa, e o
+  // usuario pode desligar por la sem nos avisar. Espelhar isso num booleano
+  // faria a tela afirmar "ligado" sobre algo desligado.
+  autostartEnabled() {
+    return invoke<boolean>("autostart_enabled");
+  },
+  setAutostart(enabled: boolean) {
+    return invoke<boolean>("autostart_set", { enabled });
+  },
+  // Esta e preferencia nossa: o Windows sabe iniciar o programa, nao com que
+  // cara. Por isso ela pode viver em settings.json sem criar segunda verdade.
+  startMinimized() {
+    return invoke<boolean>("start_minimized");
+  },
+  setStartMinimized(value: boolean) {
+    return invoke<boolean>("set_start_minimized", { value });
+  },
   // --- Attention System ---
   //
   // `at` e `until` viajam como instante RFC 3339 ja resolvido. O calculo de

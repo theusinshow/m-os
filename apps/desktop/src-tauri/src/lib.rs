@@ -52,10 +52,18 @@ struct AppState {
     settings_path: PathBuf,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UserSettings {
     capture_shortcut: String,
+    /// Preferencia NOSSA, e nao do sistema.
+    ///
+    /// Diferente de "iniciar com o Windows", que vive no registro e e lido
+    /// de la (ADR-040), esta o Windows nao conhece: ele so sabe iniciar o
+    /// programa, nao com que cara. Por isso ela pode morar aqui sem criar a
+    /// segunda fonte de verdade que aquela ADR existe para evitar.
+    #[serde(default)]
+    start_minimized: bool,
 }
 
 #[derive(Serialize)]
@@ -1018,20 +1026,93 @@ fn lock_error(message: String) -> CoreError {
     )
 }
 
-fn load_shortcut(path: &std::path::Path) -> String {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|json| serde_json::from_str::<UserSettings>(&json).ok())
-        .map(|settings| settings.capture_shortcut)
-        .filter(|shortcut| !shortcut.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_CAPTURE_SHORTCUT.into())
+/// Marca que quem abriu o M/OS foi o Windows, no logon.
+const AUTOSTART_FLAG: &str = "--autostarted";
+
+/// Se o M/OS deve nascer escondido nesta abertura.
+///
+/// Exige as DUAS coisas: ter sido aberto pelo sistema E a preferencia estar
+/// ligada. Abrir a mao sempre mostra a janela — quem clicou no icone quer ver
+/// o programa, e esconde-lo seria o app decidindo contra o gesto.
+fn should_start_hidden(settings: &UserSettings) -> bool {
+    settings.start_minimized && std::env::args().any(|arg| arg == AUTOSTART_FLAG)
 }
 
-fn persist_shortcut(path: &std::path::Path, shortcut: &str) -> Result<(), CoreError> {
-    let json = serde_json::to_vec_pretty(&UserSettings {
-        capture_shortcut: shortcut.into(),
+/// Se o M/OS inicia com o Windows.
+///
+/// Pergunta ao SISTEMA a cada chamada, e nao a uma configuracao nossa. O
+/// `auto-launch` tambem escreve na chave que o Gerenciador de Tarefas usa, e
+/// o usuario pode desligar por la sem nos avisar; espelhar isso num booleano
+/// nosso faria a tela afirmar "ligado" sobre algo desligado (ADR-040).
+#[tauri::command]
+fn autostart_enabled<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<bool, CoreError> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().map_err(|error| {
+        CoreError::new(
+            mos_core::ErrorCode::Io,
+            format!("Nao consegui ler a inicializacao do Windows: {error}"),
+            false,
+        )
     })
-    .map_err(|error| {
+}
+
+#[tauri::command]
+fn autostart_set<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    enabled: bool,
+) -> Result<bool, CoreError> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    let outcome = if enabled { manager.enable() } else { manager.disable() };
+    outcome.map_err(|error| {
+        CoreError::new(
+            mos_core::ErrorCode::Io,
+            format!("Nao consegui mudar a inicializacao do Windows: {error}"),
+            false,
+        )
+    })?;
+    // Devolve o que o SISTEMA passou a dizer, e nao o que foi pedido: se a
+    // gravacao no registro nao pegou, a tela precisa mostrar a verdade.
+    autostart_enabled(app)
+}
+
+#[tauri::command]
+fn start_minimized(state: tauri::State<'_, AppState>) -> bool {
+    load_settings(&state.settings_path).start_minimized
+}
+
+#[tauri::command]
+fn set_start_minimized(
+    state: tauri::State<'_, AppState>,
+    value: bool,
+) -> Result<bool, CoreError> {
+    let mut settings = load_settings(&state.settings_path);
+    settings.start_minimized = value;
+    save_settings(&state.settings_path, &settings)?;
+    Ok(value)
+}
+fn load_settings(path: &std::path::Path) -> UserSettings {
+    let mut settings = fs::read_to_string(path)
+        .ok()
+        .and_then(|json| serde_json::from_str::<UserSettings>(&json).ok())
+        .unwrap_or_default();
+    if settings.capture_shortcut.trim().is_empty() {
+        settings.capture_shortcut = DEFAULT_CAPTURE_SHORTCUT.into();
+    }
+    settings
+}
+
+fn load_shortcut(path: &std::path::Path) -> String {
+    load_settings(path).capture_shortcut
+}
+
+/// Grava o arquivo inteiro a partir do que ja estava la.
+///
+/// Ler-modificar-gravar e nao reconstruir do zero: uma versao anterior desta
+/// funcao montava `UserSettings` so com o atalho, e qualquer campo novo seria
+/// apagado no proximo clique em Aplicar — sem erro nenhum.
+fn save_settings(path: &std::path::Path, settings: &UserSettings) -> Result<(), CoreError> {
+    let json = serde_json::to_vec_pretty(settings).map_err(|error| {
         CoreError::new(
             mos_core::ErrorCode::Io,
             format!("Nao foi possivel salvar a configuracao: {error}"),
@@ -1045,6 +1126,12 @@ fn persist_shortcut(path: &std::path::Path, shortcut: &str) -> Result<(), CoreEr
             false,
         )
     })
+}
+
+fn persist_shortcut(path: &std::path::Path, shortcut: &str) -> Result<(), CoreError> {
+    let mut settings = load_settings(path);
+    settings.capture_shortcut = shortcut.into();
+    save_settings(path, &settings)
 }
 
 fn open_external_target(kind: AppLaunchKind, target: &str) -> Result<(), CoreError> {
@@ -1117,6 +1204,15 @@ fn open_target_with_os(_target: &str) -> Result<(), CoreError> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_process::init())
+        // O argumento nao liga nada: ele so registra o FATO de que quem
+        // abriu foi o sistema, no logon. O que fazer com esse fato —
+        // aparecer ou ficar no tray — e preferencia nossa, guardada em
+        // settings.json. Sem ele, um M/OS aberto a mao no logon seria
+        // indistinguivel de um aberto pelo Windows.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![AUTOSTART_FLAG]),
+        ))
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             reveal_window(app, "main");
         }))
@@ -1140,6 +1236,11 @@ pub fn run() {
             fs::create_dir_all(&data_directory)?;
             let settings_path = data_directory.join("settings.json");
             let configured_shortcut = load_shortcut(&settings_path);
+            if should_start_hidden(&load_settings(&settings_path)) {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
             let storage = Arc::new(
                 SqliteStorage::open(
                     data_directory.join("m-os.db"),
@@ -1254,6 +1355,10 @@ pub fn run() {
             tracking::tracking_clients,
             tracking::tracking_save_client,
             tracking::tracking_set_client_archived,
+            autostart_enabled,
+            autostart_set,
+            start_minimized,
+            set_start_minimized,
             attention::attention_create,
             attention::attention_list,
             attention::attention_count,
