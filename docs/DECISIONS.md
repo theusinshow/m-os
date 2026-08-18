@@ -1541,3 +1541,80 @@ da ADR-037, e fingir sono com um temporizador de renderer seria inventar o dado.
 - o risco assumido: uma criatura é mais fácil de esticar do que uma barra. A
   defesa é esta ADR — qualquer pose nova exige um sinal que já exista, e qualquer
   pose sem sinal é a mudança silenciosa que `UI-UX-REFINEMENT.md` §15 proíbe.
+
+## ADR-042 — O lembrete assenta, e o sódio passa a nomear em vez de contornar
+
+**Data:** 2026-08-18
+**Status:** aceito, por decisão do proprietário do produto
+**Revisa:** nada. Aplica ADR-034 e o `UX-PRINCIPLES` §16 a uma janela que estava
+fora dos dois.
+
+### Contexto
+
+A moldura do lembrete parecia "falhada". Não era: o monitor está a 100%, sem
+escala fracionária, então não havia fringing de subpixel a consertar.
+
+O defeito era outro. O lembrete é a **única superfície flutuante do M/OS sem
+elevação** — `--shadow-overlay` é usado pelo Command, pelo drawer, pelo diálogo
+e pelo menu, e não por ele. Um retângulo com um fio de 1px e nada mais não
+parece pousado sobre o CAD; parece recortado.
+
+E a moldura inteira em `--signal-ink` contradizia o que a própria janela declara
+em código: *"ela não rouba o foco"*. Contornar tudo em sódio é o gesto mais alto
+que o design system tem.
+
+### Decisão
+
+**1. A janela passa a ser transparente.** É o que permite sombra e raio
+existirem: uma janela `decorations: false` opaca não projeta nada para fora do
+próprio retângulo, e um raio revelaria o fundo dela. `"transparent": true` em
+`tauri.conf.json`, e a janela cresce de 400×232 para 420×252 para a sombra caber
+dentro dela.
+
+**2. A sombra é mais curta que `--shadow-overlay`, de propósito.** Nos outros
+overlays a sombra mora dentro do app; aqui ela mora dentro da JANELA, e cada
+pixel dela é um pixel transparente que engole clique do que estiver embaixo — o
+Tauri não faz click-through por região. Com `0 20px 48px` o anel morto seria de
+24px nas laterais e 44px embaixo, sobre o desenho de quem está trabalhando. Com
+`0 6px 16px` fica em 10 e 16, e a janela ainda assenta.
+
+Este é o caso em que seguir o token cegamente custaria mais do que ganha, e é
+por isso que a exceção está escrita aqui em vez de resolvida no CSS em silêncio.
+
+**3. O sódio deixa de contornar e passa a nomear.** A moldura vira
+`--border-strong` com `--radius`, que é a receita que `.command-surface`, o
+drawer e o menu já usam. O sódio migra para o rótulo `M/OS · TEMPO`: numa tela
+tomada pelo CAD, ele diz de quem é aquela janela.
+
+Isso é a diferença que o §16 usa para separar sinal de slop — o sódio passa a
+carregar **informação**, e não contorno decorativo. E `--signal-ink` existe
+exatamente para isto: o comentário dele em `tokens.css` registra que "âmbar puro
+é ilegível como texto no claro".
+
+**4. O gradiente passa UMA vez, na entrada.** O rótulo recebe uma passada de
+brilho e congela. O orçamento de movimento da ADR-034 dá um loop por tela e
+exige que movimento carregue dado; um brilho perpétuo gastaria esse loop num
+gesto que não diz nada — o "shimmer" que a própria ADR-034 nomeia. Uma passada
+na entrada é o que ela autoriza: *"anima na entrada e congela no valor final"*.
+
+Dois guardas que o efeito exige, e sem os quais ele quebra de verdade: em
+`forced-colors` o preenchimento volta a sólido, senão o texto some (recorte por
+gradiente com preenchimento transparente não deixa nada visível); e o gradiente
+usa `repeat`, senão as letras somem uma a uma conforme a passada avança.
+
+### O conserto que apareceu no caminho
+
+**A janela do lembrete nunca recebia o tema.** `data-theme` é escrito no
+`documentElement` do `DesktopApp`, que é outra janela e portanto outro
+documento. Esta caía no `:root` e seguia escura mesmo com o M/OS no claro. Agora
+ela lê o tema na abertura e a cada lembrete — a cada, porque a janela sobrevive
+entre eles, escondida e não destruída.
+
+### Consequências
+
+- a janela cresce 20×20 px, e o anel transparente engole clique nessa faixa;
+- o lembrete passa a se parecer com o resto do M/OS, em vez de ser a exceção;
+- o risco assumido: transparência em janela Tauri no Windows tem histórico de
+  artefato com composição desligada. Se aparecer, o caminho de volta é remover
+  `"transparent"` e a sombra, mantendo raio e o rótulo em sódio — o desenho não
+  depende da sombra para funcionar.

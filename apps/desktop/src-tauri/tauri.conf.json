@@ -37,8 +37,9 @@
       {
         "label": "lembrete",
         "title": "M/OS",
-        "width": 400,
-        "height": 232,
+        "width": 420,
+        "height": 252,
+        "transparent": true,
         "visible": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,

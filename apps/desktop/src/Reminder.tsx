@@ -56,6 +56,26 @@ export function Reminder() {
 
   useEffect(() => { void load(); }, [load]);
 
+  /**
+   * O tema, que ate agora nunca chegava aqui.
+   *
+   * `data-theme` e escrito no `documentElement` do `DesktopApp` — que e OUTRA
+   * janela e portanto outro documento. Esta caia no `:root`, que e o escuro, e
+   * seguia escura mesmo com o M/OS no claro.
+   *
+   * Relido a cada lembrete porque a janela sobrevive entre eles: quem troca o
+   * tema com a janelinha escondida veria o tema velho no proximo aviso.
+   */
+  useEffect(() => {
+    const apply = () => {
+      document.documentElement.dataset.theme =
+        localStorage.getItem("m-os-theme") === "light" ? "light" : "dark";
+    };
+    apply();
+    const unlisten = listen("reminder", apply);
+    return () => { void unlisten.then((dispose) => dispose()); };
+  }, []);
+
   // A janela sobrevive entre lembretes — é escondida, não destruída. Sem ouvir
   // o evento, o segundo lembrete mostraria o texto do primeiro.
   useEffect(() => {

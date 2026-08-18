@@ -4401,12 +4401,76 @@ input[type="checkbox"]:disabled {
  * cinza do sistema num retangulo de 400px come um sexto da altura para nao
  * dizer nada. A borda de sodio e o que a identifica de relance sobre um AutoCAD
  * — que e o unico contexto em que ela aparece. */
+/* A janela do lembrete e transparente (`tauri.conf.json`), e e isso que permite
+   sombra e raio existirem aqui: uma janela opaca sem decoracao nao projeta nada
+   para fora do proprio retangulo, e um raio revelaria o fundo dela.
+
+   A margem e o lugar onde a sombra cabe. A sombra e MAIS CURTA que
+   `--shadow-overlay` de proposito: nos outros overlays ela mora dentro do app,
+   aqui ela mora dentro da JANELA — e cada pixel dela e um pixel transparente que
+   engole clique do que estiver embaixo, porque o Tauri nao faz click-through por
+   regiao. Com `0 20px 48px` o anel morto seria de 24px nas laterais e 44px
+   embaixo; assim fica em 10 e 16. */
 .reminder-shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  border: var(--line) solid var(--signal-ink);
+  margin: 4px 10px 16px;
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
   background: var(--surface-raised);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='light'] .reminder-shell {
+  box-shadow: 0 6px 16px rgba(20, 24, 26, 0.16);
+}
+
+/* O sodio deixa de contornar a janela e passa a nomea-la. Numa tela tomada pelo
+   CAD, ele diz de quem e esta janela — e isso e informacao, nao enfeite, que e a
+   diferenca que o `UX-PRINCIPLES` §16 usa para separar sinal de slop.
+
+   `--signal-ink` existe exatamente para isto: o comentario dele em `tokens.css`
+   registra que "ambar puro e ilegivel como texto no claro". */
+.reminder-head .micro-label {
+  color: var(--signal-ink);
+  /* O brilho anda em direcao ao TEXTO, e nao para o branco: no escuro isso
+     clareia, no claro escurece, e a passada funciona nos dois temas. */
+  background-image: linear-gradient(
+    100deg,
+    var(--signal-ink) 42%,
+    color-mix(in srgb, var(--signal-ink) 55%, var(--text)) 50%,
+    var(--signal-ink) 58%
+  );
+  background-size: 320% 100%;
+  /* `repeat`, e nao `no-repeat`: fora da caixa do gradiente o texto fica sem
+     fundo, e com o preenchimento transparente as letras SOMEM. Os dois extremos
+     do gradiente sao a mesma cor, entao ele emenda sem costura. */
+  background-repeat: repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  /* Uma passada, na entrada, e congela. O orcamento de movimento da ADR-034 da
+     um loop por tela e exige que movimento carregue dado; um brilho perpetuo
+     gastaria o loop num gesto que nao diz nada. */
+  animation: reminder-sweep var(--dur-first) var(--ease-enter) 160ms 1 both;
+}
+
+@keyframes reminder-sweep {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -30% 0;
+  }
+}
+
+/* Sem este bloco o rotulo SOME em alto contraste: preenchimento transparente sem
+   gradiente para recortar nao deixa nada visivel. */
+@media (forced-colors: active) {
+  .reminder-head .micro-label {
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+  }
 }
 
 .reminder-head {
