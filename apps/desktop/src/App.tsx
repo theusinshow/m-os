@@ -296,6 +296,25 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
   const scopedProjects = currentWorkspace ? workspaceProjects : projects.filter((project) => project.lifecycleState === "active");
   const scopedApps = currentWorkspace ? workspaceApps : apps.filter((app) => app.lifecycleState === "active");
   const doing = tasks.filter((task) => task.state === "doing" && task.lifecycleState === "active" && (!currentWorkspace || (task.projectId && scopedProjectIds.has(task.projectId)))).slice(0, 5);
+  /* A semana de Tasks: a mesma janela que o `WeekRings` desenha, calculada aqui
+     só para a manchete e o rodapé. O widget continua dono do próprio cálculo —
+     estes dois números existem porque o `<Widget>` não tem acesso ao que
+     acontece dentro dele. */
+  const taskWeek = useMemo(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+
+    const perDay = new Array(7).fill(0);
+    for (const task of tasks) {
+      if (!task.completedAt) continue;
+      const at = new Date(task.completedAt);
+      if (at < start) continue;
+      const index = Math.floor((at.getTime() - start.getTime()) / 86_400_000);
+      if (index >= 0 && index < 7) perDay[index] += 1;
+    }
+    return { done: perDay.reduce((sum, value) => sum + value, 0), peak: Math.max(...perDay) };
+  }, [tasks]);
   const activeApps = scopedApps
     .filter((app) => app.lifecycleState === "active")
     .sort((left, right) => {
@@ -399,7 +418,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
         registrados; nenhum deles precisa competir com o presente. */}
     <HomeSection id="overview" title="Visão" hidden={!(["month_density", "week_rings", "week_by_project", "task_progress"].some(widgetVisible) || (hasBudget && widgetVisible("budget_ring")))}>
       <Widget id="month_density" role="overview" span={6} hidden={hiddenIds.has("month_density")}><Panel label="MÊS"><MonthDensity tasks={tasks} captures={recent} /></Panel></Widget>
-      <Widget id="week_rings" role="overview" span={6} hidden={hiddenIds.has("week_rings")}><Panel label="TASKS NA SEMANA"><WeekRings tasks={tasks} onOpen={openTasksPage} /></Panel></Widget>
+      <Widget id="week_rings" role="overview" span={6} hidden={hiddenIds.has("week_rings")} footLeft="SEG–DOM · CONTRA O PICO" footRight={`PICO ${taskWeek.peak}`}><Panel label="TASKS NA SEMANA" value={String(taskWeek.done)} unit="concluídas"><WeekRings tasks={tasks} onOpen={openTasksPage} /></Panel></Widget>
       <Widget id="week_by_project" role="overview" span={6} hidden={hiddenIds.has("week_by_project")}><Panel label="HORAS POR PROJECT"><WeekByProject time={trackedTime} projects={projects} onOpen={openTempoPage} /></Panel></Widget>
       <Widget id="task_progress" role="overview" span={3} hidden={hiddenIds.has("task_progress")}><Panel label="CONCLUÍDO"><TaskProgressRing tasks={tasks} /></Panel></Widget>
       {/* Escondido quando nenhum Project tem meta: um anel preenchido contra um

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Bars } from "./Plot";
 import { Ring, RingLabel, stagger } from "./Ring";
 import type { Capture, Task } from "./types";
 
@@ -65,22 +66,16 @@ export function WeekRings({ tasks, onOpen }: { tasks: Task[]; onOpen: () => void
           {week.total} {week.total === 1 ? "TASK CONCLUÍDA" : "TASKS CONCLUÍDAS"}
         </button>
       </div>
-      <div className="widget-week-grid">
-        {week.days.map((day, index) => (
-          <div className="widget-week-day" key={index}>
-            <Ring
-              size={44}
-              future={day.isFuture}
-              delay={stagger(index)}
-              segments={[{ value: day.done / week.peak, depth: day.isToday ? 1 : 2 }]}
-            >
-              {day.isToday && day.done ? <span className="mos-ring-number">{day.done}</span> : null}
-            </Ring>
-            <span className="micro-label" data-today={day.isToday || undefined}>
-              {day.isToday ? "HOJE" : WEEKDAYS[index]}
-            </span>
-          </div>
-        ))}
+      {/* Barras e não anéis: comparar sete alturas é mais rápido que comparar
+          sete ângulos, e 44px era justamente o tamanho em que o cap arredondado
+          mais distorceria (ADR-040). A proporção continua sendo contra o melhor
+          dia da semana, e não contra uma meta que ninguém definiu. */}
+      <div className="widget-plot">
+        <Bars
+          ratios={week.days.map((day) => (day.isFuture ? 0 : day.done / week.peak))}
+          labels={week.days.map((day, index) => (day.isToday ? "HOJE" : WEEKDAYS[index]))}
+          highlight={week.days.findIndex((day) => day.isToday)}
+        />
       </div>
     </div>
   );
