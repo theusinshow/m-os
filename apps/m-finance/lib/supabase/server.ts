@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { env, isSupabaseConfigured } from "@/lib/env";
+import { cookieDoEmbed } from "@/lib/supabase/cookies";
 
 export async function createServerSupabaseClient() {
   if (!isSupabaseConfigured()) {
@@ -17,7 +18,7 @@ export async function createServerSupabaseClient() {
       setAll(cookiesToSet) {
         try {
           cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
+            cookieStore.set(name, value, { ...options, ...cookieDoEmbed });
           });
         } catch {
           // Server Components cannot set cookies. Middleware and route handlers can.
