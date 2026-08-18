@@ -20,7 +20,7 @@ import { finance } from "./finance";
 import { Timer } from "./Timer";
 import { Icon, type IconName } from "./Icon";
 import { Ring, RingLabel } from "./Ring";
-import { MonthDensity, TaskProgressRing, WeekRings } from "./Widgets";
+import { monthActivity, MonthDensity, TaskProgressRing, WeekRings } from "./Widgets";
 import { MosSymbol } from "./Symbol";
 import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
 import "./App.css";
@@ -315,6 +315,16 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
     }
     return { done: perDay.reduce((sum, value) => sum + value, 0), peak: Math.max(...perDay) };
   }, [tasks]);
+  /* O mes: a mesma agregacao que a densidade desenha, chamada aqui so para o
+     total e o pico do rodape. A funcao e a MESMA — duplicar a conta em dois
+     arquivos e como as duas versoes divergem. */
+  const month = useMemo(() => {
+    const values = [...monthActivity(tasks, recent).values()];
+    return {
+      records: values.reduce((sum, value) => sum + value, 0),
+      peak: values.length ? Math.max(...values) : 0,
+    };
+  }, [tasks, recent]);
   const activeApps = scopedApps
     .filter((app) => app.lifecycleState === "active")
     .sort((left, right) => {
@@ -397,7 +407,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
         estou e o que está acontecendo agora. TodayHours fica aqui porque horas
         de hoje são estado presente; semana e mês continuam na visão ampla. */}
     <HomeSection id="now" title="Agora" hidden={!(["now", "timer", "today_hours"].some(widgetVisible))}>
-      <Widget id="now" role="focus" span={6} hidden={hiddenIds.has("now")}><Panel label="EM ANDAMENTO" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel></Widget>
+      <Widget id="now" role="focus" span={6} hidden={hiddenIds.has("now")}><Panel label="EM ANDAMENTO" value={String(doing.length)} unit="em andamento" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel></Widget>
       <Widget id="timer" role="focus" span={3} hidden={hiddenIds.has("timer")}><Panel label="CRONÔMETRO"><Timer projects={projects} onChanged={() => void refresh()} /></Panel></Widget>
       <Widget id="today_hours" role="focus" span={3} hidden={hiddenIds.has("today_hours")} footLeft="7 DIAS · CONTRA O PICO" footRight={`PICO ${hoursLabel(weekTime.peakSeconds)}`}><Panel label="HORAS HOJE"><TodayHours time={trackedTime} /></Panel></Widget>
     </HomeSection>
@@ -405,20 +415,20 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
     {/* Retomada vem antes de analytics: Inbox pede decisão, Recentes recupera o
         fio, e Projects mostra os contextos de trabalho que mudaram. */}
     <HomeSection id="resume" title="Retomar" hidden={!(["inbox_pulse", "recent", "projects"].some(widgetVisible))}>
-      <Widget id="inbox_pulse" role="attention" span={3} hidden={hiddenIds.has("inbox_pulse")}><Panel label="INBOX">{/* O numero cru vira anel. A proporcao mostrada e o que esta ENVELHECENDO
+      <Widget id="inbox_pulse" role="attention" span={3} hidden={hiddenIds.has("inbox_pulse")} footLeft="ENVELHECENDO" footRight={inbox.length ? `${staleInbox} DE ${inbox.length}${inboxCapped ? "+" : ""}` : undefined}><Panel label="INBOX">{/* O numero cru vira anel. A proporcao mostrada e o que esta ENVELHECENDO
     dentro da Inbox, nao o tamanho dela: uma Inbox grande e processada hoje e
     saudavel, e uma pequena parada ha uma semana nao e. O anel vazio com o
     numero no centro le exatamente como "nada envelhecendo", que e o estado
     bom — e e por isso que zero nao desenha ponto de sodio. */}
 <button type="button" className="pulse" onClick={() => openInbox()}><Ring size={88} segments={[{ value: inbox.length ? staleInbox / inbox.length : 0 }]}><RingLabel value={inboxCapped ? `${INBOX_PAGE}+` : String(inbox.length)} /></Ring><small>{inbox.length === 1 ? "capture por processar" : "captures por processar"}</small>{staleInbox ? <small className="pulse-stale">{staleInbox === 1 && !inboxCapped ? "1 com mais de 3 dias" : `${staleInbox}${inboxCapped ? "+" : ""} com mais de 3 dias`}</small> : null}</button></Panel></Widget>
-      <Widget id="recent" role="attention" span={5} hidden={hiddenIds.has("recent")}><Panel label="RECENTES">{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nada capturado ainda. O que você escrever no campo acima aparece aqui.</EmptyState>}</Panel></Widget>
-      <Widget id="projects" role="attention" span={4} hidden={hiddenIds.has("projects")}><Panel label="PROJECTS" action={scopedProjects.length > 5 ? <Button variant="ghost" onClick={() => openProjectsPage()}>Ver todos</Button> : undefined}>{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} aria-hidden="true" />} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <ScopedEmptyState total={projects.filter((project) => project.lifecycleState === "active").length} workspace={currentWorkspace} noun="project" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
+      <Widget id="recent" role="attention" span={5} hidden={hiddenIds.has("recent")}><Panel label="RECENTES" value={String(recent.length)} unit={recent.length === 1 ? "captura" : "capturas"}>{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nada capturado ainda. O que você escrever no campo acima aparece aqui.</EmptyState>}</Panel></Widget>
+      <Widget id="projects" role="attention" span={4} hidden={hiddenIds.has("projects")}><Panel label="PROJECTS" value={String(scopedProjects.length)} unit="ativos" action={scopedProjects.length > 5 ? <Button variant="ghost" onClick={() => openProjectsPage()}>Ver todos</Button> : undefined}>{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} aria-hidden="true" />} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <ScopedEmptyState total={projects.filter((project) => project.lifecycleState === "active").length} workspace={currentWorkspace} noun="project" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
     </HomeSection>
 
     {/* Analytics ficam depois da retomada. Todos mostram trabalho ou horas já
         registrados; nenhum deles precisa competir com o presente. */}
     <HomeSection id="overview" title="Visão" hidden={!(["month_density", "week_rings", "week_by_project", "task_progress"].some(widgetVisible) || (hasBudget && widgetVisible("budget_ring")))}>
-      <Widget id="month_density" role="overview" span={6} hidden={hiddenIds.has("month_density")}><Panel label="MÊS"><MonthDensity tasks={tasks} captures={recent} /></Panel></Widget>
+      <Widget id="month_density" role="overview" span={6} hidden={hiddenIds.has("month_density")} footLeft="MÊS CORRENTE · 4 DEGRAUS" footRight={`PICO ${month.peak}`}><Panel label="MÊS" value={String(month.records)} unit="registros"><MonthDensity tasks={tasks} captures={recent} /></Panel></Widget>
       <Widget id="week_rings" role="overview" span={6} hidden={hiddenIds.has("week_rings")} footLeft="SEG–DOM · CONTRA O PICO" footRight={`PICO ${taskWeek.peak}`}><Panel label="TASKS NA SEMANA" value={String(taskWeek.done)} unit="concluídas"><WeekRings tasks={tasks} onOpen={openTasksPage} /></Panel></Widget>
       <Widget id="week_by_project" role="overview" span={6} hidden={hiddenIds.has("week_by_project")} footLeft={`${weekTime.projectCount} PROJECTS · 7 DIAS`} footRight={weekTime.topProject ? `MAIOR: ${weekTime.topProject}` : undefined}><Panel label="HORAS POR PROJECT" value={hoursLabel(weekTime.seconds)} unit="na semana"><WeekByProject time={trackedTime} projects={projects} onOpen={openTempoPage} /></Panel></Widget>
       <Widget id="task_progress" role="overview" span={3} hidden={hiddenIds.has("task_progress")}><Panel label="CONCLUÍDO"><TaskProgressRing tasks={tasks} /></Panel></Widget>
@@ -430,14 +440,14 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
     {/* O acervo é navegação, não processamento. O corte em cinco continua
         explícito pelo link "Ver todos" quando há conteúdo além dele. */}
     <HomeSection id="collection" title="Acervo" hidden={!(["recent_resources", "apps"].some(widgetVisible))}>
-      <Widget id="recent_resources" role="collection" span={8} hidden={hiddenIds.has("recent_resources")}><Panel label="RECURSOS" action={activeResources.length > 5 ? <Button variant="ghost" onClick={() => openLibraryPage()}>Ver todos</Button> : undefined}>{activeResources.length ? activeResources.slice(0, 5).map((resource) => <DataRow key={resource.id} primary={resource.title} secondary={resourceHost(resource.url)} meta={relativeTime(resource.updatedAt)} onClick={() => openResource(resource)} />) : <ScopedEmptyState total={allActiveResources.length} workspace={currentWorkspace} noun="resource" onLink={() => openLibraryPage()} linkLabel="Ver tudo" />}</Panel></Widget>
+      <Widget id="recent_resources" role="collection" span={8} hidden={hiddenIds.has("recent_resources")}><Panel label="RECURSOS" value={String(activeResources.length)} unit={activeResources.length === 1 ? "recurso" : "recursos"} action={activeResources.length > 5 ? <Button variant="ghost" onClick={() => openLibraryPage()}>Ver todos</Button> : undefined}>{activeResources.length ? activeResources.slice(0, 5).map((resource) => <DataRow key={resource.id} primary={resource.title} secondary={resourceHost(resource.url)} meta={relativeTime(resource.updatedAt)} onClick={() => openResource(resource)} />) : <ScopedEmptyState total={allActiveResources.length} workspace={currentWorkspace} noun="resource" onLink={() => openLibraryPage()} linkLabel="Ver tudo" />}</Panel></Widget>
       {/* O nome do app nao entra: o icone com a inicial e o atalho ja o
           identificam, e a linha de nomes competiria com as rows ao lado. */}
       {/* O botao "Gerenciar" e a porta de Apps desde que ele saiu do rail
           (ADR-038). Sem ele, com zero apps cadastrados a busca do Command nao
           acha nada e a pagina fica inalcancavel para criar o primeiro — a
           mesma falha que a ADR-031 registrou com Workspaces. */}
-      <Widget id="apps" role="collection" span={4} hidden={hiddenIds.has("apps")}><Panel label="APPS" action={<Button variant="ghost" onClick={() => openAppsPage()}>Gerenciar</Button>}><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><AppIcon app={app} />{index < 9 ? <span className="app-shortcut">Ctrl {index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
+      <Widget id="apps" role="collection" span={4} hidden={hiddenIds.has("apps")}><Panel label="APPS" value={String(activeApps.length)} unit={activeApps.length === 1 ? "app" : "apps"} action={<Button variant="ghost" onClick={() => openAppsPage()}>Gerenciar</Button>}><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><AppIcon app={app} />{index < 9 ? <span className="app-shortcut">Ctrl {index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
     </HomeSection>
 
     {/* Última faixa: atalho e tranquilidade não são a

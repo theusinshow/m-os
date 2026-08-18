@@ -93,6 +93,24 @@ export function WeekRings({ tasks, onOpen }: { tasks: Task[]; onOpen: () => void
  * arco do dia, onde o passado é contexto e o próximo evento é o assunto. Aqui o
  * passado É o conteúdo — apagá-lo apagaria o widget inteiro.
  */
+/** A carga de cada dia do mês corrente: Task criada, Task concluída, Capture.
+ *  Exportada porque a Home também precisa do total e do pico para o rodapé, e
+ *  duplicar a conta em dois arquivos é como as duas versões divergem. */
+export function monthActivity(tasks: Task[], captures: Capture[]) {
+  const today = new Date();
+  const activity = new Map<string, number>();
+  const bump = (value: string | null) => {
+    if (!value) return;
+    const date = new Date(value);
+    if (date.getMonth() !== today.getMonth() || date.getFullYear() !== today.getFullYear()) return;
+    const key = String(date.getDate());
+    activity.set(key, (activity.get(key) ?? 0) + 1);
+  };
+  tasks.forEach((task) => { bump(task.createdAt); bump(task.completedAt); });
+  captures.forEach((capture) => bump(capture.capturedAt));
+  return activity;
+}
+
 export function MonthDensity({ tasks, captures }: { tasks: Task[]; captures: Capture[] }) {
   const month = useMemo(() => {
     const today = new Date();
@@ -100,16 +118,7 @@ export function MonthDensity({ tasks, captures }: { tasks: Task[]; captures: Cap
     const last = new Date(today.getFullYear(), today.getMonth() + 1, 0);
     const lead = (first.getDay() + 6) % 7;
 
-    const activity = new Map<string, number>();
-    const bump = (value: string | null) => {
-      if (!value) return;
-      const date = new Date(value);
-      if (date.getMonth() !== today.getMonth() || date.getFullYear() !== today.getFullYear()) return;
-      const key = String(date.getDate());
-      activity.set(key, (activity.get(key) ?? 0) + 1);
-    };
-    tasks.forEach((task) => { bump(task.createdAt); bump(task.completedAt); });
-    captures.forEach((capture) => bump(capture.capturedAt));
+    const activity = monthActivity(tasks, captures);
 
     const peak = Math.max(1, ...activity.values());
     const cells = Array.from({ length: lead }, () => null as null | { day: number; load: number; isToday: boolean });
