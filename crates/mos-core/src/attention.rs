@@ -382,6 +382,186 @@ impl ContentPrivacy {
     }
 }
 
+// ------------------------------------------------------------- notificação
+
+/// Por onde uma entrega sai.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Channel {
+    InApp,
+    Windows,
+    Tray,
+}
+
+impl Channel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::InApp => "in_app",
+            Self::Windows => "windows",
+            Self::Tray => "tray",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, CoreError> {
+        match value {
+            "in_app" => Ok(Self::InApp),
+            "windows" => Ok(Self::Windows),
+            "tray" => Ok(Self::Tray),
+            _ => Err(CoreError::new(
+                ErrorCode::DataIntegrity,
+                "Canal de entrega desconhecido.",
+                false,
+            )),
+        }
+    }
+}
+
+/// Quanto a entrega se impõe (§21).
+///
+/// `Critical` existe e é para não ser usada. Urgência que aparece toda semana
+/// deixa de ser urgência.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VisualLevel {
+    Quiet,
+    Normal,
+    Important,
+    Critical,
+}
+
+impl VisualLevel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Quiet => "quiet",
+            Self::Normal => "normal",
+            Self::Important => "important",
+            Self::Critical => "critical",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, CoreError> {
+        match value {
+            "quiet" => Ok(Self::Quiet),
+            "normal" => Ok(Self::Normal),
+            "important" => Ok(Self::Important),
+            "critical" => Ok(Self::Critical),
+            _ => Err(CoreError::new(
+                ErrorCode::DataIntegrity,
+                "Nivel visual desconhecido.",
+                false,
+            )),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationStatus {
+    Queued,
+    Delivering,
+    Delivered,
+    Seen,
+    Acted,
+    Dismissed,
+    Failed,
+}
+
+impl NotificationStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Delivering => "delivering",
+            Self::Delivered => "delivered",
+            Self::Seen => "seen",
+            Self::Acted => "acted",
+            Self::Dismissed => "dismissed",
+            Self::Failed => "failed",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, CoreError> {
+        match value {
+            "queued" => Ok(Self::Queued),
+            "delivering" => Ok(Self::Delivering),
+            "delivered" => Ok(Self::Delivered),
+            "seen" => Ok(Self::Seen),
+            "acted" => Ok(Self::Acted),
+            "dismissed" => Ok(Self::Dismissed),
+            "failed" => Ok(Self::Failed),
+            _ => Err(CoreError::new(
+                ErrorCode::DataIntegrity,
+                "Estado de notificacao desconhecido.",
+                false,
+            )),
+        }
+    }
+
+    /// Viva o bastante para bloquear uma cópia com a mesma `dedupe_key` (§17).
+    ///
+    /// `Seen` NÃO conta: depois de vista, a próxima entrega é um lembrete novo
+    /// e legítimo, não uma cópia. Contar `Seen` faria um Reminder recorrente
+    /// silenciar para sempre depois da primeira vez.
+    pub fn blocks_duplicate(self) -> bool {
+        matches!(self, Self::Queued | Self::Delivering | Self::Delivered)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Notification {
+    pub id: NotificationId,
+    pub reminder_id: ReminderId,
+    pub channel: Channel,
+    pub dedupe_key: String,
+    pub status: NotificationStatus,
+    pub level: VisualLevel,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub delivered_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub resolved_at: Option<OffsetDateTime>,
+    pub failure: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NewNotification {
+    pub id: NotificationId,
+    pub reminder_id: ReminderId,
+    pub channel: Channel,
+    pub dedupe_key: String,
+    pub level: VisualLevel,
+    pub created_at: OffsetDateTime,
+}
+
+impl NewNotification {
+    /// A chave que impede cópia enquanto uma equivalente está viva.
+    ///
+    /// `{assunto}:{id}` — o assunto separa "este lembrete venceu" de "este
+    /// lembrete está atrasado há muito", que são avisos diferentes sobre o
+    /// mesmo Reminder e não devem se bloquear.
+    pub fn dedupe_key(subject: &str, reminder: ReminderId) -> String {
+        format!("{subject}:{reminder}")
+    }
+
+    pub fn queued(
+        reminder: ReminderId,
+        channel: Channel,
+        subject: &str,
+        level: VisualLevel,
+        now: OffsetDateTime,
+    ) -> Self {
+        Self {
+            id: NotificationId::new(),
+            reminder_id: reminder,
+            channel,
+            dedupe_key: Self::dedupe_key(subject, reminder),
+            level,
+            created_at: now,
+        }
+    }
+}
+
 // ----------------------------------------------------------------- reminder
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

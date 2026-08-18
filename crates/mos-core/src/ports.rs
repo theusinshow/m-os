@@ -413,6 +413,56 @@ pub struct BackupInspection {
     pub created_at: OffsetDateTime,
 }
 
+/// Persistencia do Attention System.
+///
+/// Duas listas de leitura e nao uma consulta generica: `waiting` e o que o
+/// agendador precisa a cada acordada, e `open` e o que a superficie mostra.
+/// Sao perguntas diferentes com indices diferentes, e uma consulta que
+/// servisse as duas usaria o indice errado para uma delas.
+pub trait AttentionRepository: Send + Sync {
+    fn create_reminder(&self, reminder: crate::NewReminder) -> Result<crate::Reminder, CoreError>;
+
+    fn reminder(&self, id: crate::ReminderId) -> Result<crate::Reminder, CoreError>;
+
+    /// Ativos e esperando a hora. E o que alimenta `next_wake` e `reconcile`.
+    fn waiting_reminders(&self) -> Result<Vec<crate::Reminder>, CoreError>;
+
+    /// Ativos e nao terminais. E o que o Attention Center e o badge leem.
+    fn open_reminders(&self) -> Result<Vec<crate::Reminder>, CoreError>;
+
+    /// Grava o resultado de uma transicao. Devolve o que ficou gravado, e nao
+    /// o que foi mandado: quem le depois le do banco, nunca da memoria de quem
+    /// escreveu.
+    fn save_reminder(&self, reminder: &crate::Reminder) -> Result<crate::Reminder, CoreError>;
+
+    fn set_reminder_lifecycle(
+        &self,
+        id: crate::ReminderId,
+        state: crate::LifecycleState,
+    ) -> Result<crate::Reminder, CoreError>;
+
+    fn record_notification(
+        &self,
+        notification: crate::NewNotification,
+    ) -> Result<crate::Notification, CoreError>;
+
+    fn save_notification(
+        &self,
+        notification: &crate::Notification,
+    ) -> Result<crate::Notification, CoreError>;
+
+    /// A entrega viva com esta chave, se houver. E o que o dedupe consulta
+    /// antes de criar outra.
+    fn live_notification(
+        &self,
+        dedupe_key: &str,
+    ) -> Result<Option<crate::Notification>, CoreError>;
+
+    fn notifications_for(
+        &self,
+        reminder: crate::ReminderId,
+    ) -> Result<Vec<crate::Notification>, CoreError>;
+}
 pub trait DataMaintenance: Send + Sync {
     fn create_backup(&self, destination: &Path) -> Result<BackupReceipt, CoreError>;
     fn inspect_backup(&self, source: &Path) -> Result<BackupInspection, CoreError>;

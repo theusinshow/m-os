@@ -19,9 +19,10 @@ pub use action::{
     ActionPreview, UndoStep,
 };
 pub use attention::{
-    apply, next_wake, reconcile, ContentPrivacy, DeliveryPolicy, NewReminder, NotificationId,
-    Priority, Reconciliation, ReconcileReason, Reminder, ReminderId, ReminderSource,
-    ReminderStatus, ReminderTarget, Transition, Trigger, MISS_GRACE,
+    apply, next_wake, reconcile, Channel, ContentPrivacy, DeliveryPolicy, NewNotification,
+    NewReminder, Notification, NotificationId, NotificationStatus, Priority, Reconciliation,
+    ReconcileReason, Reminder, ReminderId, ReminderSource, ReminderStatus, ReminderTarget,
+    Transition, Trigger, VisualLevel, MISS_GRACE,
 };
 pub use app::{
     app_catalog, app_targeting_host, validate_launch_target, validate_source_url, AppCapabilities,
@@ -46,7 +47,7 @@ pub use monitoring::{
     MonitoredApp, MonitoringSettings, NewActivityEvent, Period,
 };
 pub use ports::{
-    AppRepository, BackupInspection, BackupReceipt, CaptureRepository, ConversationRepository,
+    AppRepository, AttentionRepository, BackupInspection, BackupReceipt, CaptureRepository, ConversationRepository,
     DataMaintenance, MonitoringRepository, ResourceRepository, SearchRequest,
     TimeTrackingRepository, WorkRepository,
 };
