@@ -84,8 +84,27 @@ describe("eyesFor", () => {
     expect(maior.pose).toBe("encarando");
   });
 
-  it("trabalhando desvia o olhar para o lado", () => {
-    expect(eyesFor("trabalhando").left.x).toBeGreaterThan(eyesFor("desperto").left.x);
+  // Os tres testes abaixo travam SEPARACOES, e nao numeros. Na primeira
+  // renderizacao as seis poses se reduziam a tres leituras a 24px: desperto e
+  // trabalhando, encarando e assustado, concentrado e fechado eram pares
+  // indistinguiveis. Cada um destes existe para que isso nao volte.
+
+  it("trabalhando desvia o olhar longe o bastante para se ver", () => {
+    const desvio = eyesFor("trabalhando").left.x - eyesFor("desperto").left.x;
+    // Mais de um raio de olho: abaixo disso, a 24px, o desvio some.
+    expect(desvio).toBeGreaterThan(eyesFor("desperto").left.rx);
+  });
+
+  it("assustado e a pose mais estreita, e encarando nao", () => {
+    const larguras = POSES.map((pose) => ({ pose, rx: eyesFor(pose).left.rx }));
+    expect(larguras.reduce((a, b) => (b.rx < a.rx ? b : a)).pose).toBe("assustado");
+    // Os dois sao `chamando`; se tambem tivessem a mesma forma, seriam a mesma pose.
+    expect(eyesFor("assustado").left.rx).toBeLessThan(eyesFor("encarando").left.rx / 1.5);
+  });
+
+  it("fechado e mais largo que concentrado, alem de mais fino", () => {
+    expect(eyesFor("fechado").left.rx).toBeGreaterThan(eyesFor("concentrado").left.rx);
+    expect(eyesFor("fechado").left.ry).toBeLessThan(eyesFor("concentrado").left.ry / 2);
   });
 
   it("so o assustado inclina", () => {

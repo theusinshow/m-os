@@ -77,22 +77,27 @@ export function eyesFor(pose: ArgosPose): { left: Eye; right: Eye } {
 
   switch (pose) {
     // Olhando pro lado, pálpebra baixa: ocupado com outra coisa, não com você.
+    // O desvio é grande de propósito — a 24px um deslocamento sutil é o mesmo
+    // que nenhum, e `trabalhando` viraria `desperto`.
     case "trabalhando": {
-      const eyes = pair(3.5, 11.5, 1.9, 2.2);
-      return { left: { ...eyes.left, x: eyes.left.x + 1.4 }, right: { ...eyes.right, x: eyes.right.x + 1.4 } };
+      const eyes = pair(3.2, 11.4, 1.9, 2.1);
+      return { left: { ...eyes.left, x: eyes.left.x + 2.8 }, right: { ...eyes.right, x: eyes.right.x + 2.8 } };
     }
-    // Arregalado e fixo no centro: está esperando você responder.
+    // Os maiores de todos, redondos e fixos no centro: esperando você responder.
     case "encarando":
-      return pair(3.6, 11, 2.3, 4.2);
-    // Semicerrado: concentrado no próprio trabalho.
+      return pair(3.6, 11, 2.4, 4.2);
+    // Semicerrado: uma fresta, não uma linha — é o que o separa de `fechado`.
     case "concentrado":
-      return pair(3.5, 11.6, 2, 1.4);
-    // Duas linhas.
+      return pair(3.5, 11.6, 2, 1.8);
+    // Duas linhas, e mais LARGAS que as do semicerrado: a diferença entre os
+    // dois precisa sobreviver a 24px, e altura sozinha não sobrevive.
     case "fechado":
-      return pair(3.5, 12, 2.1, 0.7);
-    // Arregalado, afastado e torto — a única pose que inclina.
+      return pair(3.5, 12, 2.7, 0.5);
+    // Frestas verticais, afastadas e tortas. Não pode ser "arregalado" como o
+    // `encarando`: os dois são sódio, e se também tivessem a mesma forma seriam
+    // a mesma pose — "preciso de resposta" e "quebrou" leriam igual.
     case "assustado":
-      return pair(4.1, 10.8, 2.2, 3.9, 14);
+      return pair(4.2, 10.9, 1.3, 3.9, 16);
     case "desperto":
     default:
       return pair(3.5, 11, 2, 3.4);
