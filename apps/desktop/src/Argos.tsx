@@ -1,4 +1,58 @@
-import { BODY, type ArgosPose, eyesFor, weightFor } from "./argosPose";
+import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { api } from "./api";
+import { BODY, type ArgosPose, type ArgosSignals, eyesFor, poseFor, weightFor } from "./argosPose";
+import { hermes } from "./hermes";
+
+/**
+ * Os sinais, vindos de onde eles já vivem.
+ *
+ * O estado de streaming e de aprovação **não é levantado do `HermesPage`**:
+ * `hermes.onEvent()` já entrega `TurnEvent` no barramento global para quem
+ * assinar. E o cronômetro ganha uma assinatura própria e leve — `useTrackedTime`
+ * carrega TODAS as entradas de tempo, e Argos só precisa saber se ele corre.
+ *
+ * **Argos só escuta.** Nunca chama `hermes.approve` nem qualquer método que
+ * escreva: a ADR-024 fixou que Hermes é superfície, não segundo agente, e o
+ * próprio `hermes.ts` registra o que acontece quando duas superfícies disputam o
+ * mesmo barramento.
+ */
+export function useArgosPose({ busy, boot }: { busy: boolean; boot: "loading" | "ready" | "error" }): ArgosPose {
+  const [hermesState, setHermesState] = useState<ArgosSignals["hermes"]>("idle");
+  const [timerRunning, setTimerRunning] = useState(false);
+
+  useEffect(() => {
+    const subscription = hermes.onEvent((event) => {
+      switch (event.outcome) {
+        case "delta":
+        case "reasoning":
+          return setHermesState("working");
+        case "tool":
+          return setHermesState(event.running ? "working" : "idle");
+        case "approval":
+        case "clarify":
+          return setHermesState("waiting");
+        case "failed":
+          return setHermesState("failed");
+        case "complete":
+        case "sudo_refused":
+          return setHermesState("idle");
+        default:
+          return undefined;
+      }
+    });
+    return () => { void subscription.then((dispose) => dispose()); };
+  }, []);
+
+  useEffect(() => {
+    const read = () => { void api.timerCurrent().then((timer) => setTimerRunning(timer?.status === "running")).catch(() => setTimerRunning(false)); };
+    read();
+    const subscription = listen("timer-changed", read);
+    return () => { void subscription.then((dispose) => dispose()); };
+  }, []);
+
+  return poseFor({ hermes: hermesState, busy, boot, timerRunning });
+}
 
 /**
  * Argos — a face do estado do M/OS (ADR-041).
