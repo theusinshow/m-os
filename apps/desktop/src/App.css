@@ -6218,10 +6218,20 @@ input[type="checkbox"]:disabled {
    ele e reservado para CARGA. "Precisa de atencao" e exatamente carga. Nada de
    vermelho como decoracao: urgencia tem de ser rara para significar algo. */
 
+/* O contador ancora no ICONE e nao no botao. Preso a borda direita do botao
+   ele flutuaria longe do sino assim que o rail expandisse, porque ali o botao
+   cresce e o icone nao. */
+.rail-icon-slot {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+}
+
 .rail-badge {
   position: absolute;
-  top: 2px;
-  right: 6px;
+  top: -5px;
+  right: -7px;
   display: grid;
   min-width: 15px;
   height: 15px;
@@ -6230,6 +6240,7 @@ input[type="checkbox"]:disabled {
   color: var(--canvas);
   font: var(--text-meta);
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   background: var(--signal-ink);
   border-radius: 999px;
   pointer-events: none;
