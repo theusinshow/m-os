@@ -116,6 +116,38 @@ describe("pedido do codigo", () => {
   });
 });
 
+describe("limite de reenvio", () => {
+  /**
+   * Bater no intervalo minimo significa que existe um codigo recente e valido.
+   * Voltar para o passo do e-mail faria o usuario esperar um minuto por algo
+   * que ja chegou.
+   */
+  it("avanca para o codigo quando o Supabase so recusa REENVIAR", async () => {
+    auth().signInWithOtp.mockResolvedValue({
+      error: {
+        code: "over_email_send_rate_limit",
+        message: "For security purposes, you can only request this after 53 seconds.",
+      },
+    });
+
+    const estado = await continuarLogin(NO_EMAIL, form({ email: "dono@exemplo.com" }));
+
+    expect(estado.step).toBe("code");
+    expect(estado.email).toBe("dono@exemplo.com");
+    expect(estado.error).toMatch(/53 seconds/);
+  });
+
+  it("reconhece o limite tambem quando vem so no texto, sem code", async () => {
+    auth().signInWithOtp.mockResolvedValue({
+      error: { message: "For security purposes, you can only request this after 41 seconds." },
+    });
+
+    const estado = await continuarLogin(NO_EMAIL, form({ email: "dono@exemplo.com" }));
+
+    expect(estado.step).toBe("code");
+  });
+});
+
 describe("confirmacao do codigo", () => {
   it("verifica e redireciona para o dashboard", async () => {
     await expect(

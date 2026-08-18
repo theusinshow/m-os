@@ -43,6 +43,19 @@ export async function continuarLogin(anterior: LoginState, formData: FormData): 
     : pedirCodigo(anterior, formData);
 }
 
+/**
+ * O Supabase impoe um intervalo minimo entre envios para o mesmo e-mail. Ele
+ * responde com `over_email_send_rate_limit` — ou, em versoes que nao mandam
+ * codigo, so com o texto — e nos dois casos significa a mesma coisa: existe um
+ * codigo recente e valido.
+ */
+function esperandoReenvio(error: { code?: string; message: string }) {
+  return (
+    error.code === "over_email_send_rate_limit" ||
+    /only request this after|security purposes/i.test(error.message)
+  );
+}
+
 async function pedirCodigo(_anterior: LoginState, formData: FormData): Promise<LoginState> {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
 
@@ -67,10 +80,17 @@ async function pedirCodigo(_anterior: LoginState, formData: FormData): Promise<L
   });
 
   if (error) {
-    // A mensagem do provedor vai junto de proposito. Um app de um dono so nao
-    // ganha nada escondendo "Error sending magic link email" atras de um texto
-    // generico: quem le a tela e quem configura o SMTP, e sem a causa a falha
-    // vira adivinhacao.
+    // Limite de reenvio nao e falha: o Supabase so recusa MANDAR de novo, e o
+    // codigo pedido ha pouco continua valendo. Prender o usuario no passo do
+    // e-mail o faria esperar por algo que ja esta na caixa de entrada dele.
+    if (esperandoReenvio(error)) {
+      return { step: "code", email, error: error.message };
+    }
+
+    // Nos demais casos a mensagem do provedor vai junto de proposito. Um app
+    // de um dono so nao ganha nada escondendo "Error sending magic link email"
+    // atras de um texto generico: quem le a tela e quem configura o SMTP, e
+    // sem a causa a falha vira adivinhacao.
     return {
       step: "email",
       email,
