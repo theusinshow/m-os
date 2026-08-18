@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },
@@ -39,6 +40,7 @@
     "eslint": "latest",
     "eslint-config-next": "latest",
     "tailwindcss": "latest",
-    "typescript": "latest"
+    "typescript": "latest",
+    "vitest": "^3.2.7"
   }
 }
