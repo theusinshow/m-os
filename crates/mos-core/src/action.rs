@@ -437,8 +437,34 @@ fn line(label: &str, value: &str) -> ActionLine {
 
 /// R$ a partir de centavos. Nao e formatacao de moeda completa (sem milhar) —
 /// e so o preview; o M-Finance formata de verdade na tela dele.
+/// Formata centavos no padrao brasileiro: `R$ 1.234,56`.
+///
+/// Antes saia `R$ 1234.56` — ponto no decimal, sem separador de milhar, o
+/// formato de outra lingua num app inteiro em portugues. Num card que pede
+/// autorizacao para mover dinheiro isso nao e cosmetico: ler `R$ 1234.56` de
+/// relance como "mil duzentos e trinta e quatro" ou como "mil, duzentos e
+/// trinta e quatro reais e cinquenta e seis" muda o que a pessoa acha que esta
+/// autorizando. O resto do M/OS ja usa este padrao (`TempoShared.tsx`).
+///
+/// Feito com inteiros de proposito: `f64` para dinheiro arredonda onde nao
+/// deve, e o valor exibido aqui e o valor que vai ser gravado.
 fn format_cents(cents: i64) -> String {
-    format!("R$ {:.2}", cents as f64 / 100.0)
+    let absoluto = cents.unsigned_abs();
+    let digitos = (absoluto / 100).to_string();
+
+    let mut inteiro = String::with_capacity(digitos.len() + digitos.len() / 3);
+    for (indice, digito) in digitos.char_indices() {
+        if indice > 0 && (digitos.len() - indice) % 3 == 0 {
+            inteiro.push('.');
+        }
+        inteiro.push(digito);
+    }
+
+    format!(
+        "{}R$ {inteiro},{:02}",
+        if cents < 0 { "-" } else { "" },
+        absoluto % 100,
+    )
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -958,5 +984,157 @@ mod tests {
     fn the_contract_hides_m_finance_when_not_enabled() {
         assert!(!action_contract(false).contains("m-finance.create_bill"));
         assert!(action_contract(true).contains("m-finance.create_bill"));
+    }
+
+    /// Esconder a acao do catalogo nao pode esconder o resto dele: sem
+    /// `can_write` o Hermes continua sabendo de todas as outras acoes.
+    #[test]
+    fn hiding_m_finance_keeps_every_other_action_in_the_contract() {
+        let contract = action_contract(false);
+        for kind in ActionKind::all() {
+            if kind == ActionKind::MFinanceCreateBill {
+                continue;
+            }
+            assert!(contract.contains(kind.as_str()), "faltou {}", kind.as_str());
+        }
+    }
+
+    /// Espelha a tabela `recusados` de
+    /// `apps/m-finance/lib/mos/action-bridge.test.ts`. Os dois validadores
+    /// guardam a mesma acao em pontos diferentes — o `mos-core` antes de
+    /// desenhar o card, o M-Finance antes do INSERT. Uma folga so de um lado
+    /// vira um card que o usuario confirma para receber um erro no recibo.
+    #[test]
+    fn refuses_the_same_arguments_the_m_finance_bridge_refuses() {
+        let recusados = [
+            ("valor negativo", r#"{"amountCents":-1,"description":"X","isRecurring":false}"#),
+            ("valor zero", r#"{"amountCents":0,"description":"X","isRecurring":false}"#),
+            ("valor fracionado", r#"{"amountCents":10.5,"description":"X","isRecurring":false}"#),
+            ("valor como texto", r#"{"amountCents":"1800","description":"X","isRecurring":false}"#),
+            ("descricao vazia", r#"{"amountCents":100,"description":"   ","isRecurring":false}"#),
+            ("descricao ausente", r#"{"amountCents":100,"isRecurring":false}"#),
+            ("dia 0", r#"{"amountCents":100,"description":"X","dueDay":0,"isRecurring":false}"#),
+            ("dia 32", r#"{"amountCents":100,"description":"X","dueDay":32,"isRecurring":false}"#),
+        ];
+
+        for (caso, args) in recusados {
+            let raw = format!(r#"{{"action":"m-finance.create_bill","args":{args}}}"#);
+            assert!(parse_action(&raw).is_err(), "deveria ter recusado: {caso}");
+        }
+    }
+
+    #[test]
+    fn accepts_the_first_and_last_day_of_the_month() {
+        for day in [1u8, 31] {
+            let raw = format!(
+                r#"{{"action":"m-finance.create_bill","args":{{"amountCents":100,"description":"X","dueDay":{day},"isRecurring":false}}}}"#
+            );
+            match parse_action(&raw).unwrap() {
+                ActionArgs::MFinanceCreateBill { due_day, .. } => assert_eq!(due_day, Some(day)),
+                other => panic!("virou outra acao: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_bill_without_a_due_day_parses_as_none() {
+        for args in [
+            r#"{"amountCents":100,"description":"X","isRecurring":false}"#,
+            r#"{"amountCents":100,"description":"X","dueDay":null,"isRecurring":false}"#,
+        ] {
+            let raw = format!(r#"{{"action":"m-finance.create_bill","args":{args}}}"#);
+            match parse_action(&raw).unwrap() {
+                ActionArgs::MFinanceCreateBill { due_day, .. } => assert_eq!(due_day, None),
+                other => panic!("virou outra acao: {other:?}"),
+            }
+        }
+    }
+
+    /// O `mos-core` aceita a proposta sem `isRecurring` e assume `false`,
+    /// enquanto o schema zod do M-Finance exige o campo. A divergencia nao
+    /// vaza porque quem fala com a Action API e `finance.rs`, que serializa
+    /// o bool sempre — a chave nunca chega ausente do outro lado.
+    #[test]
+    fn a_bill_without_is_recurring_defaults_to_false() {
+        let raw = r#"{"action":"m-finance.create_bill","args":{"amountCents":100,"description":"X"}}"#;
+        match parse_action(raw).unwrap() {
+            ActionArgs::MFinanceCreateBill { is_recurring, .. } => assert!(!is_recurring),
+            other => panic!("virou outra acao: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_m_finance_preview_omits_the_due_date_line_when_there_is_no_day() {
+        let preview = preview_of(&ActionArgs::MFinanceCreateBill {
+            amount_cents: 100,
+            description: "X".into(),
+            due_day: None,
+            is_recurring: false,
+        });
+
+        assert!(!preview.lines.iter().any(|l| l.label == "Vencimento"));
+        assert!(preview
+            .lines
+            .iter()
+            .any(|l| l.label == "Recorrente" && l.value == "não"));
+    }
+
+    /// O card e a ultima coisa que o usuario le antes de autorizar uma acao de
+    /// risco alto. Se o valor exibido nao for o valor enviado, o preview esta
+    /// mentindo — e o consentimento nao vale.
+    #[test]
+    fn the_m_finance_preview_never_rounds_the_amount_away() {
+        for (cents, esperado) in [(1i64, "0,01"), (99, "0,99"), (12345, "123,45")] {
+            let preview = preview_of(&ActionArgs::MFinanceCreateBill {
+                amount_cents: cents,
+                description: "X".into(),
+                due_day: None,
+                is_recurring: false,
+            });
+            let valor = preview
+                .lines
+                .iter()
+                .find(|l| l.label == "Valor")
+                .expect("o card sempre mostra o valor");
+            assert!(
+                valor.value.contains(esperado),
+                "{cents} centavos apareceram como {}",
+                valor.value
+            );
+        }
+    }
+
+    /// O valor sai no padrao brasileiro porque o app e em portugues e o card e
+    /// o ultimo lugar onde a pessoa confere quanto vai ser gravado.
+    #[test]
+    fn the_amount_reads_like_brazilian_money() {
+        for (cents, esperado) in [
+            (1i64, "R$ 0,01"),
+            (99, "R$ 0,99"),
+            (100, "R$ 1,00"),
+            (1990, "R$ 19,90"),
+            (123456, "R$ 1.234,56"),
+            (100000000, "R$ 1.000.000,00"),
+        ] {
+            assert_eq!(format_cents(cents), esperado, "{cents} centavos");
+        }
+    }
+
+    /// Nenhuma acao propoe valor negativo — o parser recusa antes. Mas se um
+    /// dia propuser, o card tem de mostrar o sinal, e nao esconde-lo.
+    #[test]
+    fn a_negative_amount_keeps_its_sign() {
+        assert_eq!(format_cents(-12345), "-R$ 123,45");
+    }
+
+    #[test]
+    fn zero_is_not_a_special_case() {
+        assert_eq!(format_cents(0), "R$ 0,00");
+    }
+    #[test]
+    fn the_m_finance_action_id_round_trips() {
+        let kind = ActionKind::MFinanceCreateBill;
+        assert_eq!(ActionKind::parse(kind.as_str()), Some(kind));
+        assert_eq!(kind.function_id(), "m-finance.create_bill");
     }
 }

@@ -1,7 +1,9 @@
 mod action;
+mod attention;
 mod app;
 mod calendar;
 mod capture;
+mod clock;
 mod conversation;
 mod error;
 mod functions;
@@ -16,11 +18,19 @@ pub use action::{
     action_contract, parse_action, preview_of, ActionArgs, ActionEffect, ActionKind, ActionLine,
     ActionPreview, UndoStep,
 };
+pub use attention::{
+    apply, next_wake, reconcile, Channel, ContentPrivacy, DeliveryPolicy, NewNotification,
+    NewReminder, Notification, NotificationId, NotificationStatus, Priority, Reconciliation,
+    ReconcileReason, Reminder, ReminderId, ReminderSource, ReminderStatus, ReminderTarget,
+    Transition, Trigger, VisualLevel, MISS_GRACE,
+};
 pub use app::{
-    app_catalog, validate_launch_target, validate_source_url, AppCapabilities, AppCatalogEntry,
+    app_catalog, app_targeting_host, validate_launch_target, validate_source_url, AppCapabilities,
+    AppCatalogEntry,
     AppId, AppLaunchKind, NewRegisteredApp, RegisteredApp,
 };
 pub use calendar::{compose, CalendarItem, CalendarKind, ComposeInput};
+pub use clock::{Clock, FixedClock, SystemClock};
 pub use capture::{Capture, CaptureId, CaptureSource, LifecycleState, NewCapture, ProcessingState};
 pub use conversation::{
     validate_title, ContextEntity, ContextOrigin, Conversation, ConversationId,
@@ -37,7 +47,7 @@ pub use monitoring::{
     MonitoredApp, MonitoringSettings, NewActivityEvent, Period,
 };
 pub use ports::{
-    AppRepository, BackupInspection, BackupReceipt, CaptureRepository, ConversationRepository,
+    AppRepository, AttentionRepository, BackupInspection, BackupReceipt, CaptureRepository, ConversationRepository,
     DataMaintenance, MonitoringRepository, ResourceRepository, SearchRequest,
     TimeTrackingRepository, WorkRepository,
 };
@@ -45,7 +55,7 @@ pub use resource::{
     validate_resource_url, NewResource, Resource, ResourceId, ResourceKind, ResourceWorkspace,
 };
 pub use service::{
-    AppService, CaptureService, ConversationService, CreateAppInput, CreateCaptureInput,
+    AppService, AttentionService, CaptureService, ConversationService, CreateAppInput, CreateCaptureInput,
     CreateProjectInput, CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService,
     MemoryService, MonitoringService, TrackingService, UpdateAppInput, UpdateProjectInput,
     UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, WorkService,
@@ -58,6 +68,6 @@ pub use tracking::{
     TrackedSession, TrackingSettings, TrackingStatus,
 };
 pub use work::{
-    validate_widget_id, HiddenWidget, NewProject, NewTask, NewWorkspace, Project, ProjectId,
-    SearchItem, Task, TaskId, TaskState, Workspace, WorkspaceId,
+    order_widgets, validate_widget_id, HiddenWidget, NewProject, NewTask, NewWorkspace, Project, ProjectId,
+    SearchItem, Task, TaskId, TaskState, WidgetPosition, Workspace, WorkspaceId,
 };

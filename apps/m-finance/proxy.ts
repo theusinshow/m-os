@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { env, isSupabaseConfigured } from "@/lib/env";
+import { cookieDoEmbed } from "@/lib/supabase/cookies";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -26,7 +27,7 @@ export async function proxy(request: NextRequest) {
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
         response = NextResponse.next({ request });
         cookiesToSet.forEach(({ name, value, options }) => {
-          response.cookies.set(name, value, options);
+          response.cookies.set(name, value, { ...options, ...cookieDoEmbed });
         });
       },
     },

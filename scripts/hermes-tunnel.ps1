@@ -6,14 +6,39 @@
 # mostra Offline, corretamente. Ate agora o tunel era um atalho de Desktop
 # disparado a mao; este script o torna permanente.
 #
-# Usa a chave SEM passphrase (id_ed25519), verificada como autorizada na VPS.
-# A chave hermes_home tem passphrase e por isso nao serve para execucao sem
-# supervisao: exigiria ssh-agent, que exigiria elevacao para habilitar.
+# Precisa de uma chave SEM passphrase: a tarefa roda sem ninguem olhando, e uma
+# chave protegida exigiria ssh-agent, que exigiria elevacao para habilitar.
+#
+# O nome da chave varia por maquina — esta versao procurava um `id_ed25519` fixo
+# que nao existia aqui, e o efeito era o pior possivel: `ssh` falhava, o laco
+# tentava de novo para sempre, e a unica pista era o Hermes aparecer Offline no
+# M/OS. Agora procura entre os nomes conhecidos e RECLAMA ALTO se nao achar,
+# em vez de girar calado.
 #
 # Nao roda como servico e nao pede admin: e uma tarefa agendada no logon, no
 # contexto do proprio usuario.
 
-$key = Join-Path $env:USERPROFILE ".ssh\id_ed25519"
+$candidatas = @("hermes_work", "id_ed25519", "hermes_home")
+
+function Find-Key {
+    foreach ($nome in $candidatas) {
+        $caminho = Join-Path $env:USERPROFILE ".ssh\$nome"
+        if (-not (Test-Path $caminho)) { continue }
+        # Chave com passphrase nao serve aqui: o ssh ficaria esperando alguem
+        # digitar, e ninguem esta olhando.
+        if (((Get-Content $caminho -TotalCount 3) -join "`n") -match "ENCRYPTED") { continue }
+        return $caminho
+    }
+    return $null
+}
+
+$key = Find-Key
+if (-not $key) {
+    Write-Error ("Nenhuma chave SSH sem passphrase encontrada em ~/.ssh (procurei: " +
+        ($candidatas -join ", ") + "). Sem ela o tunel nao sobe e o Hermes fica Offline.")
+    exit 1
+}
+Write-Host "chave: $key"
 $target = "hermes@167.233.43.1"
 $port = 9119
 $delay = 5

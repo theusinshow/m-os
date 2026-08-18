@@ -1,11 +1,77 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { WidgetPosition, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
 export const api = {
+  widgetPositions() {
+    return invoke<WidgetPosition[]>("widget_positions");
+  },
+  // Manda a secao inteira, e nao "o widget X foi para a posicao 3": quem
+  // sabe o que acontece com quem estava la e o front, que conhece a secao.
+  setWidgetOrder(workspaceId: string, ordered: string[]) {
+    return invoke<WidgetPosition[]>("set_widget_order", { workspaceId, ordered });
+  },
+  // --- Inicializacao com o Windows (ADR-043) ---
+  //
+  // `autostartEnabled` pergunta ao SISTEMA e nao a uma configuracao nossa: o
+  // `auto-launch` tambem escreve na chave que o Gerenciador de Tarefas usa, e o
+  // usuario pode desligar por la sem nos avisar. Espelhar isso num booleano
+  // faria a tela afirmar "ligado" sobre algo desligado.
+  autostartEnabled() {
+    return invoke<boolean>("autostart_enabled");
+  },
+  setAutostart(enabled: boolean) {
+    return invoke<boolean>("autostart_set", { enabled });
+  },
+  // Esta e preferencia nossa: o Windows sabe iniciar o programa, nao com que
+  // cara. Por isso ela pode viver em settings.json sem criar segunda verdade.
+  startMinimized() {
+    return invoke<boolean>("start_minimized");
+  },
+  setStartMinimized(value: boolean) {
+    return invoke<boolean>("set_start_minimized", { value });
+  },
+  // --- Attention System ---
+  //
+  // `at` e `until` viajam como instante RFC 3339 ja resolvido. O calculo de
+  // "amanha de manha" acontece AQUI de proposito: a interface e o unico lado
+  // que conhece o fuso de quem clicou. Mesmo padrao que o lembrete do monitor
+  // ja usa para o fim do dia.
+  createReminder(title: string, body: string, at: Date, target?: ReminderTarget) {
+    return invoke<Reminder>("attention_create", {
+      input: {
+        title,
+        body,
+        at: at.toISOString(),
+        targetType: target?.type,
+        targetId: target?.id,
+      },
+    });
+  },
+  reminders() {
+    return invoke<Reminder[]>("attention_list");
+  },
+  attentionCount() {
+    return invoke<number>("attention_count");
+  },
+  snoozeReminder(id: string, until: Date) {
+    return invoke<Reminder>("attention_snooze", { id, until: until.toISOString() });
+  },
+  completeReminder(id: string) {
+    return invoke<Reminder>("attention_complete", { id });
+  },
+  acknowledgeReminder(id: string) {
+    return invoke<Reminder>("attention_acknowledge", { id });
+  },
+  cancelReminder(id: string) {
+    return invoke<Reminder>("attention_cancel", { id });
+  },
+  archiveReminder(id: string) {
+    return invoke<Reminder>("attention_archive", { id });
+  },
   createCapture(content: string, source: CaptureSource) {
     return invoke<Capture>("create_capture", { input: { content, source } });
   },

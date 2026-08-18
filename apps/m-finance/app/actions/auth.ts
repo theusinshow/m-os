@@ -1,35 +1,137 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { env } from "@/lib/env";
 
-export async function signInWithGoogle() {
-  const supabase = await createServerSupabaseClient();
+/**
+ * Login por codigo de 6 digitos, e nao OAuth.
+ *
+ * O Google recusa renderizar a tela de sign-in dentro de iframe ou webview
+ * embutida — politica dele contra clickjacking, nao algo que a nossa CSP possa
+ * liberar. Como o M-Finance e exibido dentro do M/OS (ADR-039), com OAuth o
+ * app ficava inacessivel de la: a janela mostrava um 403 do proprio Google.
+ *
+ * O codigo por e-mail roda inteiro em pagina nossa, entao funciona igual no
+ * navegador e dentro do embed. A trava de quem entra continua sendo a mesma de
+ * antes, `AUTHORIZED_EMAIL`, checada aqui e de novo no `proxy.ts`.
+ */
 
-  if (!supabase) {
-    redirect("/login?error=supabase_not_configured");
+export type LoginState = {
+  step: "email" | "code";
+  email: string;
+  error?: string;
+  sent?: boolean;
+};
+
+function emailAutorizado(email: string) {
+  return Boolean(env.authorizedEmail) && email === env.authorizedEmail.trim().toLowerCase();
+}
+
+/**
+ * Despacha o passo certo. O formulario e um so — e o mesmo `useActionState`
+ * dos dois lados — entao quem sabe em que etapa estamos e o estado anterior,
+ * nao o cliente.
+ */
+export async function continuarLogin(anterior: LoginState, formData: FormData): Promise<LoginState> {
+  if (formData.get("intent") === "trocar-email") {
+    return { step: "email", email: "" };
   }
 
-  const origin = (await headers()).get("origin");
-  const redirectTo = `${origin}/api/auth/callback?next=/app/dashboard`;
+  return anterior.step === "code"
+    ? confirmarCodigo(anterior, formData)
+    : pedirCodigo(anterior, formData);
+}
 
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: {
-      redirectTo,
-      queryParams: {
-        access_type: "offline",
-        prompt: "consent",
-      },
-    },
+/**
+ * O Supabase impoe um intervalo minimo entre envios para o mesmo e-mail. Ele
+ * responde com `over_email_send_rate_limit` — ou, em versoes que nao mandam
+ * codigo, so com o texto — e nos dois casos significa a mesma coisa: existe um
+ * codigo recente e valido.
+ */
+function esperandoReenvio(error: { code?: string; message: string }) {
+  return (
+    error.code === "over_email_send_rate_limit" ||
+    /only request this after|security purposes/i.test(error.message)
+  );
+}
+
+async function pedirCodigo(_anterior: LoginState, formData: FormData): Promise<LoginState> {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+
+  if (!email) {
+    return { step: "email", email, error: "Informe o e-mail." };
+  }
+
+  if (!emailAutorizado(email)) {
+    return { step: "email", email, error: "Este app aceita apenas o e-mail autorizado." };
+  }
+
+  const supabase = await createServerSupabaseClient();
+  if (!supabase) {
+    return { step: "email", email, error: "Supabase não configurado." };
+  }
+
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    // Sem criacao de usuario: o unico dono ja existe, e deixar o padrao ligado
+    // faria de um e-mail digitado errado uma conta nova em silencio.
+    options: { shouldCreateUser: false },
   });
 
-  if (error || !data.url) {
-    redirect("/login?error=oauth");
+  if (error) {
+    // Limite de reenvio nao e falha: o Supabase so recusa MANDAR de novo, e o
+    // codigo pedido ha pouco continua valendo. Prender o usuario no passo do
+    // e-mail o faria esperar por algo que ja esta na caixa de entrada dele.
+    if (esperandoReenvio(error)) {
+      return { step: "code", email, error: error.message };
+    }
+
+    // Nos demais casos a mensagem do provedor vai junto de proposito. Um app
+    // de um dono so nao ganha nada escondendo "Error sending magic link email"
+    // atras de um texto generico: quem le a tela e quem configura o SMTP, e
+    // sem a causa a falha vira adivinhacao.
+    return {
+      step: "email",
+      email,
+      error: `Não consegui enviar o código: ${error.message}`,
+    };
   }
 
-  redirect(data.url);
+  return { step: "code", email, sent: true };
+}
+
+async function confirmarCodigo(anterior: LoginState, formData: FormData): Promise<LoginState> {
+  const email = String(formData.get("email") ?? anterior.email).trim().toLowerCase();
+  const codigo = String(formData.get("codigo") ?? "").replace(/\D/g, "");
+
+  // O comprimento do codigo e ajustavel no painel do Supabase (6 a 10). Cravar
+  // um numero aqui duplicaria uma configuracao que vive em outro lugar, e a
+  // copia sairia do ar no dia em que alguem mexesse la — foi o que aconteceu
+  // quando isto exigia 6 e o projeto estava mandando 8. Validamos so o formato
+  // e deixamos o Supabase ser dono do tamanho.
+  if (!/^\d{6,10}$/.test(codigo)) {
+    return { step: "code", email, error: "O código tem só dígitos, entre 6 e 10." };
+  }
+
+  if (!emailAutorizado(email)) {
+    return { step: "email", email: "", error: "Este app aceita apenas o e-mail autorizado." };
+  }
+
+  const supabase = await createServerSupabaseClient();
+  if (!supabase) {
+    return { step: "code", email, error: "Supabase não configurado." };
+  }
+
+  const { error } = await supabase.auth.verifyOtp({ email, token: codigo, type: "email" });
+
+  if (error) {
+    return { step: "code", email, error: "Código inválido ou expirado. Peça outro." };
+  }
+
+  // Fora de try/catch de proposito: `redirect` sinaliza por excecao, e
+  // engoli-la deixaria o usuario autenticado parado na tela de login.
+  redirect("/app/dashboard");
 }
 
 export async function signOut() {

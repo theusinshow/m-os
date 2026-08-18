@@ -1,5 +1,5 @@
-import { ArrowRight, ShieldCheck } from "lucide-react";
-import { signInWithGoogle } from "@/app/actions/auth";
+import { ShieldCheck } from "lucide-react";
+import { LoginForm } from "./login-form";
 import { TriangleField } from "@/components/brand/triangle-field";
 import { TriangleMark } from "@/components/brand/triangle-mark";
 import { isSupabaseConfigured } from "@/lib/env";
@@ -12,9 +12,9 @@ type LoginPageProps = {
 
 const errorMessages: Record<string, string> = {
   supabase_not_configured: "Configure as variáveis do Supabase para ativar o login.",
-  oauth: "Não foi possível iniciar o login com Google.",
+  otp: "Não consegui enviar o código. Tente de novo em instantes.",
   callback: "Não foi possível concluir a autenticação.",
-  missing_code: "O retorno do Google veio sem código de autenticação.",
+  expired: "O código expirou. Peça outro.",
   unauthorized_email: "Este app é privado e aceita apenas o e-mail autorizado.",
 };
 
@@ -77,7 +77,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             </div>
             <h2 className="font-display text-2xl font-semibold text-text-primary">Acesso restrito</h2>
             <p className="mt-2 text-sm leading-6 text-text-muted">
-              Entre com a conta Google autorizada para abrir o cockpit financeiro.
+              Mando um código para o e-mail autorizado. Sem senha para lembrar,
+              e sem sair desta janela.
             </p>
 
             {error ? (
@@ -86,20 +87,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               </div>
             ) : null}
 
-            <form action={signInWithGoogle} className="mt-6">
-              <button
-                className="clip-notch sheen group focus-ring flex h-12 w-full items-center justify-center gap-2 bg-accent-strong px-4 text-sm font-semibold tracking-tight text-text-primary transition duration-200 hover:bg-accent-strong-hover active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!configured}
-                type="submit"
-              >
-                <TriangleMark className="rotate-90 opacity-90" size={11} variant="solid" />
-                Entrar com Google
-                <ArrowRight
-                  className="transition-transform duration-300 group-hover:translate-x-0.5"
-                  size={16}
-                />
-              </button>
-            </form>
+            <LoginForm configured={configured} />
 
             {!configured ? (
               <p className="mt-4 text-xs leading-5 text-text-muted">

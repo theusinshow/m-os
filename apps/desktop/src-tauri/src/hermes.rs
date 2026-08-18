@@ -493,14 +493,22 @@ pub async fn hermes_send<R: Runtime>(
     // argumento vao para a VPS. Nao sao dados pessoais, mas sao um mapa do que o
     // sistema sabe fazer, e isso esta registrado na spec.
     //
-    // So desce no catalogo quando o App M-Finance tem can_write marcado no
-    // Registry — a mesma capacidade que ja existia, so passando a ter efeito
-    // real pela primeira vez (SPEC-ACOES-ENTRE-APPS.md).
+    // So desce no catalogo quando o App que aponta para o M-Finance tem
+    // can_write marcado no Registry — a mesma capacidade que ja existia, so
+    // passando a ter efeito real pela primeira vez (SPEC-ACOES-ENTRE-APPS.md).
+    //
+    // A busca e pelo ALVO e nao pelo id: `AppId` e um UUID sorteado no
+    // cadastro, entao `app("m-finance")` nunca casava com nada e o gate
+    // ficava fechado para sempre, marcasse o usuario o que marcasse.
     let finance_enabled = app
         .state::<AppState>()
         .apps
-        .app("m-finance")
-        .map(|entry| entry.can_write)
+        .apps(false)
+        .ok()
+        .and_then(|apps| {
+            mos_core::app_targeting_host(&apps, crate::finance::ACTION_HOST)
+                .map(|entry| entry.can_write)
+        })
         .unwrap_or(false);
     let prompt = format!(
         "{}{}{}",

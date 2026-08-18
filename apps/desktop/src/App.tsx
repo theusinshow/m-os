@@ -1,5 +1,5 @@
-import { DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { Children, DragEvent, FormEvent, isValidElement, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -14,6 +14,8 @@ import { Button } from "./Button";
 import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel, StateMessage } from "./Surface";
 import { CalendarPage } from "./CalendarPage";
 import { Reminder } from "./Reminder";
+import { AttentionCenter } from "./AttentionCenter";
+import { ReminderComposer } from "./ReminderComposer";
 import { BudgetRing, hoursLabel, TodayHours, useTrackedTime, WeekByProject, weekSummary } from "./TimeWidgets";
 import { TempoPage } from "./TempoPage";
 import { FinancePage } from "./FinancePage";
@@ -23,7 +25,7 @@ import { Icon, type IconName } from "./Icon";
 import { Ring, RingLabel } from "./Ring";
 import { monthActivity, MonthDensity, TaskProgressRing, WeekRings } from "./Widgets";
 import { MosSymbol } from "./Symbol";
-import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, HiddenWidget, WidgetPosition, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
 import "./App.css";
 
 /* `apps` continua sendo uma pagina, e so deixou de ser um destino do rail
@@ -69,7 +71,7 @@ const INBOX_PAGE = 200;
 const stateOrder: TaskState[] = ["inbox", "backlog", "planned", "doing", "review", "done"];
 const stateLabels: Record<TaskState, string> = { inbox: "Inbox", backlog: "Backlog", planned: "Planned", doing: "Doing", review: "Review", done: "Done" };
 const functionCategories: FunctionDefinition["category"][] = ["capture", "work", "time", "memory", "app", "data", "system"];
-const functionCategoryLabels: Record<FunctionDefinition["category"], string> = { capture: "CAPTURE", work: "WORK", time: "TEMPO", memory: "MEMORY", app: "APP", data: "DATA", system: "SYSTEM" };
+const functionCategoryLabels: Record<FunctionDefinition["category"], string> = { capture: "CAPTURE", work: "WORK", time: "TEMPO", attention: "ATENÇÃO", memory: "MEMORY", app: "APP", data: "DATA", system: "SYSTEM" };
 const functionRiskLabels: Record<FunctionDefinition["risk"], string> = { low: "baixo", medium: "medio", high: "alto" };
 const functionConfirmationLabels: Record<FunctionDefinition["confirmation"], string> = { none: "sem confirmacao", explicit: "confirmacao explicita" };
 const relativeFormatter = new Intl.RelativeTimeFormat("pt-BR", { numeric: "auto" });
@@ -123,10 +125,77 @@ function Widget({ id, role, span, hidden = false, footLeft, footRight, children 
   );
 }
 
-function HomeSection({ id, title, hidden = false, children }: { id: string; title: string; hidden?: boolean; children: ReactNode }) {
+/**
+ * Uma faixa da Home, com os widgets dela na ordem que a pessoa escolheu.
+ *
+ * A seção ordena os PRÓPRIOS FILHOS lendo o `id` de cada um, em vez de exigir
+ * que cada chamada monte um array na ordem certa. Isso mantém o JSX de cada
+ * widget onde ele já estava e concentra a regra num lugar só.
+ *
+ * E ordena o DOM, não o `order` do CSS. `order` mudaria só o visual, e a
+ * `DESIGN-FOUNDATIONS.md` §14 exige que "ordem de foco acompanha ordem visual"
+ * — com `order`, tabular pela Home seguiria uma ordem que ninguém vê.
+ */
+function HomeSection({ id, title, hidden = false, rank, arrange, children }: { id: string; title: string; hidden?: boolean; rank?: (widgetId: string) => number; arrange?: (widgetId: string, direction: -1 | 1, siblings: string[]) => void; children: ReactNode }) {
   if (hidden) return null;
   const headingId = `home-${id}-heading`;
-  return <section className="home-section" data-section={id} aria-labelledby={headingId}><header className="home-section-heading"><h2 id={headingId}>{title}</h2></header><div className="home-grid">{children}</div></section>;
+
+  const items = Children.toArray(children).filter((child): child is ReactElement<{ id: string }> => isValidElement(child));
+  const visible = items.filter((child) => !(child.props as { hidden?: boolean }).hidden);
+  const sorted = rank ? [...visible].sort((left, right) => rank(left.props.id) - rank(right.props.id)) : visible;
+  const siblings = sorted.map((child) => child.props.id);
+
+  return <section className="home-section" data-section={id} aria-labelledby={headingId}><header className="home-section-heading"><h2 id={headingId}>{title}</h2></header><div className="home-grid">{sorted.map((child, index) => arrange ? <Arrangeable key={child.props.id} id={child.props.id} span={(child.props as { span?: HomeWidgetSpan }).span} index={index} siblings={siblings} arrange={arrange}>{child}</Arrangeable> : child)}</div></section>;
+}
+
+/**
+ * Envolve um widget com o gesto de arrastar e com a alternativa por teclado.
+ *
+ * A alternativa NÃO é opcional: a `DESIGN-FOUNDATIONS.md` §12 diz que "nenhum
+ * fluxo crítico depende de drag and drop", e é a mesma regra que o Kanban já
+ * segue. Arrastar é o caminho rápido; as setas são o caminho que sempre existe.
+ *
+ * Sem biblioteca, com o drag nativo — igual ao Kanban, e sem dependência nova.
+ */
+function Arrangeable({ id, span, index, siblings, arrange, children }: { id: string; span?: HomeWidgetSpan; index: number; siblings: string[]; arrange: (widgetId: string, direction: -1 | 1, siblings: string[]) => void; children: ReactNode }) {
+  const [over, setOver] = useState(false);
+
+  function move(direction: -1 | 1) {
+    const target = index + direction;
+    if (target < 0 || target >= siblings.length) return;
+    arrange(id, direction, siblings);
+  }
+
+  return (
+    <div
+      className="arrangeable"
+      data-span={span}
+      data-over={over || undefined}
+      draggable
+      onDragEnd={() => setOver(false)}
+      onDragOver={(event) => { event.preventDefault(); setOver(true); }}
+      onDragLeave={() => setOver(false)}
+      onDragStart={(event) => { event.dataTransfer.setData("text/mos-widget", id); event.dataTransfer.effectAllowed = "move"; }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setOver(false);
+        const dragged = event.dataTransfer.getData("text/mos-widget");
+        const from = siblings.indexOf(dragged);
+        if (!dragged || dragged === id || from < 0) return;
+        const next = siblings.filter((entry) => entry !== dragged);
+        next.splice(siblings.indexOf(id), 0, dragged);
+        arrange(dragged, next.indexOf(dragged) > from ? 1 : -1, next);
+      }}
+    >
+      {children}
+      {/* Os botões só aparecem no foco e no hover: eles existem para quem
+          precisa deles, e a Home continua silenciosa para quem não precisa. */}
+      <div className="arrangeable-handles">
+        <button aria-label="Mover para trás" className="icon-button" disabled={index === 0} onClick={() => move(-1)} type="button">‹</button>
+        <button aria-label="Mover para frente" className="icon-button" disabled={index === siblings.length - 1} onClick={() => move(1)} type="button">›</button>
+      </div>
+    </div>
+  );
 }
 
 /* A promessa central do produto e confianca: o que entrou esta guardado. Quando
@@ -270,7 +339,7 @@ function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
   return nextIndex;
 }
 
-function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent }) {
+function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, widgetPositions, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; widgetPositions: WidgetPosition[]; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
   const [workspaceApps, setWorkspaceApps] = useState<RegisteredApp[]>([]);
@@ -378,6 +447,43 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
   // sem Workspace nao ha escolha a aplicar.
   const hiddenIds = useMemo(() => new Set(currentWorkspaceId ? hiddenWidgets.filter((entry) => entry.workspaceId === currentWorkspaceId).map((entry) => entry.widgetId) : []), [hiddenWidgets, currentWorkspaceId]);
   const allWidgetsHidden = HOME_WIDGETS.every((widget) => hiddenIds.has(widget.id));
+
+  /* A ordem escolhida, resolvida uma vez por render.
+
+     Quem tem posicao guardada vem primeiro, na ordem dela; quem nao tem cai
+     para o fim, na ordem do catalogo. E a mesma regra do `order_widgets` no
+     core, e ela existe para um caso especifico: widget novo nao pode se enfiar
+     no meio de um arranjo que a pessoa montou. */
+  const rankOf = useMemo(() => {
+    const saved = new Map(
+      widgetPositions
+        .filter((entry) => entry.workspaceId === currentWorkspaceId)
+        .map((entry) => [entry.widgetId, entry.position] as const),
+    );
+    const catalogo = new Map(HOME_WIDGETS.map((widget, index) => [widget.id, index] as const));
+    return (id: string) => {
+      const position = saved.get(id);
+      if (position !== undefined) return position;
+      return HOME_WIDGETS.length + (catalogo.get(id) ?? HOME_WIDGETS.length);
+    };
+  }, [widgetPositions, currentWorkspaceId]);
+
+  /* Grava a secao inteira, e nao o movimento. O backend nao precisa saber o
+     que acontece com quem estava na posicao — essa regra e daqui, que e quem
+     conhece a secao. */
+  const arrangeWidgets = useCallback((widgetId: string, direction: -1 | 1, siblings: string[]) => {
+    if (!currentWorkspaceId) return;
+    const from = siblings.indexOf(widgetId);
+    if (from < 0) return;
+    const next = [...siblings];
+    // Quando o arrasto ja entregou a lista na ordem final, `direction` so diz
+    // o sentido e nao ha o que trocar aqui.
+    const to = from + direction;
+    if (to >= 0 && to < next.length && siblings[to] !== undefined) {
+      [next[from], next[to]] = [next[to], next[from]];
+    }
+    void api.setWidgetOrder(currentWorkspaceId, next).then(() => refresh()).catch(() => undefined);
+  }, [currentWorkspaceId, refresh]);
   const widgetVisible = (id: string) => !hiddenIds.has(id);
   // O tempo carrega por fora do `refresh()`: aquele é o caminho de boot do app
   // inteiro, e um erro no rastreio não pode ser motivo para a Home não abrir.
@@ -407,7 +513,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
     {/* A primeira dobra responde às duas perguntas imediatas: em que contexto
         estou e o que está acontecendo agora. TodayHours fica aqui porque horas
         de hoje são estado presente; semana e mês continuam na visão ampla. */}
-    <HomeSection id="now" title="Agora" hidden={!(["now", "timer", "today_hours"].some(widgetVisible))}>
+    <HomeSection rank={rankOf} arrange={arrangeWidgets} id="now" title="Agora" hidden={!(["now", "timer", "today_hours"].some(widgetVisible))}>
       <Widget id="now" role="focus" span={6} hidden={hiddenIds.has("now")}><Panel label="EM ANDAMENTO" value={String(doing.length)} unit="em andamento" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel></Widget>
       <Widget id="timer" role="focus" span={3} hidden={hiddenIds.has("timer")}><Panel label="CRONÔMETRO"><Timer projects={projects} onChanged={() => void refresh()} /></Panel></Widget>
       <Widget id="today_hours" role="focus" span={3} hidden={hiddenIds.has("today_hours")} footLeft="7 DIAS · CONTRA O PICO" footRight={`PICO ${hoursLabel(weekTime.peakSeconds)}`}><Panel label="HORAS HOJE"><TodayHours time={trackedTime} /></Panel></Widget>
@@ -415,7 +521,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
 
     {/* Retomada vem antes de analytics: Inbox pede decisão, Recentes recupera o
         fio, e Projects mostra os contextos de trabalho que mudaram. */}
-    <HomeSection id="resume" title="Retomar" hidden={!(["inbox_pulse", "recent", "projects"].some(widgetVisible))}>
+    <HomeSection rank={rankOf} arrange={arrangeWidgets} id="resume" title="Retomar" hidden={!(["inbox_pulse", "recent", "projects"].some(widgetVisible))}>
       <Widget id="inbox_pulse" role="attention" span={3} hidden={hiddenIds.has("inbox_pulse")} footLeft="ENVELHECENDO" footRight={inbox.length ? `${staleInbox} DE ${inbox.length}${inboxCapped ? "+" : ""}` : undefined}><Panel label="INBOX">{/* O numero cru vira anel. A proporcao mostrada e o que esta ENVELHECENDO
     dentro da Inbox, nao o tamanho dela: uma Inbox grande e processada hoje e
     saudavel, e uma pequena parada ha uma semana nao e. O anel vazio com o
@@ -428,7 +534,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
 
     {/* Analytics ficam depois da retomada. Todos mostram trabalho ou horas já
         registrados; nenhum deles precisa competir com o presente. */}
-    <HomeSection id="overview" title="Visão" hidden={!(["month_density", "week_rings", "week_by_project", "task_progress"].some(widgetVisible) || (hasBudget && widgetVisible("budget_ring")))}>
+    <HomeSection rank={rankOf} arrange={arrangeWidgets} id="overview" title="Visão" hidden={!(["month_density", "week_rings", "week_by_project", "task_progress"].some(widgetVisible) || (hasBudget && widgetVisible("budget_ring")))}>
       <Widget id="month_density" role="overview" span={6} hidden={hiddenIds.has("month_density")} footLeft="MÊS CORRENTE · 4 DEGRAUS" footRight={`PICO ${month.peak}`}><Panel label="MÊS" value={String(month.records)} unit="registros"><MonthDensity tasks={tasks} captures={recent} /></Panel></Widget>
       <Widget id="week_rings" role="overview" span={6} hidden={hiddenIds.has("week_rings")} footLeft="SEG–DOM · CONTRA O PICO" footRight={`PICO ${taskWeek.peak}`}><Panel label="TASKS NA SEMANA" value={String(taskWeek.done)} unit="concluídas"><WeekRings tasks={tasks} onOpen={openTasksPage} /></Panel></Widget>
       <Widget id="week_by_project" role="overview" span={6} hidden={hiddenIds.has("week_by_project")} footLeft={`${weekTime.projectCount} PROJECTS · 7 DIAS`} footRight={weekTime.topProject ? `MAIOR: ${weekTime.topProject}` : undefined}><Panel label="HORAS POR PROJECT" value={hoursLabel(weekTime.seconds)} unit="na semana"><WeekByProject time={trackedTime} projects={projects} onOpen={openTempoPage} /></Panel></Widget>
@@ -440,7 +546,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
 
     {/* O acervo é navegação, não processamento. O corte em cinco continua
         explícito pelo link "Ver todos" quando há conteúdo além dele. */}
-    <HomeSection id="collection" title="Acervo" hidden={!(["recent_resources", "apps"].some(widgetVisible))}>
+    <HomeSection rank={rankOf} arrange={arrangeWidgets} id="collection" title="Acervo" hidden={!(["recent_resources", "apps"].some(widgetVisible))}>
       <Widget id="recent_resources" role="collection" span={8} hidden={hiddenIds.has("recent_resources")}><Panel label="RECURSOS" value={String(activeResources.length)} unit={activeResources.length === 1 ? "recurso" : "recursos"} action={activeResources.length > 5 ? <Button variant="ghost" onClick={() => openLibraryPage()}>Ver todos</Button> : undefined}>{activeResources.length ? activeResources.slice(0, 5).map((resource) => <DataRow key={resource.id} primary={resource.title} secondary={resourceHost(resource.url)} meta={relativeTime(resource.updatedAt)} onClick={() => openResource(resource)} />) : <ScopedEmptyState total={allActiveResources.length} workspace={currentWorkspace} noun="resource" onLink={() => openLibraryPage()} linkLabel="Ver tudo" />}</Panel></Widget>
       {/* O nome do app nao entra: o icone com a inicial e o atalho ja o
           identificam, e a linha de nomes competiria com as rows ao lado. */}
@@ -454,7 +560,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
     {/* Última faixa: atalho e tranquilidade não são a
         pergunta que abre a Home. SISTEMA não duplica INTEGRIDADE das Settings —
         aquele é diagnóstico (schema, WAL), este responde "está salvo?". */}
-    <HomeSection id="utilities" title="Utilidades" hidden={!(["quick_actions", "system_health"].some(widgetVisible))}>
+    <HomeSection rank={rankOf} arrange={arrangeWidgets} id="utilities" title="Utilidades" hidden={!(["quick_actions", "system_health"].some(widgetVisible))}>
       <Widget id="quick_actions" role="utility" span={6} hidden={hiddenIds.has("quick_actions")}><Panel label="AÇÕES"><div className="quick-actions"><Button variant="outline" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button><Button variant="outline" size="sm" onClick={() => openTasksPage()}>Nova Task</Button><Button variant="outline" size="sm" onClick={() => openProjectsPage()}>Novo Project</Button></div></Panel></Widget>
       <Widget id="system_health" role="utility" span={6} hidden={hiddenIds.has("system_health")}><Panel label="SISTEMA"><SystemHealth status={status} /></Panel></Widget>
     </HomeSection>
@@ -2205,6 +2311,104 @@ function FinanceActionSettings() {
   );
 }
 
+/**
+ * Iniciar com o Windows (ADR-043).
+ *
+ * O toggle de cima PERGUNTA AO SISTEMA a cada vez que a tela abre, em vez de
+ * espelhar uma configuração nossa. O `auto-launch` grava também na chave que o
+ * Gerenciador de Tarefas usa, e o usuário pode desligar por lá sem nos avisar —
+ * um booleano nosso divergiria no primeiro clique feito fora daqui, e a tela
+ * passaria a afirmar "ligado" sobre algo desligado.
+ *
+ * O de baixo é preferência nossa e mora em settings.json: o Windows sabe iniciar
+ * o programa, não com que cara.
+ */
+function StartupSettings() {
+  const [enabled, setEnabled] = useState(false);
+  const [minimized, setMinimized] = useState(false);
+  const [message, setMessage] = useState("");
+  const [messageState, setMessageState] = useState<"saving" | "saved" | "error">("saved");
+
+  const load = useCallback(async () => {
+    try {
+      const [system, ours] = await Promise.all([api.autostartEnabled(), api.startMinimized()]);
+      setEnabled(system);
+      setMinimized(ours);
+    } catch (error) {
+      setMessageState("error");
+      setMessage(appError(error).message);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function toggleAutostart(next: boolean) {
+    setMessageState("saving");
+    setMessage(next ? "Ligando..." : "Desligando...");
+    try {
+      // O backend devolve o que o SISTEMA passou a dizer, e nao o que foi
+      // pedido: se a gravacao no registro nao pegar, a tela mostra a verdade.
+      setEnabled(await api.setAutostart(next));
+      setMessageState("saved");
+      setMessage(next ? "O M/OS vai iniciar com o Windows." : "O M/OS nao inicia sozinho.");
+    } catch (error) {
+      setMessageState("error");
+      setMessage(appError(error).message);
+      void load();
+    }
+  }
+
+  async function toggleMinimized(next: boolean) {
+    try {
+      setMinimized(await api.setStartMinimized(next));
+    } catch (error) {
+      setMessageState("error");
+      setMessage(appError(error).message);
+    }
+  }
+
+  return (
+    <Panel label="INICIALIZAÇÃO">
+      <p className="support-copy">
+        Lembretes só disparam com o M/OS aberto. Ligando isto, ele sobe junto com o Windows e
+        continua no tray — sem isso, um lembrete das 9h não avisa se você abrir o app às 11h.
+      </p>
+      <div className="setting-row">
+        <div>
+          <strong>Iniciar com o Windows</strong>
+          <p>Pode ser desligado também pelo Gerenciador de Tarefas, na aba Inicializar.</p>
+        </div>
+        <label className="switch">
+          <input
+            aria-label="Iniciar com o Windows"
+            checked={enabled}
+            onChange={(event) => void toggleAutostart(event.currentTarget.checked)}
+            type="checkbox"
+          />
+          <span />
+        </label>
+      </div>
+      <div className="setting-row">
+        <div>
+          <strong>Iniciar minimizado</strong>
+          <p>Sobe direto para o tray, sem abrir a janela. Só vale quando o item acima está ligado.</p>
+        </div>
+        <label className="switch">
+          <input
+            aria-label="Iniciar minimizado"
+            checked={minimized}
+            disabled={!enabled}
+            onChange={(event) => void toggleMinimized(event.currentTarget.checked)}
+            type="checkbox"
+          />
+          <span />
+        </label>
+      </div>
+      {message ? <StateMessage state={messageState} label={message} /> : null}
+    </Panel>
+  );
+}
+
 function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrashed, projects, tasks, workspaces, apps, resources, trashedResources, refresh, intent }: { theme: Theme; setTheme: (theme: Theme) => void; status: AppStatus | null; capturesArchived: Capture[]; capturesTrashed: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; trashedResources: Resource[]; refresh: () => Promise<void>; intent?: FunctionIntent }) {
   const [shortcut, setShortcut] = useState("Ctrl+Shift+Space");
   const [message, setMessage] = useState("");
@@ -2328,7 +2532,7 @@ function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrash
   const archivedResources = resources.filter((resource) => resource.lifecycleState === "archived");
   const archivedWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "archived");
   const functionsByCategory = functionCategories.map((category) => ({ category, items: functions.filter((item) => item.category === category) })).filter((group) => group.items.length);
-  return <div className="page settings-page"><PaneHeader segments={["M", "SETTINGS"]} meta="SISTEMA" /><section className="settings-section" aria-labelledby="settings-connection"><h2 id="settings-connection" className="settings-section-title">Conexão e aparência</h2><HermesSettings /><FinanceActionSettings /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" aria-label="Tema claro" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel></section><section className="settings-section" aria-labelledby="settings-updates"><h2 id="settings-updates" className="settings-section-title">Atualizações e entrada</h2><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateStatusLine() ? <StateMessage state={updateState === "error" ? "error" : updateState === "checking" || updateState === "installing" ? "loading" : "saved"} label={updateStatusLine() ?? ""} /> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="ATALHOS"><p className="support-copy">O M/OS é operável quase inteiro pelo teclado. Nada aqui precisa ser decorado — esta lista existe para quando você quiser.</p><dl className="shortcut-list">{SHORTCUTS.map((entry) => <div key={entry.keys}><dt>{entry.keys}</dt><dd>{entry.does}</dd></div>)}</dl></Panel></section><section className="settings-section" aria-labelledby="settings-data"><h2 id="settings-data" className="settings-section-title">Dados e ciclo de vida</h2><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Project", project.name, () => api.deleteProject(project.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Workspace", workspace.name, () => api.deleteWorkspace(workspace.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("App", app.name, () => api.deleteRegisteredApp(app.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Task", task.title, () => api.deleteTask(task.id))}>Excluir</Button></div>)}</details></Panel><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel>{message ? <StateMessage state={messageState} label={message} /> : null}<dialog ref={deleteDialog} className="restore-dialog" onCancel={() => { deleteDialog.current?.close(); setPendingDelete(null); }}><span className="micro-label">EXCLUSÃO DEFINITIVA</span><h2>Excluir {pendingDelete?.noun.toLowerCase()} “{pendingDelete?.label}”?</h2><p>Isto apaga o registro do banco. Não há Desfazer: o único caminho de volta é restaurar um backup anterior a esta ação.</p><div className="form-actions"><Button variant="ghost" onClick={() => { deleteDialog.current?.close(); setPendingDelete(null); }}>Cancelar</Button><Button variant="danger" onClick={() => void confirmDelete()}>Excluir</Button></div></dialog><dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></section><section className="settings-section" aria-labelledby="settings-advanced"><h2 id="settings-advanced" className="settings-section-title">Avançado</h2><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="CRONOCAD"><div className="setting-row"><div><strong>Importar horas do CronoCAD</strong><p>Traz projetos, sessões e pendências para o M/OS. As horas passam a pertencer aos Projects daqui, e o valor/hora de cada sessão é preservado como estava na época.</p><p className="support-copy">Vem tudo: sessões, pendências, programas monitorados, o histórico observado pelo sistema e a sua configuração de arredondamento — sem ela o valor cobrável aqui daria diferente do que o CronoCAD mostra. Roda uma vez, e o banco de origem é aberto somente para leitura. Compare o total com a tela dele antes de desinstalar.</p>{importReport ? <p className="support-copy" aria-live="polite">{importReport.projects} {importReport.projects === 1 ? "project" : "projects"} · {importReport.entries} {importReport.entries === 1 ? "sessão" : "sessões"} · {importReport.tasks} {importReport.tasks === 1 ? "task" : "tasks"} · <strong>{(importReport.trackedSeconds / 3600).toFixed(1)} h</strong>{importReport.activityEvents ? ` · ${importReport.activityEvents} eventos observados` : ""}{importReport.monitoredApps ? ` · ${importReport.monitoredApps} programas` : ""}{importReport.clients ? ` · ${importReport.clients} clientes` : ""}</p> : null}{importNote ? <p className="support-copy" aria-live="polite">{importNote}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void importCronocad()} disabled={importing || Boolean(importedAt)}>{importing ? "Importando" : importedAt ? "Importado" : "Importar"}</Button></div></div></Panel></section></div>;
+  return <div className="page settings-page"><PaneHeader segments={["M", "SETTINGS"]} meta="SISTEMA" /><section className="settings-section" aria-labelledby="settings-connection"><h2 id="settings-connection" className="settings-section-title">Conexão e aparência</h2><HermesSettings /><FinanceActionSettings /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" aria-label="Tema claro" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel></section><section className="settings-section" aria-labelledby="settings-updates"><h2 id="settings-updates" className="settings-section-title">Atualizações e entrada</h2><StartupSettings /><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateStatusLine() ? <StateMessage state={updateState === "error" ? "error" : updateState === "checking" || updateState === "installing" ? "loading" : "saved"} label={updateStatusLine() ?? ""} /> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="ATALHOS"><p className="support-copy">O M/OS é operável quase inteiro pelo teclado. Nada aqui precisa ser decorado — esta lista existe para quando você quiser.</p><dl className="shortcut-list">{SHORTCUTS.map((entry) => <div key={entry.keys}><dt>{entry.keys}</dt><dd>{entry.does}</dd></div>)}</dl></Panel></section><section className="settings-section" aria-labelledby="settings-data"><h2 id="settings-data" className="settings-section-title">Dados e ciclo de vida</h2><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Project", project.name, () => api.deleteProject(project.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Workspace", workspace.name, () => api.deleteWorkspace(workspace.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("App", app.name, () => api.deleteRegisteredApp(app.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Task", task.title, () => api.deleteTask(task.id))}>Excluir</Button></div>)}</details></Panel><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel>{message ? <StateMessage state={messageState} label={message} /> : null}<dialog ref={deleteDialog} className="restore-dialog" onCancel={() => { deleteDialog.current?.close(); setPendingDelete(null); }}><span className="micro-label">EXCLUSÃO DEFINITIVA</span><h2>Excluir {pendingDelete?.noun.toLowerCase()} “{pendingDelete?.label}”?</h2><p>Isto apaga o registro do banco. Não há Desfazer: o único caminho de volta é restaurar um backup anterior a esta ação.</p><div className="form-actions"><Button variant="ghost" onClick={() => { deleteDialog.current?.close(); setPendingDelete(null); }}>Cancelar</Button><Button variant="danger" onClick={() => void confirmDelete()}>Excluir</Button></div></dialog><dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></section><section className="settings-section" aria-labelledby="settings-advanced"><h2 id="settings-advanced" className="settings-section-title">Avançado</h2><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="CRONOCAD"><div className="setting-row"><div><strong>Importar horas do CronoCAD</strong><p>Traz projetos, sessões e pendências para o M/OS. As horas passam a pertencer aos Projects daqui, e o valor/hora de cada sessão é preservado como estava na época.</p><p className="support-copy">Vem tudo: sessões, pendências, programas monitorados, o histórico observado pelo sistema e a sua configuração de arredondamento — sem ela o valor cobrável aqui daria diferente do que o CronoCAD mostra. Roda uma vez, e o banco de origem é aberto somente para leitura. Compare o total com a tela dele antes de desinstalar.</p>{importReport ? <p className="support-copy" aria-live="polite">{importReport.projects} {importReport.projects === 1 ? "project" : "projects"} · {importReport.entries} {importReport.entries === 1 ? "sessão" : "sessões"} · {importReport.tasks} {importReport.tasks === 1 ? "task" : "tasks"} · <strong>{(importReport.trackedSeconds / 3600).toFixed(1)} h</strong>{importReport.activityEvents ? ` · ${importReport.activityEvents} eventos observados` : ""}{importReport.monitoredApps ? ` · ${importReport.monitoredApps} programas` : ""}{importReport.clients ? ` · ${importReport.clients} clientes` : ""}</p> : null}{importNote ? <p className="support-copy" aria-live="polite">{importNote}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void importCronocad()} disabled={importing || Boolean(importedAt)}>{importing ? "Importando" : importedAt ? "Importado" : "Importar"}</Button></div></div></Panel></section></div>;
 }
 
 function QuickCapture() {
@@ -2366,11 +2570,36 @@ function DesktopApp() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [hiddenWidgets, setHiddenWidgets] = useState<HiddenWidget[]>([]);
+  const [widgetPositions, setWidgetPositions] = useState<WidgetPosition[]>([]);
   const [resourceWorkspaces, setResourceWorkspaces] = useState<ResourceWorkspace[]>([]);
   // O contexto ativo deixou de ser assunto da Home: a Library filtra por ele.
   // Continua em localStorage porque e preferencia de leitura, nao dado do core.
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState(() => localStorage.getItem("m-os-current-workspace") ?? "");
   const [commandOpen, setCommandOpen] = useState(false);
+  const [attentionOpen, setAttentionOpen] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
+  // O badge conta itens que ESPERAM ACAO, e nao notificacoes nao lidas.
+  // Um numero que sobe com coisa que nao pede acao e um numero que se
+  // aprende a ignorar. Quem decide o que conta e o backend (§21.1).
+  const [attentionCount, setAttentionCount] = useState(0);
+  const [delivered, setDelivered] = useState<DeliveryEvent | null>(null);
+
+  // O agendador vive no backend e avisa quando algo vence. A tela nunca
+  // agenda nada: um `setTimeout` morreria no primeiro reload, e o lembrete
+  // se perderia justamente quando ninguem estivesse olhando.
+  useEffect(() => {
+    const delivery = listen<DeliveryEvent>("attention-delivered", (event) => {
+      setDelivered(event.payload);
+    });
+    const counter = listen<number>("attention-count", (event) => {
+      setAttentionCount(event.payload);
+    });
+    void api.attentionCount().then(setAttentionCount).catch(() => undefined);
+    return () => {
+      void delivery.then((stop) => stop());
+      void counter.then((stop) => stop());
+    };
+  }, []);
   // O overlay continua montado durante os 90ms de saida. Desmontar na hora
   // cortaria a animacao pela metade, que e pior que nao ter animacao.
   const [commandClosing, setCommandClosing] = useState(false);
@@ -2399,8 +2628,9 @@ function DesktopApp() {
   const refresh = useCallback(async () => {
     setBusy(true);
     try {
-      const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus, nextHiddenWidgets, nextResourceWorkspaces] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status(), api.hiddenWidgets(), api.resourceWorkspaces()]);
-      setRecent(nextRecent); setInbox(nextInbox); setArchived(nextArchived); setTrashed(nextTrashed); setProjects(nextProjects); setWorkspaces(nextWorkspaces); setApps(nextApps); setResources(nextResources); setTrashedResources(nextTrashedResources); setTasks(nextTasks); setStatus(nextStatus); setHiddenWidgets(nextHiddenWidgets); setResourceWorkspaces(nextResourceWorkspaces);
+      const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus, nextHiddenWidgets, nextResourceWorkspaces, nextWidgetPositions] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status(), api.hiddenWidgets(), api.resourceWorkspaces(), api.widgetPositions()]);
+      setRecent(nextRecent); setInbox(nextInbox); setArchived(nextArchived); setTrashed(nextTrashed); setProjects(nextProjects); setWorkspaces(nextWorkspaces); setApps(nextApps); setResources(nextResources); setTrashedResources(nextTrashedResources); setTasks(nextTasks); setStatus(nextStatus); setHiddenWidgets(nextHiddenWidgets);
+      setWidgetPositions(nextWidgetPositions); setResourceWorkspaces(nextResourceWorkspaces);
       setDrawerTask((current) => current ? nextTasks.find((task) => task.id === current.id) ?? null : null);
     } finally {
       setBusy(false);
@@ -2579,6 +2809,13 @@ function DesktopApp() {
       void api.showQuickCapture();
       return;
     }
+    // O compositor e sobreposicao e nao pagina: criar lembrete nao tira a
+    // pessoa de onde ela estava. Sair da tela para agendar algo e exatamente
+    // a interrupcao que o §85 do UX-PRINCIPLES manda medir e reduzir.
+    if (target === "attention_create") {
+      setComposerOpen(true);
+      return;
+    }
     functionIntentKey.current += 1;
     setFunctionIntent({ target, key: functionIntentKey.current });
     if (target === "home_capture") setPage("home");
@@ -2639,7 +2876,7 @@ function DesktopApp() {
   }, [page]);
   const pageContent = useMemo(() => {
     if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} />;
-    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} />;
+    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} widgetPositions={widgetPositions} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} />;
     if (page === "tempo") return <TempoPage projects={projects} openProject={openProject} receipt={showReceipt} />;
     if (page === "finance") return <FinancePage />;
     if (page === "calendario") return <CalendarPage />;
@@ -2670,9 +2907,9 @@ function DesktopApp() {
 
   return <div className="app-shell" data-rail-expanded={railExpanded || undefined}><aside className="nav-rail" data-expanded={railExpanded || undefined} aria-label="Navegação do M/OS"><button className="rail-toggle" type="button" aria-label={railExpanded ? "Recolher navegação" : "Expandir navegação"} aria-expanded={railExpanded} onClick={toggleRail}><span className="rail-symbol" aria-hidden="true"><MosSymbol size={16} /></span><span className="rail-brand" aria-hidden="true">M/OS</span></button><nav className="rail-navigation" aria-label="Navegação principal">{navGroups.map((group) => <div className="rail-group" role="group" aria-label={group.label} key={group.label}><span className="rail-group-label" aria-hidden="true">{group.label}</span>{group.items.map((item) => <button className="rail-destination" key={item.page} aria-current={page === item.page ? "page" : undefined} aria-label={item.label} onClick={() => navigate(item.page)}><Icon name={item.icon} filled={page === item.page} /><span className="rail-label" aria-hidden="true">{item.label}</span><span className="rail-tooltip" aria-hidden="true">{item.label}</span>{/* Sem badge de contagem: o desenho nao tem, e um numero permanente no rail
     vira ansiedade de fundo. A contagem da Inbox aparece na Home e na propria
-    tela, onde ela leva a uma acao. */}</button>)}</div>)}</nav><div className="rail-footer"><button className="rail-utility" type="button" aria-label="Quick Capture" onClick={() => void api.showQuickCapture()}><Icon name="capture" /><span className="rail-label" aria-hidden="true">Quick Capture</span><span className="rail-tooltip" aria-hidden="true">Quick Capture</span></button><button className="rail-utility" type="button" aria-current={page === "settings" ? "page" : undefined} aria-label="Settings" onClick={() => navigate("settings")}><Icon name="settings" filled={page === "settings"} /><span className="rail-label" aria-hidden="true">Settings</span><span className="rail-tooltip" aria-hidden="true">Settings</span></button></div></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button>{/* O estado de sistema nao substitui o meta da pagina: os dois convivem, e o
+    tela, onde ela leva a uma acao. */}</button>)}</div>)}</nav><div className="rail-footer"><button className="rail-utility" type="button" aria-label={attentionCount > 0 ? `Atencao, ${attentionCount} itens` : "Atencao"} onClick={() => setAttentionOpen(true)}><span className="rail-icon-slot"><Icon name="attention" filled={attentionCount > 0} />{attentionCount > 0 ? <span className="rail-badge">{attentionCount > 9 ? "9+" : attentionCount}</span> : null}</span><span className="rail-label" aria-hidden="true">Atencao</span><span className="rail-tooltip" aria-hidden="true">Atencao</span></button><button className="rail-utility" type="button" aria-label="Quick Capture" onClick={() => void api.showQuickCapture()}><Icon name="capture" /><span className="rail-label" aria-hidden="true">Quick Capture</span><span className="rail-tooltip" aria-hidden="true">Quick Capture</span></button><button className="rail-utility" type="button" aria-current={page === "settings" ? "page" : undefined} aria-label="Settings" onClick={() => navigate("settings")}><Icon name="settings" filled={page === "settings"} /><span className="rail-label" aria-hidden="true">Settings</span><span className="rail-tooltip" aria-hidden="true">Settings</span></button></div></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button>{/* O estado de sistema nao substitui o meta da pagina: os dois convivem, e o
     indicador de ocupado entra antes sem apagar onde voce esta. */}
-<div className="system-state" aria-live="polite" data-busy={busy || undefined}>{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span><Argos pose={argosPose} /></div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main></div>{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
+<div className="system-state" aria-live="polite" data-busy={busy || undefined}>{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span><Argos pose={argosPose} /></div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main></div>{composerOpen ? <ReminderComposer close={() => setComposerOpen(false)} created={() => { void api.attentionCount().then(setAttentionCount).catch(() => undefined); setAttentionOpen(true); }} /> : null}{attentionOpen ? <AttentionCenter compose={() => { setAttentionOpen(false); setComposerOpen(true); }} close={() => { setAttentionOpen(false); void api.attentionCount().then(setAttentionCount).catch(() => undefined); }} /> : null}{delivered ? <AttentionToast event={delivered} close={() => setDelivered(null)} open={() => { setDelivered(null); setAttentionOpen(true); }} /> : null}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
 }
 
 /**
@@ -2682,6 +2919,43 @@ function DesktopApp() {
  * é a janelinha que aparece sobre o CAD quando o sistema percebe que o trabalho
  * começou sem cronômetro.
  */
+/**
+ * O aviso in-app de que algo venceu.
+ *
+ * Nao e o toast do Windows — esse chega no P1. Este aparece dentro da janela,
+ * e some sozinho depois de um tempo SEM resolver nada: o Reminder continua no
+ * Attention Center. Descartar uma entrega nunca descarta a intencao, que e a
+ * separacao inteira entre Reminder e Notification.
+ */
+function AttentionToast({ event, close, open }: { event: DeliveryEvent; close: () => void; open: () => void }) {
+  useEffect(() => {
+    // Perdido nao some sozinho: quem nao estava olhando quando venceu tambem
+    // pode nao estar olhando agora.
+    if (event.missed) return;
+    const timer = window.setTimeout(close, 12000);
+    return () => window.clearTimeout(timer);
+  }, [event, close]);
+
+  const late = event.overdueSeconds > 60
+    ? `atrasado ${Math.round(event.overdueSeconds / 60)} min`
+    : "agora";
+
+  return (
+    <div className="attention-toast" role="status">
+      <div>
+        <span className="micro-label">{event.missed ? "PERDIDO" : "LEMBRETE"}</span>
+        <strong>{event.title}</strong>
+        {event.body ? <p>{event.body}</p> : null}
+        <span className="attention-when">{late}</span>
+      </div>
+      <div className="button-line">
+        <Button onClick={open} variant="secondary">Ver</Button>
+        <Button onClick={close} variant="ghost">Dispensar</Button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   switch (getCurrentWindow().label) {
     case "quick-capture":

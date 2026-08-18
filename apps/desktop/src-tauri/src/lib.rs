@@ -5,6 +5,7 @@ use std::{
 };
 
 use mos_core::{
+    AttentionService,
     AppCatalogEntry, AppLaunchKind, AppService, BackupInspection, BackupReceipt, Capture,
     CaptureService, ConversationService, CoreError, CreateAppInput, CreateCaptureInput,
     CreateProjectInput, CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService,
@@ -23,6 +24,7 @@ use tauri::{
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod calendar;
+mod attention;
 mod finance;
 mod hermes;
 mod jarvis;
@@ -41,6 +43,8 @@ struct AppState {
     tracking: TrackingService,
     monitoring: MonitoringService,
     data: DataService,
+    attention: AttentionService,
+    clock: Arc<dyn mos_core::Clock>,
     storage: Arc<SqliteStorage>,
     shortcut_status: Mutex<String>,
     active_shortcut: Mutex<Option<String>>,
@@ -48,10 +52,18 @@ struct AppState {
     settings_path: PathBuf,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UserSettings {
     capture_shortcut: String,
+    /// Preferencia NOSSA, e nao do sistema.
+    ///
+    /// Diferente de "iniciar com o Windows", que vive no registro e e lido
+    /// de la (ADR-043), esta o Windows nao conhece: ele so sabe iniciar o
+    /// programa, nao com que cara. Por isso ela pode morar aqui sem criar a
+    /// segunda fonte de verdade que aquela ADR existe para evitar.
+    #[serde(default)]
+    start_minimized: bool,
 }
 
 #[derive(Serialize)]
@@ -1014,20 +1026,108 @@ fn lock_error(message: String) -> CoreError {
     )
 }
 
-fn load_shortcut(path: &std::path::Path) -> String {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|json| serde_json::from_str::<UserSettings>(&json).ok())
-        .map(|settings| settings.capture_shortcut)
-        .filter(|shortcut| !shortcut.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_CAPTURE_SHORTCUT.into())
+/// Marca que quem abriu o M/OS foi o Windows, no logon.
+const AUTOSTART_FLAG: &str = "--autostarted";
+
+/// Se o M/OS deve nascer escondido nesta abertura.
+///
+/// Exige as DUAS coisas: ter sido aberto pelo sistema E a preferencia estar
+/// ligada. Abrir a mao sempre mostra a janela — quem clicou no icone quer ver
+/// o programa, e esconde-lo seria o app decidindo contra o gesto.
+fn should_start_hidden(settings: &UserSettings) -> bool {
+    settings.start_minimized && std::env::args().any(|arg| arg == AUTOSTART_FLAG)
 }
 
-fn persist_shortcut(path: &std::path::Path, shortcut: &str) -> Result<(), CoreError> {
-    let json = serde_json::to_vec_pretty(&UserSettings {
-        capture_shortcut: shortcut.into(),
+/// Se o M/OS inicia com o Windows.
+///
+/// Pergunta ao SISTEMA a cada chamada, e nao a uma configuracao nossa. O
+/// `auto-launch` tambem escreve na chave que o Gerenciador de Tarefas usa, e
+/// o usuario pode desligar por la sem nos avisar; espelhar isso num booleano
+/// nosso faria a tela afirmar "ligado" sobre algo desligado (ADR-043).
+#[tauri::command]
+fn autostart_enabled<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<bool, CoreError> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().map_err(|error| {
+        CoreError::new(
+            mos_core::ErrorCode::Io,
+            format!("Nao consegui ler a inicializacao do Windows: {error}"),
+            false,
+        )
     })
-    .map_err(|error| {
+}
+
+#[tauri::command]
+fn autostart_set<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    enabled: bool,
+) -> Result<bool, CoreError> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    let outcome = if enabled { manager.enable() } else { manager.disable() };
+    outcome.map_err(|error| {
+        CoreError::new(
+            mos_core::ErrorCode::Io,
+            format!("Nao consegui mudar a inicializacao do Windows: {error}"),
+            false,
+        )
+    })?;
+    // Devolve o que o SISTEMA passou a dizer, e nao o que foi pedido: se a
+    // gravacao no registro nao pegou, a tela precisa mostrar a verdade.
+    autostart_enabled(app)
+}
+
+#[tauri::command]
+fn start_minimized(state: tauri::State<'_, AppState>) -> bool {
+    load_settings(&state.settings_path).start_minimized
+}
+
+#[tauri::command]
+fn set_start_minimized(
+    state: tauri::State<'_, AppState>,
+    value: bool,
+) -> Result<bool, CoreError> {
+    let mut settings = load_settings(&state.settings_path);
+    settings.start_minimized = value;
+    save_settings(&state.settings_path, &settings)?;
+    Ok(value)
+}
+#[tauri::command]
+fn widget_positions(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<mos_core::WidgetPosition>, CoreError> {
+    state.work.widget_positions()
+}
+
+#[tauri::command]
+fn set_widget_order(
+    state: tauri::State<'_, AppState>,
+    workspace_id: String,
+    ordered: Vec<String>,
+) -> Result<Vec<mos_core::WidgetPosition>, CoreError> {
+    state.work.set_widget_order(&workspace_id, &ordered)
+}
+fn load_settings(path: &std::path::Path) -> UserSettings {
+    let mut settings = fs::read_to_string(path)
+        .ok()
+        .and_then(|json| serde_json::from_str::<UserSettings>(&json).ok())
+        .unwrap_or_default();
+    if settings.capture_shortcut.trim().is_empty() {
+        settings.capture_shortcut = DEFAULT_CAPTURE_SHORTCUT.into();
+    }
+    settings
+}
+
+fn load_shortcut(path: &std::path::Path) -> String {
+    load_settings(path).capture_shortcut
+}
+
+/// Grava o arquivo inteiro a partir do que ja estava la.
+///
+/// Ler-modificar-gravar e nao reconstruir do zero: uma versao anterior desta
+/// funcao montava `UserSettings` so com o atalho, e qualquer campo novo seria
+/// apagado no proximo clique em Aplicar — sem erro nenhum.
+fn save_settings(path: &std::path::Path, settings: &UserSettings) -> Result<(), CoreError> {
+    let json = serde_json::to_vec_pretty(settings).map_err(|error| {
         CoreError::new(
             mos_core::ErrorCode::Io,
             format!("Nao foi possivel salvar a configuracao: {error}"),
@@ -1041,6 +1141,12 @@ fn persist_shortcut(path: &std::path::Path, shortcut: &str) -> Result<(), CoreEr
             false,
         )
     })
+}
+
+fn persist_shortcut(path: &std::path::Path, shortcut: &str) -> Result<(), CoreError> {
+    let mut settings = load_settings(path);
+    settings.capture_shortcut = shortcut.into();
+    save_settings(path, &settings)
 }
 
 fn open_external_target(kind: AppLaunchKind, target: &str) -> Result<(), CoreError> {
@@ -1113,6 +1219,15 @@ fn open_target_with_os(_target: &str) -> Result<(), CoreError> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_process::init())
+        // O argumento nao liga nada: ele so registra o FATO de que quem
+        // abriu foi o sistema, no logon. O que fazer com esse fato —
+        // aparecer ou ficar no tray — e preferencia nossa, guardada em
+        // settings.json. Sem ele, um M/OS aberto a mao no logon seria
+        // indistinguivel de um aberto pelo Windows.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![AUTOSTART_FLAG]),
+        ))
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             reveal_window(app, "main");
         }))
@@ -1136,6 +1251,11 @@ pub fn run() {
             fs::create_dir_all(&data_directory)?;
             let settings_path = data_directory.join("settings.json");
             let configured_shortcut = load_shortcut(&settings_path);
+            if should_start_hidden(&load_settings(&settings_path)) {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
             let storage = Arc::new(
                 SqliteStorage::open(
                     data_directory.join("m-os.db"),
@@ -1144,6 +1264,11 @@ pub fn run() {
                 .map_err(|error| std::io::Error::other(error.to_string()))?,
             );
             app.manage(hermes::HermesState::default());
+            // Um relogio so para o processo inteiro. O agendador e o
+            // servico precisam do MESMO: dois relogios discordariam sobre o
+            // que "agora" significa, e o sono deixaria de ser detectavel.
+            let clock: Arc<dyn mos_core::Clock> = Arc::new(mos_core::SystemClock);
+
             app.manage(AppState {
                 captures: CaptureService::new(storage.clone()),
                 work: WorkService::new(storage.clone()),
@@ -1153,6 +1278,8 @@ pub fn run() {
                 tracking: TrackingService::new(storage.clone()),
                 monitoring: MonitoringService::new(storage.clone()),
                 data: DataService::new(storage.clone()),
+                attention: AttentionService::new(storage.clone(), clock.clone()),
+                clock,
                 storage,
                 shortcut_status: Mutex::new("Registrando...".into()),
                 active_shortcut: Mutex::new(None),
@@ -1190,6 +1317,7 @@ pub fn run() {
             app.manage(monitor::Monitor::default());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(monitor::run(handle));
+            tauri::async_runtime::spawn(attention::run(app.handle().clone()));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1242,6 +1370,20 @@ pub fn run() {
             tracking::tracking_clients,
             tracking::tracking_save_client,
             tracking::tracking_set_client_archived,
+            widget_positions,
+            set_widget_order,
+            autostart_enabled,
+            autostart_set,
+            start_minimized,
+            set_start_minimized,
+            attention::attention_create,
+            attention::attention_list,
+            attention::attention_count,
+            attention::attention_snooze,
+            attention::attention_complete,
+            attention::attention_acknowledge,
+            attention::attention_cancel,
+            attention::attention_archive,
             monitor::reminder_pending,
             monitor::reminder_dismiss,
             monitor::reminder_suppress,

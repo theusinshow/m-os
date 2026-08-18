@@ -627,14 +627,31 @@ kbd {
 
 /* M-Finance continua sendo outro app (ADR-032); isto so o exibe dentro do
    shell do M/OS. Sem padding: o iframe deve ocupar a area de conteudo
-   inteira, e o M-Finance ja tem sua propria navegacao interna. */
+   inteira, e o M-Finance ja tem sua propria navegacao interna.
+
+   A altura precisa ser DEFINIDA em toda a cadeia, e nao `min-height`: uma
+   porcentagem so resolve contra um pai de altura definida, e sem isso o
+   iframe cai nos 150px que o HTML manda usar quando nao ha altura — o que
+   aparecia como a pagina do M-Finance espremida numa faixa com scrollbar
+   propria. O `:has()` mantem a correcao presa a esta pagina: as demais
+   continuam crescendo com o conteudo, que e o que elas precisam. */
+.content:has(.finance-page),
+.page-surface:has(> .finance-page) {
+  height: 100%;
+  min-height: 0;
+}
+
 .finance-page {
+  display: flex;
+  height: 100%;
+  min-height: 0;
   padding: 0;
 }
 
 .finance-frame {
+  flex: 1;
+  min-height: 0;
   width: 100%;
-  height: 100%;
   border: 0;
 }
 
@@ -862,13 +879,13 @@ textarea::placeholder {
   min-width: 0;
 }
 
-.widget[data-span="3"] { grid-column: span 3; }
-.widget[data-span="4"] { grid-column: span 4; }
-.widget[data-span="5"] { grid-column: span 5; }
-.widget[data-span="6"] { grid-column: span 6; }
-.widget[data-span="8"] { grid-column: span 8; }
-.widget[data-span="9"] { grid-column: span 9; }
-.widget[data-span="12"] { grid-column: span 12; }
+:is(.widget, .arrangeable)[data-span="3"] { grid-column: span 3; }
+:is(.widget, .arrangeable)[data-span="4"] { grid-column: span 4; }
+:is(.widget, .arrangeable)[data-span="5"] { grid-column: span 5; }
+:is(.widget, .arrangeable)[data-span="6"] { grid-column: span 6; }
+:is(.widget, .arrangeable)[data-span="8"] { grid-column: span 8; }
+:is(.widget, .arrangeable)[data-span="9"] { grid-column: span 9; }
+:is(.widget, .arrangeable)[data-span="12"] { grid-column: span 12; }
 
 /* ---------- Moldura de widget (ADR-040) ----------
    Escopada a `.home-grid` de propósito: o `Panel` é o mesmo componente usado em
@@ -6385,4 +6402,289 @@ input[type="checkbox"]:disabled {
 .hermes-action[data-status="failed"] .hermes-action-outcome,
 .hermes-action[data-status="refused"] .hermes-action-outcome {
   color: var(--danger);
+}
+
+/* ---------------------------------------------------------- Attention System
+
+   O painel mora no rodape do rail e nao como destino (ADR-031: o rodape e uma
+   zona propria). Ele e PROJECAO — le Reminders e agrupa, sem dado proprio.
+
+   O sodio aparece so no badge e no que esta atrasado, porque a ADR-034 fixa que
+   ele e reservado para CARGA. "Precisa de atencao" e exatamente carga. Nada de
+   vermelho como decoracao: urgencia tem de ser rara para significar algo. */
+
+/* O contador ancora no ICONE e nao no botao. Preso a borda direita do botao
+   ele flutuaria longe do sino assim que o rail expandisse, porque ali o botao
+   cresce e o icone nao. */
+.rail-icon-slot {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+}
+
+.rail-badge {
+  position: absolute;
+  top: -5px;
+  right: -7px;
+  display: grid;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  place-items: center;
+  color: var(--canvas);
+  font: var(--text-meta);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: var(--signal-ink);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.attention-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-rail) + 1);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: default;
+}
+
+.attention-center {
+  position: fixed;
+  bottom: var(--space-3);
+  left: calc(var(--rail-width) + var(--space-3));
+  z-index: calc(var(--z-rail) + 2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: min(28rem, calc(100vw - var(--rail-width) - var(--space-6)));
+  max-height: min(34rem, calc(100vh - var(--space-6)));
+  padding: var(--space-4);
+  overflow-y: auto;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  outline: none;
+  animation: viewEnter var(--dur-enter) var(--ease-enter);
+}
+
+.attention-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.attention-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.attention-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attention-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.attention-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.attention-body p {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-body);
+}
+
+/* O tempo vem em palavras e nunca so como numero: "1h" sozinho nao diz se
+   falta ou se passou. `DESIGN-FOUNDATIONS.md` §14 pede que nenhum estado
+   dependa apenas de cor, e a mesma logica vale para o tempo. */
+.attention-when {
+  color: var(--text-meta);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.attention-item:has(.attention-when):hover {
+  border-color: var(--border-strong);
+}
+
+.attention-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.attention-fatigue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+  color: var(--text-meta);
+  font: var(--text-meta);
+}
+
+.attention-empty {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-body);
+}
+
+/* O aviso in-app. Nao e o toast do Windows — esse chega no P1. Some sozinho
+   sem resolver nada: o Reminder continua no Attention Center, porque descartar
+   uma entrega nunca descarta a intencao. */
+.attention-toast {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: var(--z-receipt, 60);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(22rem, calc(100vw - var(--space-6)));
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  animation: viewEnter var(--dur-enter) var(--ease-enter);
+}
+
+.attention-toast p {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-body);
+}
+
+/* Movimento que nao carrega dado nao entra (ADR-034), e `reduced-motion` nasce
+   no valor final em vez de degradar. */
+@media (prefers-reduced-motion: reduce) {
+  .attention-center,
+  .attention-toast {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------- Reminder Composer
+
+   Sobreposicao e nao pagina: criar lembrete nao tira a pessoa de onde ela
+   estava. Sair da tela para agendar algo e exatamente a interrupcao que o §85
+   do UX-PRINCIPLES manda medir e reduzir. */
+
+.reminder-composer {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: calc(var(--z-rail) + 3);
+  width: min(26rem, calc(100vw - var(--space-6)));
+  padding: var(--space-5);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  transform: translate(-50%, -50%);
+  animation: viewEnter var(--dur-enter) var(--ease-enter);
+}
+
+.composer-when {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.composer-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* O instante resolvido fica sempre visivel. Um lembrete que dispara em hora
+   diferente da que a pessoa achou que escolheu e pior que um que nao dispara. */
+.composer-resolved {
+  margin: 0;
+  color: var(--text-meta);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reminder-composer {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------- Arrumar a Home
+
+   Os botoes de mover so aparecem no foco e no hover. Eles existem para quem
+   precisa deles — e para quem nao pode arrastar, que e a razao de existirem
+   (DESIGN-FOUNDATIONS §12) — sem cobrar presenca visual de quem so quer ler a
+   Home. O ADR-034 pede que a Home seja lida em meio segundo; controles sempre
+   visiveis competiriam com o dado. */
+
+.arrangeable {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.arrangeable > * {
+  flex: 1;
+}
+
+.arrangeable[data-over] {
+  outline: var(--line) dashed var(--signal-ink);
+  outline-offset: var(--space-1);
+}
+
+.arrangeable-handles {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  z-index: 1;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity var(--dur-state) var(--ease-enter);
+}
+
+.arrangeable:hover .arrangeable-handles,
+.arrangeable:focus-within .arrangeable-handles {
+  opacity: 1;
+}
+
+.arrangeable-handles .icon-button {
+  width: var(--height-control-sm, 24px);
+  height: var(--height-control-sm, 24px);
+  font: var(--text-meta);
+  line-height: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arrangeable-handles {
+    transition: none;
+  }
 }
