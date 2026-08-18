@@ -142,7 +142,12 @@ export function Ring({
 export function RingLabel({ value, unit }: { value: string; unit?: string }) {
   return (
     <>
-      <span className="mos-ring-number">{value}</span>
+      {/* O comprimento vai para o CSS porque e ele que decide o tamanho:
+          "0,0h" e "100%" tem quatro caracteres, e a 28px eles passam da
+          largura interna do anel de 88px. Encolher e melhor que cortar —
+          um valor cortado mente sobre o dado. Teto em 6 para o CSS nao
+          precisar de uma regra por comprimento possivel. */}
+      <span className="mos-ring-number" data-len={Math.min(value.length, 6)}>{value}</span>
       {unit ? <span className="mos-ring-unit">{unit}</span> : null}
     </>
   );

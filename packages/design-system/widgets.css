@@ -103,6 +103,31 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* O numero encolhe conforme cresce, para caber no vao interno do anel.
+   A 28px cabem tres caracteres num anel de 88px; "0,0h" e "100%" tem quatro e
+   vazavam pelos dois lados. Encolher e melhor que cortar: valor cortado mente
+   sobre o dado, e este anel existe para ser lido em meio segundo (ADR-034). */
+.mos-ring-number[data-len="4"] {
+  font-size: 22px;
+}
+
+.mos-ring-number[data-len="5"] {
+  font-size: 19px;
+}
+
+.mos-ring-number[data-len="6"] {
+  font-size: 16px;
+}
+
+/* Rede de seguranca para o caso que ninguem previu: o numero nunca passa do
+   anel, mesmo que um valor mais longo apareca. */
+.mos-ring-center {
+  padding-inline: 8%;
+}
+
+.mos-ring-number {
+  max-width: 100%;
+}
 .mos-ring-figure[data-size="44"] .mos-ring-number {
   font: 500 13px/1 var(--font-product);
 }
