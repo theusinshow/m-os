@@ -1279,3 +1279,86 @@ de um traço, e pode pesar demais.
 Nenhuma regra de negócio, API, banco, schema ou contrato de domínio foi alterado.
 Nenhum widget novo entrou, e os sete que a ADR-034 deixou de fora continuam fora.
 Tempo e Hermes 3B seguem pendentes como estavam.
+
+## 30. Estado de execução — Argos
+
+Implementado em 2026-08-18 a partir da referência `bloub.vercel.app`, trazida pelo
+proprietário. Autorizado pela ADR-041, que é pré-requisito: sem ela o código
+contradiria a leitura literal de `UX-PRINCIPLES.md` §16 e de
+`HERMES-PREMIUM-CHAT.md` §7.6.
+
+Argos é a **face do estado do M/OS**, na topbar, ao lado do indicador que já
+dizia a mesma coisa em palavras. Não é avatar do Hermes, e nunca aparece dentro
+da superfície dele.
+
+### O repertório
+
+Seis poses, todas ligadas a sinal existente, com a precedência "quem precisa mais
+de você ganha":
+
+```
+encarando  >  assustado  >  trabalhando  >  fechado  >  concentrado  >  desperto
+```
+
+Três pesos de cor, e cada um significa uma coisa: `--text-system` em repouso (o
+mesmo peso do texto ao lado), `--text` quando há o que acompanhar, e
+`--signal-ink` nas duas poses em que o sistema não continua sozinho — ou espera
+sua resposta, ou quebrou. `--signal-fill` não entra: a ADR-034 o reservou para
+carga, e Argos não mostra carga.
+
+### O que a referência deu, e o que foi recusado
+
+**Recusado o desenho.** O autor do bloub registra que a licença MIT cobre o
+código, não o desenho, que imita o mascote da x.ai. A silhueta do M/OS é um
+quadrado de cantos macios, herdando a família geométrica do símbolo do rail sem
+herdar a marca.
+
+**Adotado o mecanismo:** uma silhueta preenchida com a expresão inteira nos
+olhos, estados como dado, e um motor puro — `argosPose.ts`, no mesmo padrão de
+`plotGeometry.ts`.
+
+### Argos só escuta
+
+Ele assina `hermes.onEvent()` e nunca responde — em particular, nunca chama
+`hermes.approve`. A verificação é mecânica e ficou no plano: um `grep` por
+métodos de escrita em `Argos.tsx` precisa voltar vazio.
+
+O cronômetro ganhou assinatura própria e leve: `useTrackedTime` carrega todas as
+entradas de tempo, e Argos só precisa saber se ele corre.
+
+### A correção que só a renderização revelou
+
+Na primeira versão, **as seis poses se reduziam a três leituras a 24px**: desperto
+e trabalhando, encarando e assustado, concentrado e fechado eram pares
+indistinguíveis. As diferenças eram sutis — um desvio de 1,4 unidade, uma
+inclinação de 14 graus, meia unidade de altura — e nada disso sobrevive ao
+tamanho real.
+
+As separações passaram a ser categóricas: desvio maior que um raio de olho,
+fresta vertical contra oval redondo, traço largo contra ponto. E cada uma ficou
+travada num teste que verifica a SEPARAÇÃO, não o número — para que o par não
+volte a colar numa calibragem futura.
+
+Um segundo achado foi de bancada, e não de produto: o recorte de CSS terminava
+numa classe que vem antes do bloco do Argos no arquivo, devolvendo string vazia.
+O que aparecia era o preenchimento padrão do SVG.
+
+### Evidência de QA
+
+- `npm run build`, `npm test -- --run` (4 arquivos, 44 testes),
+  `npx impeccable detect src` e `git diff --check`: aprovados;
+- bancada de renderização headless com os tokens e o CSS reais, em Dark e Light,
+  com as seis poses no tamanho real (24px) e ampliadas, mais a topbar simulada;
+- **pendente, e do proprietário:** as seis poses contra sinal real na janela do
+  Tauri — boot, operação em curso, cronômetro correndo, Hermes gerando, proposta
+  aguardando confirmação e falha —, nas quatro larguras e nos dois temas, mais
+  `reduced-motion`, `forced-colors` e a confirmação de que Argos não aparece na
+  árvore de acessibilidade. A bancada desenha as poses; ela não prova que o sinal
+  certo produz a pose certa.
+
+### Limite deste recorte
+
+Nenhuma regra de negócio, API, banco, schema ou contrato de domínio foi alterado.
+Argos não dorme: o sinal de inatividade real mora no Rust, no monitor da ADR-037,
+e fingi-lo com um temporizador de renderer seria inventar o dado. É o que abriria
+um segundo recorte.
