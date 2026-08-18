@@ -1,7 +1,9 @@
 mod action;
+mod attention;
 mod app;
 mod calendar;
 mod capture;
+mod clock;
 mod conversation;
 mod error;
 mod functions;
@@ -16,12 +18,18 @@ pub use action::{
     action_contract, parse_action, preview_of, ActionArgs, ActionEffect, ActionKind, ActionLine,
     ActionPreview, UndoStep,
 };
+pub use attention::{
+    apply, next_wake, reconcile, ContentPrivacy, DeliveryPolicy, NewReminder, NotificationId,
+    Priority, Reconciliation, ReconcileReason, Reminder, ReminderId, ReminderSource,
+    ReminderStatus, ReminderTarget, Transition, Trigger, MISS_GRACE,
+};
 pub use app::{
     app_catalog, app_targeting_host, validate_launch_target, validate_source_url, AppCapabilities,
     AppCatalogEntry,
     AppId, AppLaunchKind, NewRegisteredApp, RegisteredApp,
 };
 pub use calendar::{compose, CalendarItem, CalendarKind, ComposeInput};
+pub use clock::{Clock, FixedClock, SystemClock};
 pub use capture::{Capture, CaptureId, CaptureSource, LifecycleState, NewCapture, ProcessingState};
 pub use conversation::{
     validate_title, ContextEntity, ContextOrigin, Conversation, ConversationId,
