@@ -13,7 +13,7 @@ import { Button } from "./Button";
 import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel, StateMessage } from "./Surface";
 import { CalendarPage } from "./CalendarPage";
 import { Reminder } from "./Reminder";
-import { BudgetRing, TodayHours, useTrackedTime, WeekByProject } from "./TimeWidgets";
+import { BudgetRing, hoursLabel, TodayHours, useTrackedTime, WeekByProject, weekSummary } from "./TimeWidgets";
 import { TempoPage } from "./TempoPage";
 import { FinancePage } from "./FinancePage";
 import { finance } from "./finance";
@@ -371,6 +371,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
   // O tempo carrega por fora do `refresh()`: aquele é o caminho de boot do app
   // inteiro, e um erro no rastreio não pode ser motivo para a Home não abrir.
   const trackedTime = useTrackedTime();
+  const weekTime = useMemo(() => weekSummary(trackedTime, projects), [trackedTime, projects]);
   const hasBudget = trackedTime.tracking.some((entry) => entry.budgetMinutes > 0);
   // resources(true) traz arquivado junto — a Home so mostra o acervo vivo. A ordem
   // ja vem do banco por updated_at DESC (resource_repository.rs:185).
@@ -398,7 +399,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
     <HomeSection id="now" title="Agora" hidden={!(["now", "timer", "today_hours"].some(widgetVisible))}>
       <Widget id="now" role="focus" span={6} hidden={hiddenIds.has("now")}><Panel label="EM ANDAMENTO" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel></Widget>
       <Widget id="timer" role="focus" span={3} hidden={hiddenIds.has("timer")}><Panel label="CRONÔMETRO"><Timer projects={projects} onChanged={() => void refresh()} /></Panel></Widget>
-      <Widget id="today_hours" role="focus" span={3} hidden={hiddenIds.has("today_hours")}><Panel label="HORAS HOJE"><TodayHours time={trackedTime} /></Panel></Widget>
+      <Widget id="today_hours" role="focus" span={3} hidden={hiddenIds.has("today_hours")} footLeft="7 DIAS · CONTRA O PICO" footRight={`PICO ${hoursLabel(weekTime.peakSeconds)}`}><Panel label="HORAS HOJE"><TodayHours time={trackedTime} /></Panel></Widget>
     </HomeSection>
 
     {/* Retomada vem antes de analytics: Inbox pede decisão, Recentes recupera o
@@ -419,11 +420,11 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
     <HomeSection id="overview" title="Visão" hidden={!(["month_density", "week_rings", "week_by_project", "task_progress"].some(widgetVisible) || (hasBudget && widgetVisible("budget_ring")))}>
       <Widget id="month_density" role="overview" span={6} hidden={hiddenIds.has("month_density")}><Panel label="MÊS"><MonthDensity tasks={tasks} captures={recent} /></Panel></Widget>
       <Widget id="week_rings" role="overview" span={6} hidden={hiddenIds.has("week_rings")} footLeft="SEG–DOM · CONTRA O PICO" footRight={`PICO ${taskWeek.peak}`}><Panel label="TASKS NA SEMANA" value={String(taskWeek.done)} unit="concluídas"><WeekRings tasks={tasks} onOpen={openTasksPage} /></Panel></Widget>
-      <Widget id="week_by_project" role="overview" span={6} hidden={hiddenIds.has("week_by_project")}><Panel label="HORAS POR PROJECT"><WeekByProject time={trackedTime} projects={projects} onOpen={openTempoPage} /></Panel></Widget>
+      <Widget id="week_by_project" role="overview" span={6} hidden={hiddenIds.has("week_by_project")} footLeft={`${weekTime.projectCount} PROJECTS · 7 DIAS`} footRight={weekTime.topProject ? `MAIOR: ${weekTime.topProject}` : undefined}><Panel label="HORAS POR PROJECT" value={hoursLabel(weekTime.seconds)} unit="na semana"><WeekByProject time={trackedTime} projects={projects} onOpen={openTempoPage} /></Panel></Widget>
       <Widget id="task_progress" role="overview" span={3} hidden={hiddenIds.has("task_progress")}><Panel label="CONCLUÍDO"><TaskProgressRing tasks={tasks} /></Panel></Widget>
       {/* Escondido quando nenhum Project tem meta: um anel preenchido contra um
           alvo que ninguém definiu ensinaria a confiar numa medida inexistente. */}
-      <Widget id="budget_ring" role="overview" span={3} hidden={hiddenIds.has("budget_ring") || !hasBudget}><Panel label="META"><BudgetRing time={trackedTime} projects={projects} onOpen={openProject} /></Panel></Widget>
+      <Widget id="budget_ring" role="overview" span={3} hidden={hiddenIds.has("budget_ring") || !hasBudget} footLeft="CONTRA A META"><Panel label="META"><BudgetRing time={trackedTime} projects={projects} onOpen={openProject} /></Panel></Widget>
     </HomeSection>
 
     {/* O acervo é navegação, não processamento. O corte em cinco continua

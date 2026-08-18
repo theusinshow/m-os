@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
-import { Ring, RingLabel, stagger } from "./Ring";
+import { Bullet, Spark, Stack } from "./Plot";
+import { Ring, RingLabel } from "./Ring";
 import type { ActiveTimer, Project, ProjectTracking, TimeEntry } from "./types";
 
 /**
@@ -76,6 +77,45 @@ export function useTrackedTime(): TrackedTime {
   return data;
 }
 
+/** `3,2 H` — a unidade do rodapé, a mesma que o resto do Tempo usa. */
+export function hoursLabel(seconds: number) {
+  return `${(seconds / 3600).toFixed(1).replace(".", ",")} H`;
+}
+
+/**
+ * O resumo dos últimos sete dias, para a manchete e o rodapé da Home.
+ *
+ * Repete o corte de um minuto do `WeekByProject` de propósito: sem ele, um
+ * cronômetro parado por engano contaria como um Project na contagem do rodapé,
+ * e os dois números discordariam do que o widget desenha logo acima.
+ */
+export function weekSummary(time: TrackedTime, projects: Project[]) {
+  const since = new Date();
+  since.setDate(since.getDate() - 6);
+  since.setHours(0, 0, 0, 0);
+
+  const perProject = new Map<string, number>();
+  const perDay = new Map<number, number>();
+  for (const entry of time.entries) {
+    const at = new Date(entry.startedAt);
+    if (at < since) continue;
+    const seconds = Math.max(0, entry.durationSeconds);
+    perProject.set(entry.projectId, (perProject.get(entry.projectId) ?? 0) + seconds);
+    const day = dayKey(entry.startedAt);
+    perDay.set(day, (perDay.get(day) ?? 0) + seconds);
+  }
+
+  const counted = [...perProject.entries()].filter(([, seconds]) => seconds >= 60);
+  const top = [...counted].sort((left, right) => right[1] - left[1])[0];
+
+  return {
+    seconds: counted.reduce((sum, [, seconds]) => sum + seconds, 0),
+    peakSeconds: Math.max(0, ...perDay.values()),
+    projectCount: counted.length,
+    topProject: top ? projects.find((project) => project.id === top[0])?.name ?? null : null,
+  };
+}
+
 /** Segundos por dia, dos últimos `days` dias, do mais antigo para o mais novo. */
 function dailySeconds(entries: TimeEntry[], days: number) {
   const today = new Date();
@@ -121,21 +161,29 @@ export function TodayHours({ time }: { time: TrackedTime }) {
   const best = week.slice(0, -1).reduce((top, day) => Math.max(top, day.seconds), 0);
 
   return (
-    <div className="widget-progress">
-      <Ring size={88} arc={270} segments={[{ value: today / peak }]}>
-        <RingLabel value={hoursOf(today)} unit={running ? "CONTANDO" : "HOJE"} />
-      </Ring>
-      <div className="widget-progress-copy">
-        <span className="micro-label">HOJE</span>
-        <p className="hermes-quiet">
-          {today === 0
-            ? "Nenhuma hora registrada hoje."
-            : best === 0
-              ? "Primeiro dia com horas nesta semana."
-              : today >= best
-                ? "Seu melhor dia da semana."
-                : `Melhor dia da semana: ${clockOf(best)}.`}
-        </p>
+    <div className="widget-time-today">
+      <div className="widget-progress">
+        <Ring size={88} arc={270} segments={[{ value: today / peak }]}>
+          <RingLabel value={hoursOf(today)} unit={running ? "CONTANDO" : "HOJE"} />
+        </Ring>
+        <div className="widget-progress-copy">
+          <span className="micro-label">HOJE</span>
+          <p className="hermes-quiet">
+            {today === 0
+              ? "Nenhuma hora registrada hoje."
+              : best === 0
+                ? "Primeiro dia com horas nesta semana."
+                : today >= best
+                  ? "Seu melhor dia da semana."
+                  : `Melhor dia da semana: ${clockOf(best)}.`}
+          </p>
+        </div>
+      </div>
+      {/* A série já era calculada e descartada: `dailySeconds` devolve sete dias
+          e o widget usava só o de hoje e o pico. A linha mostra o que já estava
+          computado — nenhum dado novo entrou. */}
+      <div className="widget-plot">
+        <Spark ratios={week.map((day) => day.seconds / peak)} />
       </div>
     </div>
   );
@@ -182,7 +230,6 @@ export function WeekByProject({ time, projects, onOpen }: {
   }, [time.entries, projects]);
 
   const total = ranked.reduce((sum, row) => sum + row.seconds, 0);
-  const peak = Math.max(1, ...ranked.map((row) => row.seconds));
 
   return (
     <div className="widget-week">
@@ -193,25 +240,14 @@ export function WeekByProject({ time, projects, onOpen }: {
         </button>
       </div>
       {ranked.length ? (
-        // Grade própria e não a da semana: aquela é fixa em SETE colunas, e
-        // quatro Projects ficariam espremidos à esquerda com três vãos mortos.
-        <div className="widget-time-grid">
-          {ranked.map((row, index) => (
-            <div className="widget-week-day" key={row.id}>
-              <Ring
-                size={44}
-                delay={stagger(index)}
-                segments={[{ value: row.seconds / peak, depth: index === 0 ? 1 : 2 }]}
-              >
-                <span className="mos-ring-number">{(row.seconds / 3600).toFixed(0)}</span>
-              </Ring>
-              {/* `title` porque o rótulo trunca: o nome inteiro continua
-                  alcançável sem o widget precisar crescer. */}
-              <span className="micro-label widget-time-name" title={`${row.name} · ${clockOf(row.seconds)}`}>
-                {row.name}
-              </span>
-            </div>
-          ))}
+        // Empilhada e não quatro anéis: a pergunta do widget é "onde foi parar a
+        // semana?", que é composição. Quatro anéis pedem comparação par a par,
+        // que é uma leitura a mais para responder a mesma coisa.
+        <div className="widget-plot">
+          <Stack
+            values={ranked.map((row) => row.seconds)}
+            labels={ranked.map((row) => `${row.name} · ${clockOf(row.seconds)}`)}
+          />
         </div>
       ) : (
         <p className="hermes-quiet">Nenhuma hora nos últimos sete dias.</p>
@@ -272,15 +308,20 @@ export function BudgetRing({ time, projects, onOpen }: {
   const left = target.budgetSeconds - target.seconds;
 
   return (
-    <div className="widget-progress">
-      {/* Passa de 100% e o anel PARA em cheio, em vez de dar a segunda volta:
-          uma volta a mais se lê como "começou de novo". O estouro é dito no
-          texto, que é onde ele cabe sem mentir sobre a forma. */}
-      <Ring size={88} segments={[{ value: Math.min(1, ratio) }]}>
-        <RingLabel value={`${Math.round(ratio * 100)}%`} unit={target.live ? "CONTANDO" : "DA META"} />
-      </Ring>
+    <div className="widget-time-today">
+      {/* A manchete nasce aqui, e não como prop do `Panel`: a razão é calculada
+          dentro deste widget, e a Home não tem acesso ao `target` escolhido. */}
+      <p className="widget-head">
+        <span className="widget-value">{Math.round(ratio * 100)}%</span>
+        <span className="widget-unit">{target.live ? "contando" : "da meta"}</span>
+      </p>
+      {/* O bullet desenha o estouro, que o anel não conseguia: ele parava em
+          cheio porque uma segunda volta se leria como "começou de novo", e o
+          excesso vivia só no texto (ADR-040). */}
+      <div className="widget-plot">
+        <Bullet value={target.seconds} target={target.budgetSeconds} over={over} />
+      </div>
       <div className="widget-progress-copy">
-        <span className="micro-label">META</span>
         <button type="button" className="filter-label" onClick={() => onOpen(target.project)}>
           {target.project.name}
         </button>

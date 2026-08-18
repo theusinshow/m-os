@@ -6124,6 +6124,14 @@ input[type="checkbox"]:disabled {
   min-width: 0;
 }
 
+/* Duas faixas empilhadas: a primeira responde "quanto", a segunda responde
+   "comparado a quando". São perguntas diferentes, e lado a lado a forma larga
+   espremeria o texto. */
+.widget-time-today {
+  display: grid;
+  gap: var(--space-3);
+}
+
 /* ============================================================
    PROPOSTA DE AÇÃO
    O cartão que mostra o que o Hermes entendeu, antes de o M/OS agir.
