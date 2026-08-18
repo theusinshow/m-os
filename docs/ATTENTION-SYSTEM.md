@@ -1,8 +1,8 @@
 # M/OS — Attention System
 
-**Status:** proposta de arquitetura. Não autoriza implementação.
+**Status:** arquitetura decidida. P0 autorizado.
 
-**Data:** 2026-08-18
+**Data:** 2026-08-18 · decisões da §35 fechadas pelo proprietário do produto no mesmo dia
 
 **Subordinado a:** `VISION.md`, `PRODUCT.md`, `CORE.md`, `CORE-FOUNDATION.md`, `UX-PRINCIPLES.md`, `ARCHITECTURE.md`, `DECISIONS.md`
 
@@ -264,9 +264,6 @@ pub enum Trigger {
     /// Instante exato, em UTC.
     At { instant: OffsetDateTime },
 
-    /// Deslocamento em relação a uma âncora que vive em outro domínio.
-    Relative { anchor: Anchor, offset: Duration },
-
     /// Repetição.
     Recurring { rule: RecurrenceRule, from: OffsetDateTime },
 
@@ -280,15 +277,17 @@ pub enum Trigger {
 }
 ```
 
-O enum nasce completo e **só `At` é implementado em P0**. Um enum que cresce depois obriga migration de dados; um enum com braços não implementados custa um `match` exaustivo que o compilador cobra — e é ele que garante que ninguém esqueça um braço ao implementar o próximo.
+**Só `At` é implementado em P0.** Os braços reservados custam um `match` exaustivo que o compilador cobra — e é ele que garante que ninguém esqueça um caso ao implementar o próximo.
 
-### 5.1 `Relative` está bloqueado, e é honesto dizer
+### 5.1 `Relative` não existe no enum, e isso é decisão
 
-`Anchor` só pode apontar para coisa com hora futura. Hoje não existe nenhuma (§0.2). O braço entra no enum, o `match` devolve erro de domínio explícito — *"âncora indisponível"* — e a UI não oferece a opção. Ver §34 para o caminho de desbloqueio.
+A versão anterior deste documento incluía `Relative { anchor, offset }` com o argumento de que um enum completo evita migration futura. **As decisões D-1 e D-4 tornaram esse argumento falso:** sem prazo em Task e sem entidade Event, `Anchor` não tem nenhum valor possível. Um braço que nenhum dado pode referenciar não protege contra migration nenhuma — ele só ocupa espaço e sugere uma capacidade que não existe.
+
+Ele volta ao enum no dia em que existir âncora, e nesse dia não haverá dado para migrar. Ver §34.
 
 ### 5.2 `FollowUp` é o único trigger derivado que P0 pode ter
 
-`FollowUp` não depende de âncora externa: ele mede a partir da própria entrega. *"Se eu não marcar como concluído, me lembra amanhã"* precisa só do `delivered_at` e do status — dados que este domínio é dono. Por isso ele pode chegar antes de `Relative`, invertendo a ordem sugerida no pedido original.
+`FollowUp` não depende de âncora externa: ele mede a partir da própria entrega. *"Se eu não marcar como concluído, me lembra amanhã"* precisa só do `delivered_at` e do status — dados que este domínio é dono. Com `Relative` fora (§5.1), ele passa de "antecipado" a **único** trigger derivado do sistema.
 
 ### 5.3 Target polimórfico sem violar a ADR-012
 
@@ -938,12 +937,14 @@ Em repouso: uma tarefa dormindo e um `SELECT MIN(next_due_at)` indexado ao acord
 
 Reordenado em relação ao pedido, por causa da §0.2. Duas capacidades saem de dentro das fases e viram **pré-requisitos com decisão própria**, porque sem elas metade de P2 é indesenhável.
 
-### Pré-requisitos (decisão antes de fase)
+### Fora de escopo por decisão
 
-| Item | Por quê | Decisão |
+| Item | O que fica de fora com ele | Decisão |
 |---|---|---|
-| `Task.due_at` | destrava reminder relativo a prazo, escalonamento, digest de prazos | **D-1** |
-| Entidade `Event` | destrava relativo a evento, Smart Snooze, cascata de reagendamento | **D-4** |
+| `Task.due_at` | reminder relativo a prazo, escalonamento por prazo, digest de prazos | **D-1: não por agora** |
+| Entidade `Event` | reminder relativo a evento, Smart Snooze por agenda, cascata de reagendamento | **D-4: decidir separadamente** |
+
+Nenhum dos dois bloqueia P0–P3. O que eles bloqueiam está listado acima, e a superfície não deve oferecer a opção nem sugerir que ela existe.
 
 ### P0 — Fundação de confiabilidade
 
@@ -955,7 +956,9 @@ Canal Windows por `notify-rust` (§11.2), botões e ativação, deep links, tray
 
 ### P2 — Reminders inteligentes
 
-Snooze completo, `FollowUp` (§5.2 — antecipado, pois não depende de âncora), recorrência, dedupe, bundling, Quiet Hours. `Relative` **somente se** D-1/D-4 tiverem sido decididos.
+Snooze completo, `FollowUp` (§5.2), recorrência, dedupe, bundling, Quiet Hours.
+
+Fora de P2 por decisão, e não por prazo: reminder relativo a prazo (D-1) e a evento (D-4). Smart Snooze entrega só as sugestões de relógio (§13.1).
 
 ### P3 — Inteligência de atenção
 
@@ -971,30 +974,37 @@ Arquitetura de Condition Watch, connectors, push iOS. Nada antes de P0–P3 esta
 
 ---
 
-## 35. Decisões abertas
+## 35. Decisões tomadas
 
-Sete decisões que precisam de você. Nenhuma é detalhe de implementação; todas mudam o produto ou contradizem documento aceito.
+Fechadas em 2026-08-18 pelo proprietário do produto. Ficam registradas com o que foi decidido e com o que cada decisão custa, porque uma decisão sem custo anotado é uma decisão que ninguém consegue revisar depois.
 
-**D-1 — `Task.due_at` entra?**
-Sem prazo em Task, reminder relativo a prazo, escalonamento por prazo e digest de prazos não existem. É um campo pequeno num domínio existente, mas mexe em Task, Kanban, Search e no contrato com o renderer. *Recomendação: sim, junto de P2, como mudança do domínio de Task e não do Attention System.*
+| | Decisão | Custo aceito |
+|---|---|---|
+| **D-1** | `Task.due_at` **não entra por agora** | reminder relativo a prazo, escalonamento por prazo e digest de prazos ficam fora indefinidamente |
+| **D-2** | Hermes lê por **tipo de contexto `attention`** | leitura só acontece quando o usuário anexa o contexto; o modelo não consulta por iniciativa própria |
+| **D-3** | Canal Windows por **`notify-rust` direto** | dependência direta de um crate hoje transitivo, e um caminho fora do plugin oficial |
+| **D-4** | Entidade `Event` **decidida separadamente** | tudo que precisa de âncora de evento fica fora; a página Calendar segue significando "o que aconteceu" |
+| **D-5** | **Autostart opt-in em P1**, desligado por default | ADR nova promovendo o que a ADR-016 deixou aberto; o usuário precisa ligar para ter a confiabilidade completa |
+| **D-6** | Attention Center no **rodapé do rail** | não é destino de conteúdo; some da contagem de onze e vive na zona de Quick Capture e Settings |
+| **D-7** | Aviso do monitor e Reminder são **coisas declaradamente diferentes** | o monitor mantém falha em silêncio; só o nome muda no código |
 
-**D-2 — O Hermes ganha ferramentas de leitura?**
-Contradiz ADR-027 e ADR-028, que fizeram a leitura começar por injeção explícita com chip visível. *Recomendação: manter as ADRs em P0–P3; se entrar em P4, entrar por ADR nova que preserve a garantia de visibilidade — por exemplo, toda leitura por ferramenta gerando chip a posteriori.*
+### 35.1 O que D-1 e D-4 juntos implicam
 
-**D-3 — Falar direto com `notify-rust` em vez do plugin?**
-É o que permite botões e ativação (§11.2). O crate já está no `Cargo.lock`. Custo: dependência direta de um crate que hoje é transitivo, e um caminho de notificação fora do plugin oficial. *Recomendação: sim. A alternativa é uma notificação de mão única, que não sustenta "acionável".*
+As duas negativas se somam: sem prazo e sem evento, **não existe âncora de tempo futuro em nenhum lugar do M/OS**. Consequências que valem estar escritas, para ninguém as redescobrir:
 
-**D-4 — Existe entidade `Event`?**
-Decisão maior. Hoje o Calendar é retrospectivo (§0.2) e o M/OS não tem compromissos. Criar Event é abrir agenda de verdade — provavelmente com sincronização externa depois. *Recomendação: decidir separadamente deste sistema, com ADR própria. O Attention System não deve puxar uma agenda inteira junto.*
+- `Trigger::Relative` sai do modelo (§5.1);
+- Smart Snooze entrega só sugestões de relógio (§13.1);
+- escalonamento existe, mas só a partir do próprio vencimento do Reminder, nunca de um prazo alheio (§14);
+- os widgets W04 *Next Up* e W06 *Day Arc* (ADR-034) destravam **parcialmente** — passam a ter Reminders para mostrar, mas continuam sem eventos;
+- a UI **não oferece** essas opções nem as mostra desabilitadas. Um campo cinza ensina que a capacidade existe e está quebrada; a ausência é honesta.
 
-**D-5 — Autostart entra, promovendo o que a ADR-016 deixou aberto?**
-Necessário para a promessa da §1 valer depois do login. *Recomendação: sim, opt-in e desligado por default, com ADR que registre a promoção e o motivo.*
+### 35.2 O caminho de D-2, e por que ele não precisou de ADR
 
-**D-6 — Attention Center no rodapé do rail, e não como décimo segundo destino?**
-Evita a disputa da ADR-039 e usa a "zona própria" que a ADR-031 já reconhece. *Recomendação: sim.*
+A pergunta era se o Hermes ganharia ferramentas de leitura chamáveis por iniciativa dele. Ferramentas assim contradizem a ADR-027 (*chip visível*) e a ADR-028 (*leitura começa por injeção de contexto*).
 
-**D-7 — O aviso do monitor e o Reminder passam a ser coisas declaradamente diferentes?**
-Hoje os dois se chamam "lembrete" no código, e um falha em silêncio de propósito enquanto o outro não pode falhar nunca. *Recomendação: sim. O monitor mantém o comportamento; o nome muda, para o código deixar de sugerir que são a mesma coisa.*
+A saída não foi escolher um lado: `jarvis.rs::assemble_context` já aceita tipos de contexto que o **usuário** anexa, com chip na tela. Acrescentar um tipo `attention` entrega o estado de atenção ao modelo pelo mesmo caminho, com a mesma garantia — e sem contradizer nada.
+
+`mos_get_reminders` e companhia ficam reservados para quando aparecer um caso concreto que a injeção não resolva. Nesse dia, a ADR que os autorizar terá de recriar a garantia de visibilidade de outra forma.
 
 ---
 
@@ -1090,8 +1100,9 @@ Seguindo a ADR-037, o texto na tela explica em português o que o sistema faz, o
 
 ## 41. O que este documento não autoriza
 
-- implementação — o gate é a resolução das sete decisões da §35;
-- entidade `Event` ou `Task.due_at` — D-1 e D-4 são decisões próprias;
+- **P1 em diante** — P0 está autorizado; P1 exige a ADR de autostart (D-5);
+- entidade `Event` ou `Task.due_at` — negados por D-4 e D-1; voltam por decisão própria, não por conveniência de uma fase;
+- oferecer na UI qualquer opção que dependa de âncora de tempo futuro (§35.1);
 - connectors externos;
 - qualquer sinal de contexto além dos três da ADR-037;
 - ferramentas de leitura do Hermes antes de D-2;
