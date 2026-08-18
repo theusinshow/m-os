@@ -181,3 +181,158 @@
     animation: none;
   }
 }
+
+/* ---------- Plot (ADR-040) ----------
+   A terceira família, ao lado do anel e da densidade: formas que comparam uma
+   série. Todas são retângulo com `rx`, exceto o `Spark`.
+
+   `rx` arredonda para DENTRO da geometria — a barra mantém a altura exata do
+   valor, e nenhuma delas precisa da compensação que o anel precisa. */
+
+@keyframes mos-bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@keyframes mos-stack-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.mos-bars,
+.mos-stack {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.mos-bars-figure {
+  width: 100%;
+  height: 64px;
+}
+
+.mos-bars-track {
+  fill: var(--surface-hover);
+}
+
+.mos-bars-value {
+  fill: var(--signal-fill);
+  transform-origin: bottom;
+  animation: mos-bar-grow var(--dur-enter) var(--ease-enter) both;
+  animation-delay: var(--ring-delay, 0ms);
+}
+
+/* Hoje é traço branco, nunca sódio mais forte: a escala de sódio já significa
+   carga, e usá-la também para "agora" faria a mesma cor dizer duas coisas. */
+.mos-bars-value[data-now] {
+  fill: var(--text);
+}
+
+.mos-bars-labels {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  text-align: center;
+}
+
+.mos-stack-figure {
+  width: 100%;
+  height: 16px;
+}
+
+.mos-stack-value {
+  fill: var(--signal-fill);
+  transform-origin: left;
+  animation: mos-stack-grow var(--dur-enter) var(--ease-enter) both;
+  animation-delay: var(--ring-delay, 0ms);
+}
+
+.mos-stack-value[data-depth="2"] {
+  fill: color-mix(in srgb, var(--signal-fill) 55%, transparent);
+}
+
+.mos-stack-value[data-depth="3"] {
+  fill: color-mix(in srgb, var(--signal-fill) 30%, transparent);
+}
+
+.mos-stack-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mos-stack-legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.mos-stack-chip {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--signal-fill);
+  flex: none;
+}
+
+.mos-stack-chip[data-depth="2"] {
+  background: color-mix(in srgb, var(--signal-fill) 55%, transparent);
+}
+
+.mos-stack-chip[data-depth="3"] {
+  background: color-mix(in srgb, var(--signal-fill) 30%, transparent);
+}
+
+.mos-bullet {
+  width: 100%;
+  height: 16px;
+}
+
+.mos-bullet-track {
+  fill: var(--surface-hover);
+}
+
+.mos-bullet-value {
+  fill: var(--signal-fill);
+  transform-origin: left;
+  animation: mos-stack-grow var(--dur-enter) var(--ease-enter) both;
+}
+
+.mos-bullet-mark {
+  fill: var(--text);
+}
+
+.mos-spark {
+  width: 100%;
+  height: 32px;
+}
+
+.mos-spark-line {
+  fill: none;
+  stroke: var(--signal-fill);
+  stroke-width: 2;
+  /* Ponta arredondada, compensada pelo `inset` do `sparkPath`. */
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (forced-colors: active) {
+  /* O preenchimento some e a forma passa a se declarar pelo contorno, que é o
+     mesmo mecanismo que o tema claro usa na superfície aninhada. */
+  .mos-bars-value,
+  .mos-stack-value,
+  .mos-bullet-value {
+    fill: Highlight;
+  }
+
+  .mos-bars-track,
+  .mos-bullet-track {
+    fill: Canvas;
+    stroke: ButtonBorder;
+  }
+}
