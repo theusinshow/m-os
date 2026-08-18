@@ -466,3 +466,50 @@ export type UpdateProgress = {
   downloaded: number;
   total: number | null;
 };
+
+export type ReminderStatus =
+  | "scheduled"
+  | "due"
+  | "delivered"
+  | "acknowledged"
+  | "snoozed"
+  | "completed"
+  | "cancelled"
+  | "missed"
+  | "expired";
+
+export type ReminderPriority = "low" | "normal" | "high" | "urgent";
+
+export type ReminderTarget = {
+  type: "task" | "project" | "capture" | "resource" | "conversation" | "app";
+  id: string;
+};
+
+export type Reminder = {
+  id: string;
+  title: string;
+  body: string;
+  target: ReminderTarget | null;
+  trigger: { kind: "at"; instant: string };
+  priority: ReminderPriority;
+  status: ReminderStatus;
+  policy: { snoozeAllowed: boolean; privacy: "show_content" | "title_only" | "hidden" };
+  source: "user" | "hermes" | "capture" | "system";
+  nextDueAt: string | null;
+  snoozeCount: number;
+  deliveredCount: number;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  lifecycleState: "active" | "archived" | "trashed";
+};
+
+/** O que o agendador manda quando algo precisa aparecer. */
+export type DeliveryEvent = {
+  reminderId: string;
+  title: string;
+  body: string;
+  missed: boolean;
+  overdueSeconds: number;
+  level: string;
+};

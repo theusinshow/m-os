@@ -37,7 +37,8 @@ export type IconName =
   | "more"
   | "close"
   | "archive"
-  | "trash";
+  | "trash"
+  | "attention";
 
 /** Desenho de 20px, contorno. Coordenadas na grade de .5 para o traco de 1.25
  *  cair sobre o pixel em vez de entre dois. */
@@ -67,6 +68,9 @@ const OUTLINE_20: Record<IconName, ReactNode> = {
   settings: <><circle cx="10" cy="10" r="2.5" /><path d="M10 3.5v2M10 14.5v2M3.5 10h2M14.5 10h2M5.4 5.4l1.4 1.4M13.2 13.2l1.4 1.4M14.6 5.4l-1.4 1.4M6.8 13.2l-1.4 1.4" /></>,
   search: <><circle cx="8.5" cy="8.5" r="4.5" /><path d="m12 12 4 4" /></>,
   capture: <path d="M10 3.5v13M3.5 10h13" />,
+  // Sino sem badalo: em 20px o badalo vira um ponto solto. Arco, corpo e a
+  // barra da base bastam para reconhecer.
+  attention: <><path d="M5.5 13.5V9a4.5 4.5 0 0 1 9 0v4.5" /><path d="M3.5 13.5h13" /><path d="M10 3.5v1" /></>,
   plus: <path d="M10 5v10M5 10h10" />,
   // Pontos preenchidos, sem traco. Como circulos de r=.7 tracados eles viravam
   // aneis de 2.6px com um furo no meio — nem ponto, nem circulo.
@@ -93,6 +97,7 @@ const SOLID_20: Partial<Record<IconName, ReactNode>> = {
   board: <><rect x="3.4" y="3.9" width="4.2" height="12.2" /><rect x="8.9" y="3.9" width="3.2" height="8.2" /><rect x="13.4" y="3.9" width="3.2" height="10.2" /></>,
   settings: <><circle cx="10" cy="10" r="3.1" /><path d="M9.1 2.9h1.8v2.4H9.1zM9.1 14.7h1.8v2.4H9.1zM2.9 9.1h2.4v1.8H2.9zM14.7 9.1h2.4v1.8h-2.4z" /><path d="m4.9 6.2 1.3-1.3 1.7 1.7-1.3 1.3zM12.4 13.7l1.3-1.3 1.7 1.7-1.3 1.3zM13.7 4.9l1.3 1.3-1.7 1.7-1.3-1.3zM6.2 12.4l1.3 1.3-1.7 1.7-1.3-1.3z" /></>,
   capture: <><rect x="9" y="3.4" width="2" height="13.2" /><rect x="3.4" y="9" width="13.2" height="2" /></>,
+  attention: <><path d="M10 3.6a5.2 5.2 0 0 1 5.2 5.2v4.1H4.8V8.8A5.2 5.2 0 0 1 10 3.6z" /><rect x="3.2" y="14" width="13.6" height="1.7" /></>,
   // Sem os ponteiros: a silhueta nao recorta, e um ponteiro vazado exigiria
   // recorte. Corpo, coroa e haste bastam para reconhecer o cronometro.
   tempo: <><circle cx="10" cy="11.6" r="5.9" /><rect x="7.8" y="3.2" width="4.4" height="1.9" /><rect x="9.1" y="4.8" width="1.8" height="1.4" /></>,

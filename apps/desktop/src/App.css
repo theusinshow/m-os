@@ -6208,3 +6208,170 @@ input[type="checkbox"]:disabled {
 .hermes-action[data-status="refused"] .hermes-action-outcome {
   color: var(--danger);
 }
+
+/* ---------------------------------------------------------- Attention System
+
+   O painel mora no rodape do rail e nao como destino (ADR-031: o rodape e uma
+   zona propria). Ele e PROJECAO — le Reminders e agrupa, sem dado proprio.
+
+   O sodio aparece so no badge e no que esta atrasado, porque a ADR-034 fixa que
+   ele e reservado para CARGA. "Precisa de atencao" e exatamente carga. Nada de
+   vermelho como decoracao: urgencia tem de ser rara para significar algo. */
+
+.rail-badge {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  display: grid;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  place-items: center;
+  color: var(--canvas);
+  font: var(--text-meta);
+  font-weight: 700;
+  background: var(--signal-ink);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.attention-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-rail) + 1);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: default;
+}
+
+.attention-center {
+  position: fixed;
+  bottom: var(--space-3);
+  left: calc(var(--rail-width) + var(--space-3));
+  z-index: calc(var(--z-rail) + 2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: min(28rem, calc(100vw - var(--rail-width) - var(--space-6)));
+  max-height: min(34rem, calc(100vh - var(--space-6)));
+  padding: var(--space-4);
+  overflow-y: auto;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  outline: none;
+  animation: viewEnter var(--dur-enter) var(--ease-enter);
+}
+
+.attention-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.attention-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.attention-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attention-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.attention-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.attention-body p {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-body);
+}
+
+/* O tempo vem em palavras e nunca so como numero: "1h" sozinho nao diz se
+   falta ou se passou. `DESIGN-FOUNDATIONS.md` §14 pede que nenhum estado
+   dependa apenas de cor, e a mesma logica vale para o tempo. */
+.attention-when {
+  color: var(--text-meta);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.attention-item:has(.attention-when):hover {
+  border-color: var(--border-strong);
+}
+
+.attention-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.attention-fatigue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+  color: var(--text-meta);
+  font: var(--text-meta);
+}
+
+.attention-empty {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-body);
+}
+
+/* O aviso in-app. Nao e o toast do Windows — esse chega no P1. Some sozinho
+   sem resolver nada: o Reminder continua no Attention Center, porque descartar
+   uma entrega nunca descarta a intencao. */
+.attention-toast {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: var(--z-receipt, 60);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(22rem, calc(100vw - var(--space-6)));
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  animation: viewEnter var(--dur-enter) var(--ease-enter);
+}
+
+.attention-toast p {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-body);
+}
+
+/* Movimento que nao carrega dado nao entra (ADR-034), e `reduced-motion` nasce
+   no valor final em vez de degradar. */
+@media (prefers-reduced-motion: reduce) {
+  .attention-center,
+  .attention-toast {
+    animation: none;
+  }
+}

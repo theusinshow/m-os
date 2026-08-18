@@ -13,6 +13,7 @@ import { Button } from "./Button";
 import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel, StateMessage } from "./Surface";
 import { CalendarPage } from "./CalendarPage";
 import { Reminder } from "./Reminder";
+import { AttentionCenter } from "./AttentionCenter";
 import { BudgetRing, TodayHours, useTrackedTime, WeekByProject } from "./TimeWidgets";
 import { TempoPage } from "./TempoPage";
 import { FinancePage } from "./FinancePage";
@@ -22,7 +23,7 @@ import { Icon, type IconName } from "./Icon";
 import { Ring, RingLabel } from "./Ring";
 import { MonthDensity, TaskProgressRing, WeekRings } from "./Widgets";
 import { MosSymbol } from "./Symbol";
-import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
 import "./App.css";
 
 /* `apps` continua sendo uma pagina, e so deixou de ser um destino do rail
@@ -2331,6 +2332,29 @@ function DesktopApp() {
   // Continua em localStorage porque e preferencia de leitura, nao dado do core.
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState(() => localStorage.getItem("m-os-current-workspace") ?? "");
   const [commandOpen, setCommandOpen] = useState(false);
+  const [attentionOpen, setAttentionOpen] = useState(false);
+  // O badge conta itens que ESPERAM ACAO, e nao notificacoes nao lidas.
+  // Um numero que sobe com coisa que nao pede acao e um numero que se
+  // aprende a ignorar. Quem decide o que conta e o backend (§21.1).
+  const [attentionCount, setAttentionCount] = useState(0);
+  const [delivered, setDelivered] = useState<DeliveryEvent | null>(null);
+
+  // O agendador vive no backend e avisa quando algo vence. A tela nunca
+  // agenda nada: um `setTimeout` morreria no primeiro reload, e o lembrete
+  // se perderia justamente quando ninguem estivesse olhando.
+  useEffect(() => {
+    const delivery = listen<DeliveryEvent>("attention-delivered", (event) => {
+      setDelivered(event.payload);
+    });
+    const counter = listen<number>("attention-count", (event) => {
+      setAttentionCount(event.payload);
+    });
+    void api.attentionCount().then(setAttentionCount).catch(() => undefined);
+    return () => {
+      void delivery.then((stop) => stop());
+      void counter.then((stop) => stop());
+    };
+  }, []);
   // O overlay continua montado durante os 90ms de saida. Desmontar na hora
   // cortaria a animacao pela metade, que e pior que nao ter animacao.
   const [commandClosing, setCommandClosing] = useState(false);
@@ -2627,9 +2651,9 @@ function DesktopApp() {
 
   return <div className="app-shell" data-rail-expanded={railExpanded || undefined}><aside className="nav-rail" data-expanded={railExpanded || undefined} aria-label="Navegação do M/OS"><button className="rail-toggle" type="button" aria-label={railExpanded ? "Recolher navegação" : "Expandir navegação"} aria-expanded={railExpanded} onClick={toggleRail}><span className="rail-symbol" aria-hidden="true"><MosSymbol size={16} /></span><span className="rail-brand" aria-hidden="true">M/OS</span></button><nav className="rail-navigation" aria-label="Navegação principal">{navGroups.map((group) => <div className="rail-group" role="group" aria-label={group.label} key={group.label}><span className="rail-group-label" aria-hidden="true">{group.label}</span>{group.items.map((item) => <button className="rail-destination" key={item.page} aria-current={page === item.page ? "page" : undefined} aria-label={item.label} onClick={() => navigate(item.page)}><Icon name={item.icon} filled={page === item.page} /><span className="rail-label" aria-hidden="true">{item.label}</span><span className="rail-tooltip" aria-hidden="true">{item.label}</span>{/* Sem badge de contagem: o desenho nao tem, e um numero permanente no rail
     vira ansiedade de fundo. A contagem da Inbox aparece na Home e na propria
-    tela, onde ela leva a uma acao. */}</button>)}</div>)}</nav><div className="rail-footer"><button className="rail-utility" type="button" aria-label="Quick Capture" onClick={() => void api.showQuickCapture()}><Icon name="capture" /><span className="rail-label" aria-hidden="true">Quick Capture</span><span className="rail-tooltip" aria-hidden="true">Quick Capture</span></button><button className="rail-utility" type="button" aria-current={page === "settings" ? "page" : undefined} aria-label="Settings" onClick={() => navigate("settings")}><Icon name="settings" filled={page === "settings"} /><span className="rail-label" aria-hidden="true">Settings</span><span className="rail-tooltip" aria-hidden="true">Settings</span></button></div></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button>{/* O estado de sistema nao substitui o meta da pagina: os dois convivem, e o
+    tela, onde ela leva a uma acao. */}</button>)}</div>)}</nav><div className="rail-footer"><button className="rail-utility" type="button" aria-label={attentionCount > 0 ? `Atencao, ${attentionCount} itens` : "Atencao"} onClick={() => setAttentionOpen(true)}><Icon name="attention" filled={attentionCount > 0} />{attentionCount > 0 ? <span className="rail-badge num">{attentionCount > 9 ? "9+" : attentionCount}</span> : null}<span className="rail-label" aria-hidden="true">Atencao</span><span className="rail-tooltip" aria-hidden="true">Atencao</span></button><button className="rail-utility" type="button" aria-label="Quick Capture" onClick={() => void api.showQuickCapture()}><Icon name="capture" /><span className="rail-label" aria-hidden="true">Quick Capture</span><span className="rail-tooltip" aria-hidden="true">Quick Capture</span></button><button className="rail-utility" type="button" aria-current={page === "settings" ? "page" : undefined} aria-label="Settings" onClick={() => navigate("settings")}><Icon name="settings" filled={page === "settings"} /><span className="rail-label" aria-hidden="true">Settings</span><span className="rail-tooltip" aria-hidden="true">Settings</span></button></div></aside><div className="main-column"><header className="topbar"><button className="command-trigger" onClick={() => setCommandOpen(true)}><span className="slash">/</span><span>Command</span><kbd>CTRL K</kbd></button>{/* O estado de sistema nao substitui o meta da pagina: os dois convivem, e o
     indicador de ocupado entra antes sem apagar onde voce esta. */}
-<div className="system-state" aria-live="polite" data-busy={busy || undefined}>{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main></div>{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
+<div className="system-state" aria-live="polite" data-busy={busy || undefined}>{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main></div>{attentionOpen ? <AttentionCenter close={() => { setAttentionOpen(false); void api.attentionCount().then(setAttentionCount).catch(() => undefined); }} /> : null}{delivered ? <AttentionToast event={delivered} close={() => setDelivered(null)} open={() => { setDelivered(null); setAttentionOpen(true); }} /> : null}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
 }
 
 /**
@@ -2639,6 +2663,43 @@ function DesktopApp() {
  * é a janelinha que aparece sobre o CAD quando o sistema percebe que o trabalho
  * começou sem cronômetro.
  */
+/**
+ * O aviso in-app de que algo venceu.
+ *
+ * Nao e o toast do Windows — esse chega no P1. Este aparece dentro da janela,
+ * e some sozinho depois de um tempo SEM resolver nada: o Reminder continua no
+ * Attention Center. Descartar uma entrega nunca descarta a intencao, que e a
+ * separacao inteira entre Reminder e Notification.
+ */
+function AttentionToast({ event, close, open }: { event: DeliveryEvent; close: () => void; open: () => void }) {
+  useEffect(() => {
+    // Perdido nao some sozinho: quem nao estava olhando quando venceu tambem
+    // pode nao estar olhando agora.
+    if (event.missed) return;
+    const timer = window.setTimeout(close, 12000);
+    return () => window.clearTimeout(timer);
+  }, [event, close]);
+
+  const late = event.overdueSeconds > 60
+    ? `atrasado ${Math.round(event.overdueSeconds / 60)} min`
+    : "agora";
+
+  return (
+    <div className="attention-toast" role="status">
+      <div>
+        <span className="micro-label">{event.missed ? "PERDIDO" : "LEMBRETE"}</span>
+        <strong>{event.title}</strong>
+        {event.body ? <p>{event.body}</p> : null}
+        <span className="attention-when">{late}</span>
+      </div>
+      <div className="button-line">
+        <Button onClick={open} variant="secondary">Ver</Button>
+        <Button onClick={close} variant="ghost">Dispensar</Button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   switch (getCurrentWindow().label) {
     case "quick-capture":
