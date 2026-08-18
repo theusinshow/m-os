@@ -17,7 +17,8 @@ pub use action::{
     ActionPreview, UndoStep,
 };
 pub use app::{
-    app_catalog, validate_launch_target, validate_source_url, AppCapabilities, AppCatalogEntry,
+    app_catalog, app_targeting_host, validate_launch_target, validate_source_url, AppCapabilities,
+    AppCatalogEntry,
     AppId, AppLaunchKind, NewRegisteredApp, RegisteredApp,
 };
 pub use calendar::{compose, CalendarItem, CalendarKind, ComposeInput};

@@ -97,6 +97,44 @@ pub struct RegisteredApp {
     pub last_opened_at: Option<OffsetDateTime>,
 }
 
+/// Extrai o host de uma URL sem depender de um parser completo: aqui so
+/// interessa comparar dominios, e arrastar o crate `url` para dentro do
+/// nucleo por causa disso seria pagar caro por pouco.
+fn host_of(url: &str) -> Option<&str> {
+    let sem_esquema = url.split_once("://").map(|(_, resto)| resto).unwrap_or(url);
+    let autoridade = sem_esquema.split(['/', '?', '#']).next()?;
+    let sem_credencial = autoridade
+        .rsplit_once('@')
+        .map(|(_, host)| host)
+        .unwrap_or(autoridade);
+    let host = sem_credencial
+        .split_once(':')
+        .map(|(host, _)| host)
+        .unwrap_or(sem_credencial);
+
+    (!host.is_empty()).then_some(host)
+}
+
+/// O App do Registry que aponta para `host`, se houver algum.
+///
+/// Existe porque uma acao entre apps precisa achar QUAL registro concede a
+/// permissao, e nenhuma das respostas obvias serve: o `id` e um UUID sorteado
+/// no cadastro, diferente em cada instalacao, e o `name` e um campo que o
+/// usuario pode reescrever a qualquer momento. O alvo, nao — se o App aponta
+/// para o mesmo host que a acao vai escrever, e esse o registro que fala por
+/// ele. Amarrar a permissao ao alvo tambem faz a coisa certa quando o usuario
+/// tem dois cadastros do mesmo app: qualquer um deles com a capacidade
+/// marcada e um consentimento dado para aquele destino.
+pub fn app_targeting_host<'a>(apps: &'a [RegisteredApp], host: &str) -> Option<&'a RegisteredApp> {
+    apps.iter().find(|app| {
+        [app.launch_target.as_deref(), app.source_url.as_deref()]
+            .into_iter()
+            .flatten()
+            .filter_map(host_of)
+            .any(|encontrado| encontrado.eq_ignore_ascii_case(host))
+    })
+}
+
 #[derive(Clone, Debug)]
 pub struct NewRegisteredApp {
     pub id: AppId,
@@ -298,5 +336,97 @@ mod tests {
         let cronocad = catalog.iter().find(|entry| entry.id == "cronocad").unwrap();
         assert!(cronocad.source_url.ends_with("/cronocad"));
         assert!(cronocad.launch_target.is_none());
+    }
+
+    /// Um `RegisteredApp` cru, do jeito que sai do banco. Os construtores
+    /// validam entrada; aqui o que interessa e a leitura.
+    fn app_registrado(nome: &str, alvo: Option<&str>, origem: Option<&str>, escreve: bool) -> RegisteredApp {
+        RegisteredApp {
+            id: AppId::new(),
+            name: nome.to_owned(),
+            description: String::new(),
+            source_url: origem.map(str::to_owned),
+            launch_kind: alvo.map(|_| AppLaunchKind::Url),
+            launch_target: alvo.map(str::to_owned),
+            can_open: true,
+            can_read: false,
+            can_write: escreve,
+            can_automate: false,
+            lifecycle_state: LifecycleState::Active,
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+            last_opened_at: None,
+        }
+    }
+
+    #[test]
+    fn the_host_comes_out_of_every_url_shape_we_store() {
+        assert_eq!(host_of("https://m-finance-silk.vercel.app/"), Some("m-finance-silk.vercel.app"));
+        assert_eq!(host_of("https://m-finance-silk.vercel.app"), Some("m-finance-silk.vercel.app"));
+        assert_eq!(host_of("https://m-finance-silk.vercel.app/app/bills?m=8"), Some("m-finance-silk.vercel.app"));
+        assert_eq!(host_of("http://localhost:3010/api"), Some("localhost"));
+        assert_eq!(host_of("https://user:senha@exemplo.com/x"), Some("exemplo.com"));
+        assert_eq!(host_of("m-finance-silk.vercel.app/x"), Some("m-finance-silk.vercel.app"));
+        assert_eq!(host_of(""), None);
+        assert_eq!(host_of("https://"), None);
+    }
+
+    #[test]
+    fn the_app_is_found_by_where_it_points() {
+        let apps = vec![
+            app_registrado("NexoDoc", Some("https://nexodoc.app"), None, true),
+            app_registrado("M-Finance", Some("https://m-finance-silk.vercel.app/"), None, true),
+        ];
+
+        let achado = app_targeting_host(&apps, "m-finance-silk.vercel.app").expect("achou o App");
+        assert_eq!(achado.name, "M-Finance");
+        assert!(achado.can_write);
+    }
+
+    /// O nome e do usuario: ele escreve "M Finance", "M-Finance" ou "Grana" e
+    /// nenhum desses e problema nosso enquanto o alvo continuar o mesmo.
+    #[test]
+    fn the_name_does_not_matter_only_the_target() {
+        let apps = vec![app_registrado("Grana", Some("https://m-finance-silk.vercel.app/"), None, true)];
+        assert!(app_targeting_host(&apps, "m-finance-silk.vercel.app").is_some());
+    }
+
+    #[test]
+    fn the_source_url_also_counts_when_there_is_no_launch_target() {
+        let apps = vec![app_registrado("M-Finance", None, Some("https://m-finance-silk.vercel.app"), true)];
+        assert!(app_targeting_host(&apps, "m-finance-silk.vercel.app").is_some());
+    }
+
+    #[test]
+    fn the_host_comparison_ignores_case() {
+        let apps = vec![app_registrado("M-Finance", Some("https://M-Finance-Silk.Vercel.App/"), None, true)];
+        assert!(app_targeting_host(&apps, "m-finance-silk.vercel.app").is_some());
+    }
+
+    /// Um host parecido nao pode herdar a permissao de outro — e o caso que
+    /// transformaria um dominio vizinho em porta aberta.
+    #[test]
+    fn a_lookalike_host_is_not_a_match() {
+        let apps = vec![
+            app_registrado("Falso", Some("https://m-finance-silk.vercel.app.evil.com/"), None, true),
+            app_registrado("Outro", Some("https://not-m-finance-silk.vercel.app/"), None, true),
+        ];
+        assert!(app_targeting_host(&apps, "m-finance-silk.vercel.app").is_none());
+    }
+
+    #[test]
+    fn no_registered_app_for_the_host_means_no_match() {
+        let apps = vec![app_registrado("NexoDoc", Some("https://nexodoc.app"), None, true)];
+        assert!(app_targeting_host(&apps, "m-finance-silk.vercel.app").is_none());
+        assert!(app_targeting_host(&[], "m-finance-silk.vercel.app").is_none());
+    }
+
+    /// Achar o App e conceder a permissao sao coisas diferentes: quem procura
+    /// devolve o registro, e quem decide le o `can_write` dele.
+    #[test]
+    fn finding_the_app_is_not_the_same_as_granting_it() {
+        let apps = vec![app_registrado("M-Finance", Some("https://m-finance-silk.vercel.app/"), None, false)];
+        let achado = app_targeting_host(&apps, "m-finance-silk.vercel.app").expect("achou o App");
+        assert!(!achado.can_write);
     }
 }

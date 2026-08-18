@@ -11,7 +11,18 @@ use serde::{Deserialize, Serialize};
 
 const SERVICE: &str = "m-os";
 const ACCOUNT: &str = "finance-action-secret";
-const ACTION_API_URL: &str = "https://m-finance-silk.vercel.app/api/mos/actions";
+/// O host do M-Finance, escrito uma vez so. O gate de permissao em
+/// `hermes.rs` acha o App do Registry por ele, e a URL abaixo e montada a
+/// partir dele — se os dois pudessem divergir, o M/OS acabaria pedindo
+/// permissao para um destino e escrevendo em outro.
+macro_rules! finance_host {
+    () => {
+        "m-finance-silk.vercel.app"
+    };
+}
+
+pub const ACTION_HOST: &str = finance_host!();
+const ACTION_API_URL: &str = concat!("https://", finance_host!(), "/api/mos/actions");
 
 fn entry() -> Result<Entry, String> {
     Entry::new(SERVICE, ACCOUNT)
