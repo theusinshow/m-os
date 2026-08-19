@@ -490,11 +490,26 @@ pub fn understand(
         (None, None) => (None, ProjectSource::None),
     };
 
+    // Um instante ja passado nao autoriza lembrete.
+    //
+    // "Me lembra hoje as nove", dito as duas da tarde, resolve para as nove da
+    // MANHA de hoje. `NewReminder::at` recusa o passado, e sem esta leitura a
+    // acao inteira falharia — a Capture ficaria salva e a tela mostraria um
+    // erro, para uma frase perfeitamente normal.
+    //
+    // A saida NAO e empurrar para amanha: ninguem disse amanha. E nao criar
+    // lembrete, e deixar a Task.
+    let when_passou = when
+        .as_ref()
+        .map(|resolved| resolved.instant <= now_local)
+        .unwrap_or(false);
+
     let (action, confidence) = classify(Signals {
         hedged,
         reminder_verb,
         task_verb,
         reported,
+        when_passou,
         when: when.as_ref(),
         project_spoken: matches!(project_source, ProjectSource::Spoken),
         infinitive_opening: opens_with_infinitive(&spoken),
@@ -520,6 +535,8 @@ struct Signals<'a> {
     reminder_verb: bool,
     task_verb: bool,
     reported: bool,
+    /// O instante resolvido ja passou. Ele continua legivel; so nao agenda.
+    when_passou: bool,
     when: Option<&'a crate::ResolvedWhen>,
     project_spoken: bool,
     infinitive_opening: bool,
@@ -534,13 +551,17 @@ fn classify(signals: Signals<'_>) -> (VoiceAction, Confidence) {
     let firm_when = signals
         .when
         .map(|resolved| !resolved.vague)
-        .unwrap_or(false);
+        .unwrap_or(false)
+        && !signals.when_passou;
 
     if signals.reminder_verb {
         return match signals.when {
             // Pedido explícito com instante explícito: é o caso em que agir
             // sozinho é o certo.
             Some(_) if firm_when => (VoiceAction::CreateTaskWithReminder, Confidence::High),
+            // Instante já passado: Task sim, lembrete não. Agendar para trás é
+            // impossível, e adivinhar o dia certo seria inventar.
+            Some(_) if signals.when_passou => (VoiceAction::CreateTask, Confidence::Medium),
             Some(_) => (VoiceAction::CreateTaskWithReminder, Confidence::Medium),
             // Pediu lembrete e não disse quando. Inventar prazo seria pior que
             // não agir — a Capture guarda o pedido e a oferta fica visível.
@@ -947,6 +968,19 @@ mod tests {
         assert_eq!(lido.action, VoiceAction::CreateTask);
         assert_eq!(lido.confidence, Confidence::Medium);
         assert!(lido.when.is_none());
+    }
+
+    #[test]
+    fn um_instante_ja_passado_nao_agenda_lembrete() {
+        // São 14h32. "Hoje às nove" resolve para as nove da MANHÃ, que já foi.
+        // `NewReminder::at` recusaria o passado, e sem esta leitura a ação
+        // inteira falharia numa frase perfeitamente normal.
+        let lido = ler("Me lembra hoje às nove de revisar o memorial.");
+        assert_eq!(lido.action, VoiceAction::CreateTask);
+        assert!(!lido.should_execute());
+        // O prazo continua legível — ele só não agenda.
+        assert!(lido.when.is_some());
+        assert_eq!(lido.when_raw, "hoje às nove");
     }
 
     #[test]
