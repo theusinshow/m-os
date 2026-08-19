@@ -25,6 +25,7 @@ import type {
 
 const STATUS_LABEL: Record<MeetingStatus, string> = {
   recording: "gravando",
+  paused: "pausada",
   stopping: "encerrando",
   interrupted: "interrompida",
   recorded: "gravada",

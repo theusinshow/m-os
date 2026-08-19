@@ -40,6 +40,15 @@ export const api = {
   meetingStop() {
     return invoke<Meeting>("meeting_stop");
   },
+  // Pausar para o áudio ANTES de mudar o estado; retomar faz o inverso. Nos dois
+  // casos o intervalo entre as duas coisas não pode gravar frame numa reunião
+  // que a tela já mostra parada, nem o contrário.
+  meetingPause() {
+    return invoke<Meeting>("meeting_pause");
+  },
+  meetingResume() {
+    return invoke<Meeting>("meeting_resume");
+  },
   /** `null` quando nao ha gravacao em curso. */
   meetingRecording() {
     return invoke<MeetingTick | null>("meeting_recording");

@@ -587,7 +587,7 @@ export type RadialPinInput = {
 
 /** A ordem em que o pipeline anda. `failed` carrega o estágio em `failure`. */
 export type MeetingStatus =
-  | "recording" | "stopping" | "interrupted" | "recorded"
+  | "recording" | "paused" | "stopping" | "interrupted" | "recorded"
   | "transcribing" | "transcribed" | "analyzing" | "ready"
   | "failed" | "cancelled";
 
