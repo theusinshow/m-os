@@ -4,9 +4,14 @@ import { Icon, type IconName } from "./Icon";
 import { posicaoDaPetala, resolverPetalas, type Petala } from "./lequePetalas";
 import type { Page, RadialPin, RegisteredApp } from "./types";
 
-/** O raio do arco, em pixels. Curto o bastante para o leque caber acima da
- *  âncora em 840px sem alcançar a topbar. */
-const RAIO = 96;
+/** O raio do arco, em pixels.
+ *
+ *  Subiu de 96 para 112 quando as pétalas cresceram: a corda entre duas pétalas
+ *  vizinhas é `2·R·sen(15°)`, então a 96 sobravam 6px de folga entre discos de
+ *  44 — perto demais para o olho separar, e perto demais para o mouse errar sem
+ *  consequência. A 112 sobram 14. Continua cabendo acima da âncora em 840×600,
+ *  onde o alto do arco fica a 134px da borda. */
+const RAIO = 112;
 
 /**
  * O leque — cinco pétalas fixas, no rodapé ao centro.
@@ -84,10 +89,15 @@ export function Leque({ pins, workspaceId, apps, onNavegar, onAbrirApp, onAcao, 
               tabIndex={aberto ? 0 : -1}
               style={{ "--x": `${x}px`, "--y": `${y}px`, "--ordem": petala.slot } as CSSProperties}
               aria-label={rotuloDaPetala(petala, apps)}
-              title={rotuloDaPetala(petala, apps)}
               onClick={() => disparar(petala)}
             >
               <Icon name={iconeDaPetala(petala)} />
+              {/* O rótulo é ELEMENTO, e não o `title` nativo. O `title` do
+                  Windows demora ~500ms, aparece onde o sistema quer e ignora o
+                  tema — três coisas que num leque de memória muscular atrapalham
+                  em vez de ajudar. Este é o mesmo desenho do `.rail-tooltip`, e
+                  responde a foco de teclado além do mouse. */}
+              <span className="leque-rotulo" aria-hidden="true">{rotuloDaPetala(petala, apps)}</span>
             </button>
           );
         })}

@@ -7490,11 +7490,11 @@ input[type="checkbox"]:disabled {
   left: 50%;
   display: grid;
   place-items: center;
-  width: var(--height-control);
-  height: var(--height-control);
+  width: var(--height-control-lg);
+  height: var(--height-control-lg);
   /* Meia petala para cada lado: o CENTRO dela cai na origem do arco, que e o que
      `posicaoDaPetala` assume ao devolver o deslocamento. */
-  margin: 0 0 calc(var(--height-control) / -2) calc(var(--height-control) / -2);
+  margin: 0 0 calc(var(--height-control-lg) / -2) calc(var(--height-control-lg) / -2);
   color: var(--text);
   background: var(--surface-raised);
   border: var(--line) solid var(--border-strong);
@@ -7520,8 +7520,65 @@ input[type="checkbox"]:disabled {
   transition-delay: calc(var(--ordem) * 16ms);
 }
 
-.leque-petala:hover {
-  border-color: var(--signal-ink);
+/* O hover acende em sodio e cresce 8%.
+   
+   O crescimento anda no MESMO `transform` do percurso de abertura, e nao numa
+   propriedade a parte, porque duas transformacoes concorrentes no mesmo elemento
+   se sobrescrevem — a ultima declarada ganha, e a petala saltaria de volta para
+   a origem ao receber o mouse. Por isso o `scale` aparece repetido aqui junto do
+   `translate3d`, em vez de um `scale()` sozinho.
+
+   Sodio PREENCHIDO, e nao so a borda: a ADR-034 reserva `--signal-fill` para
+   carga, mas aqui ele nao anuncia progresso nenhum — ele diz "e este que o
+   clique vai pegar", que e a mesma coisa que o botao primario diz. */
+.leque-petala:is(:hover, :focus-visible) {
+  color: var(--on-signal);
+  background: var(--signal-fill);
+  border-color: var(--signal-fill);
+}
+
+.leque[data-aberto] .leque-petala:is(:hover, :focus-visible) {
+  transform: translate3d(var(--x), var(--y), 0) scale(1.08);
+}
+
+/* O rotulo, no molde do `.rail-tooltip`: mesma caixa, mesma cor, mesma curva.
+   Nasce ACIMA da petala porque o leque mora no rodape — abaixo ele sairia da
+   janela, e ao lado ele bateria na petala vizinha. */
+.leque-rotulo {
+  position: absolute;
+  bottom: calc(100% + var(--space-2));
+  left: 50%;
+  z-index: var(--z-overlay);
+  padding: var(--space-1) var(--space-2);
+  color: var(--text);
+  font: var(--text-small);
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  visibility: hidden;
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-overlay);
+  opacity: 0;
+  transform: translate(-50%, var(--space-1));
+  transition:
+    opacity var(--dur-state) var(--ease-enter),
+    transform var(--dur-state) var(--ease-enter),
+    visibility 0s linear var(--dur-state);
+}
+
+.leque-petala:is(:hover, :focus-visible) .leque-rotulo {
+  visibility: visible;
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition-delay: 0s;
+}
+
+/* Fechado, o rotulo nunca aparece: sem isto, passar o mouse pelo rodape acenderia
+   o nome de uma petala invisivel. */
+.leque:not([data-aberto]) .leque-rotulo {
+  display: none;
 }
 
 /* Fechado, a petala nao recebe clique nem foco — `pointer-events` ja resolve o
@@ -7541,6 +7598,15 @@ input[type="checkbox"]:disabled {
   }
   .leque[data-aberto] .leque-petala {
     transition-delay: 0ms;
+  }
+  /* A cor do hover fica; o crescimento sai. Quem pediu menos movimento nao pediu
+     menos informacao, e a petala acesa e informacao. */
+  .leque[data-aberto] .leque-petala:is(:hover, :focus-visible) {
+    transform: translate3d(var(--x), var(--y), 0);
+  }
+  .leque-rotulo {
+    transition: opacity var(--dur-instant) linear, visibility 0s linear var(--dur-instant);
+    transform: translate(-50%, 0);
   }
 }
 
