@@ -566,6 +566,26 @@ pub async fn action_undo<R: Runtime>(
             // desfez provavelmente quer refazer diferente.
             services.meetings.reopen_insight(&insight_id)?;
         }
+        mos_core::UndoStep::UndoVoiceAction {
+            capture_id,
+            task_id,
+            reminder_id,
+        } => {
+            // Mesma ordem do desfazer de reuniao: primeiro sai de vista o que
+            // TOCA. Um lembrete que dispara no meio do desfazer avisaria sobre
+            // uma Task que a pessoa acabou de dizer que nao queria.
+            if let Some(reminder_id) = reminder_id {
+                services.attention.transition(
+                    mos_core::ReminderId::parse(&reminder_id)?,
+                    mos_core::Transition::Cancel,
+                )?;
+            }
+            services.work.set_task_archived(&task_id, true)?;
+            // A fala volta para a Inbox. Ela nao e apagada: desfazer a acao nao
+            // desfaz o ter falado, e o lugar de uma fala ainda nao decidida e a
+            // Inbox.
+            services.captures.move_to_inbox(&capture_id)?;
+        }
     }
     let _ = app.emit("data-changed", "undo");
     Ok(())

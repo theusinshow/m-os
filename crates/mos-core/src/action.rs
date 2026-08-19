@@ -669,6 +669,21 @@ pub enum UndoStep {
         task_id: String,
         reminder_id: Option<String>,
     },
+    /// O inverso de uma acao que a VOZ executou sozinha.
+    ///
+    /// Tres reversoes num passo so, pela mesma razao do
+    /// `UndoMeetingInsight`: a acao foi uma. Desfazer pela metade deixaria um
+    /// lembrete tocando para uma Task arquivada.
+    ///
+    /// **A Capture NAO e apagada nem arquivada — ela volta para a Inbox.** Ela
+    /// e a fala, e desfazer a acao nao desfaz o ter falado. O que se desfaz e a
+    /// leitura que o M/OS fez dela, e o lugar de uma fala ainda nao decidida e
+    /// a Inbox.
+    UndoVoiceAction {
+        capture_id: String,
+        task_id: String,
+        reminder_id: Option<String>,
+    },
 }
 
 /// O contrato que desce no prompt.

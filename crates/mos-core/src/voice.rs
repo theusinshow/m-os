@@ -968,7 +968,7 @@ mod tests {
                 project_id: Some(nexo.id),
                 task_id: None,
             },
-            &[nexo.clone()],
+            std::slice::from_ref(&nexo),
         );
         assert_eq!(lido.project_id, Some(nexo.id));
         assert_eq!(lido.project_source, ProjectSource::Context);

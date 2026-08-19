@@ -1,4 +1,4 @@
-export type CaptureSource = "home" | "quick_capture";
+export type CaptureSource = "home" | "quick_capture" | "voice";
 export type ProcessingState = "inbox" | "processed";
 export type LifecycleState = "active" | "archived" | "trashed";
 
@@ -149,6 +149,8 @@ export type AppStatus = {
   resourceCount: number;
   workspaceCount: number;
   shortcut: string;
+  /** O estado do registro do atalho da voz. */
+  voiceShortcut: string;
   snapshot: string;
   storage: {
     databasePath: string;
@@ -721,4 +723,62 @@ export type TranscriberStatus = {
 export type AnalysisConsent = {
   granted: boolean;
   grantedAt: string;
+};
+
+// =============================================================================
+// Voice Inbox
+// =============================================================================
+//
+// Nenhum destes carrega audio: a captura inteira vive no Rust, e o que sobe
+// para ca e estado. `level` e `peak` sao RMS ja reduzidos a `0..1000` dentro da
+// thread de captura — nao existe caminho de PCM ate aqui.
+
+export type VoiceNoteStatus =
+  | "recording"
+  | "recorded"
+  | "transcribing"
+  | "captured"
+  | "failed"
+  | "cancelled";
+
+export type VoiceNote = {
+  id: string;
+  status: VoiceNoteStatus;
+  audioDir: string;
+  durationMs: number;
+  peakLevel: number;
+  /** A transcricao ORIGINAL. Ela nao e reescrita em lugar nenhum. */
+  transcript: string;
+  provider: string;
+  captureId: string | null;
+  contextProjectId: string | null;
+  contextTaskId: string | null;
+  failureMessage: string;
+  audioDeletedAt: string | null;
+  startedAt: string;
+  updatedAt: string;
+};
+
+export type VoiceTick = {
+  noteId: string;
+  durationMs: number;
+  level: number;
+  peak: number;
+  /** Vazio quando o microfone esta bem. */
+  problem: string;
+};
+
+/** O desfecho de soltar a tecla. As duas recusas nao persistiram nada. */
+export type VoiceStopped =
+  | { outcome: "tooShort" }
+  | { outcome: "tooQuiet" }
+  | { outcome: "transcribing"; noteId: string };
+
+export type VoiceAction = "keep" | "create_task" | "create_task_with_reminder";
+
+export type VoiceFailed = {
+  noteId: string;
+  message: string;
+  /** Ha audio em disco esperando um retry. */
+  retryable: boolean;
 };

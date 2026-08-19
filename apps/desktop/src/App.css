@@ -7643,3 +7643,178 @@ input[type="checkbox"]:disabled {
     display: none;
   }
 }
+
+/* ===========================================================================
+   VOICE INBOX
+   ===========================================================================
+
+   Voz nao e um modo, e uma forma de digitar (`mos-design-system.md` §Voz).
+   Por isso nao ha painel proprio: a fala ocupa a MESMA linha do campo de
+   texto, atras da mesma barra `/`, e o rodape troca o que diz. Um segundo
+   retangulo abaixo do campo faria a voz parecer uma feature acoplada em vez de
+   uma segunda maneira de escrever no mesmo lugar. */
+
+/* Os tracos ganham origem na base para escalar como onda, e nao como barra que
+   cresce do meio. A altura em repouso continua vindo do `nth-child`: a escala
+   multiplica o desenho parado em vez de substitui-lo. */
+.amplitude i {
+  transform-origin: bottom;
+  transition: transform var(--dur-instant) linear, background var(--dur-state) var(--ease-state);
+}
+
+/* Sodio SO enquanto ouve. Em repouso os tracos sao cinza de sistema, e essa
+   diferenca e a unica indicacao de microfone aberto que o HUD tem — ela nao
+   pode ser decorativa. */
+.amplitude[data-listening] i {
+  background: var(--signal-fill);
+}
+
+/* A linha da fala ocupa o lugar do textarea, com a mesma altura minima: sem
+   ela o overlay saltaria de tamanho ao trocar de texto para voz, e o salto e
+   visivel porque a janela nao redimensiona junto. */
+.voice-line {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-height: var(--capture-bar-height);
+  margin: 0;
+}
+
+/* O que foi entendido, na mesma familia e no mesmo corpo do texto digitado:
+   uma Capture falada le igual a uma Capture escrita, porque ela E uma. */
+.voice-subject {
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font: var(--text-capture);
+  letter-spacing: var(--tracking-capture);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Estado e prazo sao dado de sistema, e vao em mono — nunca o conteudo. */
+.voice-live,
+.voice-pending,
+.voice-clock,
+.voice-cap,
+.voice-meta,
+.voice-problem {
+  flex: none;
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+}
+
+/* "Ouvindo" e a unica palavra em sodio da tela enquanto o microfone esta
+   aberto. Ela existe para ser vista de canto de olho. */
+.voice-live {
+  color: var(--signal-ink);
+}
+
+.voice-clock {
+  font-variant-numeric: tabular-nums;
+}
+
+/* O aviso do teto, e o problema do dispositivo, usam a cor de perigo — mas
+   nunca sozinhos: os dois SAO frases. Estado so por cor e a violacao 4 do
+   AGENTS.md do design. */
+.voice-cap,
+.voice-problem {
+  color: var(--danger);
+}
+
+.voice-meta {
+  color: var(--text-secondary);
+  text-transform: none;
+}
+
+/* O sinal de aviso da falha. Quadrado e nao redondo: a unica forma redonda do
+   sistema e o radio. */
+.voice-warning {
+  display: grid;
+  flex: none;
+  width: var(--space-4);
+  height: var(--space-4);
+  align-self: center;
+  border: var(--line) solid var(--danger);
+  color: var(--danger);
+  font: var(--text-meta);
+  place-items: center;
+}
+
+/* As acoes do rodape sao texto, e nao botoes com caixa: o HUD inteiro tem uma
+   superficie so, e um botao preenchido aqui competiria com o proprio recibo. */
+.voice-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.voice-actions button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--signal-ink);
+  cursor: pointer;
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+}
+
+.voice-actions button:hover {
+  color: var(--text);
+}
+
+/* O contorno de foco e o do sistema, e nao um proprio: teclado precisa
+   enxergar onde esta, e a janela e pequena demais para um segundo vocabulario
+   de foco. */
+.voice-actions button:focus-visible {
+  outline: var(--marker) solid var(--signal-ink);
+  outline-offset: var(--space-1);
+}
+
+/* Falando, a linha de base acende — o mesmo sinal que o campo de texto usa
+   para dizer "o foco esta aqui". A voz E o foco naquele instante. */
+.quick-shell[data-speaking] .capture-line {
+  border-bottom-color: var(--signal-ink);
+}
+
+/* O audio que ficou esperando entre uma abertura e outra.
+ *
+ * Nao e um alerta: e uma lista curta com duas saidas. A borda de sodio a
+ * distingue do resto da Inbox sem gritar — o que esta ali nao esta errado, so
+ * nao terminou. */
+.voice-pending-list {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-inset);
+  border-left: var(--marker) solid var(--signal-fill);
+  background: var(--surface-hover);
+}
+
+.voice-pending-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+/* Duracao e data sao dado de sistema, e vao em mono. */
+.voice-pending-when {
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.voice-pending-row .voice-actions {
+  margin-left: auto;
+}
+
+.voice-actions button[disabled] {
+  color: var(--text-placeholder);
+  cursor: default;
+}

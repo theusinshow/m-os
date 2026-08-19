@@ -4,6 +4,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
+  VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
   WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
@@ -22,9 +23,102 @@ export type AcceptReceipt = {
   undo: UndoStep;
 };
 
+/**
+ * O recibo de uma fala entendida.
+ *
+ * Vive aqui, e nao em `types.ts`, pela mesma razao do `AcceptReceipt`: ele
+ * carrega o `UndoStep`, que mora junto da ponte do Hermes por ser o contrato do
+ * desfazer do M/OS inteiro.
+ *
+ * `executed` distingue as duas coisas que o mesmo objeto descreve: o que o M/OS
+ * FEZ (confianca alta) e o que ele OFERECE fazer (confianca media). Sem essa
+ * separacao o recibo mentiria numa das duas.
+ */
+export type VoiceResult = {
+  noteId: string;
+  captureId: string;
+  transcript: string;
+  title: string;
+  action: VoiceAction;
+  confidence: "high" | "medium" | "low";
+  executed: boolean;
+  taskId: string | null;
+  reminderId: string | null;
+  projectId: string | null;
+  projectName: string;
+  /** O Project veio da tela, e nao da fala. */
+  projectFromContext: boolean;
+  /** O prazo COMO FOI DITO, e o instante para o qual foi resolvido. */
+  whenRaw: string;
+  when: string | null;
+  hedged: boolean;
+  undo: UndoStep | null;
+  receiptMs: number;
+};
+
 export const api = {
   widgetPlacements() {
     return invoke<WidgetPlacement[]>("widget_placements");
+  },
+
+  // ===========================================================================
+  // Voice Inbox
+  // ===========================================================================
+  //
+  // Nenhum destes carrega audio: a captura inteira vive no Rust, e o que sobe
+  // para ca e estado. `voiceRecording` le atomicos, entao chamar a cada quadro
+  // custa quase nada.
+  //
+  // `voiceStart` e `voiceStop` sao chamados TAMBEM pelo atalho global, do lado
+  // do Rust. Por isso o contexto e o fuso nao viajam nestes comandos: eles sao
+  // publicados antes, por `voiceSetContext` e `voiceSetLocale` — do outro
+  // caminho nao ha renderer para carrega-los junto.
+  voiceStart() {
+    return invoke<VoiceNote>("voice_start");
+  },
+  voiceStop() {
+    return invoke<VoiceStopped>("voice_stop");
+  },
+  /** Esc: para, joga o audio fora e apaga a linha. */
+  voiceCancel() {
+    return invoke<void>("voice_cancel");
+  },
+  /** `null` quando nao ha gravacao em curso. */
+  voiceRecording() {
+    return invoke<VoiceTick | null>("voice_recording");
+  },
+  /** As notas cujo audio ainda guarda o que o banco nao tem em texto. */
+  voicePending() {
+    return invoke<VoiceNote[]>("voice_pending");
+  },
+  voiceRetry(id: string) {
+    return invoke<VoiceNote>("voice_retry", { id });
+  },
+  voiceDiscard(id: string) {
+    return invoke<void>("voice_discard", { id });
+  },
+  /** Aceita a oferta que a confianca media deixou na tela. */
+  voiceAct(noteId: string) {
+    return invoke<VoiceResult>("voice_act", { noteId });
+  },
+  /**
+   * O que a tela esta olhando agora.
+   *
+   * O contexto e SINAL e nao verdade: ele so entra quando a fala nao citou
+   * Project nenhum.
+   */
+  voiceSetContext(projectId: string | null, taskId: string | null) {
+    return invoke<void>("voice_set_context", { context: { projectId, taskId } });
+  },
+  /**
+   * O fuso de quem esta na frente do computador.
+   *
+   * Quem conhece o fuso e a tela, e o banco guarda UTC — `CORE-FOUNDATION.md`
+   * §5, e o mesmo padrao do `ReminderComposer`. Sem isto, "amanha as nove"
+   * seria resolvido contra UTC e cairia no dia errado a cada virada de noite.
+   */
+  voiceSetLocale() {
+    return invoke<void>("voice_set_locale", { offsetMinutes: -new Date().getTimezoneOffset() });
   },
 
   // ===========================================================================
@@ -411,6 +505,10 @@ export const api = {
   },
   status() {
     return invoke<AppStatus>("get_app_status");
+  },
+  /** O atalho SEGURADO da voz. Recusa o mesmo atalho da Captura rapida. */
+  setVoiceShortcut(shortcut: string) {
+    return invoke<string>("set_voice_shortcut", { shortcut });
   },
   setShortcut(shortcut: string) {
     return invoke<string>("set_capture_shortcut", { shortcut });

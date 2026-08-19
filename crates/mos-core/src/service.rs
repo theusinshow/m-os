@@ -329,6 +329,22 @@ impl AttentionService {
         self.repository.create_reminder(draft)
     }
 
+    /// Monta um Reminder SEM gravar.
+    ///
+    /// Existe para quem precisa grava-lo dentro de outra transacao — a acao
+    /// derivada de voz cria Task e Reminder juntos, e um `create_at` aqui
+    /// abriria uma segunda escrita fora daquela transacao. O instante entre as
+    /// duas e exatamente o que a atomicidade existe para nao ter.
+    pub fn draft_at(
+        &self,
+        title: &str,
+        body: &str,
+        instant: time::OffsetDateTime,
+        source: crate::ReminderSource,
+    ) -> Result<crate::NewReminder, CoreError> {
+        Ok(crate::NewReminder::at(title, body, instant, self.clock.as_ref())?.from_source(source))
+    }
+
     pub fn reminder(&self, id: crate::ReminderId) -> Result<crate::Reminder, CoreError> {
         self.repository.reminder(id)
     }

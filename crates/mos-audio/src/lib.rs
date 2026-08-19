@@ -99,6 +99,16 @@ pub struct RecordingState {
     pub system: ChannelState,
     pub mic_level: u64,
     pub system_level: u64,
+    /// O maior RMS visto desde o inicio, por canal.
+    ///
+    /// Existe para o Voice Inbox: o instantaneo responde "esta entrando som
+    /// agora?", e uma gravacao de tres segundos lida por amostragem pode cair
+    /// inteira nas pausas entre palavras. O pico e o que separa "falei baixo"
+    /// de "nao falei".
+    #[serde(default)]
+    pub mic_peak: u64,
+    #[serde(default)]
+    pub system_peak: u64,
 }
 
 /// O que a captura mediu quando os arquivos fecharam.
@@ -110,6 +120,11 @@ pub struct SessionOutcome {
     pub duration_ms: i64,
     pub mic: ChannelState,
     pub system: ChannelState,
+    /// O pico de cada canal ao longo da gravacao inteira.
+    #[serde(default)]
+    pub mic_peak: u64,
+    #[serde(default)]
+    pub system_peak: u64,
 }
 
 /// O que a recuperacao de abertura encontrou em disco.
@@ -180,26 +195,54 @@ impl Recording {
 
 #[cfg(windows)]
 impl Recording {
-    /// Comeca a gravar em `root`.
+    /// Comeca a gravar os DOIS canais em `root`. E a gravacao de reuniao.
     ///
     /// O keep-alive sobe ANTES dos canais: se o motor de audio so acordar depois
     /// que o loopback ja esta lendo, os primeiros segundos do canal SYSTEM saem
     /// vazios e a linha do tempo nasce torta.
     pub fn start(root: &Path, started_at: &str) -> Result<Self, AudioError> {
+        Self::start_with(root, started_at, true)
+    }
+
+    /// Grava SO o microfone. E a gravacao do Voice Inbox.
+    ///
+    /// Tres ausencias, e as tres sao a decisao:
+    ///
+    /// - **sem loopback.** Capturar o que sai pelos alto-falantes enquanto
+    ///   alguem dita um lembrete gravaria a musica, a reuniao aberta atras e a
+    ///   voz de quem estivesse do outro lado dela. Numa reuniao isso e o
+    ///   produto; aqui seria vigilancia acidental;
+    /// - **sem keep-alive.** Ele existe para o loopback nao emudecer, e sem
+    ///   canal SYSTEM ele so manteria o motor de audio do Windows acordado sem
+    ///   ninguem ouvindo;
+    /// - **sem o segundo arquivo.** `recover_session` continua funcionando: o
+    ///   canal ausente le como zero frames, que e a verdade.
+    pub fn start_mic(root: &Path, started_at: &str) -> Result<Self, AudioError> {
+        Self::start_with(root, started_at, false)
+    }
+
+    fn start_with(root: &Path, started_at: &str, with_system: bool) -> Result<Self, AudioError> {
         let session = SessionDir::new(root);
         session.create()?;
 
         let stop = Arc::new(AtomicBool::new(false));
-        let keep_alive = capture::spawn_keep_alive(stop.clone());
+        let keep_alive = if with_system {
+            Some(capture::spawn_keep_alive(stop.clone()))
+        } else {
+            None
+        };
 
         let mic = capture::spawn(Channel::Mic, &session.channel(Channel::Mic), stop.clone());
-        let system = capture::spawn(
-            Channel::System,
-            &session.channel(Channel::System),
-            stop.clone(),
-        );
+        let system = with_system.then(|| {
+            capture::spawn(
+                Channel::System,
+                &session.channel(Channel::System),
+                stop.clone(),
+            )
+        });
 
         let (mic_device, system_device) = capture::default_devices().unwrap_or((None, None));
+        let system_device = if with_system { system_device } else { None };
         // O manifesto e escrito no inicio, com o que ja se sabe. Ele e reescrito
         // no fim com o que aconteceu — e ate la, se o processo morrer, este
         // arquivo e o que diz a recuperacao como ler os bytes.
@@ -228,8 +271,8 @@ impl Recording {
             root: root.to_path_buf(),
             stop,
             mic: Some(mic),
-            system: Some(system),
-            keep_alive: Some(keep_alive),
+            system,
+            keep_alive,
         })
     }
 
@@ -254,20 +297,30 @@ impl Recording {
                 (
                     live.frames.load(Ordering::Relaxed),
                     live.level_milli.load(Ordering::Relaxed),
+                    live.peak_milli.load(Ordering::Relaxed),
                     state,
                 )
             }
-            None => (0, 0, ChannelState::Unavailable { reason: String::new() }),
+            None => (
+                0,
+                0,
+                0,
+                ChannelState::Unavailable {
+                    reason: String::new(),
+                },
+            ),
         };
 
-        let (mic_frames, mic_level, mic_state) = read(&self.mic);
-        let (system_frames, system_level, system_state) = read(&self.system);
+        let (mic_frames, mic_level, mic_peak, mic_state) = read(&self.mic);
+        let (system_frames, system_level, system_peak, system_state) = read(&self.system);
         RecordingState {
             duration_ms: Format::CAPTURE.frames_to_ms(mic_frames.max(system_frames)),
             mic: mic_state,
             system: system_state,
             mic_level,
             system_level,
+            mic_peak,
+            system_peak,
         }
     }
 
@@ -278,6 +331,17 @@ impl Recording {
     /// elas divergissem um dia.
     pub fn stop(mut self) -> Result<SessionOutcome, AudioError> {
         self.stop.store(true, Ordering::Relaxed);
+
+        // Os picos sao lidos ANTES do join: `ChannelThread::join` consome a
+        // thread e leva o `Live` junto, e depois dele nao ha de onde tira-los.
+        let peak = |thread: &Option<capture::ChannelThread>| {
+            thread
+                .as_ref()
+                .map(|thread| thread.live.peak_milli.load(Ordering::Relaxed))
+                .unwrap_or(0)
+        };
+        let mic_peak = peak(&self.mic);
+        let system_peak = peak(&self.system);
 
         let mic = self.mic.take().map(capture::ChannelThread::join);
         let system = self.system.take().map(capture::ChannelThread::join);
@@ -306,6 +370,8 @@ impl Recording {
             duration_ms: recovered.duration_ms,
             mic: settle(mic, recovered.mic),
             system: settle(system, recovered.system),
+            mic_peak,
+            system_peak,
         })
     }
 }
@@ -313,6 +379,10 @@ impl Recording {
 #[cfg(not(windows))]
 impl Recording {
     pub fn start(_root: &Path, _started_at: &str) -> Result<Self, AudioError> {
+        Err(AudioError::Unsupported)
+    }
+
+    pub fn start_mic(_root: &Path, _started_at: &str) -> Result<Self, AudioError> {
         Err(AudioError::Unsupported)
     }
 
@@ -327,6 +397,8 @@ impl Recording {
             },
             mic_level: 0,
             system_level: 0,
+            mic_peak: 0,
+            system_peak: 0,
         }
     }
 
@@ -460,7 +532,7 @@ mod tests {
     fn fora_do_windows_a_gravacao_recusa_em_vez_de_devolver_silencio() {
         let dir = tempfile::tempdir().unwrap();
         assert!(matches!(
-            Recording::start(dir.path()),
+            Recording::start_mic(dir.path(), ""),
             Err(AudioError::Unsupported)
         ));
     }

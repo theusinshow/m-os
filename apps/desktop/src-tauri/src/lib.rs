@@ -12,8 +12,8 @@ use mos_core::{
     CreateProjectInput, CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService,
     FunctionDefinition, HiddenWidget, MemoryService, MonitoringService, Project, RegisteredApp,
     Resource, ResourceWorkspace, SearchItem, Task, TaskState, TrackingService, UpdateAppInput,
-    UpdateProjectInput, UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, WorkService,
-    Workspace,
+    UpdateProjectInput, UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, VoiceService,
+    WorkService, Workspace,
 };
 use mos_storage_sqlite::{SqliteStorage, StorageHealth};
 use serde::{Deserialize, Serialize};
@@ -33,8 +33,19 @@ mod meeting;
 mod monitor;
 mod pdf;
 mod tracking;
+mod voice;
 
 const DEFAULT_CAPTURE_SHORTCUT: &str = "Ctrl+Shift+Space";
+
+/// O atalho da voz, SEGURADO enquanto se fala.
+///
+/// Irmao do de captura — mesmo `Space`, mesma familia, mesma memoria muscular —
+/// e o `Alt` ecoa o `⌥` que o design system pede em §Voz.
+///
+/// Duas recusas que valem registro. `Ctrl+Shift+V` roubaria "colar sem
+/// formatacao" de TODOS os programas da maquina, porque um atalho global e
+/// global. E `Alt+Space` e o menu de janela do Windows.
+const DEFAULT_VOICE_SHORTCUT: &str = "Ctrl+Alt+Space";
 
 struct AppState {
     captures: CaptureService,
@@ -44,6 +55,7 @@ struct AppState {
     conversations: ConversationService,
     tracking: TrackingService,
     meetings: MeetingService,
+    voice: VoiceService,
     monitoring: MonitoringService,
     data: DataService,
     attention: AttentionService,
@@ -51,6 +63,14 @@ struct AppState {
     storage: Arc<SqliteStorage>,
     shortcut_status: Mutex<String>,
     active_shortcut: Mutex<Option<String>>,
+    voice_shortcut_status: Mutex<String>,
+    /// O atalho de voz registrado agora.
+    ///
+    /// O plugin entrega UM handler para todos os atalhos, entao ele precisa
+    /// saber qual deles disparou. Guardar a string registrada e o que permite
+    /// distinguir "abrir a captura" de "segurar para falar" — sem isto, os dois
+    /// fariam a mesma coisa.
+    active_voice_shortcut: Mutex<Option<String>>,
     snapshot_status: Arc<Mutex<String>>,
     settings_path: PathBuf,
 }
@@ -59,6 +79,9 @@ struct AppState {
 #[serde(rename_all = "camelCase")]
 struct UserSettings {
     capture_shortcut: String,
+    /// O atalho da voz. Vazio significa o padrao.
+    #[serde(default)]
+    voice_shortcut: String,
     /// Preferencia NOSSA, e nao do sistema.
     ///
     /// Diferente de "iniciar com o Windows", que vive no registro e e lido
@@ -95,6 +118,7 @@ struct AppStatus {
     resource_count: usize,
     workspace_count: usize,
     shortcut: String,
+    voice_shortcut: String,
     snapshot: String,
     storage: StorageHealth,
 }
@@ -871,6 +895,11 @@ fn get_app_status(state: tauri::State<'_, AppState>) -> Result<AppStatus, CoreEr
             .lock()
             .map_err(|error| lock_error(error.to_string()))?
             .clone(),
+        voice_shortcut: state
+            .voice_shortcut_status
+            .lock()
+            .map_err(|error| lock_error(error.to_string()))?
+            .clone(),
         snapshot: state
             .snapshot_status
             .lock()
@@ -951,6 +980,95 @@ fn set_capture_shortcut(
     result
 }
 
+/// Troca o atalho da voz, com rollback.
+///
+/// Mesma cerimonia do `set_capture_shortcut`, e a razao e a mesma: um atalho
+/// que falha ao registrar nao pode deixar o usuario SEM atalho nenhum — o
+/// anterior volta, e a mensagem diz que ele continua ativo.
+#[tauri::command]
+fn set_voice_shortcut(
+    shortcut: &str,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, CoreError> {
+    let requested = shortcut.trim();
+    if requested.is_empty() {
+        return Err(CoreError::new(
+            mos_core::ErrorCode::InvalidInput,
+            "Informe um atalho.",
+            false,
+        ));
+    }
+    if state
+        .active_shortcut
+        .lock()
+        .map_err(|error| lock_error(error.to_string()))?
+        .as_deref()
+        == Some(requested)
+    {
+        return Err(CoreError::new(
+            mos_core::ErrorCode::InvalidInput,
+            "Este atalho ja abre a Captura rapida.",
+            false,
+        ));
+    }
+
+    let mut active = state
+        .active_voice_shortcut
+        .lock()
+        .map_err(|error| lock_error(error.to_string()))?;
+    if active.as_deref() == Some(requested) {
+        return Ok(format!("Registrado: {requested}"));
+    }
+    let previous = active.take();
+    if let Some(previous) = &previous {
+        app.global_shortcut()
+            .unregister(previous.as_str())
+            .map_err(shortcut_error)?;
+    }
+
+    let result = match app.global_shortcut().register(requested) {
+        Ok(()) => match persist_voice_shortcut(&state.settings_path, requested) {
+            Ok(()) => {
+                *active = Some(requested.into());
+                Ok(format!("Registrado: {requested}"))
+            }
+            Err(error) => {
+                let _ = app.global_shortcut().unregister(requested);
+                if let Some(previous) = &previous {
+                    if app.global_shortcut().register(previous.as_str()).is_ok() {
+                        *active = Some(previous.clone());
+                    }
+                }
+                Err(error)
+            }
+        },
+        Err(error) => {
+            let mut message = format!("Nao foi possivel registrar {requested}: {error}");
+            if let Some(previous) = previous {
+                if app.global_shortcut().register(previous.as_str()).is_ok() {
+                    *active = Some(previous.clone());
+                    message.push_str(&format!(". {previous} continua ativo."));
+                }
+            }
+            Err(CoreError::new(
+                mos_core::ErrorCode::InvalidInput,
+                message,
+                true,
+            ))
+        }
+    };
+    let status = match &result {
+        Ok(message) => message.clone(),
+        Err(error) => error.message.clone(),
+    };
+    *state
+        .voice_shortcut_status
+        .lock()
+        .map_err(|error| lock_error(error.to_string()))? = status;
+    result
+}
+
 #[tauri::command]
 fn show_quick_capture(app: AppHandle) {
     reveal_window(&app, "quick-capture");
@@ -988,7 +1106,7 @@ fn schedule_snapshot(data: &DataService, snapshot_status: &Arc<Mutex<String>>, a
     });
 }
 
-fn reveal_window<R: Runtime>(app: &AppHandle<R>, label: &str) {
+pub(crate) fn reveal_window<R: Runtime>(app: &AppHandle<R>, label: &str) {
     if let Some(window) = app.get_webview_window(label) {
         if label == "quick-capture" {
             if let (Ok(Some(monitor)), Ok(size)) = (window.current_monitor(), window.outer_size()) {
@@ -1215,6 +1333,9 @@ fn load_settings(path: &std::path::Path) -> UserSettings {
         .ok()
         .and_then(|json| serde_json::from_str::<UserSettings>(&json).ok())
         .unwrap_or_default();
+    if settings.voice_shortcut.trim().is_empty() {
+        settings.voice_shortcut = DEFAULT_VOICE_SHORTCUT.into();
+    }
     if settings.capture_shortcut.trim().is_empty() {
         settings.capture_shortcut = DEFAULT_CAPTURE_SHORTCUT.into();
     }
@@ -1223,6 +1344,10 @@ fn load_settings(path: &std::path::Path) -> UserSettings {
 
 fn load_shortcut(path: &std::path::Path) -> String {
     load_settings(path).capture_shortcut
+}
+
+fn load_voice_shortcut(path: &std::path::Path) -> String {
+    load_settings(path).voice_shortcut
 }
 
 /// Grava o arquivo inteiro a partir do que ja estava la.
@@ -1275,6 +1400,12 @@ fn analysis_consent(path: &std::path::Path) -> String {
 fn set_analysis_consent(path: &std::path::Path, at: &str) -> Result<(), CoreError> {
     let mut settings = load_settings(path);
     settings.analysis_consent_at = at.to_owned();
+    save_settings(path, &settings)
+}
+
+fn persist_voice_shortcut(path: &std::path::Path, shortcut: &str) -> Result<(), CoreError> {
+    let mut settings = load_settings(path);
+    settings.voice_shortcut = shortcut.into();
     save_settings(path, &settings)
 }
 
@@ -1448,7 +1579,38 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
+                // UM handler para os dois atalhos, entao ele precisa saber qual
+                // disparou. A comparacao e contra o `Shortcut` PARSEADO, e nao
+                // contra a string: "Ctrl+Alt+Space" e "CommandOrControl+Alt+Space"
+                // sao o mesmo atalho escrito de dois jeitos, e comparar texto
+                // faria o segundo cair no ramo errado em silencio.
+                .with_handler(|app, shortcut, event| {
+                    let voice = app
+                        .try_state::<AppState>()
+                        .and_then(|state| {
+                            state
+                                .active_voice_shortcut
+                                .lock()
+                                .ok()
+                                .and_then(|guard| guard.clone())
+                        })
+                        .and_then(|registered| {
+                            registered
+                                .parse::<tauri_plugin_global_shortcut::Shortcut>()
+                                .ok()
+                        })
+                        .is_some_and(|parsed| &parsed == shortcut);
+
+                    if voice {
+                        // Segurar, e nao alternar (design system, §Voz). O
+                        // auto-repeat do Windows repete `Pressed` enquanto a
+                        // tecla esta afundada; a guarda mora do outro lado.
+                        match event.state {
+                            ShortcutState::Pressed => voice::shortcut_pressed(app),
+                            ShortcutState::Released => voice::shortcut_released(app),
+                        }
+                        return;
+                    }
                     if event.state == ShortcutState::Pressed {
                         reveal_window(app, "quick-capture");
                     }
@@ -1462,6 +1624,7 @@ pub fn run() {
             fs::create_dir_all(&data_directory)?;
             let settings_path = data_directory.join("settings.json");
             let configured_shortcut = load_shortcut(&settings_path);
+            let configured_voice_shortcut = load_voice_shortcut(&settings_path);
             if should_start_hidden(&load_settings(&settings_path)) {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();
@@ -1488,6 +1651,7 @@ pub fn run() {
                 conversations: ConversationService::new(storage.clone()),
                 tracking: TrackingService::new(storage.clone()),
                 meetings: MeetingService::new(storage.clone(), clock.clone()),
+                voice: VoiceService::new(storage.clone(), clock.clone()),
                 monitoring: MonitoringService::new(storage.clone()),
                 data: DataService::new(storage.clone()),
                 attention: AttentionService::new(storage.clone(), clock.clone()),
@@ -1495,6 +1659,8 @@ pub fn run() {
                 storage,
                 shortcut_status: Mutex::new("Registrando...".into()),
                 active_shortcut: Mutex::new(None),
+                voice_shortcut_status: Mutex::new("Registrando...".into()),
+                active_voice_shortcut: Mutex::new(None),
                 snapshot_status: Arc::new(Mutex::new("Snapshot ainda nao verificado.".into())),
                 settings_path,
             });
@@ -1505,6 +1671,11 @@ pub fn run() {
             let _ = app.state::<AppState>().conversations.settle_unfinished();
 
             app.manage(meeting::RecordingState::default());
+            app.manage(voice::VoiceRuntime::default());
+            // O que o processo anterior deixou pelo caminho. Uma nota em
+            // `recording` num processo recem-nascido significa que o anterior
+            // morreu sem terminar — e o audio dela pode estar inteiro em disco.
+            voice::reconcile(app.handle());
             // A reconciliacao roda ANTES da limpeza, e a ordem e a garantia:
             // uma reuniao interrompida precisa virar `interrupted` antes que
             // qualquer rotina olhe para o disco dela. Invertida, a limpeza veria
@@ -1544,6 +1715,32 @@ pub fn run() {
                 .shortcut_status
                 .lock()
                 .map_err(|error| std::io::Error::other(error.to_string()))? = shortcut_status;
+
+            // O atalho da voz e registrado DEPOIS, e a falha dele nao derruba o
+            // outro: quem perde a voz continua tendo a captura por texto, que e
+            // o caminho que sempre funciona.
+            let voice_status = if configured_voice_shortcut == configured_shortcut {
+                "Conflito com o atalho da Captura rapida.".to_owned()
+            } else {
+                match app
+                    .global_shortcut()
+                    .register(configured_voice_shortcut.as_str())
+                {
+                    Ok(()) => {
+                        *app.state::<AppState>()
+                            .active_voice_shortcut
+                            .lock()
+                            .map_err(|error| std::io::Error::other(error.to_string()))? =
+                            Some(configured_voice_shortcut.clone());
+                        format!("Registrado: {configured_voice_shortcut}")
+                    }
+                    Err(error) => format!("Atalho indisponivel: {error}"),
+                }
+            };
+            *app.state::<AppState>()
+                .voice_shortcut_status
+                .lock()
+                .map_err(|error| std::io::Error::other(error.to_string()))? = voice_status;
             setup_tray(app)?;
 
             // Depois do tray porque so aqui a janela ja existe de fato.
@@ -1757,8 +1954,19 @@ pub fn run() {
             export_json,
             get_app_status,
             set_capture_shortcut,
+            set_voice_shortcut,
             show_quick_capture,
             hide_quick_capture,
+            voice::voice_start,
+            voice::voice_stop,
+            voice::voice_cancel,
+            voice::voice_recording,
+            voice::voice_pending,
+            voice::voice_retry,
+            voice::voice_discard,
+            voice::voice_act,
+            voice::voice_set_context,
+            voice::voice_set_locale,
         ])
         .build(tauri::generate_context!())
         .expect("error while running M/OS")

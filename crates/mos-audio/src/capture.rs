@@ -45,6 +45,17 @@ pub struct Live {
     /// RMS em milesimos. **E o unico dado de audio que sai desta thread** — nao
     /// existe caminho de PCM para fora do crate.
     pub level_milli: AtomicU64,
+    /// O MAIOR RMS visto desde o inicio, na mesma escala de `level_milli`.
+    ///
+    /// Existe para o Voice Inbox, e nao para a barra de nivel: o instantaneo
+    /// responde "esta entrando som agora?", e essa pergunta nao serve para
+    /// decidir se HOUVE fala numa gravacao de tres segundos — quem le por
+    /// amostragem pode cair inteiro nas pausas entre palavras.
+    ///
+    /// O pico e o que separa "falei baixo" de "nao falei". O whisper preenche
+    /// silencio com credito de legenda inventado, entao essa distincao decide
+    /// se o audio chega a ele.
+    pub peak_milli: AtomicU64,
     /// `-1` enquanto o canal esta vivo; o instante da perda, em ms, depois.
     pub lost_at_ms: AtomicI64,
     pub opened: AtomicBool,
@@ -316,8 +327,9 @@ fn run(
             }
 
             let payload = &scratch[..frames_read as usize * bytes_per_frame];
-            live.level_milli
-                .store(rms_milli(payload, format), Ordering::Relaxed);
+            let level = rms_milli(payload, format);
+            live.level_milli.store(level, Ordering::Relaxed);
+            live.peak_milli.fetch_max(level, Ordering::Relaxed);
 
             if let Err(error) = writer.write(payload) {
                 state = lost(started, &format!("a escrita em disco falhou: {error}"));

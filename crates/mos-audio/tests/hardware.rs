@@ -141,3 +141,65 @@ fn uma_gravacao_curta_e_apagavel() {
     // de uma limpeza.
     assert_eq!(recover_session(&root).unwrap().duration_ms, 0);
 }
+
+/// A gravacao do Voice Inbox: SO o microfone, e o pico que decide se houve fala.
+///
+/// Fale enquanto ele roda. As duas assercoes que importam sao opostas entre si,
+/// e e por isso que as duas precisam existir:
+///
+/// - o **microfone** precisa ter passado do piso de energia, senao a fala nao
+///   chegaria ao transcritor;
+/// - o canal do **sistema** precisa nao existir. Um Voice Inbox que gravasse o
+///   loopback capturaria a musica, a reuniao aberta atras e a voz de quem
+///   estivesse do outro lado dela — e ninguem pediu isso ao apertar um atalho
+///   para ditar um lembrete.
+#[test]
+#[ignore = "abre dispositivos de audio reais; rode com --ignored"]
+fn a_gravacao_de_voz_pega_o_microfone_e_nada_alem_dele() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("voice/0198-teste");
+
+    let recording = Recording::start_mic(&root, "2026-08-19T14:00:00Z")
+        .expect("a gravacao precisa comecar");
+    println!("FALE AGORA — 4 segundos");
+    for _ in 0..4 {
+        thread::sleep(Duration::from_secs(1));
+        let state = recording.state();
+        println!(
+            "  {:>6} ms   mic {:>4} (pico {:>4})   system {:?}",
+            state.duration_ms, state.mic_level, state.mic_peak, state.system
+        );
+    }
+    let outcome = recording.stop().expect("parar precisa devolver o que gravou");
+    println!("\noutcome: {outcome:#?}");
+
+    assert!(outcome.mic.has_audio(), "o microfone nao gravou: {:?}", outcome.mic);
+    assert!(
+        outcome.mic_peak >= mos_core_piso(),
+        "o pico foi {} — abaixo do piso, a fala nao chegaria ao transcritor",
+        outcome.mic_peak
+    );
+    assert!(
+        !outcome.system.has_audio(),
+        "o Voice Inbox nao pode gravar o audio do sistema: {:?}",
+        outcome.system
+    );
+
+    // E nao ha sequer diretorio para o canal do sistema.
+    let session = SessionDir::new(&root);
+    assert!(session.channel(Channel::Mic).join("000000.pcm").exists());
+    assert!(
+        !session.channel(Channel::System).join("000000.pcm").exists(),
+        "nenhum byte do sistema pode ter sido escrito"
+    );
+}
+
+/// O piso de energia do dominio, repetido aqui como literal.
+///
+/// `mos-audio` nao depende de `mos-core` (§4.2), e essa ausencia e o que
+/// mantem a fronteira. O numero e o mesmo de `mos_core::voice::MIN_PEAK_LEVEL`,
+/// e o custo de duplicar e um literal — menor que o de furar a fronteira por
+/// causa de um teste.
+fn mos_core_piso() -> u64 {
+    120
+}
