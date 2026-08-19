@@ -465,6 +465,10 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* A folga e minima, e nao decorativa: com `space-between` a distancia entre os
+     blocos e o que sobra, e o que sobra vira zero no instante em que a barra de
+     gravacao entra. Sem `gap`, os tres se encostam antes de transbordar. */
+  gap: var(--space-3);
   padding: 0 var(--space-4);
   background: var(--canvas);
   border-bottom: var(--line) solid var(--border);
@@ -483,6 +487,10 @@ button {
   border: var(--line) solid var(--border-strong);
   border-radius: var(--radius);
   text-align: left;
+  /* `min-width: 0` porque o padrao (`auto`) proibe o item de encolher abaixo do
+     proprio conteudo: sem isto ele nao cede, e o transbordo sai por cima do
+     vizinho em vez de virar reticencia aqui. */
+  min-width: 0;
   transition: border-color var(--dur-instant) var(--ease-state);
 }
 
@@ -496,6 +504,7 @@ button {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
   color: var(--text-system);
 }
 
@@ -504,6 +513,9 @@ button {
 }
 
 .page-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text-disabled);
   font: var(--text-meta);
   letter-spacing: var(--tracking-label);
@@ -593,6 +605,9 @@ button {
 
 .command-trigger > span:nth-child(2) {
   flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 kbd,
@@ -6940,6 +6955,11 @@ input[type="checkbox"]:disabled {
 .recording-bar {
   display: flex;
   align-items: center;
+  /* `flex: none` e a regra de prioridade da topbar: entre encolher o Command,
+     o meta da pagina ou a indicacao de que o microfone esta aberto, a indicacao
+     e a unica que nao pode ceder (§17.2). A 840px, cedendo, ela chegava a perder
+     os oito degraus de nivel e a colar MIC em SISTEMA. */
+  flex: none;
   gap: var(--space-3);
   padding: var(--space-1) var(--space-3);
   border: 1px solid var(--border-strong);
@@ -6954,6 +6974,7 @@ input[type="checkbox"]:disabled {
 .recording-open {
   display: flex;
   align-items: center;
+  flex: none;
   gap: var(--space-2);
   padding: 0;
   border: 0;
@@ -6993,6 +7014,7 @@ input[type="checkbox"]:disabled {
 .meeting-channel {
   display: flex;
   align-items: center;
+  flex: none;
   gap: var(--space-2);
 }
 
@@ -7010,12 +7032,14 @@ input[type="checkbox"]:disabled {
    ouvindo?", e nao desenhar audio. */
 .meeting-level {
   display: inline-flex;
+  flex: none;
   gap: 2px;
   align-items: flex-end;
 }
 
 .meeting-level i {
   display: block;
+  flex: none;
   width: 2px;
   height: 8px;
   background: var(--border-control);
@@ -7026,11 +7050,17 @@ input[type="checkbox"]:disabled {
 }
 
 .recording-note {
+  min-width: 0;
+  max-width: 22ch;
+  overflow: hidden;
   font: var(--text-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--danger);
 }
 
 .recording-stop {
+  flex: none;
   margin-left: auto;
 }
 

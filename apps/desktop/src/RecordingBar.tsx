@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
+import { Button } from "./Button";
 import type { ChannelOutcome, Meeting, MeetingTick } from "./types";
 
 /**
@@ -126,10 +127,16 @@ export function RecordingBar({ onStopped, openMeeting }: {
       </button>
       <Channel label="MIC" outcome={tick.mic} level={tick.micLevel} />
       <Channel label="SISTEMA" outcome={tick.system} level={tick.systemLevel} />
-      {note ? <span className="recording-note">{note}</span> : null}
-      <button type="button" className="recording-stop" onClick={() => void stop()} disabled={stopping}>
+      {/* O `title` existe porque o CSS trunca: a mensagem do backend pode ser
+          longa, e truncar sem deixar como ler o resto esconderia justamente a
+          razao de a gravacao nao ter parado. */}
+      {note ? <span className="recording-note" title={note}>{note}</span> : null}
+      {/* `Button`, e nao um `<button>` cru: sem a classe do design system o
+          controle caia no desenho nativo do WebView2 — caixa branca preenchida,
+          com o rotulo herdando a cor clara da barra e sumindo dentro dela. */}
+      <Button variant="outline" size="sm" className="recording-stop" onClick={() => void stop()} disabled={stopping}>
         {stopping ? "PARANDO…" : "PARAR"}
-      </button>
+      </Button>
     </div>
   );
 }
