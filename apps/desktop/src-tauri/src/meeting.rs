@@ -997,7 +997,9 @@ async fn analyze(app: &AppHandle, id: &str) -> Result<Meeting, String> {
     }
 
     let windows = mos_core::build_windows(&segments, mos_core::WINDOW_BUDGET_CHARS);
-    let instructions = mos_core::instructions(&meeting.title);
+    // As notas sobem JUNTO, como contexto. Elas nao geram item: o prompt
+    // exige `segment` por item, e uma nota nao foi dita, foi escrita.
+    let instructions = mos_core::instructions(&meeting.title, &meeting.notes);
 
     // O REGISTRO do que sai, emitido antes do envio e guardado na reuniao. Ele
     // mede, e nao copia: contagem de segmentos, caracteres, janelas e o

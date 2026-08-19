@@ -438,9 +438,26 @@ fn clock(ms: i64) -> String {
 /// Elas nao pedem gentileza nem tom: pedem FORMA. O que garante qualidade e a
 /// validacao do lado de ca, e nao a educacao do prompt — um modelo que ignore
 /// isto produz um bloco que `parse_analysis` recusa.
-pub fn instructions(title: &str) -> String {
+pub fn instructions(title: &str, notes: &str) -> String {
+    // Sem notas, o bloco NAO existe. Um cabecalho vazio ensinaria o modelo a
+    // procurar conteudo que nao esta la, e modelo que procura o que nao existe
+    // acaba inventando.
+    let bloco = if notes.trim().is_empty() {
+        String::new()
+    } else {
+        format!(
+            "NOTAS DE QUEM GRAVOU (contexto, nao transcricao):\n\
+             {}\n\
+             \n\
+             Elas dizem o que importou para quem estava na reuniao. Use para o\n\
+             resumo e para desambiguar o que foi dito. Elas NAO foram ditas em\n\
+             voz alta, entao nao servem de evidencia.\n\
+             \n",
+            notes.trim()
+        )
+    };
     format!(
-        "Voce esta analisando a transcricao da reuniao \"{title}\".\n\
+        "{bloco}Voce esta analisando a transcricao da reuniao \"{title}\".\n\
          \n\
          Cada linha tem a forma `[id] hh:mm:ss QUEM — texto`.\n\
          O `id` e SO o que esta dentro dos colchetes, por exemplo\n\
@@ -473,6 +490,8 @@ pub fn instructions(title: &str) -> String {
          \x20 descartada, e o item perde o direito de virar Task num clique.\n\
          - `dueHint` guarda a palavra dita, nunca uma data calculada.\n\
          - use `low` quando a frase for hipotetica (\"talvez\", \"quem sabe\").\n\
+         - as notas acima, quando existirem, sao CONTEXTO: nenhum item pode\n\
+         \x20 ter como unica base uma nota, porque nota nao tem `segment`.\n\
          - nao repita a transcricao no resumo."
     )
 }
@@ -833,10 +852,31 @@ mod tests {
 
     #[test]
     fn as_instrucoes_carregam_o_titulo_e_o_nome_do_bloco() {
-        let texto = instructions("NexoDoc — Comercial");
+        let texto = instructions("NexoDoc — Comercial", "");
         assert!(texto.contains("NexoDoc — Comercial"));
         assert!(texto.contains("mos-meeting"));
         assert!(texto.contains("my_action"));
         assert!(texto.contains("nao invente id"));
+    }
+
+    #[test]
+    fn as_notas_entram_como_contexto_e_a_regra_de_evidencia_fica() {
+        let com = instructions("Obra X", "cliente quer o orcamento ate sexta");
+        assert!(com.contains("NOTAS DE QUEM GRAVOU"));
+        assert!(com.contains("cliente quer o orcamento ate sexta"));
+        // A regra que sustenta o "aceitar num clique" nao pode afrouxar.
+        assert!(com.contains("pelo menos um `segment`"));
+        assert!(
+            com.contains("nao servem de evidencia"),
+            "o prompt precisa dizer que a nota NAO ancora item"
+        );
+
+        // Sem notas, o bloco nao existe: um cabecalho vazio ensinaria o modelo a
+        // procurar conteudo que nao esta la.
+        let sem = instructions("Obra X", "   ");
+        assert!(!sem.contains("NOTAS DE QUEM GRAVOU"));
+        // E o resto do prompt continua inteiro.
+        assert!(sem.contains("mos-meeting"));
+        assert!(sem.contains("pelo menos um `segment`"));
     }
 }
