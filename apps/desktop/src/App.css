@@ -2882,6 +2882,41 @@ tr:focus-within .tempo-row-actions {
   white-space: nowrap;
 }
 
+/* Num widget de UMA unidade, a data desce em vez de comer o nome.
+
+   A row e flex com a copia encolhivel e a meta em `nowrap`, entao toda a
+   compressao caia sobre o primeiro: "043 - Rancho Queimado" virava
+   "043 - Rancho …" enquanto "ha 3 dias" ficava inteiro ao lado. Trocou o que
+   identifica pelo que contextualiza, que e a ordem errada — quem varre a lista
+   esta procurando QUAL project, nao quando.
+
+   Descer e nao esconder: `display: none` tiraria a data tambem de quem le por
+   leitor de tela, e ela nao esta sobrando, so nao cabe na mesma linha. A altura
+   de duas linhas ja existe no sistema, e a mesma que a row com `small` usa. */
+.home-grid .widget[data-span="3"] .data-row {
+  min-height: var(--height-row-two-line);
+  flex-wrap: wrap;
+  align-content: center;
+  row-gap: 0;
+}
+
+/* So a META desce. Mandar a copia ocupar a linha inteira tambem empurrava o
+   marcador para uma linha propria, e o ponto do project ficava boiando sozinho
+   acima do nome. O marcador pertence a linha do nome. */
+.home-grid .widget[data-span="3"] .data-row .row-meta {
+  flex: 1 0 100%;
+}
+
+/* A segunda linha entra sob o NOME, e nao sob o marcador.
+
+   Sem isto a data comecava na borda da row e o nome um marcador adiante, e a
+   lista ficava com duas margens esquerdas. O seletor pergunta "esta row comeca
+   com alguma coisa antes da copia?" em vez de nomear `.project-dot`: o marcador
+   e um `prop`, e amanha pode ser outro desenho. */
+.home-grid .widget[data-span="3"] .data-row:not(:has(> .row-copy:first-child)) .row-meta {
+  padding-left: calc(var(--dot-size) + var(--space-3));
+}
+
 .empty-state {
   margin: var(--space-4) 0;
   max-width: var(--measure);
