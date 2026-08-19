@@ -770,6 +770,8 @@ export type VoiceTick = {
 
 /** O desfecho de soltar a tecla. As duas recusas nao persistiram nada. */
 export type VoiceStopped =
+  /** Nao havia gravacao. Nao e erro: os dois caminhos de parada correm juntos. */
+  | { outcome: "notRecording" }
   | { outcome: "tooShort" }
   | { outcome: "tooQuiet" }
   | { outcome: "transcribing"; noteId: string };

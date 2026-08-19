@@ -284,12 +284,15 @@ pub fn attention_create<R: Runtime>(
 
 #[tauri::command]
 pub fn attention_list<R: Runtime>(app: AppHandle<R>) -> Result<Vec<Reminder>, CoreError> {
-    app.state::<AppState>().attention.open()
+    crate::services(&app)?.attention.open()
 }
 
 #[tauri::command]
 pub fn attention_count<R: Runtime>(app: AppHandle<R>) -> Result<usize, CoreError> {
-    app.state::<AppState>().attention.needs_attention_count()
+    // A PRIMEIRA chamada que a Home faz ao montar, e por isso a que descobriu a
+    // corrida de abertura: `state()` aqui abortava o processo quando a webview
+    // chegava antes do `setup`.
+    crate::services(&app)?.attention.needs_attention_count()
 }
 
 #[tauri::command]

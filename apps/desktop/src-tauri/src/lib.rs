@@ -39,13 +39,23 @@ const DEFAULT_CAPTURE_SHORTCUT: &str = "Ctrl+Shift+Space";
 
 /// O atalho da voz, SEGURADO enquanto se fala.
 ///
-/// Irmao do de captura — mesmo `Space`, mesma familia, mesma memoria muscular —
-/// e o `Alt` ecoa o `⌥` que o design system pede em §Voz.
+/// **Este numero foi medido, e nao escolhido.** A primeira escolha foi
+/// `Ctrl+Alt+Space`, para ficar na familia do `Ctrl+Shift+Space` da captura. Ao
+/// rodar o app, ele nao registrou: `RegisterHotKey` devolveu 1409
+/// (`ERROR_HOTKEY_ALREADY_REGISTERED`) — ha outro programa nesta maquina que ja
+/// o tomou. Um padrao que nao registra e uma feature que nao existe, e nada na
+/// tela principal contaria isso.
 ///
-/// Duas recusas que valem registro. `Ctrl+Shift+V` roubaria "colar sem
-/// formatacao" de TODOS os programas da maquina, porque um atalho global e
-/// global. E `Alt+Space` e o menu de janela do Windows.
-const DEFAULT_VOICE_SHORTCUT: &str = "Ctrl+Alt+Space";
+/// `Ctrl+Alt+G` — G de gravar — foi sondado livre pela mesma API, junto de
+/// `Ctrl+Alt+Q`, `Ctrl+Alt+Z` e `Ctrl+Shift+G`. As recusas:
+///
+/// - `Ctrl+Alt+Space` e `Ctrl+Alt+M`: ja tomados nesta maquina;
+/// - `Ctrl+Shift+V` e `Ctrl+Alt+V`: roubariam "colar sem formatacao" e "colar
+///   especial" de TODOS os programas — um atalho global e global;
+/// - `Alt+Space`: e o menu de janela do Windows;
+/// - `Ctrl+Shift+Alt+Space`: livre, mas tres modificadores para SEGURAR sao
+///   ergonomia ruim justamente no gesto que precisa ser rapido.
+const DEFAULT_VOICE_SHORTCUT: &str = "Ctrl+Alt+G";
 
 struct AppState {
     captures: CaptureService,
@@ -1202,6 +1212,36 @@ fn shortcut_error(error: tauri_plugin_global_shortcut::Error) -> CoreError {
     )
 }
 
+/// Os servicos, ou um erro — nunca um panico.
+///
+/// `Manager::state()` **entra em panico** quando o tipo ainda nao foi
+/// gerenciado, e um panico no `main` aborta o processo inteiro. Isso nao e
+/// hipotetico: o Tauri cria as janelas declaradas em `tauri.conf.json` ANTES de
+/// chamar o `setup`, e a webview ja pode emitir IPC enquanto o `setup` ainda
+/// esta abrindo o banco. Medido nesta maquina, com backtrace:
+///
+/// ```text
+/// mos_desktop_lib::attention::attention_count
+///   -> AppHandle::state::<AppState>
+///   -> panicked: state() called before manage() for AppState
+/// thread caused non-unwinding panic. aborting.
+/// ```
+///
+/// Quem recebe `tauri::State<'_, AppState>` por PARAMETRO nao corre esse risco:
+/// o Tauri devolve erro de IPC. O risco e de quem chama `state()` a mao, com o
+/// `AppHandle` — e e por isso que este helper existe.
+pub(crate) fn services<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<tauri::State<'_, AppState>, CoreError> {
+    app.try_state::<AppState>().ok_or_else(|| {
+        CoreError::new(
+            mos_core::ErrorCode::StorageUnavailable,
+            "O M/OS ainda esta abrindo.",
+            true,
+        )
+    })
+}
+
 fn lock_error(message: String) -> CoreError {
     CoreError::new(
         mos_core::ErrorCode::StorageUnavailable,
@@ -1766,7 +1806,30 @@ pub fn run() {
                 let _ = window.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![
+        // O portao de abertura, e por que ele existe num lugar so.
+        //
+        // O Tauri cria as janelas declaradas em `tauri.conf.json` ANTES de
+        // chamar o `setup`, e a webview ja emite IPC enquanto o `setup` ainda
+        // esta abrindo o banco. Um comando que chame `AppHandle::state()` nesse
+        // instante nao devolve erro: ele ENTRA EM PANICO, e panico no `main`
+        // aborta o processo. Medido nesta maquina, com backtrace:
+        //
+        // ```text
+        // mos_desktop_lib::attention::attention_count -> state::<AppState>
+        // panicked: state() called before manage() for AppState
+        // thread caused non-unwinding panic. aborting.
+        // ```
+        //
+        // E ele nao e teorico para quem ja usa o M/OS: a janela e larga na
+        // proporcao do que o `setup` tem para fazer, e a migration 0022 roda
+        // exatamente ali, na primeira abertura depois desta versao.
+        //
+        // A guarda vive AQUI, e nao nos oitenta e quatro lugares que chamam
+        // `state()`, porque aqui ela cobre tambem o comando que alguem
+        // escrever amanha. Nenhum comando roda antes de o app estar pronto, e
+        // quem chamou cedo recebe um erro que a interface sabe ler.
+        .invoke_handler({
+            let comandos: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
             finance::finance_set_action_secret,
             finance::finance_clear_action_secret,
             finance::finance_action_secret_configured,
@@ -1967,7 +2030,15 @@ pub fn run() {
             voice::voice_act,
             voice::voice_set_context,
             voice::voice_set_locale,
-        ])
+            ]);
+            move |invoke| {
+                if invoke.message.webview_ref().try_state::<AppState>().is_none() {
+                    invoke.resolver.reject("O M/OS ainda esta abrindo.");
+                    return true;
+                }
+                comandos(invoke)
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while running M/OS")
         .run(|app, event| {

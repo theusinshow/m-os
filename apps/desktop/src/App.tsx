@@ -65,7 +65,7 @@ const SHORTCUTS: { keys: string; does: string }[] = [
   { keys: "Ctrl + /", does: "Mostrar ou ocultar a coluna de conversas, no Hermes" },
   { keys: "↑ (campo vazio)", does: "Editar a última pergunta enviada, no Hermes" },
   { keys: "Shift + Enter", does: "Quebrar linha em vez de enviar, no Hermes" },
-  { keys: "Ctrl + Alt + Space", does: "Segurar para falar, de qualquer lugar do Windows" },
+  { keys: "Ctrl + Alt + G", does: "Segurar para falar, de qualquer lugar do Windows" },
   { keys: "Alt (segurado)", does: "Falar, com a Captura rápida já aberta" },
 ];
 type Theme = "dark" | "light";
@@ -2590,7 +2590,7 @@ function StartupSettings() {
 
 function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrashed, projects, tasks, workspaces, apps, resources, trashedResources, refresh, intent }: { theme: Theme; setTheme: (theme: Theme) => void; status: AppStatus | null; capturesArchived: Capture[]; capturesTrashed: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; trashedResources: Resource[]; refresh: () => Promise<void>; intent?: FunctionIntent }) {
   const [shortcut, setShortcut] = useState("Ctrl+Shift+Space");
-  const [voiceShortcut, setVoiceShortcut] = useState("Ctrl+Alt+Space");
+  const [voiceShortcut, setVoiceShortcut] = useState("Ctrl+Alt+G");
   const [message, setMessage] = useState("");
   const [messageState, setMessageState] = useState<"saved" | "error">("saved");
   const [inspection, setInspection] = useState<BackupInspection | null>(null);
@@ -2737,6 +2737,11 @@ function QuickCapture() {
     const unlisten = listen("window-revealed", () => input.current?.focus());
     return () => { void unlisten.then((dispose) => dispose()); };
   }, []);
+
+  /* O foco volta ao campo quando a fala termina. Sem isto, o `Esc` seguinte
+     nao fecharia a janela: quem o escuta e o textarea, e depois da voz nao ha
+     nada em foco para receber a tecla. */
+  useEffect(() => { if (!speaking) input.current?.focus(); }, [speaking]);
 
   async function submit(event: FormEvent) { event.preventDefault(); if (!content.trim() || state === "saving") return; setState("saving"); setFeedback("Salvando localmente..."); try { await api.createCapture(content, "quick_capture"); setContent(""); setState("saved"); setFeedback("Salvo na Inbox"); window.setTimeout(() => void api.hideQuickCapture(), 160); } catch (error) { setState("error"); setFeedback(`${appError(error).message} O texto continua aqui.`); } }
 

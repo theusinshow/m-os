@@ -105,6 +105,9 @@ export function useVoiceHud(onDone: () => void) {
 
   const applyStopped = useCallback(
     (stopped: VoiceStopped) => {
+      /* O outro caminho ja parou. Deixar o estagio como esta e o certo: o
+         desfecho de verdade chega pelo evento que aquele caminho vai emitir. */
+      if (stopped.outcome === "notRecording") return;
       if (stopped.outcome === "transcribing") {
         setState({ stage: "transcribing" });
         return;
@@ -194,6 +197,11 @@ export function useVoiceHud(onDone: () => void) {
   useEffect(() => {
     function down(event: KeyboardEvent) {
       if (event.key !== "Alt" || event.repeat) return;
+      /* `Alt` COM `Ctrl` e o atalho global — `Ctrl+Alt+G` —, e ele ja e tratado
+         no Rust, que inclusive revela esta janela. Entrar por aqui tambem faria
+         o mesmo gesto abrir o microfone duas vezes. O `Alt` sozinho e a porta
+         desta janela, e e a que o design system pede. */
+      if (event.ctrlKey || event.metaKey) return;
       event.preventDefault();
       void start();
     }
@@ -201,19 +209,23 @@ export function useVoiceHud(onDone: () => void) {
       if (event.key !== "Alt") return;
       void stop();
     }
-    /* Perder o foco encerra a gravação. Ela NÃO é descartada: o que foi dito
-       até ali continua valendo, e só o `Esc` joga fora. É a segunda das três
-       guardas do microfone — a terceira é o teto de 120 s, no Rust. */
-    function blur() {
-      void stop();
-    }
+    /* **Perder o foco NAO encerra a gravação**, e a ausência deste ouvinte é a
+       decisão. Ele existia como terceira guarda do microfone, e rodar o app
+       provou que ele era o oposto disso: numa fala iniciada pelo atalho
+       global, o usuário está — por definição — trabalhando em outro programa.
+       O Windows restringe a ativação em primeiro plano vinda de um processo em
+       segundo plano, então o HUD aparece e o foco volta para onde estava; o
+       `blur` disparava e matava a gravação em milissegundos. O sintoma era
+       "Curto demais" para uma tecla que continuava afundada.
+
+       O microfone continua com duas guardas contra um `Released` perdido, e
+       elas não dependem de foco nenhum: o `Esc` e o teto de 120 s do watchdog,
+       no Rust. */
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
-    window.addEventListener("blur", blur);
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
-      window.removeEventListener("blur", blur);
     };
   }, [start, stop]);
 

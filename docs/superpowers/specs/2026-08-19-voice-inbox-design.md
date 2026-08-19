@@ -122,18 +122,27 @@ Nenhuma caixa nova onde já havia uma. `voice_notes` é a única tabela nova, e 
 
 ## 3. Atalho
 
-**`Ctrl+Alt+Space`, segurado.** Configurável em Settings, ao lado do atalho de
+**`Ctrl+Alt+G`, segurado.** Configurável em Settings, ao lado do atalho de
 captura que já existe, pelo mesmo mecanismo (`UserSettings.voice_shortcut`,
 `set_voice_shortcut`, registro no `global_shortcut()` com rollback).
 
-Por que este:
+**Este valor foi medido, e não escolhido.** A primeira escolha foi
+`Ctrl+Alt+Space`, para ficar na família do `Ctrl+Shift+Space` da captura. Rodar
+o app derrubou a escolha: `RegisterHotKey` devolveu 1409
+(`ERROR_HOTKEY_ALREADY_REGISTERED`) — outro programa desta máquina já o tem. Um
+padrão que não registra é uma feature que não existe.
 
-- irmão do `Ctrl+Shift+Space` que já abre o Quick Capture — mesmo `Space`, mesma
-  família, mesma memória muscular;
-- `Alt` ecoa o `⌥` que o design system pede;
-- `Ctrl+Shift+V` foi **recusado**: como atalho global ele roubaria "colar sem
-  formatação" de todos os programas da máquina;
-- `Alt+Space` foi recusado: é o menu de janela do Windows.
+A sondagem pela mesma API achou livres `Ctrl+Alt+G`, `Ctrl+Alt+Q`, `Ctrl+Alt+Z`,
+`Ctrl+Shift+G` e `Ctrl+Shift+Alt+Space`; e ocupados `Ctrl+Alt+Space` e
+`Ctrl+Alt+M`. As recusas entre os livres:
+
+- `Ctrl+Shift+V` e `Ctrl+Alt+V` roubariam "colar sem formatação" e "colar
+  especial" de todos os programas da máquina — um atalho global é global;
+- `Alt+Space` é o menu de janela do Windows;
+- `Ctrl+Shift+Alt+Space` está livre, mas três modificadores para **segurar** são
+  ergonomia ruim justamente no gesto que precisa ser rápido.
+
+Sobrou `Ctrl+Alt+G` — G de gravar.
 
 Semântica de segurar, com o plugin `tauri-plugin-global-shortcut`, que entrega
 `ShortcutState::Pressed` e `Released`:
@@ -146,14 +155,27 @@ Released  → para          →  transcreve em background
 O auto-repeat do Windows dispara `Pressed` repetidas vezes enquanto a tecla
 está afundada. A guarda é o próprio estado: já gravando, `Pressed` é ignorado.
 
-**A rede de segurança do microfone.** Se o `Released` se perder — janela
-trocada, sessão bloqueada, plugin engasgado —, o microfone ficaria aberto. Três
-guardas independentes o fecham:
+**A rede de segurança do microfone.** Se o `Released` se perder — sessão
+bloqueada, plugin engasgado —, o microfone ficaria aberto. Duas guardas o
+fecham, e nenhuma delas depende de foco:
 
 1. teto rígido de 120 s por gravação, num watchdog em thread própria;
-2. `Esc` no HUD cancela e descarta;
-3. o HUD perder o foco encerra a gravação (não descarta: o que foi dito é
-   preservado).
+2. `Esc` no HUD cancela e descarta.
+
+**Perder o foco NÃO encerra a gravação, e essa ausência é um resultado de rodar
+o app.** Ela existia como terceira guarda e era o oposto disso: numa fala
+iniciada pelo atalho global o usuário está, por definição, trabalhando em outro
+programa. O Windows restringe a ativação em primeiro plano vinda de processo em
+segundo plano, o HUD aparece e o foco volta para onde estava, o `blur` disparava
+e matava a gravação em milissegundos. O sintoma medido foi **"Curto demais" para
+uma tecla que continuava afundada**.
+
+**E o gesto é um, com duas portas.** `Ctrl+Alt+G` contém `Alt`, que é o mesmo
+`Alt` que o HUD escuta. Afundar a tecla disparava os dois caminhos, e o segundo
+pintava *"já existe uma gravação em curso"* por cima do "Ouvindo". `voice_start`
+e `voice_stop` passaram a ser **idempotentes**, e o HUD ignora `Alt` quando
+`Ctrl` está junto — o mesmo pedido feito duas vezes tem o mesmo desfecho das
+duas.
 
 ---
 
@@ -439,3 +461,44 @@ Timeline, Tool Gateway, mobile, sincronização de áudio, treinamento de modelo
 e a intenção `waiting_for` — que o brief §15 exemplo D cobre com "caso
 contrário, Capture", e é isso que acontece: não há entidade Waiting For no
 M/OS, então a frase do João vira Capture, que é o comportamento correto.
+
+
+---
+
+## 13. O que rodar o app mudou
+
+Nada aqui foi descoberto lendo código. Os quatro achados vieram de subir o M/OS
+e fotografar a janela, e três deles teriam chegado ao usuário.
+
+**1. O atalho padrão não registrava.** `Ctrl+Alt+Space` está tomado nesta
+máquina. Trocado por `Ctrl+Alt+G` depois de sondar candidatos pela própria
+`RegisterHotKey` — §3.
+
+**2. O app abortava na abertura.** A webview emite IPC antes de o `setup`
+terminar, e um comando que chame `AppHandle::state()` nesse instante **entra em
+pânico** em vez de devolver erro — pânico no `main` aborta o processo. Reproduzido
+duas vezes, com backtrace, em `attention_count` e em `timer_current`:
+
+```text
+state() called before manage() for AppState
+thread caused non-unwinding panic. aborting.
+```
+
+É um defeito **pré-existente**, e não desta feature — mas a migration 0022 roda
+exatamente nessa janela, na primeira abertura depois desta versão, e a alarga na
+proporção do trabalho que ela tem. A guarda entrou num lugar só, no
+`invoke_handler`: nenhum comando roda antes de o app estar pronto, e quem chamou
+cedo recebe um erro que a interface sabe ler. Cobre também os 84 pontos que
+chamam `state()` à mão, e o comando que alguém escrever amanhã.
+
+**3. A guarda de `blur` matava toda fala do atalho global** — §3.
+
+**4. O gesto único disparava dois `voice_start`** — §3.
+
+O que a foto confirmou funcionando, ponta a ponta: o atalho global revela o HUD
+e abre o microfone; o gesto segurado sustenta (`OUVINDO · 0:02`); o piso de
+energia recusa silêncio com *"Não ouvi nada"* e **não deixa uma linha no banco
+nem um byte em disco** (verificado por consulta: `voice_notes` = 0, `captures` =
+0, diretório de áudio vazio, depois de seis recusas); a Inbox mostra a fala por
+transcrever com duração, motivo e as duas saídas; e a Capture falada aparece com
+a origem `VOZ`.

@@ -43,7 +43,6 @@ use mos_core::{
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::AppState;
 
 /// Quanto tempo o recibo fica na tela antes de o HUD sumir.
 ///
@@ -101,6 +100,18 @@ pub struct VoiceTick {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase", tag = "outcome")]
 pub enum VoiceStopped {
+    /// Nao havia gravacao. **Nao e erro, e a resposta certa.**
+    ///
+    /// O atalho global e `Ctrl+Alt+Space`, e ele CONTEM `Alt` — o mesmo `Alt`
+    /// que o HUD escuta. Soltar a tecla dispara os dois caminhos de parada, e
+    /// eles correm um contra o outro: o Rust para pelo `Released` do atalho, e
+    /// o renderer para pelo `keyup`. Quem chega em segundo encontra o
+    /// microfone ja fechado.
+    ///
+    /// Devolver erro ali fazia o HUD anunciar uma falha no exato instante em
+    /// que tudo tinha dado certo. Isto e idempotencia, e nao tolerancia a bug:
+    /// "pare de gravar" pedido duas vezes tem o mesmo desfecho das duas.
+    NotRecording,
     /// Nada foi persistido, e nada precisa ser desfeito.
     TooShort,
     TooQuiet,
@@ -167,6 +178,17 @@ fn audio_error(error: AudioError) -> CoreError {
     CoreError::new(code, error.to_string(), matches!(code, ErrorCode::Io))
 }
 
+/// O mesmo para o estado vivo da voz.
+fn runtime(app: &AppHandle) -> Result<tauri::State<'_, VoiceRuntime>, CoreError> {
+    app.try_state::<VoiceRuntime>().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::StorageUnavailable,
+            "O M/OS ainda esta abrindo.",
+            true,
+        )
+    })
+}
+
 fn lock_error<T>(error: std::sync::PoisonError<T>) -> CoreError {
     CoreError::new(
         ErrorCode::StorageUnavailable,
@@ -203,18 +225,18 @@ fn audio_root(app: &AppHandle, note: &VoiceNote) -> Result<PathBuf, CoreError> {
 /// O agora de quem falou, no fuso de quem falou.
 fn now_local(app: &AppHandle) -> time::OffsetDateTime {
     let minutes = app
-        .state::<VoiceRuntime>()
-        .offset_minutes
-        .lock()
-        .map(|guard| *guard)
+        .try_state::<VoiceRuntime>()
+        .and_then(|runtime| runtime.offset_minutes.lock().ok().map(|guard| *guard))
         .unwrap_or(0);
     let offset = time::UtcOffset::from_whole_seconds(minutes * 60).unwrap_or(time::UtcOffset::UTC);
     time::OffsetDateTime::now_utc().to_offset(offset)
 }
 
-fn provider(app: &AppHandle) -> mos_transcribe::WhisperCliProvider {
-    let state = app.state::<AppState>();
-    mos_transcribe::WhisperCliProvider::new(crate::whisper_config(&state.settings_path))
+fn provider(app: &AppHandle) -> Result<mos_transcribe::WhisperCliProvider, CoreError> {
+    let state = crate::services(app)?;
+    Ok(mos_transcribe::WhisperCliProvider::new(
+        crate::whisper_config(&state.settings_path),
+    ))
 }
 
 // ------------------------------------------------------------------ comandos
@@ -232,20 +254,14 @@ pub fn voice_set_locale(app: AppHandle, offset_minutes: i32) -> Result<(), CoreE
             false,
         ));
     }
-    *app.state::<VoiceRuntime>()
-        .offset_minutes
-        .lock()
-        .map_err(lock_error)? = offset_minutes;
+    *runtime(&app)?.offset_minutes.lock().map_err(lock_error)? = offset_minutes;
     Ok(())
 }
 
 /// A tela publica o que esta olhando.
 #[tauri::command]
 pub fn voice_set_context(app: AppHandle, context: VoiceContextInput) -> Result<(), CoreError> {
-    *app.state::<VoiceRuntime>()
-        .context
-        .lock()
-        .map_err(lock_error)? = StoredContext {
+    *runtime(&app)?.context.lock().map_err(lock_error)? = StoredContext {
         project_id: context.project_id.filter(|value| !value.trim().is_empty()),
         task_id: context.task_id.filter(|value| !value.trim().is_empty()),
     };
@@ -259,18 +275,27 @@ pub fn voice_set_context(app: AppHandle, context: VoiceContextInput) -> Result<(
 /// pessoa parar de falar.
 #[tauri::command]
 pub fn voice_start(app: AppHandle) -> Result<VoiceNote, CoreError> {
-    let runtime = app.state::<VoiceRuntime>();
-    let mut active = runtime.active.lock().map_err(lock_error)?;
-    if active.is_some() {
-        return Err(CoreError::new(
-            ErrorCode::InvalidTransition,
-            "Ja existe uma gravacao de voz em curso.",
-            false,
-        ));
+    let live = runtime(&app)?;
+    let mut active = live.active.lock().map_err(lock_error)?;
+    // Ja gravando: devolve a nota que esta em curso, e nao um erro.
+    //
+    // **O gesto e UM, e as portas para ele sao duas.** O atalho global e
+    // `Ctrl+Alt+G`, e ele CONTEM `Alt` — o mesmo `Alt` que o HUD escuta para
+    // falar com a janela ja aberta. Afundar a tecla dispara os dois caminhos, e
+    // o segundo chegava aqui e pintava "ja existe uma gravacao em curso" por
+    // cima do "Ouvindo" — um erro na tela no exato instante em que tudo tinha
+    // funcionado. Foi assim que apareceu ao rodar o app.
+    //
+    // Isto e idempotencia, e nao tolerancia a bug: "comece a gravar" pedido
+    // duas vezes no mesmo gesto tem o mesmo desfecho das duas.
+    if let Some(em_curso) = active.as_ref() {
+        let id = em_curso.note_id.clone();
+        drop(active);
+        return crate::services(&app)?.voice.note(&id);
     }
 
-    let context = runtime.context.lock().map_err(lock_error)?.clone();
-    let state = app.state::<AppState>();
+    let context = live.context.lock().map_err(lock_error)?.clone();
+    let state = crate::services(&app)?;
     let note = state
         .voice
         .start(context.project_id.as_deref(), context.task_id.as_deref())?;
@@ -313,23 +338,29 @@ fn spawn_watchdog(app: AppHandle, note_id: String) {
     std::thread::Builder::new()
         .name("mos-voice-watchdog".into())
         .spawn(move || {
-            std::thread::sleep(Duration::from_millis(
-                mos_core::MAX_DURATION_MS as u64 + 250,
-            ));
-            let ainda_gravando = app
-                .state::<VoiceRuntime>()
-                .active
-                .lock()
-                .map(|guard| {
-                    guard
-                        .as_ref()
-                        .is_some_and(|active| active.note_id == note_id)
-                })
-                .unwrap_or(false);
-            if ainda_gravando {
-                let _ = app.emit("voice-capped", ());
-                let _ = voice_stop(app.clone());
+            // Em passos, e nao num sono unico de dois minutos: a fala tipica
+            // dura segundos, e uma thread parada ate o teto por gravacao
+            // acumularia dezenas delas numa sessao de trabalho normal. Assim
+            // ela sai junto com a gravacao que veio vigiar.
+            let passos = mos_core::MAX_DURATION_MS / 500;
+            for _ in 0..passos {
+                std::thread::sleep(Duration::from_millis(500));
+                let ainda_gravando = app
+                    .try_state::<VoiceRuntime>()
+                    .and_then(|runtime| {
+                        runtime.active.lock().ok().map(|guard| {
+                            guard
+                                .as_ref()
+                                .is_some_and(|active| active.note_id == note_id)
+                        })
+                    })
+                    .unwrap_or(false);
+                if !ainda_gravando {
+                    return;
+                }
             }
+            let _ = app.emit("voice-capped", ());
+            let _ = voice_stop(app.clone());
         })
         .ok();
 }
@@ -337,23 +368,13 @@ fn spawn_watchdog(app: AppHandle, note_id: String) {
 /// Fecha o microfone e decide se aquilo foi fala.
 #[tauri::command]
 pub fn voice_stop(app: AppHandle) -> Result<VoiceStopped, CoreError> {
-    let Some(active) = app
-        .state::<VoiceRuntime>()
-        .active
-        .lock()
-        .map_err(lock_error)?
-        .take()
-    else {
-        return Err(CoreError::new(
-            ErrorCode::InvalidTransition,
-            "Nao ha gravacao de voz em curso.",
-            false,
-        ));
+    let Some(active) = runtime(&app)?.active.lock().map_err(lock_error)?.take() else {
+        return Ok(VoiceStopped::NotRecording);
     };
 
     let note_id = active.note_id.clone();
     let outcome = active.recording.stop().map_err(audio_error)?;
-    let state = app.state::<AppState>();
+    let state = crate::services(&app)?;
 
     // As duas recusas NAO GRAVAM NADA: nem linha, nem arquivo. Uma gravacao
     // recusada aqui e uma gravacao que nunca aconteceu.
@@ -379,12 +400,7 @@ pub fn voice_stop(app: AppHandle) -> Result<VoiceStopped, CoreError> {
 /// `Esc`: para, joga o audio fora e apaga a linha.
 #[tauri::command]
 pub fn voice_cancel(app: AppHandle) -> Result<(), CoreError> {
-    let taken = app
-        .state::<VoiceRuntime>()
-        .active
-        .lock()
-        .map_err(lock_error)?
-        .take();
+    let taken = runtime(&app)?.active.lock().map_err(lock_error)?.take();
     let Some(active) = taken else {
         return Ok(());
     };
@@ -404,7 +420,9 @@ pub fn voice_cancel(app: AppHandle) -> Result<(), CoreError> {
 /// bytes em disco. As duas falhas sao silenciosas porque nenhuma delas tem o
 /// que pedir ao usuario — e ambas descrevem uma gravacao que ele ja descartou.
 fn discard(app: &AppHandle, note_id: &str) {
-    let state = app.state::<AppState>();
+    let Ok(state) = crate::services(app) else {
+        return;
+    };
     if let Ok(note) = state.voice.note(note_id) {
         if let Ok(root) = audio_root(app, &note) {
             let _ = mos_audio::delete_session_audio(&root);
@@ -416,8 +434,8 @@ fn discard(app: &AppHandle, note_id: &str) {
 /// O que o HUD le a cada quadro. Barato: le atomicos.
 #[tauri::command]
 pub fn voice_recording(app: AppHandle) -> Result<Option<VoiceTick>, CoreError> {
-    let runtime = app.state::<VoiceRuntime>();
-    let active = runtime.active.lock().map_err(lock_error)?;
+    let live = runtime(&app)?;
+    let active = live.active.lock().map_err(lock_error)?;
     let Some(active) = active.as_ref() else {
         return Ok(None);
     };
@@ -439,13 +457,13 @@ pub fn voice_recording(app: AppHandle) -> Result<Option<VoiceTick>, CoreError> {
 /// As notas que ainda guardam audio que o banco nao tem em texto.
 #[tauri::command]
 pub fn voice_pending(app: AppHandle) -> Result<Vec<VoiceNote>, CoreError> {
-    app.state::<AppState>().voice.unfinished()
+    crate::services(&app)?.voice.unfinished()
 }
 
 /// Tenta de novo transcrever uma nota cujo audio continua em disco.
 #[tauri::command]
 pub fn voice_retry(app: AppHandle, id: String) -> Result<VoiceNote, CoreError> {
-    let state = app.state::<AppState>();
+    let state = crate::services(&app)?;
     let note = state.voice.note(&id)?;
     if note.audio_deleted_at.is_some() {
         return Err(CoreError::new(
@@ -456,7 +474,7 @@ pub fn voice_retry(app: AppHandle, id: String) -> Result<VoiceNote, CoreError> {
     }
     // Falhar ANTES de mudar o estado: uma nota que virasse `transcribing` sem
     // transcritor configurado ficaria presa num estagio que nada faz avancar.
-    provider(&app)
+    provider(&app)?
         .ready()
         .map_err(|error| CoreError::new(ErrorCode::InvalidTransition, error.to_string(), true))?;
     let started = state.voice.transcribing(&id)?;
@@ -479,7 +497,7 @@ pub fn voice_discard(app: AppHandle, id: String) -> Result<(), CoreError> {
 /// diferentes, e junta-los apagaria a diferenca.
 #[tauri::command]
 pub fn voice_act(app: AppHandle, note_id: String) -> Result<VoiceResult, CoreError> {
-    let state = app.state::<AppState>();
+    let state = crate::services(&app)?;
     let note = state.voice.note(&note_id)?;
     let capture_id = note.capture_id.ok_or_else(|| {
         CoreError::new(
@@ -507,15 +525,19 @@ fn spawn_transcription(app: AppHandle, note_id: String) {
 }
 
 fn run_transcription(app: AppHandle, note_id: String) {
-    let state = app.state::<AppState>();
+    let Ok(state) = crate::services(&app) else {
+        return;
+    };
     if state.voice.transcribing(&note_id).is_err() {
         return;
     }
     let _ = app.emit("voice-transcribing", &note_id);
 
+    let nome_do_provider = provider(&app)
+        .map(|provider| provider.name())
+        .unwrap_or_default();
     match transcribe(&app, &note_id) {
-        Ok(transcript) => match state.voice.captured(&note_id, &transcript, &provider(&app).name())
-        {
+        Ok(transcript) => match state.voice.captured(&note_id, &transcript, &nome_do_provider) {
             Ok((note, capture)) => {
                 // O audio sai AGORA, e nao antes: o texto ja esta no banco e
                 // indexado, entao os bytes deixaram de carregar informacao que
@@ -563,7 +585,9 @@ fn run_transcription(app: AppHandle, note_id: String) {
 }
 
 fn fail(app: &AppHandle, note_id: &str, message: &str) {
-    let state = app.state::<AppState>();
+    let Ok(state) = crate::services(app) else {
+        return;
+    };
     let retryable = state
         .voice
         .failed(note_id, message)
@@ -588,13 +612,13 @@ fn transcribe(app: &AppHandle, note_id: &str) -> Result<String, String> {
     use mos_core::{MeetingChannel, TranscriptionRequest};
 
     let (note, root) = {
-        let state = app.state::<AppState>();
+        let state = crate::services(app).map_err(|error| error.message)?;
         let note = state.voice.note(note_id).map_err(|error| error.message)?;
         let root = audio_root(app, &note).map_err(|error| error.message)?;
         (note, root)
     };
 
-    let provider = provider(app);
+    let provider = provider(app).map_err(|error| error.message)?;
     provider.ready().map_err(|error| error.to_string())?;
 
     let work = std::env::temp_dir().join(format!("mos-voice-{}", note.id));
@@ -651,7 +675,7 @@ struct Reading {
 }
 
 fn read_note(app: &AppHandle, note: &VoiceNote) -> Result<Reading, CoreError> {
-    let state = app.state::<AppState>();
+    let state = crate::services(app)?;
     let projects = state.work.projects(false)?;
     let hints: Vec<ProjectHint> = projects
         .iter()
@@ -690,7 +714,7 @@ fn execute(
     reading: Reading,
     autorizado: bool,
 ) -> Result<VoiceResult, CoreError> {
-    let state = app.state::<AppState>();
+    let state = crate::services(app)?;
     let understanding = reading.understanding;
     let quando = understanding
         .when
@@ -768,11 +792,12 @@ fn execute(
 /// O auto-repeat do Windows dispara isto varias vezes enquanto a tecla esta
 /// pressionada. A guarda e o proprio estado: ja gravando, nao acontece nada.
 pub fn shortcut_pressed(app: &AppHandle) {
+    // `try_state` e nao `state`: o atalho dispara do lado do Rust, sem passar
+    // por tela nenhuma, e pode chegar antes de o `setup` terminar. `state()`
+    // ali seria panico no `main`, que e o app inteiro perdido.
     let ja_gravando = app
-        .state::<VoiceRuntime>()
-        .active
-        .lock()
-        .map(|guard| guard.is_some())
+        .try_state::<VoiceRuntime>()
+        .and_then(|runtime| runtime.active.lock().ok().map(|guard| guard.is_some()))
         .unwrap_or(false);
     if ja_gravando {
         return;
@@ -789,10 +814,8 @@ pub fn shortcut_pressed(app: &AppHandle) {
 /// A tecla foi solta.
 pub fn shortcut_released(app: &AppHandle) {
     let gravando = app
-        .state::<VoiceRuntime>()
-        .active
-        .lock()
-        .map(|guard| guard.is_some())
+        .try_state::<VoiceRuntime>()
+        .and_then(|runtime| runtime.active.lock().ok().map(|guard| guard.is_some()))
         .unwrap_or(false);
     if !gravando {
         return;
@@ -816,7 +839,9 @@ pub fn shortcut_released(app: &AppHandle) {
 /// dela pode estar inteiro em disco. Ela vira `failed`, que e o estado em que o
 /// retry a encontra.
 pub fn reconcile(app: &AppHandle) {
-    let state = app.state::<AppState>();
+    let Ok(state) = crate::services(app) else {
+        return;
+    };
     let Ok(pendentes) = state.voice.unfinished() else {
         return;
     };
@@ -849,7 +874,9 @@ pub fn reconcile(app: &AppHandle) {
 /// arquivo sumiu — um beco sem saida. Marcada antes, o pior caso e uma marca
 /// para um arquivo que continua em disco, que a proxima limpeza resolve.
 fn delete_audio(app: &AppHandle, note: &VoiceNote) {
-    let state = app.state::<AppState>();
+    let Ok(state) = crate::services(app) else {
+        return;
+    };
     if state.voice.mark_audio_deleted(&note.id.to_string()).is_err() {
         return;
     }

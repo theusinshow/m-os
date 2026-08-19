@@ -1907,3 +1907,89 @@ tirar Apps: sem a porta nova, *"a pagina ficaria inalcancavel"*.
 uso diário. Isso só aparece depois de uma semana de uso real. Se não substituir,
 o caminho de volta é promover ao rail o que estiver sendo mais tocado no leque —
 e não subir o teto de novo.
+
+---
+
+## ADR-046 — A voz entra pelo campo que já existe, e o silêncio não vira Task
+
+**Status:** aceita · 2026-08-19 · `feat/voice-inbox`
+
+### Contexto
+
+A Fase 7 do `ROADMAP.md` pede uma coisa só: *"o usuário consegue capturar uma
+ideia sem precisar parar para digitar ou navegar"*. A auditoria antes do código
+achou quatro coisas prontas e uma armadilha.
+
+Prontas: a janela `quick-capture` já é um overlay de 640px com atalho global; o
+componente dela já carregava quatro traços de amplitude comentados como
+*"apagados até a voz existir (fase adiada)"*; `mos-audio` já captura microfone
+por WASAPI com recuperação de queda e RMS; e `mos-transcribe` já implementa a
+porta `TranscriptionProvider`, com o whisper instalado na máquina.
+
+A armadilha é a de 19/08 no Meeting Agent: **o whisper preenche silêncio com
+texto inventado**. Um canal quase mudo transcreveu `"Legenda por Sônia Ruberti"`,
+e o nome inventado chegou ao resumo do Hermes. Numa reunião isso é ruído. Numa
+Voice Inbox, seria uma Task nascida de uma tecla encostada.
+
+E o que NÃO existe: `Universal Drop Zone` e `ingestion pipeline` aparecem só em
+`docs/`. O pipeline de ingestão real é `Capture` mais `tasks.source_capture_id`.
+
+### Decisão
+
+**Voz não é um modo, é uma forma de digitar** — o `mos-design-system.md` §Voz já
+dizia isso, e a implementação obedece: nenhuma janela nova, nenhum ícone de
+microfone, a mesma barra `/`, o mesmo campo. Segurar para falar, não alternar.
+
+1. **`Ctrl+Alt+G`, segurado.** O padrão foi MEDIDO e não escolhido: a primeira
+   opção (`Ctrl+Alt+Space`, para ficar na família do `Ctrl+Shift+Space`) não
+   registra nesta máquina — `RegisterHotKey` devolve 1409. Um padrão que não
+   registra é uma feature que não existe.
+2. **Dois pisos antes de transcrever, e um filtro depois.** Duração mínima de
+   400 ms, pico de RMS mínimo de 120 em 1000, e a família de créditos de legenda
+   recusada no domínio. Recusado, **nada é persistido** — nem linha, nem byte.
+3. **`voice_notes` guarda o áudio até existir texto.** `Capture.content` é
+   `NOT NULL` não-vazio e o domínio não reescreve conteúdo; uma Capture não pode
+   nascer antes da transcrição sem inventar conteúdo falso. Mesmo desenho de
+   `Meeting`, e pela mesma razão.
+4. **O áudio é apagado assim que a Capture existe**, e sobrevive exatamente
+   enquanto a informação ainda não foi preservada. Sem enum de retenção: oito
+   segundos de "comprar café" não têm valor de reescuta.
+5. **A leitura da fala é determinística.** `mos_core::voice` lê data natural em
+   pt-BR, Project e intenção sem rede e sem IA. O Hermes não participa desta
+   feature. Confiança alta age sozinha com Desfazer; média oferece por ⏎ com a
+   Capture já salva atrás; baixa fica na Inbox. **Marcador de hesitação vence
+   verbo e data juntos** — "talvez eu devesse" não autoriza nada.
+6. **A migration 0022 recria `captures`**, que é tabela-PAI. A guarda de FK é
+   desligada no Rust em volta dela, com `foreign_key_check` antes de religar.
+
+### O portão de abertura, que não era desta feature
+
+Rodar o app derrubou o M/OS duas vezes, em comandos que já existiam:
+
+```text
+mos_desktop_lib::attention::attention_count -> AppHandle::state::<AppState>
+panicked: state() called before manage() for AppState
+thread caused non-unwinding panic. aborting.
+```
+
+O Tauri cria as janelas declaradas em `tauri.conf.json` **antes** de chamar o
+`setup`, e a webview já emite IPC enquanto o banco abre. `state()` nesse instante
+não devolve erro: aborta o processo. São 84 pontos que chamam `state()` à mão.
+
+A guarda entrou **no `invoke_handler`**, num lugar só: nenhum comando roda antes
+de o app estar pronto. Cobre os 84 e o comando que alguém escrever amanhã.
+
+O defeito é pré-existente, mas entra nesta ADR porque a 0022 roda exatamente
+nessa janela na primeira abertura depois desta versão — e a alarga.
+
+### Consequências
+
+- a voz vira uma origem de `Capture` (`source = voice`), e nada mais: aparece na
+  Inbox, no Search e no Calendário pelos caminhos que já existiam;
+- `Waiting For` continua não existindo, então "João disse que vai mandar o
+  orçamento sexta" vira Capture. É o comportamento correto, e não uma falha;
+- o `blur` deixou de encerrar gravação. Ele era guarda de microfone e virou o
+  oposto: quem fala pelo atalho global está, por definição, em outro programa;
+- `mos-audio` ganhou `start_mic`. A ausência do loopback é a decisão: gravar o
+  que sai pelos alto-falantes enquanto alguém dita um lembrete capturaria a
+  reunião aberta atrás.
