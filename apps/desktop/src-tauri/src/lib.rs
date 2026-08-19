@@ -1305,6 +1305,49 @@ fn open_target_with_os(target: &str) -> Result<(), CoreError> {
     Ok(())
 }
 
+/// Da ao Windows o icone GRANDE, que ele nunca recebeu.
+///
+/// O Tauri poe na janela um icone unico de 16x16 — o primeiro quadro do
+/// `icon.ico`. Isso preenche `ICON_SMALL`, que e o da barra de titulo, e deixa
+/// `ICON_BIG` VAZIO. Sem `ICON_BIG` e sem icone de classe, a barra de tarefas e
+/// o Alt+Tab pedem 24, 32 ou 48px, nao acham nada, e esticam o 16x16.
+///
+/// Foi medido, e nao suposto: o icone desenhado na barra de tarefas batia com um
+/// 16px ampliado por bilinear (erro medio 3,7) e nao com o quadro de 24px que o
+/// `.ico` ja trazia pronto (erro 8,5). Toda a nitidez que `gerar-icones.py`
+/// produz desenhando cada tamanho separado morria neste ponto.
+///
+/// `ExtractIconExW` le o grupo de icones do proprio executavel e escolhe o
+/// melhor quadro para cada tamanho de sistema — que e exatamente o servico que
+/// faltava. Os dois `HICON` vivem enquanto o app viver; nao ha `DestroyIcon`
+/// porque destrui-los enquanto a janela os usa e que seria o erro.
+#[cfg(windows)]
+fn assentar_icones_da_janela(window: &tauri::WebviewWindow) {
+    use std::ptr;
+    use windows_sys::Win32::UI::Shell::ExtractIconExW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        HICON, ICON_BIG, ICON_SMALL, SendMessageW, WM_SETICON,
+    };
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    let Ok(exe) = std::env::current_exe() else { return };
+    let caminho = wide_null(&exe.to_string_lossy());
+
+    let mut grande: HICON = ptr::null_mut();
+    let mut pequeno: HICON = ptr::null_mut();
+    // 1 grupo, o do indice 0: o icone do proprio aplicativo.
+    if unsafe { ExtractIconExW(caminho.as_ptr(), 0, &mut grande, &mut pequeno, 1) } == 0 {
+        return;
+    }
+
+    let alvo = hwnd.0 as _;
+    for (slot, icone) in [(ICON_BIG, grande), (ICON_SMALL, pequeno)] {
+        if !icone.is_null() {
+            unsafe { SendMessageW(alvo, WM_SETICON, slot as usize, icone as isize) };
+        }
+    }
+}
+
 #[cfg(windows)]
 fn wide_null(value: &str) -> Vec<u16> {
     use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
@@ -1439,6 +1482,12 @@ pub fn run() {
                 .lock()
                 .map_err(|error| std::io::Error::other(error.to_string()))? = shortcut_status;
             setup_tray(app)?;
+
+            // Depois do tray porque so aqui a janela ja existe de fato.
+            #[cfg(windows)]
+            if let Some(window) = app.get_webview_window("main") {
+                assentar_icones_da_janela(&window);
+            }
 
             // O laco de observacao roda em tarefa propria e nunca na thread da
             // interface: uma varredura de processos leva dezenas de

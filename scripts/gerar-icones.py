@@ -37,6 +37,13 @@ RAIO = 0.21                     # --rail-symbol-radius sobre --rail-symbol
 # Desenha 16x maior e reduz: a arte nasce no tamanho certo, so o pixel e suavizado.
 SUPER = 16
 
+# BOX, e nao LANCZOS. Reduzindo por um fator inteiro, BOX e a media exata da area
+# — que e a definicao de antialiasing correto para supersampling. LANCZOS tem
+# lobulos negativos e ultrapassa nas bordas duras: media dos quadros antigos, 26
+# pixels acima do sodio a 16px e 688 a 256px, um halo claro contornando a barra
+# preta e a moldura inteira. Nitidez que o desenho nao pediu, e suja de perto.
+FILTRO = Image.BOX
+
 
 def barra_para(tamanho):
     if tamanho >= 128:
@@ -53,7 +60,7 @@ def desenhar(tamanho):
     pincel.rounded_rectangle([0, 0, lado - 1, lado - 1], radius=int(lado * RAIO), fill=SODIO)
     escala = lado / 64.0
     pincel.polygon([(x * escala, y * escala) for x, y in barra_para(tamanho)], fill=TINTA)
-    return imagem.resize((tamanho, tamanho), Image.LANCZOS)
+    return imagem.resize((tamanho, tamanho), FILTRO)
 
 
 def escrever_ico(caminho, tamanhos):
@@ -101,5 +108,11 @@ if __name__ == "__main__":
         desenhar(tamanho).save(os.path.join(ICONES, nome))
         print("%-24s %4dpx  %s" % (nome, tamanho, "small" if tamanho < 48 else "medium" if tamanho < 128 else "large"))
 
-    tamanhos = escrever_ico(os.path.join(ICONES, "icon.ico"), [16, 24, 32, 48, 64, 128, 256])
+    # 20, 40 e 96 existem porque a shell os pede: 20 na titlebar a 125%, 40 na
+    # barra de tarefas a 150%, 96 no Explorer em "icones grandes". Sem quadro
+    # proprio, o Windows chega neles esticando o vizinho.
+    tamanhos = escrever_ico(
+        os.path.join(ICONES, "icon.ico"),
+        [16, 20, 24, 32, 40, 48, 64, 96, 128, 256],
+    )
     print("%-24s %s" % ("icon.ico", tamanhos))
