@@ -29,6 +29,9 @@ tauri-build = { version = "2", features = [] }
 # e por isso a traducao entre os dois mora em `src/meeting.rs`.
 mos-audio = { path = "../../../crates/mos-audio" }
 mos-core = { path = "../../../crates/mos-core" }
+# O lado fisico da Universal Drop Zone: onde o original fica e o que da para ler
+# dele. Separado do desktop porque o teste dele precisa rodar.
+mos-ingest = { path = "../../../crates/mos-ingest" }
 mos-transcribe = { path = "../../../crates/mos-transcribe" }
 mos-hermes = { path = "../../../crates/mos-hermes" }
 mos-storage-sqlite = { path = "../../../crates/mos-storage-sqlite" }
@@ -56,6 +59,10 @@ tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2.10.1"
 windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_SystemInformation"] }
+# Leitura do ConsentStore do microfone (ADR-046). Ja estava na arvore por
+# caminho transitivo; declarar torna o uso direto explicito, em vez de depender
+# de uma dependencia de terceiro continuar existindo.
+winreg = "0.52"
 # Cliente HTTP e credencial para a Action API do M-Finance. Mesmas versoes e
 # features de crates/mos-hermes/Cargo.toml, sem "cookies" (nao ha sessao aqui,
 # cada chamada manda o secret no header).

@@ -5,7 +5,7 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
   VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
-  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DropContext, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -134,6 +134,15 @@ export const api = {
   meetingStop() {
     return invoke<Meeting>("meeting_stop");
   },
+  // Pausar para o áudio ANTES de mudar o estado; retomar faz o inverso. Nos dois
+  // casos o intervalo entre as duas coisas não pode gravar frame numa reunião
+  // que a tela já mostra parada, nem o contrário.
+  meetingPause() {
+    return invoke<Meeting>("meeting_pause");
+  },
+  meetingResume() {
+    return invoke<Meeting>("meeting_resume");
+  },
   /** `null` quando nao ha gravacao em curso. */
   meetingRecording() {
     return invoke<MeetingTick | null>("meeting_recording");
@@ -161,6 +170,11 @@ export const api = {
   },
   meetingSetTitle(id: string, title: string) {
     return invoke<Meeting>("meeting_set_title", { id, title });
+  },
+  // Autosave: a tela chama com debounce. Sem botão de salvar, porque um botão de
+  // salvar numa nota de reunião é uma chance de perder o que se escreveu.
+  meetingSetNotes(id: string, notes: string) {
+    return invoke<Meeting>("meeting_set_notes", { id, notes });
   },
   meetingSetArchived(id: string, archived: boolean) {
     return invoke<Meeting>("meeting_set_archived", { id, archived });
@@ -221,6 +235,19 @@ export const api = {
   },
   meetingAnalysisConsent() {
     return invoke<AnalysisConsent>("meeting_analysis_consent");
+  },
+  // --- A oferta de gravar (ADR-047) ---
+  //
+  // A janelinha some por `hide` e não `close`: ela sobrevive entre ofertas, como
+  // a do lembrete. Recriar custaria justamente o tempo em que ela precisa
+  // aparecer.
+  fecharReuniaoDetectada() {
+    return invoke<void>("fechar_reuniao_detectada");
+  },
+  // Silencia o AVISO para aquele processo, e nunca a observação — mesmo critério
+  // do "não lembrar hoje".
+  silenciarDeteccao(processo: string) {
+    return invoke<void>("silenciar_deteccao", { processo });
   },
   meetingSetAnalysisConsent(granted: boolean) {
     return invoke<AnalysisConsent>("meeting_set_analysis_consent", { granted });
@@ -312,6 +339,57 @@ export const api = {
   archiveReminder(id: string) {
     return invoke<Reminder>("attention_archive", { id });
   },
+  // ===========================================================================
+  // Universal Drop Zone
+  // ===========================================================================
+  //
+  // Quatro chamadas para um arquivo, e a divisao nao e cerimonia: `begin` grava
+  // a Capture ANTES do primeiro byte, `chunk` empurra os bytes crus, `finish`
+  // preserva e so entao entende. `abort` existe para o caso em que a leitura no
+  // renderer falha no meio — sem ele, uma transferencia morta ficaria aberta no
+  // backend segurando um arquivo no staging.
+  ingestBegin(descriptor: { name: string; mime: string; size: number; context: DropContext }) {
+    return invoke<Ingestion>("ingest_begin", { descriptor });
+  },
+  /**
+   * Um pedaco de arquivo, em bytes crus.
+   *
+   * O `ArrayBuffer` sozinho como argumento faz o Tauri usar o corpo bruto da
+   * requisicao em vez de JSON — o id da ingestao viaja no header porque o corpo
+   * ja esta ocupado sendo o arquivo.
+   */
+  ingestChunk(ingestionId: string, bytes: ArrayBuffer) {
+    return invoke<void>("ingest_chunk", bytes, { headers: { "x-mos-ingestion": ingestionId } });
+  },
+  ingestFinish(ingestionId: string) {
+    return invoke<IngestionReceipt>("ingest_finish", { id: ingestionId });
+  },
+  ingestAbort(ingestionId: string, reason: string) {
+    return invoke<void>("ingest_abort", { id: ingestionId, reason });
+  },
+  ingestText(text: string, context: DropContext) {
+    return invoke<IngestionReceipt>("ingest_text", { text, context });
+  },
+  ingestUrl(url: string, context: DropContext) {
+    return invoke<IngestionReceipt>("ingest_url", { url, context });
+  },
+  ingestUndo(ingestionId: string) {
+    return invoke<void>("ingest_undo", { id: ingestionId });
+  },
+  ingestAcceptSuggestion(ingestionId: string) {
+    return invoke<void>("ingest_accept_suggestion", { id: ingestionId });
+  },
+  /** As ingestoes que viraram Resource, para a Library saber o que cada uma e. */
+  ingestions() {
+    return invoke<Ingestion[]>("list_ingestions");
+  },
+  openIngestedFile(resourceId: string) {
+    return invoke<void>("open_ingested_file", { resourceId });
+  },
+  revealIngestedFile(resourceId: string) {
+    return invoke<void>("reveal_ingested_file", { resourceId });
+  },
+
   createCapture(content: string, source: CaptureSource) {
     return invoke<Capture>("create_capture", { input: { content, source } });
   },

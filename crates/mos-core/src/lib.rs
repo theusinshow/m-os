@@ -7,6 +7,7 @@ mod clock;
 mod conversation;
 mod error;
 mod functions;
+mod ingestion;
 mod meeting;
 mod meeting_analysis;
 mod monitoring;
@@ -46,6 +47,13 @@ pub use functions::{
     function_registry, search_functions, FunctionCategory, FunctionConfirmation,
     FunctionDefinition, FunctionRisk,
 };
+pub use ingestion::{
+    capture_content, clamp_extracted_text, detect_kind, extension_of, host_of, image_size,
+    is_openable, normalize_url, plan_relations, resolve_mime, sanitize_file_name, stored_path,
+    title_from_text, DetectedKind, DropContext, ExtractionState, ImageSize, Ingestion, IngestionId,
+    IngestionReceipt, IngestionSource, IngestionState, NewIngestion, ProjectHint, RelationDecision,
+    RelationPlan, CONFIDENCE_LINK, CONFIDENCE_SUGGEST, MAX_EXTRACTED_CHARS, MAX_INGEST_BYTES,
+};
 pub use meeting::{
     apply as apply_meeting, interleave, AudioRetention, Channel as MeetingChannel, ChannelOutcome,
     Confidence, FailedStage, InsightId, InsightKind, InsightStatus, Meeting, MeetingAnalysis,
@@ -60,17 +68,20 @@ pub use meeting_analysis::{
     Rejections, WINDOW_BUDGET_CHARS,
 };
 pub use monitoring::{
-    diff_transitions, open_periods, uncovered, ActivityEvent, ActivityEventId, ActivityKind,
+    decidir_oferta, diff_transitions, open_periods, uncovered, ActivityEvent, ActivityEventId,
+    ActivityKind, ContextoDaOferta, DecisaoDeOferta, MicrofoneAberto,
     MonitoredApp, MonitoringSettings, NewActivityEvent, Period,
 };
 pub use ports::{
     AppRepository, AttentionRepository, BackupInspection, BackupReceipt, CaptureRepository,
-    ConversationRepository, DataMaintenance, MeetingRepository, MonitoringRepository,
-    ResourceRepository, SearchRequest, TimeTrackingRepository, VoiceRepository,
+    ConversationRepository, DataMaintenance, IngestionRepository, MeetingRepository,
+    MonitoringRepository, ResourceRepository, SearchRequest, TimeTrackingRepository,
+    VoiceRepository,
     WorkRepository,
 };
 pub use resource::{
-    validate_resource_url, NewResource, Resource, ResourceId, ResourceKind, ResourceWorkspace,
+    validate_resource_url, NewResource, Resource, ResourceId, ResourceKind, ResourceProject,
+    ResourceWorkspace,
 };
 pub use service::{
     AppService, AttentionService, AudioOutcome, CaptureService, ConversationService, CreateAppInput,
@@ -81,7 +92,7 @@ pub use service::{
 };
 pub use voice::{
     apply as apply_voice, heard, is_hallucination, title_from, understand, Heard, NewVoiceNote,
-    ProjectHint, ProjectSource, Understanding, VoiceAction, VoiceContext, VoiceNote, VoiceNoteId,
+    ProjectSource, Understanding, VoiceAction, VoiceContext, VoiceNote, VoiceNoteId,
     VoiceNoteStatus, VoiceTransition, MAX_DURATION_MS, MIN_DURATION_MS, MIN_PEAK_LEVEL,
 };
 pub use voice_when::{resolve_when, ResolvedWhen};

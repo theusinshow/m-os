@@ -3,6 +3,7 @@ mod attention_repository;
 mod backup;
 mod conversation_repository;
 mod cronocad_import;
+mod ingestion_repository;
 mod meeting_repository;
 mod monitoring_repository;
 mod repository;
@@ -24,7 +25,7 @@ use serde::Serialize;
 
 pub use cronocad_import::ImportReport;
 
-const SCHEMA_VERSION: u32 = 22;
+const SCHEMA_VERSION: u32 = 25;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -51,7 +52,16 @@ const MIGRATION_019: &str = include_str!("../migrations/0019_ocultos_sem_workspa
 // migration de conserto em vez de uma renumeracao.
 const MIGRATION_020: &str = include_str!("../migrations/0020_meetings.sql");
 const MIGRATION_021: &str = include_str!("../migrations/0021_radial_pins.sql");
-const MIGRATION_022: &str = include_str!("../migrations/0022_voice.sql");
+const MIGRATION_022: &str = include_str!("../migrations/0022_meeting_notes.sql");
+const MIGRATION_023: &str = include_str!("../migrations/0023_universal_drop.sql");
+const MIGRATION_024: &str = include_str!("../migrations/0024_meeting_detection.sql");
+// A de voz nasceu 0022 na branch e virou 0025 no merge: a master chegou ao 24
+// primeiro. Renumerar e seguro porque a branch nunca rodou na maquina de
+// ninguem — e a mesma situacao que a 0020 registrou quando o Meeting Agent
+// entrou. Um banco que ja tivesse visto o 22 antigo nao poderia ser
+// distinguido do 22 de notas de reuniao, e a saida seria uma migration de
+// conserto em vez de uma renumeracao.
+const MIGRATION_025: &str = include_str!("../migrations/0025_voice.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -288,50 +298,51 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
             .map_err(map_sql_error)?;
     }
     if current <= 21 {
-        migrate_captures_for_voice(connection)?;
+        connection
+            .execute_batch(MIGRATION_022)
+            .map_err(map_sql_error)?;
+    }
+    if current <= 22 {
+        connection
+            .execute_batch(MIGRATION_023)
+            .map_err(map_sql_error)?;
+    }
+    if current <= 23 {
+        connection
+            .execute_batch(MIGRATION_024)
+            .map_err(map_sql_error)?;
+    }
+    if current <= 24 {
+        connection
+            .execute_batch(MIGRATION_025)
+            .map_err(map_sql_error)?;
+    }
+    if current < SCHEMA_VERSION {
+        verify_foreign_keys(connection)?;
     }
     Ok(())
 }
 
-/// A 0022, e a guarda que ela precisa ter desligada.
-///
-/// Ela RECRIA `captures`, que e tabela-pai de `tasks.source_capture_id` e
-/// `resources.source_capture_id` (ON DELETE RESTRICT). Com `foreign_keys=ON`,
-/// o `DROP TABLE` de um pai com filhos e recusado — e `PRAGMA foreign_keys` e
-/// no-op dentro de transacao, entao o desligamento nao cabe dentro do `BEGIN`
-/// do arquivo `.sql`. Ele acontece aqui, em volta.
-///
-/// **O `foreign_key_check` nao e cerimonia.** Quem desliga a guarda tem de
-/// provar que nao precisava dela: se alguma Task ficou apontando para uma
-/// Capture que sumiu no swap, isto falha e o banco nao abre — que e o desfecho
-/// certo, porque o snapshot pre-migration ja foi criado e a versao anterior
-/// continua utilizavel.
-fn migrate_captures_for_voice(connection: &Connection) -> Result<(), CoreError> {
-    connection
-        .execute_batch("PRAGMA foreign_keys=OFF;")
+fn verify_foreign_keys(connection: &Connection) -> Result<(), CoreError> {
+    let enabled: i64 = connection
+        .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
         .map_err(map_sql_error)?;
-    let migrated = connection.execute_batch(MIGRATION_022);
-    // O religamento acontece ACONTECA O QUE ACONTECER. Um erro na migration nao
-    // pode deixar a conexao sem integridade referencial — mesmo que ela va ser
-    // descartada logo em seguida, `open` ainda faz coisas com ela no caminho de
-    // volta.
-    let restored = connection.execute_batch("PRAGMA foreign_keys=ON;");
-    migrated.map_err(map_sql_error)?;
-    restored.map_err(map_sql_error)?;
-
-    let mut statement = connection
-        .prepare("PRAGMA foreign_key_check")
-        .map_err(map_sql_error)?;
-    let violations = statement
-        .query_map([], |row| row.get::<_, String>(0))
-        .map_err(map_sql_error)?
-        .count();
-    if violations > 0 {
+    if enabled != 1 {
         return Err(CoreError::new(
             ErrorCode::DataIntegrity,
-            format!(
-                "A migration de voz deixou {violations} referencias orfas.                  O banco anterior esta no snapshot pre-migration."
-            ),
+            "Uma migration deixou as foreign keys desligadas.",
+            false,
+        ));
+    }
+    let orphans: i64 = connection
+        .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get(0)
+        })
+        .map_err(map_sql_error)?;
+    if orphans != 0 {
+        return Err(CoreError::new(
+            ErrorCode::DataIntegrity,
+            format!("A migration deixou {orphans} referencias orfas no banco local."),
             false,
         ));
     }
@@ -362,6 +373,7 @@ fn ensure_search_projection(connection: &Connection) -> Result<(), CoreError> {
         ("apps", "app_search"),
         ("workspaces", "workspace_search"),
         ("resources", "resource_search"),
+        ("ingestions", "ingestion_search"),
         ("message_parts", "message_search"),
     ] {
         let source_count: i64 = connection
@@ -568,9 +580,11 @@ mod tests {
 
     /// Sobe um banco v21 POVOADO ate a v22.
     ///
-    /// Este e o teste que a `0022` precisava ter antes de alcancar a maquina de
-    /// alguem, porque ela e a unica migration do M/OS que **recria uma tabela
-    /// PAI** — e faz isso com a guarda de integridade referencial desligada.
+    /// Este e o teste que a migration de voz precisava ter antes de alcancar a
+    /// maquina de alguem. Ele sobe um banco v21 povoado e o leva ate a versao
+    /// atual, atravessando as DUAS recriacoes de `captures` que existem no
+    /// caminho — a da 0023, para admitir `drop`, e a da 0025, para admitir
+    /// `voice` —, ambas com a guarda de integridade referencial desligada.
     ///
     /// Tres coisas podiam quebrar em silencio, e as tres sao verificadas aqui:
     ///
@@ -584,7 +598,7 @@ mod tests {
     /// 3. **A guarda nao voltar.** Sair da migration com `foreign_keys=OFF`
     ///    seria pior que o problema que ela resolve.
     #[test]
-    fn upgrades_v21_preserving_the_search_index_and_the_provenance() {
+    fn upgrades_v21_through_every_captures_rebuild() {
         use mos_core::{CaptureSource, NewCapture, NewProject, NewTask, WorkRepository};
         use rusqlite::params_from_iter;
 
@@ -1013,6 +1027,295 @@ mod tests {
                     .starts_with("pre-migration-v4-"))
                 .count(),
             1
+        );
+    }
+
+    /// Sobe um v22 POVOADO ate a v23 — o teste mais perigoso desta feature.
+    ///
+    /// A 0023 recria `captures` e `resources`, e as duas TEM FILHAS: uma Task e
+    /// um Resource derivados apontam para a Capture, e um vinculo de Workspace
+    /// aponta para o Resource. Com `foreign_keys` ligado, o DROP da tabela
+    /// antiga dispararia RESTRICT (na Task) e CASCADE (no vinculo) — o primeiro
+    /// quebraria a migration, e o segundo apagaria contexto em silencio, que e
+    /// pior.
+    ///
+    /// O teste prende as duas pontas: nada se perde, e nada fica orfao.
+    #[test]
+    fn upgrades_populated_v22_without_breaking_provenance() {
+        use mos_core::{
+            CaptureSource, IngestionRepository, LifecycleState, NewCapture, NewIngestion,
+            NewProject, ResourceKind, WorkRepository,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("mos.db");
+        let backups = directory.path().join("backups");
+        fs::create_dir_all(&backups).unwrap();
+        let connection = Connection::open(&database).unwrap();
+        configure_connection(&connection).unwrap();
+        for migration in [
+            MIGRATION_001,
+            MIGRATION_002,
+            MIGRATION_003,
+            MIGRATION_004,
+            MIGRATION_005,
+            MIGRATION_006,
+            MIGRATION_007,
+            MIGRATION_008,
+            MIGRATION_009,
+            MIGRATION_010,
+            MIGRATION_011,
+            MIGRATION_012,
+            MIGRATION_013,
+            MIGRATION_014,
+            MIGRATION_015,
+            MIGRATION_016,
+            MIGRATION_017,
+            MIGRATION_018,
+            MIGRATION_019,
+            MIGRATION_020,
+            MIGRATION_021,
+            MIGRATION_022,
+        ] {
+            connection.execute_batch(migration).unwrap();
+        }
+        let version: u32 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 22, "o banco de partida precisa estar na v22");
+
+        connection
+            .execute_batch(
+                "INSERT INTO captures (id, content, source_kind, processing_state,
+                                       lifecycle_state, captured_at, created_at, updated_at)
+                 VALUES ('0198a7d5-a64e-7000-8000-000000000001', 'Virou Task', 'home',
+                         'processed', 'active', '2026-08-19T00:00:00Z',
+                         '2026-08-19T00:00:00Z', '2026-08-19T00:00:00Z'),
+                        ('0198a7d5-a64e-7000-8000-000000000002', 'Virou Resource',
+                         'quick_capture', 'processed', 'active', '2026-08-19T00:00:00Z',
+                         '2026-08-19T00:00:00Z', '2026-08-19T00:00:00Z');
+
+                 INSERT INTO tasks (id, title, description, source_capture_id, work_state,
+                                    lifecycle_state, created_at, updated_at)
+                 VALUES ('0198a7d5-a64e-7000-8000-000000000011', 'Refatorar navbar', '',
+                         '0198a7d5-a64e-7000-8000-000000000001', 'doing', 'active',
+                         '2026-08-19T00:00:00Z', '2026-08-19T00:00:00Z');
+
+                 INSERT INTO resources (id, kind, title, url, note, source_capture_id,
+                                        lifecycle_state, created_at, updated_at)
+                 VALUES ('0198a7d5-a64e-7000-8000-000000000012', 'site', 'Motion',
+                         'https://motion.dev', 'animacao declarativa',
+                         '0198a7d5-a64e-7000-8000-000000000002', 'active',
+                         '2026-08-19T00:00:00Z', '2026-08-19T00:00:00Z');
+
+                 INSERT INTO workspaces (id, name, description, lifecycle_state,
+                                         created_at, updated_at)
+                 VALUES ('0198a7d5-a64e-7000-8000-000000000013', 'Web Design', '', 'active',
+                         '2026-08-19T00:00:00Z', '2026-08-19T00:00:00Z');
+
+                 INSERT INTO resource_workspaces (resource_id, workspace_id, created_at)
+                 VALUES ('0198a7d5-a64e-7000-8000-000000000012',
+                         '0198a7d5-a64e-7000-8000-000000000013', '2026-08-19T00:00:00Z');",
+            )
+            .unwrap();
+        drop(connection);
+
+        let storage = SqliteStorage::open(&database, &backups).unwrap();
+        assert_eq!(storage.health().unwrap().schema_version, SCHEMA_VERSION);
+        assert_eq!(storage.health().unwrap().integrity, "ok");
+
+        // 1. Nada se perdeu, e a proveniencia continua ligada dos dois lados.
+        let connection = Connection::open(&database).unwrap();
+        let orphans: i64 = connection
+            .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(orphans, 0, "a migration deixou referencia orfa");
+        let capture_of_task: String = connection
+            .query_row(
+                "SELECT source_capture_id FROM tasks
+                 WHERE id = '0198a7d5-a64e-7000-8000-000000000011'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(capture_of_task, "0198a7d5-a64e-7000-8000-000000000001");
+        let links: i64 = connection
+            .query_row("SELECT count(*) FROM resource_workspaces", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(links, 1, "o CASCADE apagou um vinculo que era para ficar");
+
+        // 2. A busca continua achando o que ja estava indexado. Depois do swap
+        //    os rowids mudam, e sem o rebuild explicito a FTS devolveria o item
+        //    errado — ou nenhum — sem que a contagem denunciasse.
+        assert_eq!(
+            CaptureRepository::search(
+                &storage,
+                SearchRequest {
+                    query: "Resource".into(),
+                    include_archived: false,
+                    limit: 10,
+                },
+            )
+            .unwrap()
+            .len(),
+            1
+        );
+        assert_eq!(
+            ResourceRepository::search_resources(
+                &storage,
+                SearchRequest {
+                    query: "animacao".into(),
+                    include_archived: false,
+                    limit: 10,
+                },
+            )
+            .unwrap()
+            .len(),
+            1
+        );
+
+        // 3. E o que a migration veio trazer funciona: origem 'drop', tipo
+        //    'file' e a relacao com Project.
+        let project = storage
+            .create_project(NewProject::create("NexoDoc", "", "").unwrap())
+            .unwrap();
+        let ingestion = storage
+            .begin_ingestion(
+                NewIngestion::file("memorial.pdf", "application/pdf", 12, Default::default())
+                    .unwrap(),
+                NewCapture::create("Arquivo recebido: memorial.pdf", CaptureSource::Drop).unwrap(),
+            )
+            .unwrap();
+        let resource = storage
+            .create_resource(
+                NewResource::create(ResourceKind::File, "memorial.pdf", "", "", None).unwrap(),
+            )
+            .unwrap();
+        storage
+            .set_resource_project(resource.id, project.id, true)
+            .unwrap();
+        assert_eq!(storage.resource_projects().unwrap().len(), 1);
+        assert_eq!(
+            storage.get_ingestion(ingestion.id).unwrap().state,
+            mos_core::IngestionState::Receiving
+        );
+        assert_eq!(
+            storage
+                .set_resource_lifecycle(resource.id, LifecycleState::Archived)
+                .unwrap()
+                .lifecycle_state,
+            LifecycleState::Archived
+        );
+    }
+
+    /// Ensaia a migration contra o banco REAL, numa cópia.
+    ///
+    /// Mesmo padrão do ensaio de importação do CronoCAD: uma migration testada
+    /// só contra bancos sintéticos foi testada contra o que o autor imaginou. O
+    /// banco de verdade tem reuniões, conversas do Hermes, horas rastreadas e
+    /// Captures que já derivaram Task — e é nele que uma migration ruim custa
+    /// caro.
+    ///
+    /// Roda numa CÓPIA e nunca no original:
+    ///
+    /// ```text
+    /// MOS_DB=%APPDATA%/com.codedbym.mos/m-os.db \
+    ///   cargo test -p mos-storage-sqlite ensaio -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore = "depende de um m-os.db real"]
+    fn ensaio_de_migration_contra_o_banco_real() {
+        use mos_core::WorkRepository;
+
+        let Ok(origem) = std::env::var("MOS_DB") else {
+            panic!("defina MOS_DB com o caminho do m-os.db");
+        };
+        let origem = std::path::PathBuf::from(origem);
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("m-os.db");
+        let backups = directory.path().join("backups");
+        fs::create_dir_all(&backups).unwrap();
+
+        // A cópia sai pela API de backup do SQLite, e não por `fs::copy`.
+        //
+        // O `ARCHITECTURE.md` §16 já diz por quê: copiar o arquivo principal
+        // enquanto o WAL está ativo produz um banco sem os últimos commits, e
+        // copiar o `-shm` junto produz coisa pior — um índice de WAL que não
+        // corresponde ao arquivo, e o SQLite passa a ler versões erradas de
+        // página em silêncio.
+        //
+        // A origem é aberta SOMENTE LEITURA. Este ensaio nunca escreve no banco
+        // de verdade, nem para migrar.
+        {
+            let fonte = Connection::open_with_flags(
+                &origem,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .unwrap();
+            fonte.backup(MAIN_DB, &database, None).unwrap();
+        }
+
+        let antes = Connection::open(&database).unwrap();
+        let versao: u32 = antes
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        let captures: i64 = antes
+            .query_row("SELECT count(*) FROM captures", [], |row| row.get(0))
+            .unwrap();
+        let resources: i64 = antes
+            .query_row("SELECT count(*) FROM resources", [], |row| row.get(0))
+            .unwrap();
+        let tasks: i64 = antes
+            .query_row("SELECT count(*) FROM tasks", [], |row| row.get(0))
+            .unwrap();
+        let vinculos: i64 = antes
+            .query_row("SELECT count(*) FROM resource_workspaces", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        drop(antes);
+        println!(
+            "antes: v{versao} · {captures} captures · {tasks} tasks · {resources} resources · {vinculos} vinculos"
+        );
+
+        let storage = SqliteStorage::open(&database, &backups).unwrap();
+        let health = storage.health().unwrap();
+        assert_eq!(health.schema_version, SCHEMA_VERSION);
+        assert_eq!(health.integrity, "ok");
+
+        let depois = Connection::open(&database).unwrap();
+        let orfaos: i64 = depois
+            .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(orfaos, 0, "a migration deixou referencia orfa");
+        for (tabela, esperado) in [
+            ("captures", captures),
+            ("tasks", tasks),
+            ("resources", resources),
+            ("resource_workspaces", vinculos),
+        ] {
+            let agora: i64 = depois
+                .query_row(&format!("SELECT count(*) FROM {tabela}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(agora, esperado, "{tabela} perdeu linha na migration");
+        }
+        // A busca continua respondendo depois do swap de rowid.
+        let indexadas: i64 = depois
+            .query_row("SELECT count(*) FROM capture_search", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(indexadas, captures, "o indice de Captures nao foi refeito");
+        println!(
+            "depois: v{} · {} projects legiveis · 0 orfaos",
+            health.schema_version,
+            storage.projects(true).unwrap().len()
         );
     }
 }

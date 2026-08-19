@@ -2,40 +2,39 @@
 -- texto existir.
 --
 -- ---------------------------------------------------------------------------
--- Por que `captures` e RECRIADA
+-- Por que `captures` e recriada DE NOVO
 -- ---------------------------------------------------------------------------
 --
--- A 0001 gravou `CHECK (source_kind IN ('home', 'quick_capture'))`, e o SQLite
--- nao altera CHECK. Recriar e o unico caminho, e e o mesmo que a 0007 tomou
--- para os seis estados de Task.
+-- A 0023 ja a recriou para admitir 'drop', e o SQLite continua sem alterar
+-- CHECK. Widening de dominio custa uma recriacao por vez, e nao ha atalho: a
+-- alternativa seria uma CHECK frouxa, que deixaria de recusar a origem
+-- inventada — exatamente o que ela existe para recusar.
 --
--- Duas diferencas em relacao a 0007, e as duas importam:
---
--- 1. **O `rowid` e copiado explicitamente.** `capture_search` e uma FTS5 de
---    conteudo externo indexada por `content_rowid`; deixar o SQLite renumerar
---    faria cada linha do indice apontar para a Capture errada, e a busca
---    devolveria o texto de outra pessoa sem nada falhar. Ele e reconstruido
---    logo abaixo de qualquer forma — mas preservar o rowid mantem correto
---    tambem o intervalo entre o swap e o rebuild.
---
--- 2. **`captures` e tabela-PAI.** `tasks.source_capture_id` e
---    `resources.source_capture_id` apontam para ela com ON DELETE RESTRICT, e
---    com `foreign_keys=ON` o DROP TABLE de um pai com filhos e recusado. O
---    PRAGMA e no-op dentro de transacao, entao ele NAO cabe aqui dentro: quem
---    desliga a guarda e o Rust em `migrate()`, em volta desta migration, e ele
---    roda `PRAGMA foreign_key_check` antes de religa-la. Quem desliga tem de
---    provar que nao precisava dela.
+-- O procedimento e o MESMO da 0023, e por isso ele nao e reexplicado aqui:
+-- `foreign_keys=OFF` e `legacy_alter_table=ON` fora da transacao, RENAME em vez
+-- de swap para que as filhas continuem apontando para o nome certo, e o
+-- `verify_foreign_keys` do `migrate()` conferindo depois que nenhum orfao
+-- sobrou. `tasks` e `resources` apontam para `captures`, entao o DROP da antiga
+-- dispararia RESTRICT sem isso.
+
+PRAGMA foreign_keys = OFF;
+PRAGMA legacy_alter_table = ON;
 
 BEGIN IMMEDIATE;
 
 -- ---------------------------------------------------------------------------
--- 1. captures — a origem `voice`
+-- 1. captures — a origem 'voice'
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE captures_new (
+DROP TABLE capture_search;
+
+ALTER TABLE captures RENAME TO captures_old;
+
+CREATE TABLE captures (
     id TEXT PRIMARY KEY NOT NULL,
     content TEXT NOT NULL CHECK (length(trim(content)) > 0),
-    source_kind TEXT NOT NULL CHECK (source_kind IN ('home', 'quick_capture', 'voice')),
+    source_kind TEXT NOT NULL
+        CHECK (source_kind IN ('home', 'quick_capture', 'drop', 'voice')),
     processing_state TEXT NOT NULL DEFAULT 'inbox'
         CHECK (processing_state IN ('inbox', 'processed')),
     lifecycle_state TEXT NOT NULL DEFAULT 'active'
@@ -47,19 +46,16 @@ CREATE TABLE captures_new (
     deleted_at TEXT
 ) STRICT;
 
-INSERT INTO captures_new (
-    rowid, id, content, source_kind, processing_state, lifecycle_state,
+INSERT INTO captures (
+    id, content, source_kind, processing_state, lifecycle_state,
     captured_at, created_at, updated_at, archived_at, deleted_at
 )
 SELECT
-    rowid, id, content, source_kind, processing_state, lifecycle_state,
+    id, content, source_kind, processing_state, lifecycle_state,
     captured_at, created_at, updated_at, archived_at, deleted_at
-FROM captures;
+FROM captures_old;
 
-DROP TABLE capture_search;
-DROP TABLE captures;
-
-ALTER TABLE captures_new RENAME TO captures;
+DROP TABLE captures_old;
 
 CREATE INDEX captures_inbox_order
     ON captures(processing_state, lifecycle_state, captured_at DESC);
@@ -67,8 +63,8 @@ CREATE INDEX captures_inbox_order
 CREATE INDEX captures_lifecycle_order
     ON captures(lifecycle_state, captured_at DESC);
 
--- O `source_kind` entra num indice proprio: "o que eu falei ontem" e uma
--- pergunta que o Historico faz, e sem ele ela varre a tabela inteira.
+-- O `source_kind` ganha indice proprio: "o que eu falei ontem" e uma pergunta
+-- que o Historico faz, e sem ele ela varre a tabela inteira.
 CREATE INDEX captures_source_order
     ON captures(source_kind, captured_at DESC);
 
@@ -163,6 +159,9 @@ CREATE INDEX voice_notes_capture
     ON voice_notes(capture_id)
     WHERE capture_id IS NOT NULL;
 
-PRAGMA user_version = 22;
+PRAGMA user_version = 25;
 
 COMMIT;
+
+PRAGMA legacy_alter_table = OFF;
+PRAGMA foreign_keys = ON;

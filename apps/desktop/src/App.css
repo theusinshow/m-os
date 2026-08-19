@@ -7015,6 +7015,15 @@ input[type="checkbox"]:disabled {
   .recording-dot { animation: none; }
 }
 
+/* Pausado, o ponto PARA e esvazia a cor.
+   Um ponto vermelho pulsando com o microfone fechado e a mentira exata que a
+   §17.2 existe para impedir — e ela e pior que nao ter indicacao nenhuma,
+   porque ensina a confiar num sinal falso. */
+.recording-dot[data-pausada] {
+  animation: none;
+  background: var(--text-disabled);
+}
+
 .recording-clock {
   font: var(--text-meta);
   font-variant-numeric: tabular-nums;
@@ -7631,6 +7640,120 @@ input[type="checkbox"]:disabled {
   gap: var(--space-2);
 }
 
+/* --- O card de gravacao --------------------------------------------------- */
+
+.card-gravacao {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.card-gravacao-barra {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* A onda: trinta barras, dois segundos de historia. A altura vem do `--h` que o
+   componente calcula, e nao de uma animacao — o movimento E o dado. */
+.onda {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 2px;
+  height: var(--height-control);
+}
+
+.onda i {
+  display: block;
+  flex: 1;
+  min-height: 2px;
+  height: calc(var(--h) * 100%);
+  background: var(--signal-ink);
+  border-radius: 1px;
+  transition: height 80ms linear;
+}
+
+/* Sem movimento, o componente troca de DESENHO e nao so de transicao: sao oito
+   degraus do agora, no lugar de trinta barras de historia. O CSS so acompanha. */
+.onda[data-degraus] i {
+  flex: none;
+  width: 3px;
+  height: 12px;
+  background: var(--border-control);
+  transition: none;
+}
+
+.onda[data-degraus] i[data-on] {
+  background: var(--signal-ink);
+}
+
+/* Pausada, a onda esvazia a cor mas NAO some: sumir diria "acabou", e pausado
+   nao e acabado. */
+.card-gravacao[data-pausada] .onda i {
+  background: var(--border-control);
+}
+
+.card-gravacao-notas {
+  min-height: 8rem;
+  padding: var(--space-3);
+  color: var(--text);
+  font: var(--text-ui);
+  background: var(--surface);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius);
+  resize: vertical;
+}
+
+.card-gravacao-notas:focus-visible {
+  border-color: var(--signal-ink);
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onda i {
+    transition: none;
+  }
+}
+
+/* --- A oferta de gravar (ADR-047) ----------------------------------------- */
+
+/* Mesma forma do `.reminder-shell`: a margem e onde a sombra em CSS cabe, e cada
+   pixel dela e transparente e engole clique do que estiver embaixo — por isso
+   ela e curta. */
+.oferta-shell {
+  display: grid;
+  gap: var(--space-3);
+  margin: 4px 10px 16px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='light'] .oferta-shell {
+  box-shadow: 0 6px 16px rgba(20, 24, 26, 0.16);
+}
+
+.oferta-head {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.oferta-head .micro-label {
+  color: var(--signal-ink);
+}
+
+.oferta-acoes {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
 /* --- Estreito ------------------------------------------------------------- */
 
 @media (max-width: 960px) {
@@ -7641,6 +7764,149 @@ input[type="checkbox"]:disabled {
      sai. Saber HA QUANTO TEMPO grava e o que a barra existe para dizer. */
   .recording-bar .meeting-level {
     display: none;
+  }
+}
+
+/* ===========================================================================
+   Universal Drop Zone
+   ===========================================================================
+
+   Duas superfícies e nenhuma tela. A primeira só existe durante o gesto; a
+   segunda só existe enquanto há o que dizer. Nenhuma das duas tem botão de
+   abrir, campo de arquivo ou "Upload Center" — o gesto é soltar, e a interface
+   some quando ele termina. */
+
+.drop-surface {
+  position: fixed;
+  z-index: var(--z-overlay);
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--overlay-backdrop);
+  /* A janela inteira vira alvo, então a moldura precisa ficar POR DENTRO do
+     backdrop: uma borda na borda da tela some contra a moldura da janela. */
+  box-shadow: inset 0 0 0 var(--line) var(--border-strong);
+  pointer-events: none;
+  animation: viewEnter var(--dur-enter) var(--ease-enter);
+}
+
+.drop-message {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: center;
+  padding: var(--space-6) var(--space-7);
+  text-align: center;
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+}
+
+.drop-message strong {
+  color: var(--text);
+  font: var(--text-title);
+}
+
+.drop-message span {
+  color: var(--text-secondary);
+  font: var(--text-body);
+}
+
+/* O painel do lote. Uma linha por item, com estado próprio: uma falha no
+   terceiro arquivo não pode dizer nada sobre os outros quatro. */
+.drop-panel {
+  position: fixed;
+  z-index: var(--z-receipt);
+  right: var(--space-4);
+  bottom: var(--space-4);
+  display: grid;
+  gap: var(--space-2);
+  width: min(24rem, calc(100vw - var(--space-6)));
+  padding: var(--space-3);
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-overlay);
+  animation: viewEnter var(--dur-enter) var(--ease-enter);
+}
+
+.drop-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.drop-item-mark {
+  width: var(--icon-size);
+  color: var(--text-disabled);
+  font-family: var(--font-system);
+  text-align: center;
+}
+
+/* Só o desfecho ganha cor, e a cor é a do sistema. Um painel colorido
+   linha a linha viraria semáforo, e o §48 pede que cor tenha função. */
+.drop-item[data-status="guardado"] .drop-item-mark {
+  color: var(--signal-ink);
+}
+
+.drop-item[data-status="erro"] .drop-item-mark {
+  color: var(--danger);
+}
+
+.drop-item-copy {
+  display: grid;
+  min-width: 0;
+}
+
+.drop-item-copy strong {
+  overflow: hidden;
+  color: var(--text);
+  font: var(--text-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drop-item-copy small {
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+.drop-item[data-status="erro"] .drop-item-copy small {
+  color: var(--danger);
+}
+
+/* Os fatos do arquivo, no detalhe da Library. Mesma gramática do bloco de
+   contexto ao lado: rótulo micro em cima, pares embaixo. */
+.resource-file dl {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+}
+
+.resource-file dl > div {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.resource-file dt {
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+.resource-file dd {
+  margin: 0;
+  color: var(--text);
+  font: var(--text-small);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drop-surface,
+  .drop-panel {
+    animation: none;
   }
 }
 

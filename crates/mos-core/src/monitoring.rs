@@ -72,6 +72,11 @@ pub struct MonitoringSettings {
     pub idle_threshold_minutes: i64,
     pub remind_on_open: bool,
     pub remind_on_close: bool,
+    /// Oferecer gravacao quando um programa abre o microfone (ADR-047).
+    ///
+    /// LIGADA de fabrica. O custo esta admitido na ADR: a fronteira da ADR-037 e
+    /// atravessada com aviso e nao com pedido, e este campo e a mitigacao.
+    pub meeting_detection_enabled: bool,
 }
 
 /// Quais processos abriram e quais fecharam entre dois instantes.
@@ -87,6 +92,65 @@ pub fn diff_transitions(
         current.difference(previous).cloned().collect(),
         previous.difference(current).cloned().collect(),
     )
+}
+
+/// Um processo com o microfone aberto, e ha quanto tempo.
+///
+/// So isto atravessa a fronteira: **quem** e **desde quando**. Nao ha titulo de
+/// janela, nao ha conteudo de aba, nao ha audio — e a ausencia deles E a
+/// feature, nao uma limitacao dela (ADR-047).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MicrofoneAberto {
+    pub processo: String,
+    pub segundos_aberto: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DecisaoDeOferta {
+    Oferecer(String),
+    Nada,
+}
+
+/// O que o laco sabe no momento de perguntar.
+#[derive(Clone, Debug)]
+pub struct ContextoDaOferta {
+    pub gravando: bool,
+    /// Em minuscula, como o `suppress` do monitor ja guarda.
+    pub silenciados: std::collections::BTreeSet<String>,
+    pub ligado: bool,
+    pub espera_segundos: i64,
+}
+
+/// O processo do proprio M/OS, que nunca dispara a oferta.
+const EU_MESMO: &str = "mos-desktop.exe";
+
+/// Decide se ha oferta a fazer, e para qual processo.
+///
+/// Pura, e por isso testavel sem Windows — mesma divisao de `diff_transitions`:
+/// o que decide e um conjunto de fatos, e nao o sistema operacional.
+pub fn decidir_oferta(
+    abertos: &[MicrofoneAberto],
+    contexto: &ContextoDaOferta,
+) -> DecisaoDeOferta {
+    if !contexto.ligado || contexto.gravando {
+        return DecisaoDeOferta::Nada;
+    }
+
+    let alvo = abertos
+        .iter()
+        // O M/OS abre o microfone quando grava. Sem esta linha ele se veria
+        // gravando e ofereceria gravar de novo.
+        .filter(|entrada| !entrada.processo.eq_ignore_ascii_case(EU_MESMO))
+        .filter(|entrada| !contexto.silenciados.contains(&entrada.processo.to_lowercase()))
+        .filter(|entrada| entrada.segundos_aberto >= contexto.espera_segundos)
+        // Ganha o aberto ha MAIS tempo: com Discord ao lado do Meet, quem abriu
+        // primeiro provavelmente e a reuniao, e quem abriu depois e o acessorio.
+        .max_by_key(|entrada| entrada.segundos_aberto);
+
+    match alvo {
+        Some(entrada) => DecisaoDeOferta::Oferecer(entrada.processo.clone()),
+        None => DecisaoDeOferta::Nada,
+    }
 }
 
 /// Um programa cuja abertura sugere trabalho.
@@ -278,6 +342,99 @@ pub fn uncovered(periods: &[Period], covered: &[Period]) -> Vec<Period> {
 
 #[cfg(test)]
 mod tests {
+    fn contexto() -> ContextoDaOferta {
+        ContextoDaOferta {
+            gravando: false,
+            silenciados: std::collections::BTreeSet::new(),
+            ligado: true,
+            espera_segundos: 20,
+        }
+    }
+
+    fn aberto(processo: &str, segundos: i64) -> MicrofoneAberto {
+        MicrofoneAberto {
+            processo: processo.to_string(),
+            segundos_aberto: segundos,
+        }
+    }
+
+    #[test]
+    fn oferece_quando_um_processo_passa_da_espera() {
+        assert_eq!(
+            decidir_oferta(&[aberto("chrome.exe", 25)], &contexto()),
+            DecisaoDeOferta::Oferecer("chrome.exe".into())
+        );
+    }
+
+    #[test]
+    fn nao_oferece_antes_da_espera() {
+        // Microfone que abre por dois segundos e teste de som, push-to-talk,
+        // notificacao. Reuniao mantem aberto.
+        assert_eq!(
+            decidir_oferta(&[aberto("chrome.exe", 5)], &contexto()),
+            DecisaoDeOferta::Nada
+        );
+    }
+
+    #[test]
+    fn o_proprio_mos_nao_conta() {
+        // `mos-desktop.exe` esta no ConsentStore, e gravar abre o microfone.
+        assert_eq!(
+            decidir_oferta(&[aberto("mos-desktop.exe", 300)], &contexto()),
+            DecisaoDeOferta::Nada
+        );
+        assert_eq!(
+            decidir_oferta(&[aberto("MOS-Desktop.EXE", 300)], &contexto()),
+            DecisaoDeOferta::Nada
+        );
+    }
+
+    #[test]
+    fn nao_oferece_durante_gravacao() {
+        let mut ctx = contexto();
+        ctx.gravando = true;
+        assert_eq!(
+            decidir_oferta(&[aberto("chrome.exe", 300)], &ctx),
+            DecisaoDeOferta::Nada
+        );
+    }
+
+    #[test]
+    fn nao_oferece_para_processo_silenciado() {
+        let mut ctx = contexto();
+        ctx.silenciados.insert("chrome.exe".into());
+        assert_eq!(
+            decidir_oferta(&[aberto("chrome.exe", 300)], &ctx),
+            DecisaoDeOferta::Nada
+        );
+        // O silencio de um nao cala o outro.
+        assert_eq!(
+            decidir_oferta(&[aberto("chrome.exe", 300), aberto("zoom.exe", 100)], &ctx),
+            DecisaoDeOferta::Oferecer("zoom.exe".into())
+        );
+    }
+
+    #[test]
+    fn desligado_nao_oferece_nada() {
+        let mut ctx = contexto();
+        ctx.ligado = false;
+        assert_eq!(
+            decidir_oferta(&[aberto("chrome.exe", 300)], &ctx),
+            DecisaoDeOferta::Nada
+        );
+    }
+
+    #[test]
+    fn com_varios_ganha_o_aberto_ha_mais_tempo() {
+        assert_eq!(
+            decidir_oferta(
+                &[aberto("discord.exe", 40), aberto("chrome.exe", 120)],
+                &contexto()
+            ),
+            DecisaoDeOferta::Oferecer("chrome.exe".into())
+        );
+    }
+
     use super::*;
 
     fn processes(names: &[&str]) -> std::collections::BTreeSet<String> {

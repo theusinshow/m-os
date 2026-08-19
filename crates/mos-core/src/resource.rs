@@ -34,8 +34,8 @@ impl std::fmt::Display for ResourceId {
 
 /// Tipo do Resource.
 ///
-/// A Library filtra por estes quatro. A validacao de URL varia por tipo, e o
-/// banco espelha exatamente estas regras numa CHECK (migration 0007).
+/// A Library filtra por estes cinco. A validacao de URL varia por tipo, e o
+/// banco espelha exatamente estas regras numa CHECK (migrations 0007 e 0023).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceKind {
@@ -43,6 +43,13 @@ pub enum ResourceKind {
     Library,
     Image,
     Note,
+    /// Arquivo preservado dentro do M/OS.
+    ///
+    /// Nao tem `url`: o caminho do original mora na linha de ingestao que o
+    /// criou, endereçado pelo hash do conteudo. Guardar o caminho aqui tambem
+    /// criaria duas verdades sobre onde o arquivo esta, e um dia elas
+    /// discordariam.
+    File,
 }
 
 impl ResourceKind {
@@ -52,6 +59,7 @@ impl ResourceKind {
             Self::Library => "library",
             Self::Image => "image",
             Self::Note => "note",
+            Self::File => "file",
         }
     }
 
@@ -61,6 +69,7 @@ impl ResourceKind {
             "library" => Ok(Self::Library),
             "image" => Ok(Self::Image),
             "note" => Ok(Self::Note),
+            "file" => Ok(Self::File),
             _ => Err(CoreError::new(
                 ErrorCode::DataIntegrity,
                 "Tipo de Resource desconhecido.",
@@ -94,6 +103,14 @@ pub struct ResourceWorkspace {
     pub workspace_id: crate::WorkspaceId,
 }
 
+/// Um par significa: este Resource serve a este Project.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceProject {
+    pub resource_id: ResourceId,
+    pub project_id: crate::ProjectId,
+}
+
 #[derive(Clone, Debug)]
 pub struct NewResource {
     pub id: ResourceId,
@@ -109,8 +126,8 @@ impl NewResource {
     /// Cria um Resource de qualquer tipo.
     ///
     /// A validacao de URL varia por tipo: Site e Library exigem http(s);
-    /// Image aceita http(s) ou caminho local; Note nao tem URL — e por isso
-    /// exige titulo proprio, ja que nao ha URL para servir de fallback.
+    /// Image aceita http(s) ou caminho local; Note e File nao tem URL — e por
+    /// isso exigem titulo proprio, ja que nao ha URL para servir de fallback.
     pub fn create(
         kind: ResourceKind,
         title: &str,
@@ -121,14 +138,14 @@ impl NewResource {
         let url = match kind {
             ResourceKind::Site | ResourceKind::Library => validate_resource_url(url)?,
             ResourceKind::Image => validate_image_location(url)?,
-            ResourceKind::Note => String::new(),
+            ResourceKind::Note | ResourceKind::File => String::new(),
         };
 
         let title = match title.trim() {
             "" if url.is_empty() => {
                 return Err(CoreError::new(
                     ErrorCode::InvalidInput,
-                    "Uma Note precisa de titulo.",
+                    "Um Resource sem URL precisa de titulo.",
                     false,
                 ))
             }
@@ -194,10 +211,21 @@ mod tests {
             ResourceKind::Library,
             ResourceKind::Image,
             ResourceKind::Note,
+            ResourceKind::File,
         ] {
             assert_eq!(ResourceKind::parse(kind.as_str()).unwrap(), kind);
         }
         assert!(ResourceKind::parse("link").is_err());
+    }
+
+    /// O caminho do arquivo NAO mora no Resource: quem guarda e a ingestao.
+    #[test]
+    fn file_nao_tem_url_e_exige_titulo() {
+        let resource =
+            NewResource::create(ResourceKind::File, "memorial.pdf", "C:/x.pdf", "", None).unwrap();
+        assert_eq!(resource.url, "");
+        assert_eq!(resource.title, "memorial.pdf");
+        assert!(NewResource::create(ResourceKind::File, " ", "", "", None).is_err());
     }
 
     #[test]

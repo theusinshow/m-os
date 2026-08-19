@@ -37,10 +37,20 @@ impl std::fmt::Display for CaptureId {
 pub enum CaptureSource {
     Home,
     QuickCapture,
+    /// Algo foi solto sobre a janela do M/OS.
+    ///
+    /// Superficie nova, e nao apelido das outras duas: a ADR-004 diz que Capture
+    /// preserva a ORIGEM, e registrar um arquivo arrastado como se tivesse sido
+    /// digitado na Home apagaria justamente o fato que a proveniencia existe
+    /// para guardar.
+    Drop,
     /// Falada. A Capture guarda a TRANSCRICAO, e a nota de voz que a produziu
     /// aponta para ela — a proveniencia corre no sentido audio -> texto, e nao
     /// o contrario, porque o texto e o que sobrevive (o audio e apagado assim
     /// que ele existe).
+    ///
+    /// Irma de `Drop` e pelo mesmo argumento: as duas nascem de uma superficie
+    /// propria, e as duas guardam o original antes de qualquer entendimento.
     Voice,
 }
 
@@ -49,6 +59,7 @@ impl CaptureSource {
         match self {
             Self::Home => "home",
             Self::QuickCapture => "quick_capture",
+            Self::Drop => "drop",
             Self::Voice => "voice",
         }
     }
@@ -57,6 +68,7 @@ impl CaptureSource {
         match value {
             "home" => Ok(Self::Home),
             "quick_capture" => Ok(Self::QuickCapture),
+            "drop" => Ok(Self::Drop),
             "voice" => Ok(Self::Voice),
             _ => Err(CoreError::new(
                 ErrorCode::DataIntegrity,

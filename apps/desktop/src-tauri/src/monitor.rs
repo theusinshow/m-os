@@ -47,12 +47,27 @@ pub struct PendingReminder {
     pub has_active_timer: bool,
 }
 
+/// Vinte segundos de microfone aberto antes de oferecer.
+///
+/// Nao e conservadorismo: microfone que abre por dois segundos e teste de som,
+/// atalho de push-to-talk, notificacao do sistema. Reuniao mantem aberto. Sem a
+/// espera o popup vira ruido, e popup ruidoso e desligado no primeiro dia — o
+/// que custa a feature inteira em troca de nada.
+const ESPERA_DE_OFERTA: i64 = 20;
+
 #[derive(Default)]
 struct Observed {
     /// Processos monitorados vistos rodando na ultima passada.
     running: BTreeSet<String>,
     /// Quando cada processo notificou pela ultima vez, em epoch.
     last_reminder: HashMap<String, i64>,
+    /// Para qual processo a oferta de gravar ja foi mostrada.
+    ///
+    /// Sem isto a janelinha reapareceria a cada volta do laco, que sao poucos
+    /// segundos. Limpa quando o processo some da lista de microfones abertos —
+    /// entao um Meet que cai e volta oferece de novo, e isso e desejado: pode
+    /// ser outra reuniao.
+    ja_ofereceu: Option<String>,
     /// Ate quando cada processo esta silenciado, em epoch.
     ///
     /// O instante vem da INTERFACE e nao daqui: "hoje" acaba a meia-noite
@@ -239,6 +254,50 @@ pub async fn run<R: Runtime>(app: AppHandle<R>) {
             }
         }
 
+        // A deteccao de reuniao anda no MESMO laco, e nao num proprio: as duas
+        // perguntam ao sistema no mesmo ritmo, e dois lacos acordando a cada
+        // poucos segundos custam bateria por nada.
+        //
+        // TEMPORARIO ate a migration 0023: `ligado` fixo em `true` enquanto o
+        // campo nao existe nas configuracoes. Ver a nota do commit.
+        {
+            let abertos = crate::microfone::abertos_agora();
+            let agora = time::OffsetDateTime::now_utc().unix_timestamp();
+
+            let gravando = app.state::<crate::meeting::RecordingState>().gravando();
+            let silenciados = app
+                .state::<Monitor>()
+                .silenced_now(agora)
+                .into_iter()
+                .map(|(processo, _)| processo)
+                .collect();
+
+            // Microfone fechou: a proxima abertura oferece de novo, e isso e
+            // desejado — pode ser outra reuniao.
+            if let Ok(mut observed) = app.state::<Monitor>().observed.lock() {
+                let ainda_aberto = observed
+                    .ja_ofereceu
+                    .as_ref()
+                    .map(|alvo| abertos.iter().any(|entrada| &entrada.processo == alvo))
+                    .unwrap_or(false);
+                if !ainda_aberto {
+                    observed.ja_ofereceu = None;
+                }
+            }
+
+            let contexto = mos_core::ContextoDaOferta {
+                gravando,
+                silenciados,
+                ligado: settings.meeting_detection_enabled,
+                espera_segundos: ESPERA_DE_OFERTA,
+            };
+            if let mos_core::DecisaoDeOferta::Oferecer(processo) =
+                mos_core::decidir_oferta(&abertos, &contexto)
+            {
+                oferecer(&app, &processo);
+            }
+        }
+
         if settings.idle_detection_enabled {
             check_idle(&app, settings.idle_threshold_minutes);
         }
@@ -368,6 +427,59 @@ fn show_reminder<R: Runtime>(app: &AppHandle<R>, reminder: &PendingReminder) {
     let _ = window.emit("reminder", reminder);
 }
 
+/// Mostra a oferta de gravar, sem roubar o foco.
+///
+/// Uma janela que captura o teclado no instante em que alguem entra numa reuniao
+/// e um acidente: a pessoa esta clicando em "entrar", e nao aqui.
+///
+/// So oferece UMA VEZ por abertura de microfone — `ja_ofereceu` guarda o alvo, e
+/// o laco o limpa quando o processo some dos abertos.
+fn oferecer<R: Runtime>(app: &AppHandle<R>, processo: &str) {
+    {
+        let monitor = app.state::<Monitor>();
+        let Ok(mut observed) = monitor.observed.lock() else {
+            return;
+        };
+        if observed.ja_ofereceu.as_deref() == Some(processo) {
+            return;
+        }
+        observed.ja_ofereceu = Some(processo.to_string());
+    }
+
+    let Some(window) = app.get_webview_window("reuniao-detectada") else {
+        return;
+    };
+    if !window.is_visible().unwrap_or(false) {
+        if let Ok(Some(tela)) = window.current_monitor() {
+            let screen = tela.size();
+            let scale = tela.scale_factor();
+            if let Ok(size) = window.outer_size() {
+                // Mesma margem do lembrete: a barra de tarefas mora ali embaixo,
+                // e encostar nela esconde o botao.
+                let margin = (24.0 * scale) as u32;
+                let x = screen.width.saturating_sub(size.width + margin);
+                let y = screen.height.saturating_sub(size.height + margin * 3);
+                let _ = window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
+            }
+        }
+        let _ = window.show();
+        let _ = window.set_always_on_top(true);
+    }
+    let _ = window.emit(
+        "reuniao-detectada",
+        serde_json::json!({ "processo": processo, "nome": nome_amigavel(processo) }),
+    );
+}
+
+/// O nome que a pessoa le.
+///
+/// Sem lista de reunioes conhecidas: o que se observou foi o nome do
+/// executavel, e inventar "Google Meet" a partir de `chrome.exe` seria afirmar o
+/// que nao se observou — exatamente o que a ADR-047 recusa ao nao ler titulo.
+fn nome_amigavel(processo: &str) -> String {
+    processo.strip_suffix(".exe").unwrap_or(processo).to_string()
+}
+
 /// True quando o cooldown venceu — e ja marca o novo instante.
 fn cooldown_passed<R: Runtime>(app: &AppHandle<R>, process: &str) -> bool {
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -428,8 +540,31 @@ fn remind<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
     let _ = app.notification().builder().title(title).body(body).show();
 }
 
-/// O que a janelinha deve mostrar. Ela pergunta ao abrir, porque pode ter
-/// nascido depois de o evento ter sido emitido.
+/// Fecha a janelinha da oferta de gravar.
+#[tauri::command]
+pub fn fechar_reuniao_detectada<R: Runtime>(app: AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("reuniao-detectada") {
+        // `hide`, e nao `close`: a janela sobrevive entre ofertas, como a do
+        // lembrete. Recriar custa o tempo em que ela precisa aparecer.
+        let _ = window.hide();
+    }
+}
+
+/// Silencia a DETECCAO para um processo, pelo mesmo caminho do lembrete.
+///
+/// Silencia o aviso, e nunca a observacao — mesmo criterio do "nao lembrar
+/// hoje": quem pediu silencio pediu para nao ser interrompido.
+#[tauri::command]
+pub fn silenciar_deteccao<R: Runtime>(app: AppHandle<R>, processo: String) {
+    let ate = time::OffsetDateTime::now_utc().unix_timestamp() + 60 * 60 * 12;
+    app.state::<Monitor>().suppress(&processo, ate);
+    if let Some(window) = app.get_webview_window("reuniao-detectada") {
+        let _ = window.hide();
+    }
+}
+
+/// O que a janelinha do lembrete deve mostrar. Ela pergunta ao abrir, porque
+/// pode ter nascido depois de o evento ter sido emitido.
 #[tauri::command]
 pub fn reminder_pending<R: Runtime>(app: AppHandle<R>) -> Option<PendingReminder> {
     app.state::<Monitor>().pending()

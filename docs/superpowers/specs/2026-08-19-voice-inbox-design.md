@@ -10,7 +10,9 @@ Branch: `feat/voice-inbox`
 Antes de qualquer decisão, a auditoria do repositório. Cinco achados mudaram o
 que esta feature é.
 
-**1. Universal Drop Zone e "ingestion pipeline" não existem em código.**
+**1. Universal Drop Zone e "ingestion pipeline" não existem em código** — e
+isto valia no ponto de partida da branch; a master os construiu enquanto ela
+corria, e a §14 registra como o merge reconciliou os dois.
 `grep -ril "drop.zone|dropzone|universal.capture|ingest"` devolve apenas
 `docs/`. O que existe de verdade é a cadeia
 `CreateCaptureInput → CaptureService::create → CaptureRepository::create`, e a
@@ -284,9 +286,11 @@ decisão real por trás.
 ### 6.3 `CaptureSource::Voice`
 
 O `CHECK (source_kind IN ('home','quick_capture'))` de 0001 recusa `voice`, e
-SQLite não altera `CHECK`. A migration 0022 recria `captures` pelo procedimento
-de doze passos, **preservando `rowid`** — o que mantém `capture_search` (FTS5
-de conteúdo externo) apontando para as linhas certas.
+SQLite não altera `CHECK`. A migration **0025** recria `captures` pelo
+procedimento que a 0023 da master já estabelecera: `foreign_keys=OFF` e
+`legacy_alter_table=ON` fora da transação, `RENAME` em vez de swap para que as
+filhas continuem apontando para o nome certo, e `capture_search` reconstruída
+logo em seguida.
 
 `tasks.source_capture_id` e `resources.source_capture_id` apontam para
 `captures` com `ON DELETE RESTRICT`. Com `foreign_keys=ON`, `DROP TABLE` numa
@@ -484,7 +488,7 @@ state() called before manage() for AppState
 thread caused non-unwinding panic. aborting.
 ```
 
-É um defeito **pré-existente**, e não desta feature — mas a migration 0022 roda
+É um defeito **pré-existente**, e não desta feature — mas a migration 0025 roda
 exatamente nessa janela, na primeira abertura depois desta versão, e a alarga na
 proporção do trabalho que ela tem. A guarda entrou num lugar só, no
 `invoke_handler`: nenhum comando roda antes de o app estar pronto, e quem chamou
@@ -502,3 +506,43 @@ nem um byte em disco** (verificado por consulta: `voice_notes` = 0, `captures` =
 0, diretório de áudio vazio, depois de seis recusas); a Inbox mostra a fala por
 transcrever com duração, motivo e as duas saídas; e a Capture falada aparece com
 a origem `VOZ`.
+
+---
+
+## 14. O merge com a master, e o que ele reconciliou
+
+A branch nasceu de `f6fe650`. Enquanto ela corria, a master ganhou o **Universal
+Drop Zone** (ADR-046) e a **detecção de reunião pelo microfone** (ADR-047) —
+justamente as duas coisas que mais se aproximam desta feature.
+
+**`Ingestion` e `VoiceNote` ficaram os dois, e a decisão tem argumento.**
+`Ingestion` é de arquivo: mime, sha256, duplicata, extração de texto, contagem
+de páginas, tamanho de imagem. Nada disso significa coisa alguma para sete
+segundos de fala — e pico de energia, duração e transcrição não significam nada
+para um PDF. O que os dois compartilham é o princípio (*a Capture nasce
+primeiro*) e o ponto de encontro (`NewCapture`, cada um com a sua origem). São
+irmãos, e `CaptureSource::Voice` entrou ao lado de `CaptureSource::Drop` pelo
+mesmo argumento que justificou aquele: a proveniência guarda a superfície.
+
+**O que era duplicata de verdade foi eliminado.** `ProjectHint` — o par
+(id, nome) com que as duas superfícies perguntam *"a que Project isto
+pertence?"* — existia dos dois lados. Ficou o do planejador de relações do drop,
+e a voz passou a importá-lo. Duas definições do mesmo par divergiriam no dia em
+que uma das duas ganhasse um campo.
+
+**A migration virou 0025**, porque a master chegou ao 24 primeiro, e adotou o
+procedimento de recriação de `captures` que a 0023 já tinha estabelecido — mais
+limpo que o embrulho em Rust que a branch tinha: a dança de `PRAGMA` mora dentro
+do `.sql`, e o `verify_foreign_keys` genérico do `migrate()` confere o resultado.
+O embrulho foi removido.
+
+**A ADR virou 048**: a master publicou a 046 e a 047 antes.
+
+**A pausa da gravação encontrou o pico de energia.** A master ensinou o canal a
+pausar, zerando o nível. O pico NÃO é atualizado durante a pausa, e isso é
+deliberado: pausa não é fala, e um pico registrado com o microfone em pausa
+afrouxaria o piso que separa "falei baixo" de "não falei".
+
+**A detecção de reunião não conflita com a voz.** Ela já ignora o próprio
+`mos-desktop.exe` — sem essa linha, o M/OS se veria gravando e ofereceria gravar
+de novo. Ditar um lembrete não dispara oferta de reunião.

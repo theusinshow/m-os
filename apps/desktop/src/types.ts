@@ -1,4 +1,4 @@
-export type CaptureSource = "home" | "quick_capture" | "voice";
+export type CaptureSource = "home" | "quick_capture" | "drop" | "voice";
 export type ProcessingState = "inbox" | "processed";
 export type LifecycleState = "active" | "archived" | "trashed";
 
@@ -45,7 +45,89 @@ export type HiddenWidget = {
  *  `inbox` aqui nao e a Inbox de Captures — Capture tem processingState. */
 export type TaskState = "inbox" | "backlog" | "planned" | "doing" | "review" | "done";
 
-export type ResourceKind = "site" | "library" | "image" | "note";
+export type ResourceKind = "site" | "library" | "image" | "note" | "file";
+
+// ===========================================================================
+// Universal Drop Zone
+// ===========================================================================
+//
+// A ingestao e o registro do que entrou, por onde, o que virou e onde parou.
+// Ela nao substitui o Resource nem a Capture: ela os explica.
+
+export type IngestionSource = "drop_file" | "drop_text" | "drop_url";
+
+export type DetectedKind =
+  | "pdf"
+  | "image"
+  | "text"
+  | "markdown"
+  | "data"
+  | "code"
+  | "archive"
+  | "url"
+  | "unknown";
+
+export type IngestionState =
+  | "receiving"
+  | "preserved"
+  | "completed"
+  | "interrupted"
+  | "failed"
+  | "undone";
+
+export type ExtractionState = "pending" | "done" | "empty" | "unsupported" | "failed";
+
+/** De onde a pessoa estava olhando quando soltou. */
+export type DropContext = {
+  page: string;
+  projectId: string | null;
+  workspaceId: string | null;
+  taskId: string | null;
+};
+
+export type Ingestion = {
+  id: string;
+  source: IngestionSource;
+  originalName: string;
+  mime: string;
+  byteSize: number;
+  sha256: string;
+  storedPath: string;
+  detectedKind: DetectedKind;
+  state: IngestionState;
+  failure: string;
+  captureId: string | null;
+  resourceId: string | null;
+  duplicateOf: string | null;
+  context: DropContext;
+  suggestedProjectId: string | null;
+  relationConfidence: number;
+  relationReason: string;
+  extractionState: ExtractionState;
+  extractionError: string;
+  pageCount: number | null;
+  imageSize: { width: number; height: number } | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IngestionReceipt = {
+  ingestion: Ingestion;
+  /** O conteudo ja estava no M/OS; o contexto novo foi aplicado no que existia. */
+  duplicate: boolean;
+  /** Rotulo curto do destino, para o recibo. */
+  destination: string;
+};
+
+/** O estado de um item do lote NA TELA — nao e o estado persistido. */
+export type IngestionStatus =
+  | "esperando"
+  | "lendo"
+  | "entendendo"
+  | "guardado"
+  | "repetido"
+  | "erro"
+  | "desfeito";
 
 export type Task = {
   id: string;
@@ -273,6 +355,11 @@ export type MonitoredApp = {
  */
 export type MonitoringSettings = {
   processMonitoringEnabled: boolean;
+  /** Oferecer gravação quando um programa abre o microfone (ADR-047).
+   *
+   *  Ligada de fábrica. O M/OS observa QUAL programa abriu o microfone — nunca o
+   *  título da janela, o conteúdo da tela ou o áudio. */
+  meetingDetectionEnabled: boolean;
   checkIntervalSeconds: number;
   idleDetectionEnabled: boolean;
   idleThresholdMinutes: number;
@@ -589,7 +676,7 @@ export type RadialPinInput = {
 
 /** A ordem em que o pipeline anda. `failed` carrega o estágio em `failure`. */
 export type MeetingStatus =
-  | "recording" | "stopping" | "interrupted" | "recorded"
+  | "recording" | "paused" | "stopping" | "interrupted" | "recorded"
   | "transcribing" | "transcribed" | "analyzing" | "ready"
   | "failed" | "cancelled";
 
@@ -629,6 +716,12 @@ export type Meeting = {
   createdAt: string;
   updatedAt: string;
   cancelledAt: string | null;
+  /** O que quem gravou escreveu durante a reunião.
+   *
+   *  Vazio significa "ninguém escreveu", e não "falta dado". Sobe ao Hermes como
+   *  contexto e não gera item: o prompt exige `segment` por item, e uma nota não
+   *  foi dita, foi escrita. */
+  notes: string;
 };
 
 /** MIC é quem gravou; SYSTEM são os outros. É a distinção que a V1 protege. */
@@ -699,6 +792,16 @@ export type InsightPreview = {
   blockedReason: string;
 };
 
+/** O nível cru, a 15 Hz — um a cada 66 ms. Dois números e nada mais.
+ *
+ *  Evento separado do `MeetingTick` porque as duas coisas mudam em ritmos
+ *  diferentes: mandar o tick inteiro quinze vezes por segundo seria repetir um
+ *  objeto que mudou zero. */
+export type MeetingLevel = {
+  mic: number;
+  system: number;
+};
+
 /** O que chega uma vez por segundo enquanto grava. Nunca PCM. */
 export type MeetingTick = {
   meetingId: string;
@@ -708,6 +811,9 @@ export type MeetingTick = {
   /** RMS em milésimos, já reduzido no Rust. */
   micLevel: number;
   systemLevel: number;
+  /** Vem do átomo da sessão, e não do banco: a barra precisa parar de pulsar no
+   *  MESMO instante em que o áudio para. */
+  paused: boolean;
 };
 
 export type TranscriberStatus = {

@@ -61,6 +61,8 @@ Estados possíveis:
 | ADR-043 | O M/OS pode iniciar com o Windows, e o registro é quem manda | Accepted |
 | ADR-044 | O rail vai a doze, e Reuniões entra sem tirar ninguém | Accepted |
 | ADR-045 | O rail volta a oito, e o recém-chegado nasce no leque | Accepted |
+| ADR-046 | Todo drop vira Capture primeiro, e a entidade vem depois | Accepted |
+| ADR-047 | A detecção de reunião observa o microfone, e nunca o conteúdo | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -1910,7 +1912,210 @@ e não subir o teto de novo.
 
 ---
 
-## ADR-046 — A voz entra pelo campo que já existe, e o silêncio não vira Task
+## ADR-046 — Todo drop vira Capture primeiro, e a entidade vem depois
+
+**Data:** 2026-08-19
+**Status:** aceito
+**Contexto:** Universal Drop Zone (`TECHNICAL-FOUNDATION-V0.3-UNIVERSAL-DROP.md`)
+**Revisa:** ADR-021 (acrescenta o tipo `file` ao Resource)
+
+### A pergunta
+
+Um PDF arrastado para dentro da janela: o que ele é?
+
+A resposta óbvia é *Resource*. Ele vai para a Library, tem título, tem motivo,
+tem lifecycle. O caminho curto seria criar o Resource direto — copiar o arquivo,
+inserir a linha, pronto.
+
+### Por que o caminho curto está errado
+
+Porque ele decide antes de preservar.
+
+Criar o Resource exige saber o título, o tipo e — se o drop aconteceu dentro de
+um Project — a relação. São três perguntas, e cada uma pode falhar: o parser não
+abre, o hash não bate, a extração explode, a relação aponta para um Project
+arquivado. Num pipeline que cria a entidade no fim, **qualquer uma dessas falhas
+custa o arquivo**, porque não existe nada gravado antes dela.
+
+E o M/OS já tem o registro certo para "algo entrou e ainda não foi decidido". Ele
+se chama Capture, existe desde a v0.1, tem a durabilidade do `synchronous=FULL`
+(ADR-017), aparece na Inbox, entra na Search e sabe derivar outras entidades
+preservando proveniência (ADR-004, ADR-018).
+
+### A decisão
+
+**Todo drop grava uma Capture antes do primeiro byte de conteúdo.**
+
+```text
+DROP → Capture (commit)  →  bytes no disco (commit)  →  Resource + relações (commit)
+        ↑                    ↑                          ↑
+        nada se perde        nada se perde              enriquecimento
+        a partir daqui       a partir daqui             pode falhar
+```
+
+A Capture nasce na Inbox dizendo o nome do que chegou. Quando o Resource é
+criado, ele nasce com `source_capture_id` apontando para ela — e o mesmo código
+que já processava Capture → Task marca a Capture como `processed`, tirando-a da
+Inbox. **Nenhuma linha nova de regra de proveniência foi escrita**; o caminho já
+existia.
+
+O efeito é que as invariantes do briefing deixam de ser cuidado e viram
+consequência:
+
+| invariante | por que ela vale |
+|---|---|
+| o original não se perde | a Capture commitou antes dos bytes; os bytes commitaram antes da entidade |
+| IA não é necessária para salvar | não há IA em nenhum dos três commits |
+| tipo desconhecido ainda entra | `DetectedKind::Unknown` é resultado, não erro |
+| falha não destrói a captura | a Capture fica na Inbox, com o nome do arquivo |
+| a Inbox é a rede de segurança | ela já era, e continua sendo, sem segunda lista |
+
+### Três consequências que exigiram mexer no schema
+
+**1. `captures.source_kind` aceita `'drop'`.** Registrar um arquivo arrastado como
+se tivesse sido digitado na Home apagaria exatamente o fato que a ADR-004 existe
+para guardar. A migration 0023 recria a tabela — e, diferente da 0007, `captures`
+**tem filhas**: `tasks` e `resources` apontam para ela. O procedimento é o
+documentado pelo SQLite (`foreign_keys=OFF` + `legacy_alter_table=ON` em volta da
+transação), e o `migrate()` roda `foreign_key_check` depois. Um teste sobe um v22
+povoado com Task derivada, Resource derivado e vínculo de Workspace, e prende as
+duas pontas: nada se perde, nada fica órfão.
+
+**2. `resources.kind` aceita `'file'`.** Um arquivo preservado não é site, não é
+biblioteca e não é nota. Ele não tem `url`: o caminho do original mora na linha de
+ingestão, endereçado pelo hash do conteúdo. Guardar o caminho no Resource também
+criaria duas verdades sobre onde o arquivo está, e um dia elas discordariam.
+
+**3. `resource_projects` passa a existir.** É cópia estrutural de
+`resource_workspaces` (0009), N-para-N pelo mesmo motivo: o mesmo memorial pode
+servir a dois Projects. Sem ela, o caso B dos critérios de aceite — *soltar dentro
+de um Project e ficar relacionado* — não teria onde ser gravado. Isso **não** abre
+a exceção que a ADR-012 fecha: continua não havendo grafo genérico, apenas uma
+tabela de par para uma relação concreta e usada.
+
+### A tabela `ingestions` não é uma segunda Library
+
+Ela guarda o que a Capture e o Resource não sabem dizer: hash, MIME, tamanho,
+caminho do original, estado da leitura de conteúdo, o contexto da tela no
+instante do drop e o que a ingestão acrescentou de relação. Nada é procurado nela
+— a Library lê Resources, a Inbox lê Captures, a Search lê os índices. Ela é a
+**memória do pipeline**, e é o que permite responder depois "de onde isso veio" e
+"por que isto foi relacionado àquilo".
+
+### O que a lente de Workspace compra, e o que ela custa
+
+A confiança para relacionar sozinho está calibrada assim:
+
+| sinal | confiança | ação |
+|---|---:|---|
+| Project aberto na tela | 0.95 | relaciona |
+| Task aberta (o Project dela) | 0.90 | relaciona |
+| lente de Workspace ativa | 0.80 | relaciona |
+| nome do arquivo cita um Project | 0.60 | **sugere** |
+| nada | 0 | não inventa |
+
+A terceira linha é a discutível, e ela foi decidida contra o instinto. Uma lente
+de Workspace é um sinal mais fraco que um Project aberto — mas **a Library filtra
+por ela por padrão**. Um Resource sem o vínculo nasce invisível exatamente na tela
+onde a pessoa está parada. Errar aqui custa uma relação a mais, visível e
+desfazível; não vincular custa o item sumir na hora em que ele deveria aparecer.
+
+A quarta linha é a que o instinto pediria para promover — *"NexoDoc-pricing.pdf,
+óbvio que é do NexoDoc"* — e ela ficou em sugestão de propósito. Nome de arquivo
+é convenção pessoal, não declaração; relacionar sozinho por causa dele seria o
+sistema inventando contexto, que é o que o §20 do briefing proíbe.
+
+### O que ficou de fora, e por quê
+
+**Não existe diálogo de "onde isto pertence?".** Ele estava no briefing, e o
+pipeline o tornou desnecessário: preservar primeiro + Inbox como rede + desfazer
+no recibo cobrem os três casos em que a pergunta apareceria. Perguntar seria
+cobrar uma decisão no momento exato em que o produto promete não cobrar (§4 do
+`VISION.md`).
+
+**A duplicata não pergunta.** Ela relaciona o contexto novo ao Resource antigo e
+diz o que fez, com desfazer. O desfazer remove **apenas o que aquela ingestão
+acrescentou** — duas colunas booleanas na linha existem só para isso, porque
+remover uma relação que já estava lá seria destruir contexto alheio a pretexto de
+corrigir.
+
+**Sem OCR e sem embeddings.** Um PDF escaneado registra `extraction_state =
+'empty'`, e isso não é uma falha: é a fila de trabalho do OCR no dia em que ele
+existir.
+
+## ADR-047 — A detecção de reunião observa o microfone, e nunca o conteúdo
+
+**Data:** 2026-08-19
+**Status:** aceito, por decisão do proprietário do produto
+**Revisa:** ADR-037
+
+### Contexto
+
+O Meeting Agent grava, transcreve e analisa — mas só se alguém lembrar de abrir o
+M/OS e clicar. O pedido do proprietário foi o que o Notion faz: uma janelinha que
+aparece sobre o Meet oferecendo gravar.
+
+A escolha inicial dele foi **detectar por título de janela**, e ela foi tomada a
+partir de uma tabela que eu apresentei — na qual eu classifiquei "microfone em
+uso" como a opção mais cara. **Estava errado.** A pergunta dele — *"como o Notion
+faz?"* — desfez o erro. A conta oficial do Notion é explícita:
+
+> "On desktop, Notion can detect that a meeting app is active and show this
+> prompt to start AI Meeting Notes. **It doesn't read your browser content** or
+> listen to audio unless you actively start notes."
+
+### Decisão
+
+**O M/OS observa qual programa está com o microfone aberto.** A fronteira da
+ADR-037 vai de *"nomes de programa, e nada além disso"* para *"nomes de programa,
+e qual programa está com o microfone aberto"*.
+
+O dado vem do `ConsentStore` do Windows, por leitura de registro — sem hook, sem
+injeção, sem captura. Dois campos atravessam: **quem** e **desde quando**.
+
+**O que esta ADR explicitamente NÃO autoriza**, e é isso que mantém a fronteira
+estreita: ler título de janela, ler conteúdo de aba, escutar o áudio. Saber que o
+Chrome abriu o microfone não diz com quem se fala nem sobre o quê.
+
+### Por que microfone, e não título
+
+Título de janela expõe **conteúdo** — "Orçamento Vila Nova — Chrome", "Demissão
+do Fulano.docx — Word". Microfone expõe uma **capacidade**.
+
+E há uma razão melhor que privacidade: o microfone detecta o **fato certo**. Uma
+aba do Meet aberta não é uma reunião; um microfone aberto é. Título exigiria uma
+lista de padrões — Meet, Zoom, Teams, e o que se esquecesse —, e disparia com aba
+aberta sem reunião.
+
+### Consequências, incluindo a que dói
+
+**Ligada de fábrica.** Isso significa que a fronteira é atravessada **com aviso e
+não com pedido**. A ADR-037 desenhou a fronteira justamente para que atravessá-la
+fosse difícil e visível, e ligar por padrão atravessa por decisão do produto e não
+da pessoa. Foi escolha do proprietário, com o trade-off na mesa, e o argumento a
+favor é o mesmo do Notion: uma feature que exige ser descoberta não serve a quem
+não a descobre.
+
+O toggle é a mitigação, e ele mora em **Settings → REUNIÕES**, não em Avançado. O
+texto ao lado dele diz o que a feature não faz, porque é isso que a pessoa precisa
+para decidir.
+
+**A oferta nunca vira gravação sozinha.** Continua valendo o *"observação não vira
+hora sozinha"* da ADR-037: a janela oferece, e alguém clica.
+
+**Três exclusões que o código impõe:** o próprio `mos-desktop.exe` — ele abre o
+microfone quando grava, e sem a exclusão o detector se veria gravando e ofereceria
+gravar; qualquer processo enquanto já há gravação em curso; e processo silenciado
+pelo "não neste app".
+
+**O que esta ADR não consegue prever:** se vinte segundos de espera é cedo, tarde
+ou irritante. O número foi escolhido para separar reunião de teste de som, sem
+evidência de uso. Reveja depois de uma semana; se for irritante, o caminho é subir
+a espera, e não desligar a feature.
+
+---
+
+## ADR-048 — A voz entra pelo campo que já existe, e o silêncio não vira Task
 
 **Status:** aceita · 2026-08-19 · `feat/voice-inbox`
 
@@ -1931,8 +2136,20 @@ texto inventado**. Um canal quase mudo transcreveu `"Legenda por Sônia Ruberti"
 e o nome inventado chegou ao resumo do Hermes. Numa reunião isso é ruído. Numa
 Voice Inbox, seria uma Task nascida de uma tecla encostada.
 
-E o que NÃO existe: `Universal Drop Zone` e `ingestion pipeline` aparecem só em
-`docs/`. O pipeline de ingestão real é `Capture` mais `tasks.source_capture_id`.
+E o que não existia **no ponto de partida**: `Universal Drop Zone` e
+`ingestion pipeline` só apareciam em `docs/`, então a branch nasceu apoiada em
+`Capture` mais `tasks.source_capture_id`, que era o pipeline de ingestão real.
+
+**A master os construiu enquanto isso** (ADR-046), e o merge reconciliou em vez
+de deixar dois sistemas. O veredicto foi que `Ingestion` e `VoiceNote` são
+irmãos e não duplicatas: `Ingestion` é de ARQUIVO — mime, sha256, duplicata,
+extração, contagem de páginas —, e nada disso significa coisa alguma para sete
+segundos de fala, assim como pico de energia e transcrição não significam nada
+para um PDF. O que os dois compartilham é o princípio e o ponto de encontro: a
+Capture nasce primeiro, cada um com a sua origem. O que era duplicata de
+verdade — `ProjectHint`, o par (id, nome) que as duas superfícies usam para
+perguntar "a que Project isto pertence?" — foi eliminado: a voz passou a usar o
+do planejador de relações do drop.
 
 ### Decisão
 
@@ -1959,8 +2176,12 @@ microfone, a mesma barra `/`, o mesmo campo. Segurar para falar, não alternar.
    feature. Confiança alta age sozinha com Desfazer; média oferece por ⏎ com a
    Capture já salva atrás; baixa fica na Inbox. **Marcador de hesitação vence
    verbo e data juntos** — "talvez eu devesse" não autoriza nada.
-6. **A migration 0022 recria `captures`**, que é tabela-PAI. A guarda de FK é
-   desligada no Rust em volta dela, com `foreign_key_check` antes de religar.
+6. **A migration 0025 recria `captures`** para admitir mais uma origem —
+   SQLite não altera `CHECK`, e widening custa uma recriação por vez. Ela segue
+   o procedimento que a 0023 já tinha estabelecido: `foreign_keys=OFF` e
+   `legacy_alter_table=ON` fora da transação, `RENAME` em vez de swap, e o
+   `verify_foreign_keys` do `migrate()` conferindo depois. Nasceu 0022 na branch
+   e virou 0025 no merge, porque a master chegou ao 24 primeiro.
 
 ### O portão de abertura, que não era desta feature
 
@@ -1979,7 +2200,7 @@ não devolve erro: aborta o processo. São 84 pontos que chamam `state()` à mã
 A guarda entrou **no `invoke_handler`**, num lugar só: nenhum comando roda antes
 de o app estar pronto. Cobre os 84 e o comando que alguém escrever amanhã.
 
-O defeito é pré-existente, mas entra nesta ADR porque a 0022 roda exatamente
+O defeito é pré-existente, mas entra nesta ADR porque a 0025 roda exatamente
 nessa janela na primeira abertura depois desta versão — e a alarga.
 
 ### Consequências

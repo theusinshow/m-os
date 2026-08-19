@@ -51,28 +51,7 @@ impl CaptureRepository for SqliteStorage {
         let now = format_time(capture.captured_at)?;
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
-        transaction
-            .execute(
-                "INSERT INTO captures (
-                    id, content, source_kind, processing_state, lifecycle_state,
-                    captured_at, created_at, updated_at
-                 ) VALUES (?1, ?2, ?3, 'inbox', 'active', ?4, ?4, ?4)",
-                params![
-                    capture.id.to_string(),
-                    capture.content,
-                    capture.source.as_str(),
-                    now
-                ],
-            )
-            .map_err(map_sql_error)?;
-        let rowid = transaction.last_insert_rowid();
-        transaction
-            .execute(
-                "INSERT INTO capture_search (rowid, content)
-                 SELECT rowid, content FROM captures WHERE rowid = ?1",
-                [rowid],
-            )
-            .map_err(map_sql_error)?;
+        insert_capture(&transaction, &capture, &now)?;
         transaction.commit().map_err(map_sql_error)?;
         query_capture(&connection, capture.id)
     }
@@ -368,6 +347,41 @@ pub(crate) fn ensure_changed(changed: usize) -> Result<(), CoreError> {
     } else {
         Ok(())
     }
+}
+
+/// Grava a Capture e sua projecao de busca DENTRO de uma transacao ja aberta.
+///
+/// A ingestao universal precisa da Capture no MESMO commit em que abre a linha
+/// de ingestao: uma Capture sem ingestao seria um item orfao na Inbox, e uma
+/// ingestao sem Capture seria bytes que ninguem sabe explicar.
+pub(crate) fn insert_capture(
+    transaction: &rusqlite::Transaction<'_>,
+    capture: &NewCapture,
+    now: &str,
+) -> Result<(), CoreError> {
+    transaction
+        .execute(
+            "INSERT INTO captures (
+                id, content, source_kind, processing_state, lifecycle_state,
+                captured_at, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, 'inbox', 'active', ?4, ?4, ?4)",
+            params![
+                capture.id.to_string(),
+                capture.content,
+                capture.source.as_str(),
+                now
+            ],
+        )
+        .map_err(map_sql_error)?;
+    let rowid = transaction.last_insert_rowid();
+    transaction
+        .execute(
+            "INSERT INTO capture_search (rowid, content)
+             SELECT rowid, content FROM captures WHERE rowid = ?1",
+            [rowid],
+        )
+        .map_err(map_sql_error)?;
+    Ok(())
 }
 
 pub(crate) fn format_time(value: OffsetDateTime) -> Result<String, CoreError> {

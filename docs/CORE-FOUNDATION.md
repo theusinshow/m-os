@@ -57,9 +57,14 @@ Origens inicialmente previstas:
 
 - `desktop-main`;
 - `desktop-quick-capture`;
+- `drop` — algo solto sobre a janela (ADR-046);
 - importação manual futura;
 - iOS e share extension futuros;
 - voz e integrações futuras.
+
+Uma origem nova é uma origem nova, e não um apelido de outra. Registrar um
+arquivo arrastado como se tivesse sido digitado na Home apagaria o único fato que
+a proveniência existe para guardar.
 
 O conteúdo de origem deve continuar disponível depois do processamento.
 
@@ -155,7 +160,13 @@ Informação preservada por seu valor de consulta futura.
 
 Link, imagem, arquivo, site, biblioteca e referência são formas de Resource, não entidades concorrentes por padrão.
 
-Resource pertence à fase de memória e não precisa ser implementado na v0.1.
+Tipos implementados: `site`, `library`, `image`, `note` (migration 0007) e `file`
+(migration 0023).
+
+`file` é um arquivo preservado dentro do M/OS. Ele não tem `url`: o caminho do
+original mora na linha de ingestão que o criou, endereçado pelo hash do conteúdo.
+Guardar o caminho nos dois lugares criaria duas verdades sobre onde o arquivo
+está, e um dia elas discordariam.
 
 ### 3.7 App
 
@@ -303,8 +314,8 @@ Datas técnicas devem ser armazenadas em UTC. A interpretação de datas naturai
 | Project | Workspace | muitos para muitos | Não |
 | App | Workspace | muitos para muitos | Não |
 | Project | App | muitos para muitos | Não |
-| Project | Resource | muitos para muitos | Não |
-| Task | Resource | muitos para muitos | Não |
+| Project | Resource | muitos para muitos | Sim, desde a 0023 (`resource_projects`) |
+| Task | Resource | muitos para muitos | Não — o contexto do drop grava o `task_id` para quando existir |
 | Entity | Reminder | um para muitos | Não |
 | Project | Repository | inicialmente zero ou um | Não |
 
@@ -345,6 +356,14 @@ Composição contextual. Não possui dados próprios e não deve virar depósito
 ### Library
 
 Exploração de Resources. Não duplica Resources.
+
+### Ingestão
+
+Registro de tudo que entrou pela Drop Zone: por onde entrou, o que virou e onde
+parou. Não é uma projeção consultável — a Library lê Resources, a Inbox lê
+Captures e a Search lê os índices. Ela é a memória do pipeline, e existe para
+responder depois de onde algo veio e por que foi relacionado ao que foi. Ver
+`TECHNICAL-FOUNDATION-V0.3-UNIVERSAL-DROP.md`.
 
 ## 8. Archive, Trash e exclusão
 

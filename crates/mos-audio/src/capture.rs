@@ -101,6 +101,7 @@ pub fn spawn(
     channel: Channel,
     directory: &Path,
     stop: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
 ) -> ChannelThread {
     let live = Live::new();
     let live_for_thread = live.clone();
@@ -108,7 +109,7 @@ pub fn spawn(
 
     let join = thread::Builder::new()
         .name(format!("mos-audio-{}", channel.folder()))
-        .spawn(move || run(channel, &directory, stop, live_for_thread))
+        .spawn(move || run(channel, &directory, stop, paused, live_for_thread))
         .expect("criar thread de captura");
 
     ChannelThread { join, live }
@@ -229,6 +230,7 @@ fn run(
     channel: Channel,
     directory: &Path,
     stop: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
     live: Arc<Live>,
 ) -> ChannelReport {
     if initialize_mta().ok().is_err() {
@@ -327,6 +329,24 @@ fn run(
             }
 
             let payload = &scratch[..frames_read as usize * bytes_per_frame];
+
+            // Pausado: o pacote e LIDO e descartado, e o stream do WASAPI
+            // continua aberto. Fechar e reabrir o dispositivo ao retomar poderia
+            // devolver outro formato efetivo — uma troca silenciosa que o
+            // `ChannelInfo::timing` existe justamente para tornar visivel.
+            //
+            // O nivel tambem zera, e nao congela: a onda da tela precisa poder
+            // dizer "nao estou ouvindo", que e diferente de "ninguem falou".
+            //
+            // O PICO nao entra aqui de proposito: pausa nao e fala, e um pico
+            // registrado com o microfone em pausa afrouxaria o piso de energia
+            // do Voice Inbox — que existe justamente para distinguir "falei
+            // baixo" de "nao falei".
+            if paused.load(Ordering::Relaxed) {
+                live.level_milli.store(0, Ordering::Relaxed);
+                continue;
+            }
+
             let level = rms_milli(payload, format);
             live.level_milli.store(level, Ordering::Relaxed);
             live.peak_milli.fetch_max(level, Ordering::Relaxed);
@@ -411,7 +431,7 @@ fn rms_milli(bytes: &[u8], format: Format) -> u64 {
 /// da reuniao.
 ///
 /// Medido na Fase 1, endpoint ocioso, 25 s: 2.498 pacotes com ele, zero sem ele.
-pub fn spawn_keep_alive(stop: Arc<AtomicBool>) -> JoinHandle<bool> {
+pub fn spawn_keep_alive(stop: Arc<AtomicBool>, paused: Arc<AtomicBool>) -> JoinHandle<bool> {
     thread::Builder::new()
         .name("mos-audio-keepalive".into())
         .spawn(move || {
@@ -453,6 +473,17 @@ pub fn spawn_keep_alive(stop: Arc<AtomicBool>) -> JoinHandle<bool> {
             let bytes_per_frame = format.get_blockalign() as usize;
             let silence = vec![0u8; 4096 * bytes_per_frame];
             while !stop.load(Ordering::Relaxed) {
+                // Pausado, o keep-alive PARA de escrever.
+                //
+                // Ele existe para o loopback nao secar no silencio; durante a
+                // pausa nao ha loopback lendo, entao manter o motor acordado nao
+                // acorda ninguem — so faz o endpoint de renderizacao produzir
+                // pacotes que o canal SYSTEM descartaria. Escrever aqui e a
+                // mesma torcao de linha do tempo que ele evita, ao contrario.
+                if paused.load(Ordering::Relaxed) {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    continue;
+                }
                 let room = client.get_available_space_in_frames().unwrap_or(0) as usize;
                 let frames = room.min(4096);
                 if frames > 0 {

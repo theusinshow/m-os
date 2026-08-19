@@ -21,6 +21,7 @@ import { MeetingSettings } from "./MeetingSettings";
 import { MeetingsPage } from "./MeetingsPage";
 import { RecordingBar } from "./RecordingBar";
 import { Reminder } from "./Reminder";
+import { ReuniaoDetectada } from "./ReuniaoDetectada";
 import { AttentionCenter } from "./AttentionCenter";
 import { ReminderComposer } from "./ReminderComposer";
 import { BudgetRing, hoursLabel, TodayHours, useTrackedTime, WeekByProject, weekSummary } from "./TimeWidgets";
@@ -29,12 +30,14 @@ import { FinancePage } from "./FinancePage";
 import { finance } from "./finance";
 import { Timer } from "./Timer";
 import { Icon, type IconName } from "./Icon";
+import { DropZone } from "./DropZone";
+import { contextoDoDrop } from "./dropIngest";
 import { Leque } from "./Leque";
 import { LequeSeletor } from "./LequeSeletor";
 import { Ring, RingLabel } from "./Ring";
 import { monthActivity, MonthDensity, TaskProgressRing, WeekRings } from "./Widgets";
 import { MosSymbol } from "./Symbol";
-import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, HiddenWidget, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
+import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, HiddenWidget, Ingestion, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
 import "./App.css";
 
 /* `apps` continua sendo uma pagina, e so deixou de ser um destino do rail
@@ -97,12 +100,43 @@ function relativeTime(value: string) {
 }
 
 function sourceLabel(source: Capture["source"]) {
-  /* A origem falada aparece com o mesmo peso das outras duas. Ela nao ganha
-     etiqueta especial nem icone: uma Capture falada e uma Capture, e trata-la
-     como categoria a parte seria contrariar o §Voz do design system logo na
-     primeira tela em que ela aparece. */
+  /* A origem falada aparece com o mesmo peso das outras. Ela nao ganha etiqueta
+     especial nem icone: uma Capture falada e uma Capture, e trata-la como
+     categoria a parte seria contrariar o §Voz do design system logo na primeira
+     tela em que ela aparece. */
+  if (source === "quick_capture") return "Quick Capture";
+  if (source === "drop") return "Drop";
   if (source === "voice") return "Voz";
-  return source === "quick_capture" ? "Quick Capture" : "Home";
+  return "Home";
+}
+
+/** Tamanho legivel. Uma coluna de bytes crus nao informa nada a ninguem. */
+function fileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+/**
+ * O que o M/OS conseguiu ler de dentro do arquivo.
+ *
+ * `empty` e `unsupported` NAO sao erro, e a copia diz isso: um PDF escaneado ou
+ * um .zip continuam guardados e reencontraveis pelo nome. Chamar aquilo de falha
+ * ensinaria a desconfiar de um sistema que fez o que prometeu.
+ */
+function extractionLabel(ingestion: Ingestion) {
+  switch (ingestion.extractionState) {
+    case "pending":
+      return "Lendo o conteúdo…";
+    case "done":
+      return ingestion.pageCount ? `Conteúdo indexado · ${ingestion.pageCount} páginas` : "Conteúdo indexado";
+    case "empty":
+      return "Sem texto para indexar — guardado do mesmo jeito";
+    case "unsupported":
+      return "Conteúdo não é lido nesta versão — guardado do mesmo jeito";
+    case "failed":
+      return `Não deu para ler o conteúdo: ${ingestion.extractionError}`;
+  }
 }
 
 function resourceHost(url: string) {
@@ -1728,7 +1762,12 @@ function ResourceForm({ resource, capture, cancel, saved }: { resource?: Resourc
   const [note, setNote] = useState(resource?.note ?? (captureIsUrl ? "" : captureContent));
   // Uma Capture que nao e URL vira Note por padrao: o texto ja e o conteudo.
   const [kind, setKind] = useState<ResourceKind>(resource?.kind ?? (capture && !captureIsUrl ? "note" : "site"));
-  const needsUrl = kind !== "note";
+  const needsUrl = kind !== "note" && kind !== "file";
+  /* Um Resource de arquivo nao troca de tipo. O tipo dele nao e uma preferencia
+     de catalogacao: e o fato de existir um arquivo guardado apontando para ele,
+     e um seletor que permitisse "virar site" produziria um Resource orfao do
+     proprio conteudo. Editar titulo e motivo continua liberado. */
+  const kindIsFixed = resource?.kind === "file";
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   async function submit(event: FormEvent) {
@@ -1749,7 +1788,7 @@ function ResourceForm({ resource, capture, cancel, saved }: { resource?: Resourc
   }
   return <form className="stack-form" onSubmit={submit} aria-busy={saving}>
     <fieldset className="form-fields" disabled={saving}>
-      <label><span>TIPO</span><select value={kind} onChange={(event) => setKind(event.currentTarget.value as ResourceKind)}><option value="site">Site</option><option value="library">Library</option><option value="image">Imagem</option><option value="note">Nota</option></select></label>
+      {kindIsFixed ? <p className="micro-label">TIPO · ARQUIVO</p> : <label><span>TIPO</span><select value={kind} onChange={(event) => setKind(event.currentTarget.value as ResourceKind)}><option value="site">Site</option><option value="library">Library</option><option value="image">Imagem</option><option value="note">Nota</option></select></label>}
       {needsUrl ? <label><span>{kind === "image" ? "ENDEREÇO OU CAMINHO" : "URL"}</span><input value={url} onChange={(event) => setUrl(event.currentTarget.value)} placeholder={kind === "image" ? "https://... ou C:\\imagens\\hero.png" : "https://..."} autoFocus /></label> : null}
       <label><span>TÍTULO</span><input value={title} onChange={(event) => setTitle(event.currentTarget.value)} placeholder={needsUrl ? "Opcional · usa a URL quando vazio" : "Obrigatório para uma nota"} autoFocus={!needsUrl} /></label>
       <label><span>POR QUÊ?</span><textarea value={note} onChange={(event) => setNote(event.currentTarget.value)} placeholder="O que merece ser lembrado sobre este link?" rows={4} /></label>
@@ -1760,7 +1799,7 @@ function ResourceForm({ resource, capture, cancel, saved }: { resource?: Resourc
   </form>;
 }
 
-function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspace, initialResourceId, initialResourceKey, refresh, receipt, openCapture, intent }: { resources: Resource[]; workspaces: Workspace[]; resourceWorkspaces: ResourceWorkspace[]; currentWorkspace: Workspace | null; initialResourceId: string; initialResourceKey: number; refresh: () => Promise<void>; receipt: (action: UndoAction) => void; openCapture: (capture: Capture) => void; intent?: FunctionIntent }) {
+function LibraryPage({ resources, workspaces, resourceWorkspaces, ingestions, currentWorkspace, initialResourceId, initialResourceKey, refresh, receipt, openCapture, intent }: { resources: Resource[]; workspaces: Workspace[]; resourceWorkspaces: ResourceWorkspace[]; ingestions: Ingestion[]; currentWorkspace: Workspace | null; initialResourceId: string; initialResourceKey: number; refresh: () => Promise<void>; receipt: (action: UndoAction) => void; openCapture: (capture: Capture) => void; intent?: FunctionIntent }) {
   const activeResources = resources.filter((resource) => resource.lifecycleState === "active");
   const [selectedId, setSelectedId] = useState(initialResourceId || activeResources[0]?.id || "");
   const [mode, setMode] = useState<"view" | "edit" | "new">("view");
@@ -1779,6 +1818,10 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
   // lista tem que cumpri-lo. Sem contexto ativo o estado nao tem efeito.
   const [scoped, setScoped] = useState(true);
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
+  /* O arquivo de cada Resource, quando ele veio por drop. O mapa e montado uma
+     vez por render em vez de uma consulta por linha: sao poucas dezenas de
+     ingestoes, e uma chamada por card faria a lista piscar. */
+  const arquivoDe = new Map(ingestions.filter((item) => item.resourceId).map((item) => [item.resourceId as string, item]));
   const linkedWorkspaceIds = new Set(resourceWorkspaces.filter((link) => link.resourceId === selectedId).map((link) => link.workspaceId));
   // O `currentWorkspace !== null` repetido abaixo nao e redundancia: o tsc nao
   // estreita um objeto a partir de um boolean derivado guardado em variavel.
@@ -1793,6 +1836,7 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
   const contextResources = scoping ? liveResources.filter((resource) => scopedResourceIds.has(resource.id) || resource.id === selectedId) : liveResources;
   const visibleResources = kindFilter === "all" ? contextResources : contextResources.filter((resource) => resource.kind === kindFilter || resource.id === selectedId);
   const selected = visibleResources.find((resource) => resource.id === selectedId) ?? null;
+  const arquivo = selected ? arquivoDe.get(selected.id) ?? null : null;
 
   useEffect(() => {
     if (!initialResourceId) return;
@@ -1889,6 +1933,30 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
     }
   }
 
+  /* O M/OS pede ao Windows para abrir; ele nunca executa nada por conta
+     propria, e recusa por completo o que o shell trataria como programa. */
+  async function abrirArquivo(resourceId: string) {
+    setPendingAction("open");
+    setMessage("");
+    try {
+      await api.openIngestedFile(resourceId);
+      setMessage("Arquivo aberto no programa padrão.");
+    } catch (nextError) {
+      setMessage(appError(nextError).message);
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function mostrarNaPasta(resourceId: string) {
+    setMessage("");
+    try {
+      await api.revealIngestedFile(resourceId);
+    } catch (nextError) {
+      setMessage(appError(nextError).message);
+    }
+  }
+
   async function archive(resource: Resource) {
     setPendingAction("archive");
     try {
@@ -1937,7 +2005,7 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
 
   const libraryIsEmpty = !visibleResources.length && mode === "view";
 
-  const kindLabels: Record<ResourceKind, string> = { site: "SITE", library: "LIBRARY", image: "IMAGEM", note: "NOTA" };
+  const kindLabels: Record<ResourceKind, string> = { site: "SITE", library: "LIBRARY", image: "IMAGEM", note: "NOTA", file: "ARQUIVO" };
 
   return <div className="split-page inspector-page library-page" data-pane={narrowPane} data-empty={libraryIsEmpty || undefined} data-view={view}>
     <section className="list-pane" aria-labelledby="library-title">
@@ -1959,7 +2027,7 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
           {([[true, "NESTE CONTEXTO"], [false, "TUDO"]] as const).map(([value, label]) => <button key={label} type="button" className="filter-label" data-active={scoped === value || undefined} aria-pressed={scoped === value} onClick={() => setScoped(value)}>{label}</button>)}
         </div> : null}
         <div className="filter-group" role="group" aria-label="Filtrar por tipo">
-          {([["all", "TUDO"], ["site", "SITES"], ["library", "LIBRARIES"], ["image", "IMAGENS"], ["note", "NOTAS"]] as const).map(([value, label]) => <button key={value} type="button" className="filter-label" data-active={kindFilter === value || undefined} aria-pressed={kindFilter === value} onClick={() => setKindFilter(value)}>{label}</button>)}
+          {([["all", "TUDO"], ["site", "SITES"], ["library", "LIBRARIES"], ["image", "IMAGENS"], ["note", "NOTAS"], ["file", "ARQUIVOS"]] as const).map(([value, label]) => <button key={value} type="button" className="filter-label" data-active={kindFilter === value || undefined} aria-pressed={kindFilter === value} onClick={() => setKindFilter(value)}>{label}</button>)}
         </div>
         <div className="filter-group" role="group" aria-label="Apresentação">
           {([["grid", "GRID"], ["list", "LISTA"]] as const).map(([value, label]) => <button key={value} type="button" className="filter-label" data-active={view === value || undefined} aria-pressed={view === value} onClick={() => setView(value)}>{label}</button>)}
@@ -2071,9 +2139,22 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, currentWorkspa
         {activeWorkspaces.length ? <div className="resource-context"><span className="micro-label">CONTEXTO</span><div>{activeWorkspaces.map((workspace) => <label key={workspace.id}><input type="checkbox" checked={linkedWorkspaceIds.has(workspace.id)} onChange={(event) => void toggleWorkspace(workspace.id, event.currentTarget.checked)} /><span>{workspace.name}</span></label>)}</div></div> : null}
         {source ? <div className="provenance"><span className="micro-label">ORIGEM</span><button type="button" onClick={() => openCapture(source)}>{source.content}</button><small>{sourceLabel(source.source)} · {relativeTime(source.capturedAt)}</small></div> : null}
         {sourceError ? <p className="inline-error" role="status">Não foi possível carregar a Capture de origem agora.</p> : null}
+        {arquivo ? <div className="resource-file"><span className="micro-label">ARQUIVO</span><dl>
+          <div><dt>Tamanho</dt><dd>{fileSize(arquivo.byteSize)}</dd></div>
+          <div><dt>Tipo</dt><dd>{arquivo.mime || "desconhecido"}</dd></div>
+          {arquivo.imageSize ? <div><dt>Dimensões</dt><dd>{arquivo.imageSize.width} × {arquivo.imageSize.height}</dd></div> : null}
+          <div><dt>Conteúdo</dt><dd>{extractionLabel(arquivo)}</dd></div>
+        </dl></div> : null}
         <div className="detail-actions">
           {selected.url ? <Button variant="primary" onClick={() => void openLink(selected)} disabled={selected.lifecycleState !== "active" || pendingAction !== null}>{pendingAction === "open" ? "Abrindo" : "Abrir link"}</Button> : null}
-          <Button variant={selected.url ? "ghost" : "primary"} onClick={() => setMode("edit")} disabled={pendingAction !== null}>Editar</Button>
+          {/* O M/OS nao abre o que o Windows executaria. Quando ele se recusa,
+              a mensagem diz o motivo e "Mostrar na pasta" continua ali: o
+              arquivo e da pessoa, e chegar ate ele nunca deixa de ser possivel. */}
+          {arquivo ? <>
+            <Button variant="primary" onClick={() => void abrirArquivo(selected.id)} disabled={selected.lifecycleState !== "active" || pendingAction !== null}>Abrir arquivo</Button>
+            <Button variant="ghost" onClick={() => void mostrarNaPasta(selected.id)}>Mostrar na pasta</Button>
+          </> : null}
+          <Button variant={selected.url || arquivo ? "ghost" : "primary"} onClick={() => setMode("edit")} disabled={pendingAction !== null}>Editar</Button>
         </div>
         {message ? <p className="settings-message" aria-live="polite">{message}</p> : null}
       </> : null}
@@ -2816,6 +2897,10 @@ function DesktopApp() {
   const [radialPins, setRadialPins] = useState<RadialPin[]>([]);
   const [slotEmEscolha, setSlotEmEscolha] = useState<number | null>(null);
   const [resourceWorkspaces, setResourceWorkspaces] = useState<ResourceWorkspace[]>([]);
+  /* O que cada Resource de arquivo e: tamanho, tipo, estado da leitura. Vem
+     junto do refresh porque a Library precisa disso na PRIMEIRA pintura — uma
+     consulta por card faria a lista aparecer sem os fatos e depois piscar. */
+  const [ingestions, setIngestions] = useState<Ingestion[]>([]);
   // O contexto ativo deixou de ser assunto da Home: a Library filtra por ele.
   // Continua em localStorage porque e preferencia de leitura, nao dado do core.
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState(() => localStorage.getItem("m-os-current-workspace") ?? "");
@@ -2872,9 +2957,9 @@ function DesktopApp() {
   const refresh = useCallback(async () => {
     setBusy(true);
     try {
-      const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus, nextHiddenWidgets, nextResourceWorkspaces, nextWidgetPlacements, nextRadialPins] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status(), api.hiddenWidgets(), api.resourceWorkspaces(), api.widgetPlacements(), api.radialPins()]);
+      const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus, nextHiddenWidgets, nextResourceWorkspaces, nextWidgetPlacements, nextRadialPins, nextIngestions] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status(), api.hiddenWidgets(), api.resourceWorkspaces(), api.widgetPlacements(), api.radialPins(), api.ingestions()]);
       setRecent(nextRecent); setInbox(nextInbox); setArchived(nextArchived); setTrashed(nextTrashed); setProjects(nextProjects); setWorkspaces(nextWorkspaces); setApps(nextApps); setResources(nextResources); setTrashedResources(nextTrashedResources); setTasks(nextTasks); setStatus(nextStatus); setHiddenWidgets(nextHiddenWidgets);
-      setWidgetPlacements(nextWidgetPlacements); setResourceWorkspaces(nextResourceWorkspaces); setRadialPins(nextRadialPins);
+      setWidgetPlacements(nextWidgetPlacements); setResourceWorkspaces(nextResourceWorkspaces); setRadialPins(nextRadialPins); setIngestions(nextIngestions);
       setDrawerTask((current) => current ? nextTasks.find((task) => task.id === current.id) ?? null : null);
     } finally {
       setBusy(false);
@@ -2905,7 +2990,7 @@ function DesktopApp() {
       setBootMessage(appError(error).message);
       setBootState("error");
     });
-    const events = [listen("capture-changed", refreshFromEvent), listen("data-changed", refreshFromEvent), listen("dataset-restored", refreshFromEvent), listen("snapshot-status-changed", refreshFromEvent)];
+    const events = [listen("capture-changed", refreshFromEvent), listen("data-changed", refreshFromEvent), listen("ingestion-extracted", refreshFromEvent), listen("dataset-restored", refreshFromEvent), listen("snapshot-status-changed", refreshFromEvent)];
     return () => { events.forEach((event) => void event.then((dispose) => dispose())); };
   }, [initialize, refresh]);
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("m-os-theme", theme); }, [theme]);
@@ -3151,7 +3236,7 @@ function DesktopApp() {
     if (page === "projects") return <ProjectsPage projects={projects} tasks={tasks} initialProjectId={selectedProjectId} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
     if (page === "workspaces") return <WorkspacesPage workspaces={workspaces} projects={projects} apps={apps} initialWorkspaceId={selectedWorkspaceId} refresh={refresh} receipt={showReceipt} openProject={openProject} openApp={openRegisteredApp} openHome={(workspace) => { setCurrentWorkspaceId(workspace.id); setPage("home"); }} intent={functionIntent ?? undefined} />;
     if (page === "apps") return <AppsPage apps={apps} initialAppId={selectedAppId} refresh={refresh} receipt={showReceipt} intent={functionIntent ?? undefined} />;
-    if (page === "library") return <LibraryPage resources={resources} workspaces={workspaces} resourceWorkspaces={resourceWorkspaces} currentWorkspace={currentWorkspace} initialResourceId={selectedResourceId} initialResourceKey={resourceOpenKey} refresh={refresh} receipt={showReceipt} openCapture={setViewedCapture} intent={functionIntent ?? undefined} />;
+    if (page === "library") return <LibraryPage resources={resources} workspaces={workspaces} resourceWorkspaces={resourceWorkspaces} ingestions={ingestions} currentWorkspace={currentWorkspace} initialResourceId={selectedResourceId} initialResourceKey={resourceOpenKey} refresh={refresh} receipt={showReceipt} openCapture={setViewedCapture} intent={functionIntent ?? undefined} />;
     if (page === "tasks") return <BoardPage tasks={tasks} projects={projects} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
     return <SettingsPage theme={theme} setTheme={setThemeState} status={status} capturesArchived={archived} capturesTrashed={trashed} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} trashedResources={trashedResources} refresh={refresh} intent={functionIntent ?? undefined} />;
   // ATENCAO: esta lista e manual e nao ha lint que a verifique. Um estado novo
@@ -3163,7 +3248,7 @@ function DesktopApp() {
   // se salvavam por acidente, porque suas acoes chamam refresh() e o refresh
   // troca a identidade de workspaces/apps/resources, forcando o recalculo.
   // Contexto nao chama refresh, entao travava sozinho e para sempre.
-  }, [page, recent, projects, workspaces, apps, resources, trashedResources, tasks, refresh, inbox, selectedProjectId, selectedWorkspaceId, selectedAppId, selectedResourceId, resourceOpenKey, theme, status, archived, trashed, functionIntent, currentWorkspaceId, currentWorkspace, hiddenWidgets, resourceWorkspaces, focusedMeetingId]);
+  }, [page, recent, projects, workspaces, apps, resources, trashedResources, tasks, refresh, inbox, selectedProjectId, selectedWorkspaceId, selectedAppId, selectedResourceId, resourceOpenKey, theme, status, archived, trashed, functionIntent, currentWorkspaceId, currentWorkspace, hiddenWidgets, resourceWorkspaces, ingestions, focusedMeetingId]);
   const content = bootState === "ready"
     ? pageContent
     : bootState === "error"
@@ -3184,7 +3269,21 @@ function DesktopApp() {
 <div className="system-state" aria-live="polite" data-busy={busy || undefined}>{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span><Argos pose={argosPose} /></div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main>{/* O leque vive na coluna principal, e nao sobre o rail: ele e o gesto que
     o rail perdeu quando voltou a oito, e competir com a navegacao ao lado
     seria desfazer a troca. Ver ADR-045. */}
-<Leque pins={radialPins} workspaceId={currentWorkspaceId || null} apps={apps} onNavegar={navigate} onAbrirApp={openRegisteredApp} onAcao={(target) => { if (target === "attention_create") setComposerOpen(true); else void api.showQuickCapture(); }} onFixar={(slot) => setSlotEmEscolha(slot)} /></div>{composerOpen ? <ReminderComposer close={() => setComposerOpen(false)} created={() => { void api.attentionCount().then(setAttentionCount).catch(() => undefined); setAttentionOpen(true); }} /> : null}{attentionOpen ? <AttentionCenter compose={() => { setAttentionOpen(false); setComposerOpen(true); }} close={() => { setAttentionOpen(false); void api.attentionCount().then(setAttentionCount).catch(() => undefined); }} /> : null}{delivered ? <AttentionToast event={delivered} close={() => setDelivered(null)} open={() => { setDelivered(null); setAttentionOpen(true); }} /> : null}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
+<Leque pins={radialPins} workspaceId={currentWorkspaceId || null} apps={apps} onNavegar={navigate} onAbrirApp={openRegisteredApp} onAcao={(target) => { if (target === "attention_create") setComposerOpen(true); else void api.showQuickCapture(); }} onFixar={(slot) => setSlotEmEscolha(slot)} /></div>{composerOpen ? <ReminderComposer close={() => setComposerOpen(false)} created={() => { void api.attentionCount().then(setAttentionCount).catch(() => undefined); setAttentionOpen(true); }} /> : null}{attentionOpen ? <AttentionCenter compose={() => { setAttentionOpen(false); setComposerOpen(true); }} close={() => { setAttentionOpen(false); void api.attentionCount().then(setAttentionCount).catch(() => undefined); }} /> : null}{delivered ? <AttentionToast event={delivered} close={() => setDelivered(null)} open={() => { setDelivered(null); setAttentionOpen(true); }} /> : null}{/* A Drop Zone vive no shell, ao lado das outras sobreposicoes: soltar algo
+    em QUALQUER lugar do M/OS tem que funcionar — inclusive sobre o rail —, e e
+    o shell quem sabe onde a pessoa estava quando soltou. */}
+{<DropZone
+      contexto={contextoDoDrop({
+        pagina: page,
+        projectId: page === "projects" ? selectedProjectId : null,
+        workspaceId: currentWorkspaceId,
+        taskId: drawerTask?.id ?? null,
+        taskProjectId: drawerTask?.projectId ?? null,
+      })}
+      projects={projects}
+      onRecibo={(message, run) => showReceipt({ message, run })}
+      refresh={refresh}
+    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
 }
 
 /**
@@ -3235,6 +3334,8 @@ export default function App() {
   switch (getCurrentWindow().label) {
     case "quick-capture":
       return <QuickCapture />;
+    case "reuniao-detectada":
+      return <ReuniaoDetectada />;
     case "lembrete":
       return <Reminder />;
     default:

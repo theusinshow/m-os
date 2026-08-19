@@ -32,7 +32,11 @@ use uuid::Uuid;
 
 use crate::{
     voice_when::{fold_text, resolve_when, Spoken},
-    CaptureId, Confidence, CoreError, ErrorCode, ProjectId, TaskId,
+    // `ProjectHint` vem do planejador de relacoes do Drop (`ingestion.rs`), e
+    // nao de uma copia local: as duas superficies fazem a MESMA pergunta — "a
+    // que Project isto pertence?" — e duas definicoes do mesmo par
+    // (id, nome) divergiriam no dia em que uma das duas ganhasse um campo.
+    CaptureId, Confidence, CoreError, ErrorCode, ProjectHint, ProjectId, TaskId,
 };
 
 // ------------------------------------------------------------------ guardas
@@ -355,13 +359,6 @@ pub fn apply(
 pub struct VoiceContext {
     pub project_id: Option<ProjectId>,
     pub task_id: Option<TaskId>,
-}
-
-/// O mínimo de um Project para reconhecê-lo numa frase.
-#[derive(Clone, Debug)]
-pub struct ProjectHint {
-    pub id: ProjectId,
-    pub name: String,
 }
 
 /// O que fazer com o que foi entendido.
