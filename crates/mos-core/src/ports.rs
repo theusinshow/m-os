@@ -254,6 +254,16 @@ pub trait ResourceRepository: Send + Sync {
         linked: bool,
     ) -> Result<(), CoreError>;
     fn resource_workspaces(&self) -> Result<Vec<crate::ResourceWorkspace>, CoreError>;
+    /// O elo que faltava na cadeia da fase 3 do ROADMAP: um Resource pertence ao
+    /// Project a que ele serve. N-para-N pelo mesmo motivo de
+    /// `resource_workspaces`: o mesmo memorial pode valer em dois Projects.
+    fn set_resource_project(
+        &self,
+        resource_id: crate::ResourceId,
+        project_id: crate::ProjectId,
+        linked: bool,
+    ) -> Result<(), CoreError>;
+    fn resource_projects(&self) -> Result<Vec<crate::ResourceProject>, CoreError>;
     /// Exclusao definitiva. Recusa o que ainda esta ativo.
     fn delete_resource(&self, id: crate::ResourceId) -> Result<(), CoreError>;
 }
@@ -676,4 +686,112 @@ pub trait DataMaintenance: Send + Sync {
     fn restore_backup(&self, source: &Path) -> Result<BackupReceipt, CoreError>;
     fn ensure_daily_snapshot(&self) -> Result<Option<BackupReceipt>, CoreError>;
     fn export_json(&self, destination: &Path) -> Result<BackupReceipt, CoreError>;
+}
+
+/// Persistencia da ingestao universal.
+///
+/// A fronteira aqui e mais estreita que um CRUD de proposito: cada metodo e um
+/// PASSO do pipeline, e cada passo e uma transacao. `begin` grava a Capture e a
+/// linha de ingestao juntas; `complete` grava o Resource, as relacoes e o novo
+/// estado juntos. Nenhum caminho permite gravar metade de um passo — que e como
+/// a atomicidade da secao 23 do spec vira codigo em vez de intencao.
+pub trait IngestionRepository: Send + Sync {
+    /// Abre a ingestao e grava a Capture na MESMA transacao.
+    ///
+    /// A Capture existir antes dos bytes e o que sustenta a promessa: se tudo
+    /// falhar daqui para frente, a Inbox ainda diz o que a pessoa soltou.
+    fn begin_ingestion(
+        &self,
+        ingestion: crate::NewIngestion,
+        capture: NewCapture,
+    ) -> Result<crate::Ingestion, CoreError>;
+
+    /// O original chegou inteiro ao lugar definitivo.
+    fn mark_preserved(
+        &self,
+        id: crate::IngestionId,
+        sha256: &str,
+        byte_size: u64,
+        stored_path: &str,
+        page_count: Option<u32>,
+        image_size: Option<crate::ImageSize>,
+    ) -> Result<crate::Ingestion, CoreError>;
+
+    /// O Resource vivo que ja guarda estes mesmos bytes, se houver.
+    fn duplicate_of(
+        &self,
+        sha256: &str,
+        except: crate::IngestionId,
+    ) -> Result<Option<crate::ResourceId>, CoreError>;
+
+    /// Cria o Resource, aplica as relacoes e fecha a ingestao — em uma transacao.
+    fn complete_ingestion(
+        &self,
+        id: crate::IngestionId,
+        resource: crate::NewResource,
+        plan: &crate::RelationPlan,
+    ) -> Result<(crate::Ingestion, crate::Resource), CoreError>;
+
+    /// Fecha a ingestao cuja unica entidade derivada e a propria Capture.
+    ///
+    /// E o caminho do texto solto: ele ja esta preservado na Capture, com a
+    /// durabilidade do `synchronous=FULL`, e criar um Resource automaticamente
+    /// seria decidir por inferencia o que a frase significa. A Capture continua
+    /// na Inbox — que e onde uma decisao por tomar deve estar.
+    fn complete_as_capture(
+        &self,
+        id: crate::IngestionId,
+    ) -> Result<crate::Ingestion, CoreError>;
+
+    /// Fecha a ingestao apontando para um Resource que ja existia, aplicando
+    /// nele o contexto novo. O que ja estava ligado permanece ligado, e a
+    /// ingestao registra o que ELA acrescentou — sem isso, desfazer removeria
+    /// contexto que nao era dela.
+    fn complete_as_duplicate(
+        &self,
+        id: crate::IngestionId,
+        existing: crate::ResourceId,
+        plan: &crate::RelationPlan,
+    ) -> Result<crate::Ingestion, CoreError>;
+
+    /// Encerra sem entidade derivada. A Capture continua na Inbox.
+    fn fail_ingestion(
+        &self,
+        id: crate::IngestionId,
+        state: crate::IngestionState,
+        failure: &str,
+    ) -> Result<crate::Ingestion, CoreError>;
+
+    /// Resultado da leitura de conteudo. Roda depois do recibo e nunca desfaz
+    /// nada do que ja foi gravado.
+    fn set_extraction(
+        &self,
+        id: crate::IngestionId,
+        state: crate::ExtractionState,
+        text: &str,
+        error: &str,
+        page_count: Option<u32>,
+    ) -> Result<(), CoreError>;
+
+    fn get_ingestion(&self, id: crate::IngestionId) -> Result<crate::Ingestion, CoreError>;
+
+    /// A ingestao que produziu (ou aponta para) este Resource.
+    fn ingestion_for_resource(
+        &self,
+        resource: crate::ResourceId,
+    ) -> Result<Option<crate::Ingestion>, CoreError>;
+
+    /// As ingestoes que resultaram em Resource, para a Library decorar a lista.
+    fn file_ingestions(&self) -> Result<Vec<crate::Ingestion>, CoreError>;
+
+    /// As que ficaram em `receiving` quando o processo morreu.
+    fn unfinished_ingestions(&self) -> Result<Vec<crate::Ingestion>, CoreError>;
+
+    /// As que foram preservadas e ainda esperam leitura de conteudo.
+    fn pending_extractions(&self) -> Result<Vec<crate::Ingestion>, CoreError>;
+
+    /// Desfaz o que ESTA ingestao criou, e nada alem disso.
+    fn undo_ingestion(&self, id: crate::IngestionId) -> Result<(), CoreError>;
+
+    fn rebuild_ingestion_search(&self) -> Result<usize, CoreError>;
 }

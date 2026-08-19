@@ -28,6 +28,7 @@ mod calendar;
 mod attention;
 mod finance;
 mod hermes;
+mod ingest;
 mod jarvis;
 mod meeting;
 mod monitor;
@@ -1308,6 +1309,50 @@ fn open_external_target(kind: AppLaunchKind, target: &str) -> Result<(), CoreErr
     open_target_with_os(target)
 }
 
+/// Abre um original guardado, pelo programa padrao do Windows.
+///
+/// Recebe um caminho JA validado como filho da area de drops. A validacao mora
+/// em `ingest::stored_file`, e nao aqui, porque e la que existe o `FileStore`
+/// que sabe onde a area comeca.
+pub(crate) fn open_stored_path(path: &std::path::Path) -> Result<(), CoreError> {
+    let target = path.to_str().ok_or_else(|| {
+        CoreError::new(
+            mos_core::ErrorCode::InvalidInput,
+            "Caminho do original nao e representavel.",
+            false,
+        )
+    })?;
+    open_target_with_os(target)
+}
+
+/// Mostra o original na pasta, selecionado, sem abri-lo.
+#[cfg(windows)]
+pub(crate) fn reveal_stored_path(path: &std::path::Path) -> Result<(), CoreError> {
+    // `explorer /select,<caminho>` e o caminho documentado da Microsoft para
+    // isto. O argumento vai como argumento, e nao concatenado numa linha de
+    // shell: nada do que o usuario escreveu chega a um interpretador.
+    std::process::Command::new("explorer")
+        .arg(format!("/select,{}", path.display()))
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| {
+            CoreError::new(
+                mos_core::ErrorCode::Io,
+                format!("Nao foi possivel abrir a pasta: {error}"),
+                true,
+            )
+        })
+}
+
+#[cfg(not(windows))]
+pub(crate) fn reveal_stored_path(_path: &std::path::Path) -> Result<(), CoreError> {
+    Err(CoreError::new(
+        mos_core::ErrorCode::InvalidTransition,
+        "Mostrar na pasta esta disponivel apenas no Windows nesta versao.",
+        false,
+    ))
+}
+
 #[cfg(windows)]
 fn open_target_with_os(target: &str) -> Result<(), CoreError> {
     use std::ptr;
@@ -1504,6 +1549,30 @@ pub fn run() {
             // eternamente em curso na tela.
             let _ = app.state::<AppState>().conversations.settle_unfinished();
 
+            // A Drop Zone precisa do disco antes da primeira janela: a
+            // reconciliacao roda na abertura, e ela e quem transforma uma
+            // transferencia morta pela metade num fato visivel em vez de um
+            // arquivo pela metade guardado como se fosse o original.
+            let store = mos_ingest::FileStore::new(&data_directory)
+                .map_err(|error| std::io::Error::other(error.message))?;
+            app.manage(ingest::IngestState::new(
+                mos_ingest::FileStore::new(&data_directory)
+                    .map_err(|error| std::io::Error::other(error.message))?,
+            ));
+            match ingest::reconcile_on_open(app.handle(), &store) {
+                Ok(recovered) if recovered > 0 => {
+                    let _ = app.emit("ingestion-recovered", recovered);
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    eprintln!("Reconciliacao de ingestoes falhou: {}", error.message);
+                }
+            }
+            // As leituras de conteudo que ficaram pendentes retomam em segundo
+            // plano. Elas nunca foram condicao para nada: o arquivo ja esta
+            // guardado e ja aparece na Library desde o drop.
+            ingest::resume_extractions(app.handle(), std::sync::Arc::new(store));
+
             app.manage(meeting::RecordingState::default());
             // A reconciliacao roda ANTES da limpeza, e a ordem e a garantia:
             // uma reuniao interrompida precisa virar `interrupted` antes que
@@ -1684,6 +1753,17 @@ pub fn run() {
             jarvis::conversation_truncate,
             jarvis::action_resolve,
             open_external_url,
+            ingest::ingest_begin,
+            ingest::ingest_chunk,
+            ingest::ingest_finish,
+            ingest::ingest_abort,
+            ingest::ingest_text,
+            ingest::ingest_url,
+            ingest::ingest_undo,
+            ingest::ingest_accept_suggestion,
+            ingest::list_ingestions,
+            ingest::open_ingested_file,
+            ingest::reveal_ingested_file,
             create_capture,
             get_capture,
             list_recent,

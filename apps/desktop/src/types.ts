@@ -1,4 +1,4 @@
-export type CaptureSource = "home" | "quick_capture";
+export type CaptureSource = "home" | "quick_capture" | "drop";
 export type ProcessingState = "inbox" | "processed";
 export type LifecycleState = "active" | "archived" | "trashed";
 
@@ -45,7 +45,89 @@ export type HiddenWidget = {
  *  `inbox` aqui nao e a Inbox de Captures — Capture tem processingState. */
 export type TaskState = "inbox" | "backlog" | "planned" | "doing" | "review" | "done";
 
-export type ResourceKind = "site" | "library" | "image" | "note";
+export type ResourceKind = "site" | "library" | "image" | "note" | "file";
+
+// ===========================================================================
+// Universal Drop Zone
+// ===========================================================================
+//
+// A ingestao e o registro do que entrou, por onde, o que virou e onde parou.
+// Ela nao substitui o Resource nem a Capture: ela os explica.
+
+export type IngestionSource = "drop_file" | "drop_text" | "drop_url";
+
+export type DetectedKind =
+  | "pdf"
+  | "image"
+  | "text"
+  | "markdown"
+  | "data"
+  | "code"
+  | "archive"
+  | "url"
+  | "unknown";
+
+export type IngestionState =
+  | "receiving"
+  | "preserved"
+  | "completed"
+  | "interrupted"
+  | "failed"
+  | "undone";
+
+export type ExtractionState = "pending" | "done" | "empty" | "unsupported" | "failed";
+
+/** De onde a pessoa estava olhando quando soltou. */
+export type DropContext = {
+  page: string;
+  projectId: string | null;
+  workspaceId: string | null;
+  taskId: string | null;
+};
+
+export type Ingestion = {
+  id: string;
+  source: IngestionSource;
+  originalName: string;
+  mime: string;
+  byteSize: number;
+  sha256: string;
+  storedPath: string;
+  detectedKind: DetectedKind;
+  state: IngestionState;
+  failure: string;
+  captureId: string | null;
+  resourceId: string | null;
+  duplicateOf: string | null;
+  context: DropContext;
+  suggestedProjectId: string | null;
+  relationConfidence: number;
+  relationReason: string;
+  extractionState: ExtractionState;
+  extractionError: string;
+  pageCount: number | null;
+  imageSize: { width: number; height: number } | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IngestionReceipt = {
+  ingestion: Ingestion;
+  /** O conteudo ja estava no M/OS; o contexto novo foi aplicado no que existia. */
+  duplicate: boolean;
+  /** Rotulo curto do destino, para o recibo. */
+  destination: string;
+};
+
+/** O estado de um item do lote NA TELA — nao e o estado persistido. */
+export type IngestionStatus =
+  | "esperando"
+  | "lendo"
+  | "entendendo"
+  | "guardado"
+  | "repetido"
+  | "erro"
+  | "desfeito";
 
 export type Task = {
   id: string;

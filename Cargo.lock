@@ -2433,6 +2433,7 @@ dependencies = [
  "mos-audio",
  "mos-core",
  "mos-hermes",
+ "mos-ingest",
  "mos-storage-sqlite",
  "mos-transcribe",
  "printpdf",
@@ -2466,6 +2467,16 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tokio-tungstenite",
+]
+
+[[package]]
+name = "mos-ingest"
+version = "0.3.0"
+dependencies = [
+ "lopdf",
+ "mos-core",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

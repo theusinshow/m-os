@@ -7,6 +7,7 @@ mod clock;
 mod conversation;
 mod error;
 mod functions;
+mod ingestion;
 mod meeting;
 mod meeting_analysis;
 mod monitoring;
@@ -44,6 +45,13 @@ pub use functions::{
     function_registry, search_functions, FunctionCategory, FunctionConfirmation,
     FunctionDefinition, FunctionRisk,
 };
+pub use ingestion::{
+    capture_content, clamp_extracted_text, detect_kind, extension_of, host_of, image_size,
+    is_openable, normalize_url, plan_relations, resolve_mime, sanitize_file_name, stored_path,
+    title_from_text, DetectedKind, DropContext, ExtractionState, ImageSize, Ingestion, IngestionId,
+    IngestionReceipt, IngestionSource, IngestionState, NewIngestion, ProjectHint, RelationDecision,
+    RelationPlan, CONFIDENCE_LINK, CONFIDENCE_SUGGEST, MAX_EXTRACTED_CHARS, MAX_INGEST_BYTES,
+};
 pub use meeting::{
     apply as apply_meeting, interleave, AudioRetention, Channel as MeetingChannel, ChannelOutcome,
     Confidence, FailedStage, InsightId, InsightKind, InsightStatus, Meeting, MeetingAnalysis,
@@ -63,11 +71,13 @@ pub use monitoring::{
 };
 pub use ports::{
     AppRepository, AttentionRepository, BackupInspection, BackupReceipt, CaptureRepository,
-    ConversationRepository, DataMaintenance, MeetingRepository, MonitoringRepository,
-    ResourceRepository, SearchRequest, TimeTrackingRepository, WorkRepository,
+    ConversationRepository, DataMaintenance, IngestionRepository, MeetingRepository,
+    MonitoringRepository, ResourceRepository, SearchRequest, TimeTrackingRepository,
+    WorkRepository,
 };
 pub use resource::{
-    validate_resource_url, NewResource, Resource, ResourceId, ResourceKind, ResourceWorkspace,
+    validate_resource_url, NewResource, Resource, ResourceId, ResourceKind, ResourceProject,
+    ResourceWorkspace,
 };
 pub use service::{
     AppService, AttentionService, AudioOutcome, CaptureService, ConversationService, CreateAppInput,

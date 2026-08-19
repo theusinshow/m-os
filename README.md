@@ -16,7 +16,10 @@ para Windows, da captura e acao organizada ate Resources reencontraveis.
 - App Registry local com abertura controlada de URLs e paths;
 - catalogo idempotente de Apps proprios, com origem GitHub separada do alvo de abertura;
 - Resources link-first com Library, nota contextual e proveniencia de Capture;
-- Search unificada para Captures, Tasks, Projects, Workspaces, Apps, Resources e Functions;
+- Universal Drop Zone: arquivo, URL ou texto solto sobre a janela vira Capture
+  antes de qualquer processamento, e Resource depois;
+- Search unificada para Captures, Tasks, Projects, Workspaces, Apps, Resources e
+  Functions, alcancando tambem o texto extraido de arquivos soltos;
 - Functions de baixo risco roteadas pelo Command para os fluxos existentes;
 - backup `.mos-backup`, restore validado e safety backup;
 - export JSON legivel e versionado;

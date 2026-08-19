@@ -5,6 +5,7 @@ members = [
     "crates/mos-audio",
     "crates/mos-core",
     "crates/mos-hermes",
+    "crates/mos-ingest",
     "crates/mos-storage-sqlite",
     "crates/mos-transcribe",
 ]

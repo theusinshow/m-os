@@ -1,0 +1,29 @@
+[package]
+name = "mos-ingest"
+version.workspace = true
+description = "Armazenamento do original e leitura de conteudo da ingestao universal do M/OS"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# Este crate NAO depende de `mos-storage-sqlite`, e a ausencia e a decisao —
+# mesmo truque estrutural da ADR-024 e do `mos-audio`: "o disco nunca escreve no
+# banco" deixa de ser regra a lembrar e vira impossibilidade de compilacao. Quem
+# junta os dois lados e o comando, que grava a linha DEPOIS de o arquivo estar no
+# lugar.
+#
+# Ele existe separado do `src-tauri` por um motivo medido, registrado em
+# `SETUP-MAQUINA.md` §4: `cargo test -p mos-desktop` nao roda nesta maquina. O
+# que precisa de teste — hash, caminho, travessia, extracao — precisa morar num
+# crate onde o teste roda.
+[dependencies]
+mos-core = { path = "../mos-core" }
+sha2 = "0.10"
+# Mesma versao e MESMAS features do lopdf que o `printpdf` do desktop ja compila
+# (`pom_parser`, sem chrono e sem rayon). Ler texto de PDF nao acrescenta uma
+# dependencia nova a arvore: acrescenta uma chamada a uma que ja estava la.
+lopdf = { version = "0.31", default-features = false, features = ["pom_parser"] }
+
+[dev-dependencies]
+tempfile = "3"

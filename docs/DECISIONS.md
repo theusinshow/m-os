@@ -61,6 +61,7 @@ Estados possíveis:
 | ADR-043 | O M/OS pode iniciar com o Windows, e o registro é quem manda | Accepted |
 | ADR-044 | O rail vai a doze, e Reuniões entra sem tirar ninguém | Accepted |
 | ADR-045 | O rail volta a oito, e o recém-chegado nasce no leque | Accepted |
+| ADR-046 | Todo drop vira Capture primeiro, e a entidade vem depois | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -1907,3 +1908,136 @@ tirar Apps: sem a porta nova, *"a pagina ficaria inalcancavel"*.
 uso diário. Isso só aparece depois de uma semana de uso real. Se não substituir,
 o caminho de volta é promover ao rail o que estiver sendo mais tocado no leque —
 e não subir o teto de novo.
+
+---
+
+## ADR-046 — Todo drop vira Capture primeiro, e a entidade vem depois
+
+**Data:** 2026-08-19
+**Status:** aceito
+**Contexto:** Universal Drop Zone (`TECHNICAL-FOUNDATION-V0.3-UNIVERSAL-DROP.md`)
+**Revisa:** ADR-021 (acrescenta o tipo `file` ao Resource)
+
+### A pergunta
+
+Um PDF arrastado para dentro da janela: o que ele é?
+
+A resposta óbvia é *Resource*. Ele vai para a Library, tem título, tem motivo,
+tem lifecycle. O caminho curto seria criar o Resource direto — copiar o arquivo,
+inserir a linha, pronto.
+
+### Por que o caminho curto está errado
+
+Porque ele decide antes de preservar.
+
+Criar o Resource exige saber o título, o tipo e — se o drop aconteceu dentro de
+um Project — a relação. São três perguntas, e cada uma pode falhar: o parser não
+abre, o hash não bate, a extração explode, a relação aponta para um Project
+arquivado. Num pipeline que cria a entidade no fim, **qualquer uma dessas falhas
+custa o arquivo**, porque não existe nada gravado antes dela.
+
+E o M/OS já tem o registro certo para "algo entrou e ainda não foi decidido". Ele
+se chama Capture, existe desde a v0.1, tem a durabilidade do `synchronous=FULL`
+(ADR-017), aparece na Inbox, entra na Search e sabe derivar outras entidades
+preservando proveniência (ADR-004, ADR-018).
+
+### A decisão
+
+**Todo drop grava uma Capture antes do primeiro byte de conteúdo.**
+
+```text
+DROP → Capture (commit)  →  bytes no disco (commit)  →  Resource + relações (commit)
+        ↑                    ↑                          ↑
+        nada se perde        nada se perde              enriquecimento
+        a partir daqui       a partir daqui             pode falhar
+```
+
+A Capture nasce na Inbox dizendo o nome do que chegou. Quando o Resource é
+criado, ele nasce com `source_capture_id` apontando para ela — e o mesmo código
+que já processava Capture → Task marca a Capture como `processed`, tirando-a da
+Inbox. **Nenhuma linha nova de regra de proveniência foi escrita**; o caminho já
+existia.
+
+O efeito é que as invariantes do briefing deixam de ser cuidado e viram
+consequência:
+
+| invariante | por que ela vale |
+|---|---|
+| o original não se perde | a Capture commitou antes dos bytes; os bytes commitaram antes da entidade |
+| IA não é necessária para salvar | não há IA em nenhum dos três commits |
+| tipo desconhecido ainda entra | `DetectedKind::Unknown` é resultado, não erro |
+| falha não destrói a captura | a Capture fica na Inbox, com o nome do arquivo |
+| a Inbox é a rede de segurança | ela já era, e continua sendo, sem segunda lista |
+
+### Três consequências que exigiram mexer no schema
+
+**1. `captures.source_kind` aceita `'drop'`.** Registrar um arquivo arrastado como
+se tivesse sido digitado na Home apagaria exatamente o fato que a ADR-004 existe
+para guardar. A migration 0022 recria a tabela — e, diferente da 0007, `captures`
+**tem filhas**: `tasks` e `resources` apontam para ela. O procedimento é o
+documentado pelo SQLite (`foreign_keys=OFF` + `legacy_alter_table=ON` em volta da
+transação), e o `migrate()` roda `foreign_key_check` depois. Um teste sobe um v21
+povoado com Task derivada, Resource derivado e vínculo de Workspace, e prende as
+duas pontas: nada se perde, nada fica órfão.
+
+**2. `resources.kind` aceita `'file'`.** Um arquivo preservado não é site, não é
+biblioteca e não é nota. Ele não tem `url`: o caminho do original mora na linha de
+ingestão, endereçado pelo hash do conteúdo. Guardar o caminho no Resource também
+criaria duas verdades sobre onde o arquivo está, e um dia elas discordariam.
+
+**3. `resource_projects` passa a existir.** É cópia estrutural de
+`resource_workspaces` (0009), N-para-N pelo mesmo motivo: o mesmo memorial pode
+servir a dois Projects. Sem ela, o caso B dos critérios de aceite — *soltar dentro
+de um Project e ficar relacionado* — não teria onde ser gravado. Isso **não** abre
+a exceção que a ADR-012 fecha: continua não havendo grafo genérico, apenas uma
+tabela de par para uma relação concreta e usada.
+
+### A tabela `ingestions` não é uma segunda Library
+
+Ela guarda o que a Capture e o Resource não sabem dizer: hash, MIME, tamanho,
+caminho do original, estado da leitura de conteúdo, o contexto da tela no
+instante do drop e o que a ingestão acrescentou de relação. Nada é procurado nela
+— a Library lê Resources, a Inbox lê Captures, a Search lê os índices. Ela é a
+**memória do pipeline**, e é o que permite responder depois "de onde isso veio" e
+"por que isto foi relacionado àquilo".
+
+### O que a lente de Workspace compra, e o que ela custa
+
+A confiança para relacionar sozinho está calibrada assim:
+
+| sinal | confiança | ação |
+|---|---:|---|
+| Project aberto na tela | 0.95 | relaciona |
+| Task aberta (o Project dela) | 0.90 | relaciona |
+| lente de Workspace ativa | 0.80 | relaciona |
+| nome do arquivo cita um Project | 0.60 | **sugere** |
+| nada | 0 | não inventa |
+
+A terceira linha é a discutível, e ela foi decidida contra o instinto. Uma lente
+de Workspace é um sinal mais fraco que um Project aberto — mas **a Library filtra
+por ela por padrão**. Um Resource sem o vínculo nasce invisível exatamente na tela
+onde a pessoa está parada. Errar aqui custa uma relação a mais, visível e
+desfazível; não vincular custa o item sumir na hora em que ele deveria aparecer.
+
+A quarta linha é a que o instinto pediria para promover — *"NexoDoc-pricing.pdf,
+óbvio que é do NexoDoc"* — e ela ficou em sugestão de propósito. Nome de arquivo
+é convenção pessoal, não declaração; relacionar sozinho por causa dele seria o
+sistema inventando contexto, que é o que o §20 do briefing proíbe.
+
+### O que ficou de fora, e por quê
+
+**Não existe diálogo de "onde isto pertence?".** Ele estava no briefing, e o
+pipeline o tornou desnecessário: preservar primeiro + Inbox como rede + desfazer
+no recibo cobrem os três casos em que a pergunta apareceria. Perguntar seria
+cobrar uma decisão no momento exato em que o produto promete não cobrar (§4 do
+`VISION.md`).
+
+**A duplicata não pergunta.** Ela relaciona o contexto novo ao Resource antigo e
+diz o que fez, com desfazer. O desfazer remove **apenas o que aquela ingestão
+acrescentou** — duas colunas booleanas na linha existem só para isso, porque
+remover uma relação que já estava lá seria destruir contexto alheio a pretexto de
+corrigir.
+
+**Sem OCR e sem embeddings.** Um PDF escaneado registra `extraction_state =
+'empty'`, e isso não é uma falha: é a fila de trabalho do OCR no dia em que ele
+existir.

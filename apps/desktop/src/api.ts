@@ -4,7 +4,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
-  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DropContext, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -218,6 +218,57 @@ export const api = {
   archiveReminder(id: string) {
     return invoke<Reminder>("attention_archive", { id });
   },
+  // ===========================================================================
+  // Universal Drop Zone
+  // ===========================================================================
+  //
+  // Quatro chamadas para um arquivo, e a divisao nao e cerimonia: `begin` grava
+  // a Capture ANTES do primeiro byte, `chunk` empurra os bytes crus, `finish`
+  // preserva e so entao entende. `abort` existe para o caso em que a leitura no
+  // renderer falha no meio — sem ele, uma transferencia morta ficaria aberta no
+  // backend segurando um arquivo no staging.
+  ingestBegin(descriptor: { name: string; mime: string; size: number; context: DropContext }) {
+    return invoke<Ingestion>("ingest_begin", { descriptor });
+  },
+  /**
+   * Um pedaco de arquivo, em bytes crus.
+   *
+   * O `ArrayBuffer` sozinho como argumento faz o Tauri usar o corpo bruto da
+   * requisicao em vez de JSON — o id da ingestao viaja no header porque o corpo
+   * ja esta ocupado sendo o arquivo.
+   */
+  ingestChunk(ingestionId: string, bytes: ArrayBuffer) {
+    return invoke<void>("ingest_chunk", bytes, { headers: { "x-mos-ingestion": ingestionId } });
+  },
+  ingestFinish(ingestionId: string) {
+    return invoke<IngestionReceipt>("ingest_finish", { id: ingestionId });
+  },
+  ingestAbort(ingestionId: string, reason: string) {
+    return invoke<void>("ingest_abort", { id: ingestionId, reason });
+  },
+  ingestText(text: string, context: DropContext) {
+    return invoke<IngestionReceipt>("ingest_text", { text, context });
+  },
+  ingestUrl(url: string, context: DropContext) {
+    return invoke<IngestionReceipt>("ingest_url", { url, context });
+  },
+  ingestUndo(ingestionId: string) {
+    return invoke<void>("ingest_undo", { id: ingestionId });
+  },
+  ingestAcceptSuggestion(ingestionId: string) {
+    return invoke<void>("ingest_accept_suggestion", { id: ingestionId });
+  },
+  /** As ingestoes que viraram Resource, para a Library saber o que cada uma e. */
+  ingestions() {
+    return invoke<Ingestion[]>("list_ingestions");
+  },
+  openIngestedFile(resourceId: string) {
+    return invoke<void>("open_ingested_file", { resourceId });
+  },
+  revealIngestedFile(resourceId: string) {
+    return invoke<void>("reveal_ingested_file", { resourceId });
+  },
+
   createCapture(content: string, source: CaptureSource) {
     return invoke<Capture>("create_capture", { input: { content, source } });
   },

@@ -1,6 +1,7 @@
 use mos_core::{
-    CoreError, ErrorCode, LifecycleState, NewResource, Resource, ResourceId, ResourceKind,
-    ResourceRepository, ResourceWorkspace, SearchRequest, WorkspaceId,
+    CoreError, ErrorCode, LifecycleState, NewResource, ProjectId, Resource, ResourceId,
+    ResourceKind, ResourceProject, ResourceRepository, ResourceWorkspace, SearchRequest,
+    WorkspaceId,
 };
 use rusqlite::{params, OptionalExtension, Row, Transaction};
 use time::OffsetDateTime;
@@ -64,75 +65,10 @@ impl ResourceRepository for SqliteStorage {
     fn create_resource(&self, resource: NewResource) -> Result<Resource, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
-        if let Some(capture_id) = resource.source_capture_id {
-            let lifecycle = transaction
-                .query_row(
-                    "SELECT lifecycle_state FROM captures WHERE id = ?1",
-                    [capture_id.to_string()],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()
-                .map_err(map_sql_error)?
-                .ok_or_else(|| {
-                    CoreError::new(ErrorCode::NotFound, "Capture nao encontrada.", false)
-                })?;
-            if lifecycle != "active" {
-                return Err(CoreError::new(
-                    ErrorCode::InvalidTransition,
-                    "Somente uma Capture ativa pode originar Resource.",
-                    false,
-                ));
-            }
-            let already_derived: bool = transaction
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM resources WHERE source_capture_id = ?1)",
-                    [capture_id.to_string()],
-                    |row| row.get(0),
-                )
-                .map_err(map_sql_error)?;
-            if already_derived {
-                return Err(CoreError::new(
-                    ErrorCode::InvalidTransition,
-                    "Esta Capture ja originou um Resource.",
-                    false,
-                ));
-            }
-        }
-
-        let now = format_time(resource.created_at)?;
-        let id = resource.id;
-        transaction
-            .execute(
-                "INSERT INTO resources (
-                    id, kind, title, url, note, source_capture_id,
-                    lifecycle_state, created_at, updated_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?7)",
-                params![
-                    resource.id.to_string(),
-                    resource.kind.as_str(),
-                    resource.title,
-                    resource.url,
-                    resource.note,
-                    resource.source_capture_id.map(|value| value.to_string()),
-                    now,
-                ],
-            )
-            .map_err(map_sql_error)?;
-        insert_resource_search(&transaction, transaction.last_insert_rowid())?;
-        if let Some(capture_id) = resource.source_capture_id {
-            transaction
-                .execute(
-                    "UPDATE captures
-                     SET processing_state = 'processed', updated_at = ?1
-                     WHERE id = ?2",
-                    params![now, capture_id.to_string()],
-                )
-                .map_err(map_sql_error)?;
-        }
+        let id = insert_resource(&transaction, resource)?;
         transaction.commit().map_err(map_sql_error)?;
         query_resource(&connection, id)
     }
-
     fn update_resource(
         &self,
         id: ResourceId,
@@ -254,15 +190,53 @@ impl ResourceRepository for SqliteStorage {
                 columns = RESOURCE_COLUMNS.replace(", ", ", r.")
             ))
             .map_err(map_sql_error)?;
-        let resources = statement
+        let mut resources = statement
             .query_map(
                 params![fts_query, request.limit as i64],
                 RawResource::from_row,
             )
             .map_err(map_sql_error)?
             .map(|row| row.map_err(map_sql_error)?.into_resource())
+            .collect::<Result<Vec<_>, CoreError>>()?;
+
+        // Segunda passada: o que casou DENTRO do arquivo.
+        //
+        // Duas consultas em vez de um UNION porque os dois indices tem escalas
+        // de bm25 que nao se comparam, e porque a ordem certa e uma decisao de
+        // produto e nao um artefato: quem acerta pelo nome ou pelo motivo vem
+        // antes de quem acerta na pagina 143 de um memorial. Sem isso, digitar
+        // "memorial" traria primeiro os PDFs que mencionam a palavra e por
+        // ultimo o arquivo chamado memorial.pdf.
+        let mut seen: std::collections::HashSet<String> = resources
+            .iter()
+            .map(|resource| resource.id.to_string())
             .collect();
-        resources
+        let remaining = request.limit.saturating_sub(resources.len());
+        if remaining > 0 {
+            let mut statement = connection
+                .prepare(&format!(
+                    "SELECT r.{columns}
+                     FROM ingestion_search s
+                     JOIN ingestions i ON i.rowid = s.rowid
+                     JOIN resources r ON r.id = i.resource_id
+                     WHERE ingestion_search MATCH ?1 AND {lifecycle}
+                     ORDER BY bm25(ingestion_search), r.updated_at DESC
+                     LIMIT ?2",
+                    columns = RESOURCE_COLUMNS.replace(", ", ", r.")
+                ))
+                .map_err(map_sql_error)?;
+            let inside = statement
+                .query_map(params![fts_query, remaining as i64], RawResource::from_row)
+                .map_err(map_sql_error)?
+                .map(|row| row.map_err(map_sql_error)?.into_resource())
+                .collect::<Result<Vec<_>, CoreError>>()?;
+            for resource in inside {
+                if seen.insert(resource.id.to_string()) {
+                    resources.push(resource);
+                }
+            }
+        }
+        Ok(resources)
     }
 
     fn rebuild_resource_search(&self) -> Result<usize, CoreError> {
@@ -349,9 +323,102 @@ impl ResourceRepository for SqliteStorage {
         }
         Ok(links)
     }
+
+    fn set_resource_project(
+        &self,
+        resource_id: ResourceId,
+        project_id: ProjectId,
+        linked: bool,
+    ) -> Result<(), CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        link_resource_project(&connection, resource_id, project_id, linked)
+    }
+
+    fn resource_projects(&self) -> Result<Vec<ResourceProject>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let mut statement = connection
+            .prepare(
+                "SELECT resource_id, project_id FROM resource_projects
+                 ORDER BY project_id, created_at DESC",
+            )
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(map_sql_error)?;
+        let mut links = Vec::new();
+        for row in rows {
+            let (resource_id, project_id) = row.map_err(map_sql_error)?;
+            links.push(ResourceProject {
+                resource_id: ResourceId::parse(&resource_id)?,
+                project_id: ProjectId::parse(&project_id)?,
+            });
+        }
+        Ok(links)
+    }
 }
 
-fn insert_resource_search(transaction: &Transaction<'_>, rowid: i64) -> Result<(), CoreError> {
+/// Liga ou desliga o par, sem transacao propria.
+///
+/// Existe fora do trait para que o pipeline de ingestao possa aplicar a relacao
+/// DENTRO da mesma transacao que cria o Resource: um Resource que nasce e uma
+/// relacao que chega depois sao dois estados observaveis, e o de dentro seria
+/// um Resource sem contexto piscando na Library.
+pub(crate) fn link_resource_project(
+    connection: &rusqlite::Connection,
+    resource_id: ResourceId,
+    project_id: ProjectId,
+    linked: bool,
+) -> Result<(), CoreError> {
+    if linked {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO resource_projects (resource_id, project_id, created_at)
+                 VALUES (?1, ?2, ?3)",
+                params![resource_id.to_string(), project_id.to_string(), now],
+            )
+            .map_err(map_sql_error)?;
+    } else {
+        connection
+            .execute(
+                "DELETE FROM resource_projects WHERE resource_id = ?1 AND project_id = ?2",
+                params![resource_id.to_string(), project_id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+    }
+    Ok(())
+}
+
+/// Igual ao de cima, para o par Resource-Workspace.
+pub(crate) fn link_resource_workspace(
+    connection: &rusqlite::Connection,
+    resource_id: ResourceId,
+    workspace_id: WorkspaceId,
+    linked: bool,
+) -> Result<(), CoreError> {
+    if linked {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO resource_workspaces (resource_id, workspace_id, created_at)
+                 VALUES (?1, ?2, ?3)",
+                params![resource_id.to_string(), workspace_id.to_string(), now],
+            )
+            .map_err(map_sql_error)?;
+    } else {
+        connection
+            .execute(
+                "DELETE FROM resource_workspaces WHERE resource_id = ?1 AND workspace_id = ?2",
+                params![resource_id.to_string(), workspace_id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn insert_resource_search(transaction: &Transaction<'_>, rowid: i64) -> Result<(), CoreError> {
     transaction
         .execute(
             "INSERT INTO resource_search (rowid, title, url, note)
@@ -597,4 +664,83 @@ mod tests {
             .unwrap();
         assert!(storage.resource_workspaces().unwrap().is_empty());
     }
+}
+
+/// Insere o Resource e sua projecao de busca DENTRO de uma transacao ja aberta.
+///
+/// Existe separado do comando porque o pipeline de ingestao precisa criar o
+/// Resource junto das relacoes e do fechamento da ingestao — tudo num commit so.
+/// A regra de proveniencia (a Capture precisa estar ativa, e uma Capture deriva
+/// no maximo um Resource) mora aqui, e nao no comando, para que os dois caminhos
+/// nao possam divergir.
+pub(crate) fn insert_resource(
+    transaction: &Transaction<'_>,
+    resource: NewResource,
+) -> Result<ResourceId, CoreError> {
+    if let Some(capture_id) = resource.source_capture_id {
+        let lifecycle = transaction
+            .query_row(
+                "SELECT lifecycle_state FROM captures WHERE id = ?1",
+                [capture_id.to_string()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(map_sql_error)?
+            .ok_or_else(|| {
+                CoreError::new(ErrorCode::NotFound, "Capture nao encontrada.", false)
+            })?;
+        if lifecycle != "active" {
+            return Err(CoreError::new(
+                ErrorCode::InvalidTransition,
+                "Somente uma Capture ativa pode originar Resource.",
+                false,
+            ));
+        }
+        let already_derived: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM resources WHERE source_capture_id = ?1)",
+                [capture_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(map_sql_error)?;
+        if already_derived {
+            return Err(CoreError::new(
+                ErrorCode::InvalidTransition,
+                "Esta Capture ja originou um Resource.",
+                false,
+            ));
+        }
+    }
+
+    let now = format_time(resource.created_at)?;
+    let id = resource.id;
+    transaction
+        .execute(
+            "INSERT INTO resources (
+                id, kind, title, url, note, source_capture_id,
+                lifecycle_state, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?7)",
+            params![
+                resource.id.to_string(),
+                resource.kind.as_str(),
+                resource.title,
+                resource.url,
+                resource.note,
+                resource.source_capture_id.map(|value| value.to_string()),
+                now,
+            ],
+        )
+        .map_err(map_sql_error)?;
+    insert_resource_search(transaction, transaction.last_insert_rowid())?;
+    if let Some(capture_id) = resource.source_capture_id {
+        transaction
+            .execute(
+                "UPDATE captures
+                 SET processing_state = 'processed', updated_at = ?1
+                 WHERE id = ?2",
+                params![now, capture_id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+    }
+    Ok(id)
 }
