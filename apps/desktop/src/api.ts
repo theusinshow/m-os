@@ -4,7 +4,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
-  WidgetPlacement, WidgetPlacementInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -142,6 +142,23 @@ export const api = {
   // petrificaria o desenho de hoje, que e o oposto do que a inversao faz.
   resetWidgetLayout(workspaceId: string | null) {
     return invoke<WidgetPlacement[]>("reset_widget_layout", { workspaceId });
+  },
+  // --- O leque (migration 0021) ---
+  //
+  // Devolve TODAS as pétalas, de todos os escopos, pelo mesmo motivo de
+  // `widgetPlacements`: são poucas linhas, e uma chamada só deixa a troca de
+  // Workspace filtrar em memória em vez de ir ao core a cada clique.
+  radialPins() {
+    return invoke<RadialPin[]>("radial_pins");
+  },
+  // Uma pétala por chamada. `workspaceId` nulo é a visão "Todos".
+  setRadialPin(workspaceId: string | null, pin: RadialPinInput) {
+    return invoke<RadialPin[]>("set_radial_pin", { workspaceId, pin });
+  },
+  // Limpar APAGA a linha e devolve o slot ao desenho — não grava alvo vazio,
+  // que petrificaria o padrão de hoje.
+  clearRadialPin(workspaceId: string | null, slot: number) {
+    return invoke<RadialPin[]>("clear_radial_pin", { workspaceId, slot });
   },
   // --- Inicializacao com o Windows (ADR-043) ---
   //

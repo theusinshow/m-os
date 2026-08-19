@@ -543,6 +543,24 @@ export type WidgetPlacementInput = {
   span: number | null;
 };
 
+/* Uma pétala fixada no leque. `workspaceId` nulo é a visão "Todos", pela mesma
+   leitura da 0018, agora na 0021.
+
+   A AUSÊNCIA de linha para um slot também significa algo — "o que o desenho
+   escolheu" — e quem resolve isso é `leque.ts`, a única cópia da regra. */
+export type RadialPin = {
+  workspaceId: string | null;
+  slot: number;
+  kind: string;
+  target: string;
+};
+
+export type RadialPinInput = {
+  slot: number;
+  kind: string;
+  target: string;
+};
+
 // ===========================================================================
 // Meeting Agent
 // ===========================================================================

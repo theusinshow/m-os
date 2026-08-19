@@ -1164,6 +1164,31 @@ fn widget_placements(
     state.work.widget_placements()
 }
 
+#[tauri::command]
+fn radial_pins(state: tauri::State<'_, AppState>) -> Result<Vec<mos_core::RadialPin>, CoreError> {
+    state.work.radial_pins()
+}
+
+/// `workspace_id` ausente e a visao "Todos", como no arranjo da Home
+/// (migration 0021).
+#[tauri::command]
+fn set_radial_pin(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Option<String>,
+    pin: mos_core::RadialPinInput,
+) -> Result<Vec<mos_core::RadialPin>, CoreError> {
+    state.work.set_radial_pin(workspace_id.as_deref(), pin)
+}
+
+#[tauri::command]
+fn clear_radial_pin(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Option<String>,
+    slot: i64,
+) -> Result<Vec<mos_core::RadialPin>, CoreError> {
+    state.work.clear_radial_pin(workspace_id.as_deref(), slot)
+}
+
 /// `workspace_id` ausente e a visao "Todos", que arruma a propria Home
 /// (migration 0018). O front manda `null` quando nenhum Workspace esta
 /// selecionado.
@@ -1616,6 +1641,9 @@ pub fn run() {
             widget_placements,
             set_widget_layout,
             reset_widget_layout,
+            radial_pins,
+            set_radial_pin,
+            clear_radial_pin,
             autostart_enabled,
             autostart_set,
             start_minimized,
