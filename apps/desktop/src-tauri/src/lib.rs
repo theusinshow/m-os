@@ -1057,6 +1057,11 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             "quit" => app.exit(0),
             _ => {}
         });
+    #[cfg(windows)]
+    {
+        tray = tray.icon(icone_da_bandeja());
+    }
+    #[cfg(not(windows))]
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
     }
@@ -1303,6 +1308,39 @@ fn open_target_with_os(target: &str) -> Result<(), CoreError> {
         ));
     }
     Ok(())
+}
+
+/// O icone da bandeja, no tamanho que o Windows vai mesmo desenhar.
+///
+/// `default_window_icon()` e o PRIMEIRO quadro do `icon.ico` — o de 16x16, porque
+/// `tauri-codegen` faz literalmente `icon_dir.entries()[0]` e o arquivo e escrito
+/// em ordem crescente. A 100% isso acerta por acidente, ja que a bandeja pede 16.
+/// A 125% ela pede 20 e a 150% pede 24, e o mesmo 16x16 sobe esticado — a mesma
+/// falha que a barra de tarefas tinha, so que sem `WM_SETICON` para corrigir,
+/// porque a bandeja recebe a imagem e nao o grupo de icones.
+///
+/// Os `.rgba` sao despejos crus do `gerar-icones.py`, sem cabecalho e sem
+/// compressao, porque `Image::new` quer exatamente isso: nenhum decodificador
+/// entra na arvore de dependencias so para desenhar um icone de 16 pixels.
+#[cfg(windows)]
+fn icone_da_bandeja() -> tauri::image::Image<'static> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSMICON};
+
+    const B16: &[u8] = include_bytes!("../icons/bandeja-16.rgba");
+    const B20: &[u8] = include_bytes!("../icons/bandeja-20.rgba");
+    const B24: &[u8] = include_bytes!("../icons/bandeja-24.rgba");
+    const B32: &[u8] = include_bytes!("../icons/bandeja-32.rgba");
+
+    // As faixas sao largas de proposito: o que importa e nunca AMPLIAR. Entre
+    // dois quadros, escolher o menor faria voltar o esticamento que esta funcao
+    // existe para acabar.
+    let (bytes, lado) = match unsafe { GetSystemMetrics(SM_CXSMICON) } {
+        ..=16 => (B16, 16u32),
+        17..=20 => (B20, 20),
+        21..=24 => (B24, 24),
+        _ => (B32, 32),
+    };
+    tauri::image::Image::new(bytes, lado, lado)
 }
 
 /// Da ao Windows o icone GRANDE, que ele nunca recebeu.

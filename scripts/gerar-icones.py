@@ -86,6 +86,12 @@ def escrever_ico(caminho, tamanhos):
     return [t for t, _ in imagens]
 
 
+# Os tamanhos que a BANDEJA do Windows pede: 16 a 100%, 20 a 125%, 24 a 150%.
+# Vao como RGBA cru, sem cabecalho e sem compressao, porque `Image::new` do Tauri
+# quer exatamente isso — e assim nenhum decodificador entra na arvore de
+# dependencias do app so para desenhar um icone de 16 pixels.
+BANDEJA = [16, 20, 24, 32]
+
 PNGS = {
     "32x32.png": 32,
     "128x128.png": 128,
@@ -111,6 +117,12 @@ if __name__ == "__main__":
     # 20, 40 e 96 existem porque a shell os pede: 20 na titlebar a 125%, 40 na
     # barra de tarefas a 150%, 96 no Explorer em "icones grandes". Sem quadro
     # proprio, o Windows chega neles esticando o vizinho.
+    for tamanho in BANDEJA:
+        nome = "bandeja-%d.rgba" % tamanho
+        with open(os.path.join(ICONES, nome), "wb") as arquivo:
+            arquivo.write(desenhar(tamanho).tobytes())
+        print("%-24s %4dpx  RGBA cru" % (nome, tamanho))
+
     tamanhos = escrever_ico(
         os.path.join(ICONES, "icon.ico"),
         [16, 20, 24, 32, 40, 48, 64, 96, 128, 256],
