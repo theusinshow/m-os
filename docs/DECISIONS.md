@@ -60,7 +60,7 @@ Estados possíveis:
 | ADR-042 | O lembrete assenta, e o sódio passa a nomear em vez de contornar | Accepted |
 | ADR-043 | O M/OS pode iniciar com o Windows, e o registro é quem manda | Accepted |
 | ADR-044 | O rail vai a doze, e Reuniões entra sem tirar ninguém | Accepted |
-| ADR-044 | O rail vai a doze, e Reuniões entra sem tirar ninguém | Accepted |
+| ADR-045 | O rail volta a oito, e o recém-chegado nasce no leque | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -1828,3 +1828,82 @@ indicação visível** (`MEETING-AGENT.md` §17.2) não pode depender de qual te
 está aberta. Isso é uma peça de shell, como o Argos e o estado de sistema, e não
 um décimo terceiro destino.
 
+
+## ADR-045 — O rail volta a oito, e o recém-chegado nasce no leque
+
+**Data:** 2026-08-19
+**Status:** aceito, por decisão do proprietário do produto
+**Revisa:** ADR-044, ADR-039, ADR-038, ADR-036, ADR-031
+
+### Contexto
+
+O teto do rail foi de seis a oito (ADR-031), nove (ADR-036), dez (ADR-038), onze
+(ADR-039) e doze (ADR-044) — **cinco revisões em pouco mais de duas semanas**.
+Cada uma argumentou bem o seu caso. Nenhuma segurou o conjunto.
+
+O padrão é o diagnóstico: o teto era um **número**, e um número só sabe dizer
+não. Quando o destino seguinte tinha mérito — e todos tinham —, a única saída
+era subir o teto de novo. A ADR-038 chegou a exigir uma troca, e a troca saiu
+por evidência de desuso (*"o banco do usuário tem zero apps cadastrados"*); a
+039 e a 044 entraram sem tirar ninguém, cada uma com a sua justificativa.
+
+Enquanto isso o grupo TRABALHO acumulou **sete dos onze** destinos. Sete itens
+sob um rótulo é uma lista, não um grupo — o rótulo para de informar, que é
+exatamente o serviço que ele deveria prestar.
+
+### Decisão
+
+**O rail volta a oito. Calendário, Finance e Reuniões saem para o leque. E a
+regra deixa de ser um número:**
+
+> Destino novo **nasce no leque**. Ele sobe ao rail quando provar ser renda ou
+> memória — o critério que a ADR-036 já tinha escrito e que continua valendo.
+
+O leque é o degrau que faltava entre "existe" e "mora no rail". Antes dele só
+havia dois estados: rail ou Ctrl+K. E o Ctrl+K é *recall* — exige saber o nome e
+digitá-lo —, então cair nele era virar invisível para quem não conhece o
+vocabulário. É a falha que a ADR-031 registrou quando Workspaces foi rebaixado:
+ele ficou *"invisível para quem não conhece o Command, até ser promovido de
+volta"*.
+
+Os grupos passam a usar o vocabulário que a própria ADR-038 fixou — *"Library é
+memória, Inbox é a entrada dela, Workspaces é a lente sobre tudo, e Tempo é de
+onde sai a renda"*:
+
+| grupo | destinos |
+|---|---|
+| GERAL | Home, Hermes |
+| TRABALHO | Tasks, Projects, Tempo, Workspaces |
+| MEMÓRIA | Inbox, Library |
+
+### Por que Workspaces não saiu
+
+Foi considerado e descartado **por evidência registrada**, e não por gosto. A
+ADR-031 conta que ele já foi rebaixado uma vez e o que aconteceu. Repetir um
+experimento cujo resultado está escrito é o que essas decisões existem para
+evitar.
+
+### Consequências, incluindo as que doem
+
+**Reuniões sai do rail com dois dias de vida.** Ela nasceu no commit `bafbfb5`,
+em 19/08, e nunca chegou a formar hábito — tirá-la agora é decidir **sem
+evidência de uso**, o oposto do que a ADR-038 fez com Apps, que saiu porque o
+banco provava zero cadastros. A mitigação tem duas camadas: ela nasce fixada no
+leque, e a **barra de gravação continua na topbar**, que é onde mora a promessa
+da §17.2 do `MEETING-AGENT.md` — a indicação de que o microfone está aberto
+nunca dependeu do rail.
+
+**Cinco pétalas é teto, e não ponto de partida.** Um leque que cresce vira um
+segundo rail, e aí o problema apenas mudou de lugar. O número está travado no
+código (`SLOTS`, em `lequePetalas.ts`) com um teste que garante que o ângulo de
+um slot não muda conforme os outros são preenchidos — porque é a estabilidade
+dos ângulos, e não o desenho, que faz o leque valer a pena.
+
+**As portas entram junto com a saída.** Os três destinos que saíram ganham botão
+no widget AÇÕES da Home no mesmo commit. É a dívida que a ADR-038 registrou ao
+tirar Apps: sem a porta nova, *"a pagina ficaria inalcancavel"*.
+
+**O que esta ADR não consegue prever:** se o leque de fato substitui o rail no
+uso diário. Isso só aparece depois de uma semana de uso real. Se não substituir,
+o caminho de volta é promover ao rail o que estiver sendo mais tocado no leque —
+e não subir o teto de novo.
