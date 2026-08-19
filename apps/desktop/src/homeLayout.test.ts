@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrangeHome, HOME_SECTIONS, HOME_SPANS, HOME_WIDGETS, moveInArrangement, placementsFor, stepSpan, touchedSections } from "./homeLayout";
+import { arrangeHome, HOME_SECTIONS, HOME_SIZES, HOME_WIDGETS, moveInArrangement, placementsFor, sizeOf, touchedSections } from "./homeLayout";
 import type { WidgetPlacement } from "./types";
 
 const WORKSPACE = "01J0000000000000000000000A";
@@ -25,11 +25,27 @@ describe("o catalogo", () => {
     for (const widget of HOME_WIDGETS) expect(faixas).toContain(widget.section);
   });
 
-  /* A largura do desenho precisa estar na escala. O `stepSpan` sobrevive a uma
-     largura de fora, mas o widget nasceria num degrau que a interface nao
-     oferece, e voltar a ele depois de mexer seria impossivel. */
-  it("so usa largura que a escala oferece", () => {
-    for (const widget of HOME_WIDGETS) expect(HOME_SPANS).toContain(widget.span);
+  /* Todo widget nasce em UM dos tres tamanhos. Um widget fora da escala
+     apareceria sem tamanho marcado no seletor, e voltar ao tamanho de origem
+     depois de mexer seria impossivel — ele nao esta na lista. */
+  it("so usa tamanho que a escala oferece", () => {
+    for (const widget of HOME_WIDGETS) expect(sizeOf(widget.span)).not.toBeNull();
+  });
+
+  /* A propriedade que justifica a escala curta: os tamanhos dobram, entao
+     qualquer combinacao fecha a linha de doze colunas sem sobra. */
+  it("tem tamanhos que sempre fecham a linha", () => {
+    for (const size of HOME_SIZES) expect(12 % size.span).toBe(0);
+    expect(HOME_SIZES.map((size) => size.units)).toEqual([1, 2, 4]);
+  });
+
+  /* Cada faixa do desenho preenche linhas inteiras. Sobra de coluna no fim de
+     uma faixa e um buraco visivel, e o desenho nao deve nascer com um. */
+  it("tem faixas que somam multiplos de doze", () => {
+    for (const section of HOME_SECTIONS) {
+      const total = HOME_WIDGETS.filter((w) => w.section === section.id).reduce((soma, w) => soma + w.span, 0);
+      expect({ faixa: section.id, total: total % 12 }).toEqual({ faixa: section.id, total: 0 });
+    }
   });
 });
 
@@ -226,24 +242,17 @@ describe("placementsFor", () => {
   });
 });
 
-describe("stepSpan", () => {
-  it("anda na escala do desenho", () => {
-    expect(stepSpan(6, 1)).toBe(8);
-    expect(stepSpan(6, -1)).toBe(5);
+describe("sizeOf", () => {
+  it("reconhece os tamanhos da escala", () => {
+    expect(sizeOf(3)?.label).toBe("Pequeno");
+    expect(sizeOf(6)?.label).toBe("Médio");
+    expect(sizeOf(12)?.label).toBe("Grande");
   });
 
-  it("para nas pontas em vez de dar a volta", () => {
-    expect(stepSpan(3, -1)).toBeNull();
-    expect(stepSpan(12, 1)).toBeNull();
-  });
-
-  /* O banco aceita 1..12 e a escala do desenho nao: uma largura de fora nao
-     pode travar os dois botoes e prender a pessoa numa largura que a interface
-     nem oferece. */
-  it("tira do lugar uma largura que nao esta na escala", () => {
-    expect(stepSpan(7, 1)).toBe(8);
-    expect(stepSpan(7, -1)).toBe(6);
-    expect(stepSpan(1, 1)).toBe(3);
-    expect(stepSpan(1, -1)).toBeNull();
+  /* Largura de fora nao quebra nada: ela desenha (o CSS cobre as doze colunas)
+     e so nao aparece marcada no seletor. */
+  it("devolve nulo para largura fora da escala", () => {
+    expect(sizeOf(5)).toBeNull();
+    expect(sizeOf(9)).toBeNull();
   });
 });

@@ -15,13 +15,26 @@
 import type { WidgetPlacement, WidgetPlacementInput } from "./types";
 
 export type HomeWidgetRole = "focus" | "attention" | "overview" | "collection" | "utility";
-export type HomeWidgetSpan = 3 | 4 | 5 | 6 | 8 | 9 | 12;
+export type HomeWidgetSpan = 3 | 6 | 12;
 
-/* As larguras que a INTERFACE oferece. O banco aceita 1..12 (migration 0017):
-   la e forma, aqui e vocabulario do desenho, e por isso a lista vive deste
-   lado. Os degraus saltados — sem 7, sem 10, sem 11 — sao os que dividem doze
-   de um jeito que a linha fecha com um vizinho. */
-export const HOME_SPANS: HomeWidgetSpan[] = [3, 4, 5, 6, 8, 9, 12];
+/* Os tamanhos que a interface oferece, no modelo da tela do iPhone: nao uma
+   largura fina que se ajusta, mas TRES formatos prontos.
+
+   A unidade e um quarto da linha, e os tamanhos dobram — 1, 2 e 4 unidades. Nao
+   existe "3": ele existiria como numero e nao como formato, e a lista curta e
+   justamente o que impede a Home de virar uma colcha de larguras quase iguais.
+   Qualquer combinacao fecha a linha de doze colunas sem sobra (1+1+1+1, 2+2,
+   1+1+2, 4), que e a propriedade que uma escala livre nao tem.
+
+   O banco continua aceitando 1..12 (migration 0017) e o CSS continua desenhando
+   as doze: la e forma, aqui e vocabulario. Largura fora desta lista — de um
+   banco editado a mao, ou de uma versao com outra escala — desenha certo, e so
+   nao aparece marcada como o tamanho atual. */
+export const HOME_SIZES: { units: 1 | 2 | 4; span: HomeWidgetSpan; label: string }[] = [
+  { units: 1, span: 3, label: "Pequeno" },
+  { units: 2, span: 6, label: "Médio" },
+  { units: 4, span: 12, label: "Grande" },
+];
 
 /* As faixas, na ordem em que a Home as apresenta. A ordem delas e do desenho e
    nao se arruma: o que a pessoa arruma e o que mora DENTRO de cada faixa. */
@@ -51,8 +64,8 @@ export const HOME_WIDGETS: { id: string; label: string; section: string; role: H
   { id: "timer", label: "CRONÔMETRO", section: "now", role: "focus", span: 3 },
   { id: "today_hours", label: "HOJE", section: "now", role: "focus", span: 3 },
   { id: "inbox_pulse", label: "INBOX", section: "resume", role: "attention", span: 3 },
-  { id: "recent", label: "RECENTES", section: "resume", role: "attention", span: 5 },
-  { id: "projects", label: "PROJECTS", section: "resume", role: "attention", span: 4 },
+  { id: "recent", label: "RECENTES", section: "resume", role: "attention", span: 6 },
+  { id: "projects", label: "PROJECTS", section: "resume", role: "attention", span: 3 },
   { id: "month_density", label: "MÊS", section: "overview", role: "overview", span: 6 },
   // Ids novos e nao renomeados: `week_rings` continua sendo a semana de TASKS, e
   // reaproveitar o id daria a quem ocultou um o outro escondido sem ter pedido.
@@ -60,8 +73,8 @@ export const HOME_WIDGETS: { id: string; label: string; section: string; role: H
   { id: "week_by_project", label: "SEMANA POR PROJECT", section: "overview", role: "overview", span: 6 },
   { id: "task_progress", label: "CONCLUÍDO", section: "overview", role: "overview", span: 3 },
   { id: "budget_ring", label: "META", section: "overview", role: "overview", span: 3 },
-  { id: "recent_resources", label: "RECURSOS", section: "collection", role: "collection", span: 8 },
-  { id: "apps", label: "APPS", section: "collection", role: "collection", span: 4 },
+  { id: "recent_resources", label: "RECURSOS", section: "collection", role: "collection", span: 6 },
+  { id: "apps", label: "APPS", section: "collection", role: "collection", span: 6 },
   { id: "quick_actions", label: "AÇÕES", section: "utilities", role: "utility", span: 6 },
   { id: "system_health", label: "SISTEMA", section: "utilities", role: "utility", span: 6 },
 ];
@@ -168,18 +181,7 @@ export function placementsFor(arrangement: ArrangedWidget[], sections: string[])
   );
 }
 
-/**
- * O degrau seguinte de largura, ou `null` quando ja esta no fim da escala.
- *
- * Procura o proximo VALOR e nao o proximo indice, o que faz diferenca para uma
- * largura que nao esta na escala. O banco aceita 1..12 (a migration 0017 guarda
- * forma, nao vocabulario), entao um dia pode chegar aqui um 7 — de um banco
- * editado a mao, ou de uma versao com outra escala. Procurando por indice, esse
- * 7 travaria os dois botoes e a pessoa ficaria presa numa largura que a
- * interface nem oferece. Procurando por valor, ele sobe para 8 e desce para 6.
- */
-export function stepSpan(span: number, direction: -1 | 1): HomeWidgetSpan | null {
-  return direction === 1
-    ? HOME_SPANS.find((candidato) => candidato > span) ?? null
-    : [...HOME_SPANS].reverse().find((candidato) => candidato < span) ?? null;
+/** O tamanho a que uma largura corresponde, ou `null` se ela esta fora da escala. */
+export function sizeOf(span: number): (typeof HOME_SIZES)[number] | null {
+  return HOME_SIZES.find((size) => size.span === span) ?? null;
 }

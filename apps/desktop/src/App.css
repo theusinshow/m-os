@@ -971,8 +971,8 @@ textarea::placeholder {
 
 .widget-foot {
   display: flex;
-  justify-content: space-between;
-  gap: var(--space-2);
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
   margin: auto 0 0;
   padding-top: var(--space-3);
   border-top: 1px solid var(--border);
@@ -980,6 +980,23 @@ textarea::placeholder {
   letter-spacing: var(--tracking-meta);
   text-transform: uppercase;
   color: var(--text-system);
+}
+
+/* Num card estreito os dois rotulos nao cabem lado a lado, e sem isto cada um
+   quebrava POR DENTRO: "7 DIAS · CONTRA O / PICO" de um lado e "PICO 0,6 / H"
+   do outro, alternando quatro linhas que nao se leem como duas frases. Cada
+   rotulo inteiro, e o da direita desce sozinho quando faltar espaco.
+
+   `margin-left: auto` no lugar de `justify-content: space-between`: com o wrap
+   ligado, o `space-between` largaria o rotulo da direita encostado a esquerda
+   assim que ele descesse de linha. A margem automatica o mantem a direita nas
+   duas situacoes. */
+.widget-foot > span {
+  white-space: nowrap;
+}
+
+.widget-foot > span:last-child {
+  margin-left: auto;
 }
 
 /* A primeira faixa é a única com altura mínima compartilhada: são três leituras
@@ -2076,10 +2093,20 @@ tr:focus-within .tempo-row-actions {
   letter-spacing: var(--tracking-meta);
 }
 
+/* `min-width: 0` porque isto e item de grade do `.panel`, e item de grade nasce
+   com `min-width: auto` — ele se recusa a ficar menor que o proprio conteudo. O
+   resultado num card de tres colunas era o "Iniciar" atravessando a borda
+   direita do CRONOMETRO. O `select` ja podia encolher; quem nao podia era a
+   linha em volta dele.
+
+   E `wrap` para o caso em que nem encolhendo cabe: ai o botao desce inteiro,
+   em vez de continuar espremendo o seletor ate ele nao mostrar nome nenhum. */
 .timer-idle {
   display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2) var(--space-3);
   padding-top: var(--space-3);
 }
 
@@ -6754,15 +6781,17 @@ input[type="checkbox"]:disabled {
   line-height: 1;
 }
 
-.arrange-width {
-  min-width: 2ch;
-  color: var(--text-system);
-  font: var(--text-meta);
-  letter-spacing: var(--tracking-meta);
-  text-align: center;
-  /* Os degraus tem uma e duas casas (3 a 12), e sem isto a barra dança a cada
-     clique no + porque o numero muda de largura. */
-  font-variant-numeric: tabular-nums;
+/* O tamanho ATUAL fica marcado, e nao apenas disponivel: sem isso os tres
+   numeros sao tres botoes iguais e nada diz em qual o widget esta.
+
+   Marcado por superficie e contraste, e nao por sodio — a mesma escolha do
+   seletor de contexto, e a regra que o rail ja segue: "o sodio continua sendo
+   um indicador pequeno, nao o unico portador do estado". Um chip amarelo por
+   widget seriam quinze pontos de sodio na Home ao mesmo tempo, competindo com
+   os lugares onde ele significa alguma coisa. */
+.arrange-bar .icon-button[data-selected] {
+  color: var(--text);
+  background: var(--surface-active);
 }
 
 /* O card, arrumando, fecha em cima com a barra em vez de arredondar sozinho. */

@@ -7,7 +7,7 @@ import { api, appError } from "./api";
 import { DotField } from "./DotField";
 /* O arranjo da Home mora fora daqui para poder ser testado: sem DOM no runner
    (ver `vitest.config.ts`), o que da para verificar tem de ser funcao pura. */
-import { arrangeHome, HOME_SECTIONS, HOME_WIDGETS, moveInArrangement, placementsFor, stepSpan, touchedSections, type ArrangedWidget, type HomeWidgetRole, type HomeWidgetSpan } from "./homeLayout";
+import { arrangeHome, HOME_SECTIONS, HOME_SIZES, HOME_WIDGETS, moveInArrangement, placementsFor, touchedSections, type ArrangedWidget, type HomeWidgetRole, type HomeWidgetSpan } from "./homeLayout";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
 import { hermes, type HermesConnectionState, type HermesFailure, type HermesStatus } from "./hermes";
 import { HermesPage } from "./HermesPage";
@@ -205,8 +205,6 @@ function HomeBoard({ widgets, arrangement, arranging, hiddenIds, onMove, onResiz
  */
 function Arrangeable({ slot, section, first, last, previous, next, afterNext, bandAbove, bandBelow, onMove, onResize, children }: { slot: ArrangedWidget; section: string; first: boolean; last: boolean; previous: string | null; next: string | null; afterNext: string | null; bandAbove: string | null; bandBelow: string | null; onMove: (id: string, section: string, before: string | null) => void; onResize: (id: string, span: HomeWidgetSpan | null) => void; children: ReactNode }) {
   const [over, setOver] = useState<"before" | "after" | null>(null);
-  const estreito = stepSpan(slot.span, -1);
-  const largo = stepSpan(slot.span, 1);
 
   /* Qual metade do card o cursor esta pedindo. Sem isso o alvo do arrasto e o
      card inteiro, e nao da para dizer se o widget cai antes ou depois dele. */
@@ -244,10 +242,21 @@ function Arrangeable({ slot, section, first, last, previous, next, afterNext, ba
             gasta a linha. Ele continua nos `aria-label` dos botoes, que e onde
             faz falta — "Alargar" sozinho nao diz alargar o que. */}
         <span className="arrange-name" aria-hidden="true" />
-        <span className="arrange-group" role="group" aria-label={`Largura de ${slot.label}`}>
-          <button className="icon-button" type="button" aria-label={`Estreitar ${slot.label}`} disabled={!estreito} onClick={() => { if (estreito) onResize(slot.id, estreito); }}>−</button>
-          <span className="arrange-width">{slot.span}</span>
-          <button className="icon-button" type="button" aria-label={`Alargar ${slot.label}`} disabled={!largo} onClick={() => { if (largo) onResize(slot.id, largo); }}>+</button>
+        {/* Tres tamanhos prontos, e nao uma largura que se ajusta de a um. E o
+            modelo da tela do iPhone: escolher um FORMATO, nao acertar uma
+            medida. O numero na etiqueta e quantos quartos da linha o widget
+            ocupa, que e a mesma conta que a pessoa faz olhando. */}
+        <span className="arrange-group" role="group" aria-label={`Tamanho de ${slot.label}`}>
+          {HOME_SIZES.map((size) => <button
+            key={size.units}
+            className="icon-button"
+            type="button"
+            aria-label={`${size.label} — ${slot.label}`}
+            title={size.label}
+            aria-pressed={slot.span === size.span}
+            data-selected={slot.span === size.span || undefined}
+            onClick={() => onResize(slot.id, size.span)}
+          >{size.units}</button>)}
         </span>
         <span className="arrange-group" role="group" aria-label={`Mover ${slot.label}`}>
           <button className="icon-button" type="button" aria-label={`Mover ${slot.label} para trás`} disabled={first} onClick={() => onMove(slot.id, section, previous)}>←</button>
@@ -606,7 +615,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
       </div>
     </section>
 
-    {arranging ? <p className="home-arrange-hint" role="status">{layoutError ? `Não deu para gravar: ${layoutError}` : "Arraste pelo punho, ou use as setas: ← → dentro da faixa, ↑ ↓ entre faixas. − e + mudam a largura."}</p> : null}
+    {arranging ? <p className="home-arrange-hint" role="status">{layoutError ? `Não deu para gravar: ${layoutError}` : "Arraste pelo punho, ou use as setas: ← → dentro da faixa, ↑ ↓ entre faixas. Os números 1, 2 e 4 são o tamanho."}</p> : null}
 
     {/* A ordem em que os widgets aparecem AQUI nao decide mais nada: quem decide
         e o catalogo, em `HOME_WIDGETS`, junto com o que a pessoa arrumou. Esta
