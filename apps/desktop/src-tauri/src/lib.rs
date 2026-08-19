@@ -1596,6 +1596,7 @@ pub fn run() {
             meeting::meeting_insights,
             meeting::meeting_set_project,
             meeting::meeting_set_title,
+            meeting::meeting_set_notes,
             meeting::meeting_set_archived,
             meeting::meeting_process_recovered,
             meeting::meeting_discard,

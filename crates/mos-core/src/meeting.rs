@@ -560,6 +560,13 @@ pub struct Meeting {
     pub updated_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339::option")]
     pub cancelled_at: Option<OffsetDateTime>,
+    /// O que quem gravou escreveu durante a reuniao.
+    ///
+    /// Vazio significa "ninguem escreveu", e nao "falta dado" — por isso e
+    /// String e nao Option. Sobe ao Hermes como CONTEXTO e nao gera item: o
+    /// prompt exige `segment` por item, e uma nota nao foi dita, foi escrita.
+    #[serde(default)]
+    pub notes: String,
 }
 
 impl Meeting {
@@ -1190,6 +1197,7 @@ mod tests {
             created_at: now(),
             updated_at: now(),
             cancelled_at: None,
+            notes: String::new(),
         }
     }
 

@@ -77,6 +77,11 @@ export const api = {
   meetingSetTitle(id: string, title: string) {
     return invoke<Meeting>("meeting_set_title", { id, title });
   },
+  // Autosave: a tela chama com debounce. Sem botão de salvar, porque um botão de
+  // salvar numa nota de reunião é uma chance de perder o que se escreveu.
+  meetingSetNotes(id: string, notes: string) {
+    return invoke<Meeting>("meeting_set_notes", { id, notes });
+  },
   meetingSetArchived(id: string, archived: boolean) {
     return invoke<Meeting>("meeting_set_archived", { id, archived });
   },

@@ -328,6 +328,18 @@ pub fn meeting_set_title(
     state.meetings.set_title(id, title)
 }
 
+/// Grava as anotacoes. Chamado com debounce pela tela — nao ha botao de salvar,
+/// porque um botao de salvar numa nota de reuniao e uma chance de perder o que
+/// se escreveu.
+#[tauri::command]
+pub fn meeting_set_notes(
+    state: tauri::State<'_, AppState>,
+    id: &str,
+    notes: &str,
+) -> Result<Meeting, CoreError> {
+    state.meetings.set_notes(id, notes)
+}
+
 #[tauri::command]
 pub fn meeting_set_archived(
     state: tauri::State<'_, AppState>,

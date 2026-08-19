@@ -1601,6 +1601,12 @@ impl MeetingService {
             .set_meeting_title(crate::MeetingId::parse(id)?, title)
     }
 
+    /// As anotacoes. Vazio e valido: apagar tudo e uma escolha.
+    pub fn set_notes(&self, id: &str, notes: &str) -> Result<crate::Meeting, CoreError> {
+        self.repository
+            .set_meeting_notes(crate::MeetingId::parse(id)?, notes)
+    }
+
     pub fn set_lifecycle(
         &self,
         id: &str,

@@ -627,6 +627,12 @@ export type Meeting = {
   createdAt: string;
   updatedAt: string;
   cancelledAt: string | null;
+  /** O que quem gravou escreveu durante a reunião.
+   *
+   *  Vazio significa "ninguém escreveu", e não "falta dado". Sobe ao Hermes como
+   *  contexto e não gera item: o prompt exige `segment` por item, e uma nota não
+   *  foi dita, foi escrita. */
+  notes: string;
 };
 
 /** MIC é quem gravou; SYSTEM são os outros. É a distinção que a V1 protege. */
