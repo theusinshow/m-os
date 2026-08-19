@@ -1942,4 +1942,28 @@ mod tests {
         let apos_estudio = storage.reset_widget_layout(Some(estudio.id)).unwrap();
         assert!(apos_estudio.is_empty());
     }
+
+    /// A carga EXATA que a Home manda ao alargar um widget em "Todos": a faixa
+    /// inteira, com a largura escolhida em um e `None` nos vizinhos.
+    #[test]
+    fn the_payload_the_home_sends_when_resizing_goes_through() {
+        let (_guard, storage) = storage();
+        let carga = [("now", Some(8)), ("timer", None), ("today_hours", None)]
+            .iter()
+            .enumerate()
+            .map(|(position, (id, span))| mos_core::WidgetPlacementInput {
+                widget_id: (*id).to_owned(),
+                position: position as i64,
+                section: "now".to_owned(),
+                span: *span,
+            })
+            .collect::<Vec<_>>();
+
+        let saved = storage.set_widget_layout(None, &carga).unwrap();
+        assert_eq!(saved.len(), 3);
+        assert_eq!(
+            saved.iter().find(|p| p.widget_id == "now").and_then(|p| p.span),
+            Some(8)
+        );
+    }
 }

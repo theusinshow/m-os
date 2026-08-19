@@ -504,7 +504,8 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
      propria Home: continuar em modo de edicao depois de trocar seria oferecer
      controles sobre um arranjo que a pessoa nao veio arrumar. */
   const [arranging, setArranging] = useState(false);
-  useEffect(() => { setArranging(false); }, [currentWorkspaceId]);
+  const [layoutError, setLayoutError] = useState("");
+  useEffect(() => { setArranging(false); setLayoutError(""); }, [currentWorkspaceId]);
 
   /* Grava as faixas que mudaram, e nao o movimento.
 
@@ -534,8 +535,11 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
       ...placements.map((entry) => ({ workspaceId: escopo, ...entry })),
     ]);
     void api.setWidgetLayout(escopo, placements)
-      .then(setWidgetPlacements)
-      .catch(() => setWidgetPlacements(anterior));
+      .then((gravado) => { setWidgetPlacements(gravado); setLayoutError(""); })
+      /* A falha PRECISA aparecer. Sem isto o widget volta sozinho para onde
+         estava e nada explica por que — o pior tipo de erro, o que a pessoa
+         acha que foi ela que errou. */
+      .catch((error) => { setWidgetPlacements(anterior); setLayoutError(appError(error).message); });
   }, [currentWorkspaceId, widgetPlacements, setWidgetPlacements]);
 
   const moveWidget = useCallback((widgetId: string, section: string, before: string | null) => {
@@ -563,7 +567,9 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
   useEffect(() => { if (!arranging) setConfirmingRestore(false); }, [arranging]);
   const restoreLayout = useCallback(() => {
     setConfirmingRestore(false);
-    void api.resetWidgetLayout(currentWorkspaceId || null).then(setWidgetPlacements).catch(() => undefined);
+    void api.resetWidgetLayout(currentWorkspaceId || null)
+      .then((gravado) => { setWidgetPlacements(gravado); setLayoutError(""); })
+      .catch((error) => setLayoutError(appError(error).message));
   }, [currentWorkspaceId, setWidgetPlacements]);
 
   // O tempo carrega por fora do `refresh()`: aquele é o caminho de boot do app
@@ -600,7 +606,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
       </div>
     </section>
 
-    {arranging ? <p className="home-arrange-hint" role="status">Arraste pelo punho, ou use as setas: ← → dentro da faixa, ↑ ↓ entre faixas. − e + mudam a largura.</p> : null}
+    {arranging ? <p className="home-arrange-hint" role="status">{layoutError ? `Não deu para gravar: ${layoutError}` : "Arraste pelo punho, ou use as setas: ← → dentro da faixa, ↑ ↓ entre faixas. − e + mudam a largura."}</p> : null}
 
     {/* A ordem em que os widgets aparecem AQUI nao decide mais nada: quem decide
         e o catalogo, em `HOME_WIDGETS`, junto com o que a pessoa arrumou. Esta
