@@ -1585,6 +1585,8 @@ pub fn run() {
             hermes::hermes_clarify_cancel,
             meeting::meeting_start,
             meeting::meeting_stop,
+            meeting::meeting_pause,
+            meeting::meeting_resume,
             meeting::meeting_recording,
             meeting::meeting_list,
             meeting::meeting_get,

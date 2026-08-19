@@ -190,6 +190,68 @@ pub fn meeting_stop(
     settled
 }
 
+/// Suspende a gravacao em curso.
+///
+/// A ORDEM importa, e ela e diferente nos dois sentidos.
+///
+/// PAUSAR: o audio para PRIMEIRO, o estado muda depois. Se fosse ao contrario, o
+/// intervalo entre as duas linhas gravaria frames numa reuniao que a tela ja
+/// mostra como pausada.
+///
+/// RETOMAR: o estado muda primeiro, o audio volta depois — pelo mesmo motivo
+/// invertido. Frame gravado antes de a tela dizer "gravando" e a mesma mentira,
+/// so que pior, porque ninguem esta olhando.
+#[tauri::command]
+pub fn meeting_pause(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    recorder: tauri::State<'_, RecordingState>,
+) -> Result<Meeting, CoreError> {
+    let active = recorder.active.lock().map_err(lock_error)?;
+    let atual = active.as_ref().ok_or_else(sem_gravacao)?;
+    atual.recording.set_paused(true);
+    let id = atual.meeting_id.clone();
+    let frame = tick(atual);
+    drop(active);
+
+    let pausada = state.meetings.pause(&id)?;
+    // Tick imediato: sem ele a barra levaria ate um segundo para dizer PAUSADO,
+    // e um segundo de ponto vermelho pulsando depois do clique e exatamente a
+    // mentira que a §17.2 proibe.
+    let _ = app.emit("meeting-tick", &frame);
+    Ok(pausada)
+}
+
+#[tauri::command]
+pub fn meeting_resume(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    recorder: tauri::State<'_, RecordingState>,
+) -> Result<Meeting, CoreError> {
+    let id = {
+        let active = recorder.active.lock().map_err(lock_error)?;
+        active.as_ref().ok_or_else(sem_gravacao)?.meeting_id.clone()
+    };
+    let retomada = state.meetings.resume(&id)?;
+
+    let active = recorder.active.lock().map_err(lock_error)?;
+    let atual = active.as_ref().ok_or_else(sem_gravacao)?;
+    atual.recording.set_paused(false);
+    let frame = tick(atual);
+    drop(active);
+
+    let _ = app.emit("meeting-tick", &frame);
+    Ok(retomada)
+}
+
+fn sem_gravacao() -> CoreError {
+    CoreError::new(
+        ErrorCode::InvalidTransition,
+        "Nao ha gravacao em curso.",
+        false,
+    )
+}
+
 /// O estado da gravacao para a interface. Barato: le atomicos.
 #[tauri::command]
 pub fn meeting_recording(
