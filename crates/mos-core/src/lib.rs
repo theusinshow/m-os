@@ -66,7 +66,8 @@ pub use meeting_analysis::{
     Rejections, WINDOW_BUDGET_CHARS,
 };
 pub use monitoring::{
-    diff_transitions, open_periods, uncovered, ActivityEvent, ActivityEventId, ActivityKind,
+    decidir_oferta, diff_transitions, open_periods, uncovered, ActivityEvent, ActivityEventId,
+    ActivityKind, ContextoDaOferta, DecisaoDeOferta, MicrofoneAberto,
     MonitoredApp, MonitoringSettings, NewActivityEvent, Period,
 };
 pub use ports::{
