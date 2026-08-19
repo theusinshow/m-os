@@ -151,6 +151,13 @@ impl FailedStage {
 #[serde(rename_all = "snake_case")]
 pub enum MeetingStatus {
     Recording,
+    /// Gravacao suspensa pela pessoa.
+    ///
+    /// Os dois canais param de escrever JUNTOS, e o tempo pausado nao vira
+    /// frame — entao nao vira duracao, porque `duration_ms` e medida em frames
+    /// gravados e nunca por diferenca de relogio. Nao ha vao para reconstruir,
+    /// e e por isso que este estado custou tao pouco.
+    Paused,
     Stopping,
     /// Queda detectada na abertura. **Estado real, nao ausencia**: ele existe no
     /// banco com a duracao recuperada medida em disco.
@@ -170,6 +177,7 @@ impl MeetingStatus {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Recording => "recording",
+            Self::Paused => "paused",
             Self::Stopping => "stopping",
             Self::Interrupted => "interrupted",
             Self::Recorded => "recorded",
@@ -193,6 +201,7 @@ impl MeetingStatus {
     pub fn from_columns(status: &str, stage: Option<&str>) -> Result<Self, CoreError> {
         match status {
             "recording" => Ok(Self::Recording),
+            "paused" => Ok(Self::Paused),
             "stopping" => Ok(Self::Stopping),
             "interrupted" => Ok(Self::Interrupted),
             "recorded" => Ok(Self::Recorded),
@@ -241,6 +250,10 @@ impl MeetingStatus {
 pub enum Transition {
     /// O usuario clicou em Parar.
     Stop,
+    /// O usuario clicou em Pausar.
+    Pause,
+    /// O usuario clicou em Retomar.
+    Resume,
     /// A captura terminou de fechar os arquivos.
     AudioSettled,
     /// A abertura encontrou a reuniao em captura e o processo anterior morreu.
@@ -262,6 +275,8 @@ impl Transition {
     fn name(self) -> &'static str {
         match self {
             Self::Stop => "parar",
+            Self::Pause => "pausar",
+            Self::Resume => "retomar",
             Self::AudioSettled => "encerrar a captura de",
             Self::DetectInterrupted => "recuperar",
             Self::ProcessRecovered => "processar",
@@ -305,6 +320,21 @@ pub fn apply(
 
     match (meeting.status, transition) {
         (Recording, Transition::Stop) => {
+            next.status = Stopping;
+        }
+
+        (Recording, Transition::Pause) => {
+            next.status = Paused;
+        }
+
+        (Paused, Transition::Resume) => {
+            next.status = Recording;
+        }
+
+        // Parar a partir de Paused vai para Stopping, igual a Recording: os
+        // arquivos ainda precisam ser fechados, e `ended_at` continua sendo
+        // carimbado no AudioSettled e nao aqui.
+        (Paused, Transition::Stop) => {
             next.status = Stopping;
         }
 
@@ -1161,6 +1191,44 @@ mod tests {
             updated_at: now(),
             cancelled_at: None,
         }
+    }
+
+    #[test]
+    fn pausar_e_retomar_andam_entre_recording_e_paused() {
+        let gravando = meeting(MeetingStatus::Recording);
+
+        let pausada = apply(&gravando, Transition::Pause, now()).unwrap();
+        assert_eq!(pausada.status, MeetingStatus::Paused);
+        // Pausar NAO carimba fim: a reuniao nao acabou, ela esta esperando.
+        assert!(pausada.ended_at.is_none());
+
+        let retomada = apply(&pausada, Transition::Resume, now()).unwrap();
+        assert_eq!(retomada.status, MeetingStatus::Recording);
+    }
+
+    #[test]
+    fn parar_funciona_a_partir_de_paused() {
+        let pausada = meeting(MeetingStatus::Paused);
+        let parando = apply(&pausada, Transition::Stop, now()).unwrap();
+        assert_eq!(parando.status, MeetingStatus::Stopping);
+    }
+
+    #[test]
+    fn pausa_recusada_fora_de_recording() {
+        for estado in [
+            MeetingStatus::Recorded,
+            MeetingStatus::Transcribed,
+            MeetingStatus::Ready,
+            MeetingStatus::Paused,
+        ] {
+            assert!(
+                apply(&meeting(estado), Transition::Pause, now()).is_err(),
+                "Pause deveria ser recusado em {}",
+                estado.as_str()
+            );
+        }
+        // E retomar so faz sentido a partir de Paused.
+        assert!(apply(&meeting(MeetingStatus::Recording), Transition::Resume, now()).is_err());
     }
 
     #[test]
