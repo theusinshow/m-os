@@ -697,6 +697,16 @@ export type InsightPreview = {
   blockedReason: string;
 };
 
+/** O nível cru, a 15 Hz — um a cada 66 ms. Dois números e nada mais.
+ *
+ *  Evento separado do `MeetingTick` porque as duas coisas mudam em ritmos
+ *  diferentes: mandar o tick inteiro quinze vezes por segundo seria repetir um
+ *  objeto que mudou zero. */
+export type MeetingLevel = {
+  mic: number;
+  system: number;
+};
+
 /** O que chega uma vez por segundo enquanto grava. Nunca PCM. */
 export type MeetingTick = {
   meetingId: string;

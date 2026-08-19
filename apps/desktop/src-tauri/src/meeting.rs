@@ -409,6 +409,49 @@ pub fn clean_expired_audio(app: &AppHandle) -> Result<usize, CoreError> {
     Ok(cleaned)
 }
 
+/// O nivel, quinze vezes por segundo.
+///
+/// Laco SEPARADO do `run` porque as duas coisas mudam em ritmos diferentes:
+/// estado, duracao e saude dos canais mudam uma vez por segundo, e mandar o
+/// `MeetingTick` inteiro a 15 Hz seria repetir quinze vezes por segundo um
+/// objeto que mudou zero.
+///
+/// Aqui vao DOIS numeros, e nada mais. Nunca PCM: o RMS ja sai reduzido a
+/// `0..1000` dentro da thread de captura, e e so isso que atravessa.
+pub async fn run_levels(app: AppHandle) {
+    loop {
+        // 66 ms: quinze quadros por segundo. Acima disso a onda deixa de mostrar
+        // a cadencia da fala; abaixo, o custo cresce sem o olho ganhar nada.
+        tokio::time::sleep(Duration::from_millis(66)).await;
+
+        let recorder = app.state::<RecordingState>();
+        let Ok(active) = recorder.active.lock() else {
+            continue;
+        };
+        let Some(current) = active.as_ref() else {
+            continue;
+        };
+        let state = current.recording.state();
+        drop(active);
+
+        let _ = app.emit(
+            "meeting-level",
+            MeetingLevel {
+                mic: state.mic_level,
+                system: state.system_level,
+            },
+        );
+    }
+}
+
+/// O nivel cru, a 15 Hz. Dois numeros e nada mais.
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeetingLevel {
+    pub mic: u64,
+    pub system: u64,
+}
+
 /// O laco que alimenta a interface enquanto grava.
 ///
 /// Uma emissao por segundo, e SO enquanto existe gravacao. Ele tambem e quem

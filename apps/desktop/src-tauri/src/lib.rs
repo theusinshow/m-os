@@ -1561,6 +1561,7 @@ pub fn run() {
             tauri::async_runtime::spawn(monitor::run(handle));
             tauri::async_runtime::spawn(attention::run(app.handle().clone()));
             tauri::async_runtime::spawn(meeting::run(app.handle().clone()));
+            tauri::async_runtime::spawn(meeting::run_levels(app.handle().clone()));
             Ok(())
         })
         .on_window_event(|window, event| {
