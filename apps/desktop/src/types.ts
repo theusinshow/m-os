@@ -33,8 +33,11 @@ export type Workspace = {
 };
 
 /** Uma entrada significa OCULTO — ausencia e o padrao visivel. Ver migration 0008. */
+/* A LINHA SIGNIFICA OCULTO — ausencia dela significa visivel. E `workspaceId`
+   nulo e a visao "Todos", que esconde os proprios widgets desde a migration
+   0019, e nao um dado faltando. */
 export type HiddenWidget = {
-  workspaceId: string;
+  workspaceId: string | null;
   widgetId: string;
 };
 

@@ -126,7 +126,8 @@ pub struct Workspace {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HiddenWidget {
-    pub workspace_id: WorkspaceId,
+    /// Vazio e a visao "Todos", e nao um dado faltando (migration 0019).
+    pub workspace_id: Option<WorkspaceId>,
     pub widget_id: String,
 }
 

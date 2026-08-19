@@ -257,7 +257,8 @@ export const api = {
   hiddenWidgets() {
     return invoke<HiddenWidget[]>("list_hidden_widgets");
   },
-  setWorkspaceWidget(widgetId: string, workspaceId: string, visible: boolean) {
+  // `workspaceId` nulo e a visao "Todos", que esconde os proprios widgets.
+  setWorkspaceWidget(widgetId: string, workspaceId: string | null, visible: boolean) {
     return invoke<void>("set_workspace_widget", { widgetId, workspaceId, visible });
   },
   markRegisteredAppOpened(id: string) {

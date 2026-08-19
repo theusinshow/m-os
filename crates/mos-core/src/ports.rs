@@ -97,9 +97,11 @@ pub trait WorkRepository: Send + Sync {
     fn delete_task(&self, id: TaskId) -> Result<(), CoreError>;
     fn delete_project(&self, id: ProjectId) -> Result<(), CoreError>;
     fn delete_workspace(&self, id: WorkspaceId) -> Result<(), CoreError>;
+    /// A LINHA SIGNIFICA OCULTO — ausencia dela significa visivel. `workspace_id`
+    /// ausente e a visao "Todos", que esconde os proprios widgets.
     fn set_widget_hidden(
         &self,
-        workspace_id: WorkspaceId,
+        workspace_id: Option<WorkspaceId>,
         widget_id: &str,
         hidden: bool,
     ) -> Result<(), CoreError>;

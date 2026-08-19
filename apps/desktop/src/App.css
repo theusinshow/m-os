@@ -6829,6 +6829,40 @@ input[type="checkbox"]:disabled {
   background: var(--surface-active);
 }
 
+/* Oculto, arrumando: o card continua no lugar dele, apagado.
+
+   Apagar e nao remover, porque e disso que se trata — a escolha e uma linha no
+   banco, e o widget volta com o mesmo botao. Some da Home so quando se sai do
+   modo de arrumar, que e quando a escolha passa a valer.
+
+   A barra fica com o contraste inteiro: e nela que estao os controles, e o unico
+   caminho de volta e um deles. Baixar a opacidade da barra junto tornaria o
+   botao de desfazer mais dificil de achar do que o de fazer. */
+.arrangeable[data-hidden] .arrangeable-body {
+  opacity: 0.35;
+}
+
+/* A palavra fica SOBRE o card apagado, e nao dentro da barra: na barra de um
+   widget de uma unidade ela era cortada no primeiro caractere. Aqui ela tem
+   espaco em qualquer tamanho, e cai onde o olho ja esta — no conteudo que
+   acabou de apagar. */
+.arrange-hidden-mark {
+  position: absolute;
+  z-index: 1;
+  top: calc(var(--height-control-sm) + var(--space-2));
+  right: var(--space-3);
+  padding: 0 var(--space-2);
+  color: var(--text-secondary);
+  /* Fundo proprio, e nao so texto solto: sem ele a palavra caia exatamente na
+     linha do rotulo do painel e as duas se encostavam. Um chip se separa do que
+     estiver embaixo em qualquer widget, sem depender de onde o conteudo comeca. */
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius-sm);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
 /* O card, arrumando, fecha em cima com a barra em vez de arredondar sozinho. */
 .arrangeable .widget {
   border-top-left-radius: 0;

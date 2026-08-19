@@ -1012,12 +1012,12 @@ impl WorkService {
 
     pub fn set_widget_hidden(
         &self,
-        workspace_id: &str,
+        workspace_id: Option<&str>,
         widget_id: &str,
         hidden: bool,
     ) -> Result<(), CoreError> {
         self.repository
-            .set_widget_hidden(WorkspaceId::parse(workspace_id)?, widget_id, hidden)
+            .set_widget_hidden(parse_scope(workspace_id)?, widget_id, hidden)
     }
 
     pub fn widget_placements(&self) -> Result<Vec<crate::WidgetPlacement>, CoreError> {

@@ -418,27 +418,34 @@ impl WorkRepository for SqliteStorage {
 
     fn set_widget_hidden(
         &self,
-        workspace_id: WorkspaceId,
+        workspace_id: Option<WorkspaceId>,
         widget_id: &str,
         hidden: bool,
     ) -> Result<(), CoreError> {
         let widget_id = validate_widget_id(widget_id)?;
+        let escopo = workspace_id.map(|id| id.to_string());
         let connection = self.connection.lock().map_err(map_lock_error)?;
         if hidden {
             let now = format_time(OffsetDateTime::now_utc())?;
+            // `INSERT OR IGNORE` continua contando com a unicidade, que agora
+            // vem do indice sobre `COALESCE(workspace_id, '')` e nao da PRIMARY
+            // KEY (migration 0019). Sem esse indice, esconder o mesmo widget
+            // duas vezes em "Todos" empilharia linhas em silencio: no SQLite,
+            // NULL nunca colide com NULL.
             connection
                 .execute(
                     "INSERT OR IGNORE INTO workspace_hidden_widgets (workspace_id, widget_id, created_at)
                      VALUES (?1, ?2, ?3)",
-                    params![workspace_id.to_string(), widget_id, now],
+                    params![escopo, widget_id, now],
                 )
                 .map_err(map_sql_error)?;
         } else {
             connection
                 .execute(
                     "DELETE FROM workspace_hidden_widgets
-                     WHERE workspace_id = ?1 AND widget_id = ?2",
-                    params![workspace_id.to_string(), widget_id],
+                      WHERE COALESCE(workspace_id, '') = COALESCE(?1, '')
+                        AND widget_id = ?2",
+                    params![escopo, widget_id],
                 )
                 .map_err(map_sql_error)?;
         }
@@ -453,19 +460,20 @@ impl WorkRepository for SqliteStorage {
         let mut statement = connection
             .prepare(
                 "SELECT workspace_id, widget_id FROM workspace_hidden_widgets
-                 ORDER BY workspace_id, widget_id",
+                 ORDER BY COALESCE(workspace_id, ''), widget_id",
             )
             .map_err(map_sql_error)?;
         let rows = statement
             .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?))
             })
             .map_err(map_sql_error)?;
         let mut hidden = Vec::new();
         for row in rows {
             let (workspace_id, widget_id) = row.map_err(map_sql_error)?;
             hidden.push(HiddenWidget {
-                workspace_id: WorkspaceId::parse(&workspace_id)?,
+                // Nulo e a visao "Todos", e nao um dado faltando (migration 0019).
+                workspace_id: workspace_id.as_deref().map(WorkspaceId::parse).transpose()?,
                 widget_id,
             });
         }
@@ -1431,31 +1439,113 @@ mod tests {
             .unwrap();
 
         storage
-            .set_widget_hidden(engineering.id, "inbox_pulse", true)
+            .set_widget_hidden(Some(engineering.id), "inbox_pulse", true)
             .unwrap();
         storage
-            .set_widget_hidden(engineering.id, "inbox_pulse", true)
+            .set_widget_hidden(Some(engineering.id), "inbox_pulse", true)
             .unwrap();
 
         let hidden = storage.hidden_widgets().unwrap();
         assert_eq!(hidden.len(), 1);
-        assert_eq!(hidden[0].workspace_id, engineering.id);
+        assert_eq!(hidden[0].workspace_id, Some(engineering.id));
         assert_eq!(hidden[0].widget_id, "inbox_pulse");
 
         storage
-            .set_widget_hidden(engineering.id, "inbox_pulse", false)
+            .set_widget_hidden(Some(engineering.id), "inbox_pulse", false)
             .unwrap();
         storage
-            .set_widget_hidden(engineering.id, "inbox_pulse", false)
+            .set_widget_hidden(Some(engineering.id), "inbox_pulse", false)
             .unwrap();
         assert!(storage.hidden_widgets().unwrap().is_empty());
 
         storage
-            .set_widget_hidden(finance.id, "system_health", true)
+            .set_widget_hidden(Some(finance.id), "system_health", true)
             .unwrap();
         let hidden = storage.hidden_widgets().unwrap();
         assert_eq!(hidden.len(), 1);
-        assert_eq!(hidden[0].workspace_id, finance.id);
+        assert_eq!(hidden[0].workspace_id, Some(finance.id));
+    }
+
+    /// A Home sem Workspace tambem esconde widget. Antes da 0019 nao havia onde
+    /// gravar, e quem nunca criou Workspace nenhum ficava sem a feature.
+    #[test]
+    fn the_home_without_a_workspace_hides_its_own_widgets() {
+        let (_directory, storage) = storage();
+
+        storage.set_widget_hidden(None, "inbox_pulse", true).unwrap();
+        let hidden = storage.hidden_widgets().unwrap();
+
+        assert_eq!(hidden.len(), 1);
+        assert_eq!(hidden[0].workspace_id, None, "nao pertence a Workspace nenhum");
+        assert_eq!(hidden[0].widget_id, "inbox_pulse");
+
+        storage.set_widget_hidden(None, "inbox_pulse", false).unwrap();
+        assert!(storage.hidden_widgets().unwrap().is_empty(), "e volta a aparecer");
+    }
+
+    /// A armadilha que o indice unico da 0019 fecha: no SQLite, coluna de
+    /// PRIMARY KEY aceita NULL e NULL nunca colide com NULL. Sem o indice, o
+    /// `INSERT OR IGNORE` nao teria com o que conflitar e cada clique em
+    /// "ocultar" empilharia mais uma linha para "Todos".
+    #[test]
+    fn hiding_twice_without_a_workspace_does_not_pile_up_rows() {
+        let (_directory, storage) = storage();
+
+        for _ in 0..3 {
+            storage.set_widget_hidden(None, "system_health", true).unwrap();
+        }
+
+        assert_eq!(storage.hidden_widgets().unwrap().len(), 1, "uma linha, nao tres");
+    }
+
+    /// "Todos" e um escopo como outro qualquer: esconder la nao esconde no
+    /// Workspace, nem o contrario.
+    #[test]
+    fn hiding_in_one_scope_does_not_hide_in_the_other() {
+        let (_directory, storage) = storage();
+        let estudio = storage
+            .create_workspace(NewWorkspace::create("Estudio", "").unwrap())
+            .unwrap();
+
+        storage.set_widget_hidden(None, "timer", true).unwrap();
+        storage
+            .set_widget_hidden(Some(estudio.id), "system_health", true)
+            .unwrap();
+
+        let hidden = storage.hidden_widgets().unwrap();
+        let de = |escopo: Option<WorkspaceId>| {
+            hidden
+                .iter()
+                .filter(|h| h.workspace_id == escopo)
+                .map(|h| h.widget_id.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(de(None), ["timer"]);
+        assert_eq!(de(Some(estudio.id)), ["system_health"]);
+    }
+
+    /// Apagar um Workspace leva as escolhas DELE. As de "Todos" nao pertencem a
+    /// Workspace nenhum, e por isso nao morrem com nenhum.
+    #[test]
+    fn deleting_a_workspace_leaves_the_workspaceless_choices_alone() {
+        let (_directory, storage) = storage();
+        let efemero = storage
+            .create_workspace(NewWorkspace::create("Efemero", "").unwrap())
+            .unwrap();
+
+        storage.set_widget_hidden(None, "timer", true).unwrap();
+        storage
+            .set_widget_hidden(Some(efemero.id), "timer", true)
+            .unwrap();
+
+        storage
+            .set_workspace_lifecycle(efemero.id, LifecycleState::Archived)
+            .unwrap();
+        storage.delete_workspace(efemero.id).unwrap();
+
+        let restante = storage.hidden_widgets().unwrap();
+        assert_eq!(restante.len(), 1);
+        assert_eq!(restante[0].workspace_id, None);
     }
 
     #[test]
@@ -1468,7 +1558,7 @@ mod tests {
         for invalid in ["", "  ", "Inbox Pulse", "inbox-pulse", "1inbox"] {
             assert!(
                 storage
-                    .set_widget_hidden(workspace.id, invalid, true)
+                    .set_widget_hidden(Some(workspace.id), invalid, true)
                     .is_err(),
                 "aceitou o id invalido {invalid:?}"
             );
@@ -1486,7 +1576,7 @@ mod tests {
             .create_workspace(NewWorkspace::create("Engineering", "").unwrap())
             .unwrap();
         storage
-            .set_widget_hidden(workspace.id, "system_health", true)
+            .set_widget_hidden(Some(workspace.id), "system_health", true)
             .unwrap();
 
         storage

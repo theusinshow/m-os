@@ -135,17 +135,23 @@ function Widget({ id, role, span, footLeft, footRight, children }: { id: string;
  * nela. Aquela lista virou mentira no instante em que um widget pode mudar de
  * faixa — e mentira em codigo de visibilidade some com widget na tela.
  */
-function HomeBoard({ widgets, arrangement, arranging, hiddenIds, onMove, onResize }: { widgets: { id: string; available?: boolean; footLeft?: string; footRight?: string; node: ReactNode }[]; arrangement: ArrangedWidget[]; arranging: boolean; hiddenIds: Set<string>; onMove: (id: string, section: string, before: string | null) => void; onResize: (id: string, span: HomeWidgetSpan | null) => void }) {
+function HomeBoard({ widgets, arrangement, arranging, hiddenIds, onMove, onResize, onHide }: { widgets: { id: string; available?: boolean; footLeft?: string; footRight?: string; node: ReactNode }[]; arrangement: ArrangedWidget[]; arranging: boolean; hiddenIds: Set<string>; onMove: (id: string, section: string, before: string | null) => void; onResize: (id: string, span: HomeWidgetSpan | null) => void; onHide: (id: string, hidden: boolean) => void }) {
   const nodes = new Map(widgets.map((widget) => [widget.id, widget] as const));
 
   return <>{HOME_SECTIONS.map((section, sectionIndex) => {
-    /* `fillBand` fecha a ultima linha da faixa. Um widget que se esconde sozinho
+    const moram = arrangement.filter((slot) => {
+      const node = nodes.get(slot.id);
+      return slot.section === section.id && node !== undefined && node.available !== false;
+    });
+    /* Arrumando, o widget OCULTO continua na grade. Sem isso, esconder seria uma
+       porta de mao unica: o widget sumia e o unico caminho de volta era o
+       inspetor de Workspace — que e justamente a tela de onde este controle
+       saiu. O que se esconde precisa continuar alcancavel de onde se escondeu.
+
+       `fillBand` fecha a ultima linha da faixa. Um widget que se esconde sozinho
        — a META, quando nenhum Project tem meta — deixaria uma sobra que ninguem
        escolheu, e nao existe arranjo de tamanhos fixos que feche com e sem ele. */
-    const slots = fillBand(arrangement.filter((slot) => {
-      const node = nodes.get(slot.id);
-      return slot.section === section.id && node !== undefined && node.available !== false && !hiddenIds.has(slot.id);
-    }));
+    const slots = fillBand(arranging ? moram : moram.filter((slot) => !hiddenIds.has(slot.id)));
     /* Arrumando, a faixa vazia FICA: ela e o alvo de quem quer mover um widget
        para ca. Em repouso ela some, porque um titulo sobre o nada nao informa. */
     if (!slots.length && !arranging) return null;
@@ -176,6 +182,8 @@ function HomeBoard({ widgets, arrangement, arranging, hiddenIds, onMove, onResiz
             previous={index > 0 ? slots[index - 1].id : null}
             next={index + 1 < slots.length ? slots[index + 1].id : null}
             afterNext={index + 2 < slots.length ? slots[index + 2].id : null}
+            hidden={hiddenIds.has(slot.id)}
+            onHide={onHide}
             bandAbove={sectionIndex > 0 ? HOME_SECTIONS[sectionIndex - 1].id : null}
             bandBelow={sectionIndex + 1 < HOME_SECTIONS.length ? HOME_SECTIONS[sectionIndex + 1].id : null}
             onMove={onMove}
@@ -206,7 +214,7 @@ function HomeBoard({ widgets, arrangement, arranging, hiddenIds, onMove, onResiz
  * o caminho que sempre existe — inclusive para mover entre faixas, que e o que
  * ↑ e ↓ fazem.
  */
-function Arrangeable({ slot, section, first, last, previous, next, afterNext, bandAbove, bandBelow, onMove, onResize, children }: { slot: PlacedWidget; section: string; first: boolean; last: boolean; previous: string | null; next: string | null; afterNext: string | null; bandAbove: string | null; bandBelow: string | null; onMove: (id: string, section: string, before: string | null) => void; onResize: (id: string, span: HomeWidgetSpan | null) => void; children: ReactNode }) {
+function Arrangeable({ slot, section, first, last, previous, next, afterNext, bandAbove, bandBelow, hidden, onMove, onResize, onHide, children }: { slot: PlacedWidget; section: string; first: boolean; last: boolean; previous: string | null; next: string | null; afterNext: string | null; bandAbove: string | null; bandBelow: string | null; hidden: boolean; onMove: (id: string, section: string, before: string | null) => void; onResize: (id: string, span: HomeWidgetSpan | null) => void; onHide: (id: string, hidden: boolean) => void; children: ReactNode }) {
   const [over, setOver] = useState<"before" | "after" | null>(null);
 
   /* Qual metade do card o cursor esta pedindo. Sem isso o alvo do arrasto e o
@@ -219,6 +227,7 @@ function Arrangeable({ slot, section, first, last, previous, next, afterNext, ba
   return (
     <div
       className="arrangeable"
+      data-hidden={hidden || undefined}
       data-span={slot.renderSpan}
       data-over={over ?? undefined}
       onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "move"; setOver(side(event)); }}
@@ -244,6 +253,10 @@ function Arrangeable({ slot, section, first, last, previous, next, afterNext, ba
             o diz, e escrever duas vezes a mesma palavra a 20px de distancia so
             gasta a linha. Ele continua nos `aria-label` dos botoes, que e onde
             faz falta — "Alargar" sozinho nao diz alargar o que. */}
+        {/* Vao. A palavra "OCULTO" ja morou aqui e nao cabia: num widget de uma
+            unidade a barra leva punho, tres tamanhos, quatro setas e o botao de
+            esconder, e o vao encolhia ate cortar a palavra num "O" que parecia
+            um zero. O rotulo foi para o card, que tem espaco. */}
         <span className="arrange-name" aria-hidden="true" />
         {/* Tres tamanhos prontos, e nao uma largura que se ajusta de a um. E o
             modelo da tela do iPhone: escolher um FORMATO, nao acertar uma
@@ -267,7 +280,16 @@ function Arrangeable({ slot, section, first, last, previous, next, afterNext, ba
           <button className="icon-button" type="button" aria-label={`Mover ${slot.label} para a faixa acima`} disabled={!bandAbove} onClick={() => { if (bandAbove) onMove(slot.id, bandAbove, null); }}>↑</button>
           <button className="icon-button" type="button" aria-label={`Mover ${slot.label} para a faixa abaixo`} disabled={!bandBelow} onClick={() => { if (bandBelow) onMove(slot.id, bandBelow, null); }}>↓</button>
         </span>
+        {/* Esconder nao apaga nada — a escolha e uma linha no banco, e trazer de
+            volta e o mesmo botao. Por isso o rotulo fala em Home, e nao em
+            excluir: "×" aqui tira da tela, e nao do sistema. */}
+        <button className="icon-button" type="button" aria-label={hidden ? `Mostrar ${slot.label} na Home` : `Ocultar ${slot.label} da Home`} title={hidden ? "Mostrar na Home" : "Ocultar da Home"} onClick={() => onHide(slot.id, !hidden)}>{hidden ? "+" : "×"}</button>
       </div>
+      {/* Apagado sozinho diria "desligado" ou "carregando" tao bem quanto diria
+          "oculto". A palavra tira a duvida, e e decorativa de proposito: quem
+          usa leitor de tela ja recebe o estado pelo `aria-label` do botao, e
+          ouvi-lo duas vezes por widget seria pior que nao ouvir. */}
+      {hidden ? <span className="arrange-hidden-mark" aria-hidden="true">OCULTO</span> : null}
       {/* `inert` e nao `pointer-events`: arrumando, o conteudo do widget sai do
           foco tambem. Sem isso, tabular pela Home em modo de edicao passaria por
           cada row de cada lista antes de chegar no proximo widget. */}
@@ -392,7 +414,7 @@ function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
   return nextIndex;
 }
 
-function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, widgetPlacements, setWidgetPlacements, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; widgetPlacements: WidgetPlacement[]; setWidgetPlacements: (next: WidgetPlacement[]) => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent }) {
+function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, setHiddenWidgets, widgetPlacements, setWidgetPlacements, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; setHiddenWidgets: (next: HiddenWidget[]) => void; widgetPlacements: WidgetPlacement[]; setWidgetPlacements: (next: WidgetPlacement[]) => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
   const [workspaceApps, setWorkspaceApps] = useState<RegisteredApp[]>([]);
@@ -496,9 +518,11 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
   // no limite, mostrar "200+" em vez de "200" e "N+" em vez de "N".
   const staleInbox = inbox.filter((capture) => Date.now() - new Date(capture.capturedAt).getTime() > 3 * 24 * 60 * 60 * 1000).length;
   const inboxCapped = inbox.length >= INBOX_PAGE;
-  // Sem Workspace selecionado nada e ocultado: "Todos" e a visao sem filtro, e
-  // sem Workspace nao ha escolha a aplicar.
-  const hiddenIds = useMemo(() => new Set(currentWorkspaceId ? hiddenWidgets.filter((entry) => entry.workspaceId === currentWorkspaceId).map((entry) => entry.widgetId) : []), [hiddenWidgets, currentWorkspaceId]);
+  /* Cada contexto esconde os proprios widgets, "Todos" inclusive — ele nao e
+     mais a visao sem escolha nenhuma (migration 0019). O banco guarda "Todos"
+     como NULL e o seletor carrega string vazia; e o mesmo encontro de
+     vocabularios que o `arrangeHome` faz do outro lado. */
+  const hiddenIds = useMemo(() => new Set(hiddenWidgets.filter((entry) => (entry.workspaceId ?? "") === currentWorkspaceId).map((entry) => entry.widgetId)), [hiddenWidgets, currentWorkspaceId]);
   const allWidgetsHidden = HOME_WIDGETS.every((widget) => hiddenIds.has(widget.id));
 
   /* O arranjo desta Home, resolvido uma vez por render: faixa, largura e ordem
@@ -566,6 +590,23 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
     commitLayout(arrangement.map((slot) => slot.id === widgetId ? { ...slot, savedSpan: span } : slot), [atual.section]);
   }, [arrangement, commitLayout]);
 
+  /* Esconde ou traz de volta, no contexto atual.
+
+     Otimista como o arranjo, e pelo mesmo motivo: esperar o round-trip faria o
+     clique parecer engasgado. Diferente do arranjo, aqui o backend nao devolve
+     o estado novo — entao a fonte da verdade depois da escrita e o `refresh()`,
+     e o otimismo existe so para cobrir o intervalo. */
+  const setWidgetHidden = useCallback((widgetId: string, hidden: boolean) => {
+    const anterior = hiddenWidgets;
+    const escopo = currentWorkspaceId || null;
+    setHiddenWidgets(hidden
+      ? [...anterior, { workspaceId: escopo, widgetId }]
+      : anterior.filter((entry) => (entry.workspaceId ?? "") !== currentWorkspaceId || entry.widgetId !== widgetId));
+    void api.setWorkspaceWidget(widgetId, escopo, !hidden)
+      .then(() => { setLayoutError(""); return refresh(); })
+      .catch((error) => { setHiddenWidgets(anterior); setLayoutError(appError(error).message); });
+  }, [currentWorkspaceId, hiddenWidgets, setHiddenWidgets, refresh]);
+
   /* Devolve a Home ao desenho apagando as linhas. Apagar e diferente de gravar
      o catalogo por cima: gravar petrificaria o desenho de HOJE, e um widget que
      mudasse de largura depois nunca mais alcancaria este Workspace.
@@ -629,6 +670,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
       hiddenIds={hiddenIds}
       onMove={moveWidget}
       onResize={resizeWidget}
+      onHide={setWidgetHidden}
       widgets={[
         { id: "now", node: <Panel label="EM ANDAMENTO" value={String(doing.length)} unit="em andamento" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel> },
         { id: "timer", node: <Panel label="CRONÔMETRO"><Timer projects={projects} onChanged={() => void refresh()} /></Panel> },
@@ -667,8 +709,14 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
       ]}
     />
     {/* Ocultar todos e escolha legitima. O que nao pode e a Home virar um branco
-        sem explicacao — quem escondeu tudo precisa do caminho de volta. */}
-    {allWidgetsHidden ? <div className="scoped-empty"><EmptyState>Todos os widgets estão ocultos neste Workspace.</EmptyState><Button variant="outline" size="sm" onClick={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }}>Ajustar</Button></div> : null}
+        sem explicacao — quem escondeu tudo precisa do caminho de volta, e agora
+        ele aponta para o modo de arrumar, que e de onde se esconde e onde o
+        oculto continua visivel. Antes apontava para o inspetor de Workspace, o
+        que era uma porta fechada para quem nao tem Workspace nenhum.
+
+        `!arranging` porque arrumando eles estao todos na tela, apagados: a
+        frase seria desmentida pelo que esta logo abaixo dela. */}
+    {allWidgetsHidden && !arranging ? <div className="scoped-empty"><EmptyState>Todos os widgets estão ocultos neste contexto.</EmptyState><Button variant="outline" size="sm" onClick={() => setArranging(true)}>Arrumar</Button></div> : null}
   </div>;
 }
 
@@ -2978,7 +3026,7 @@ function DesktopApp() {
   }, [page]);
   const pageContent = useMemo(() => {
     if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} />;
-    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} />;
+    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} setHiddenWidgets={setHiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} />;
     if (page === "tempo") return <TempoPage projects={projects} openProject={openProject} receipt={showReceipt} />;
     if (page === "finance") return <FinancePage />;
     if (page === "calendario") return <CalendarPage />;

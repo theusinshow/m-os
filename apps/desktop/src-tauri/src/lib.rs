@@ -563,7 +563,7 @@ fn list_hidden_widgets(state: tauri::State<'_, AppState>) -> Result<Vec<HiddenWi
 /// dois deles discordem sobre o que a ausencia de linha significa.
 #[tauri::command]
 fn set_workspace_widget(
-    workspace_id: &str,
+    workspace_id: Option<String>,
     widget_id: &str,
     visible: bool,
     app: AppHandle,
@@ -571,7 +571,7 @@ fn set_workspace_widget(
 ) -> Result<(), CoreError> {
     state
         .work
-        .set_widget_hidden(workspace_id, widget_id, !visible)?;
+        .set_widget_hidden(workspace_id.as_deref(), widget_id, !visible)?;
     notify_data_changed(&app, "workspace-widget");
     schedule_snapshot(&state.data, &state.snapshot_status, &app);
     Ok(())
