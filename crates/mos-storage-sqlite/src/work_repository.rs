@@ -1,16 +1,17 @@
 use std::collections::{HashMap, HashSet};
 
 use mos_core::{
-    validate_widget_id, AppId, Capture, CaptureId, CaptureRepository, CoreError, ErrorCode,
-    HiddenWidget, LifecycleState, NewProject, NewTask, NewWorkspace, Project, ProjectId,
-    RegisteredApp, SearchItem, SearchRequest, Task, TaskId, TaskState, WorkRepository, Workspace,
-    WorkspaceId,
+    validate_widget_id, AppId, AttentionRepository, Capture, CaptureId, CaptureRepository,
+    CoreError, ErrorCode, HiddenWidget, LifecycleState, NewProject, NewReminder, NewTask,
+    NewWorkspace, Project, ProjectId, RegisteredApp, Reminder, SearchItem, SearchRequest, Task,
+    TaskId, TaskState, WorkRepository, Workspace, WorkspaceId,
 };
 use rusqlite::{params, OptionalExtension, Row, Transaction};
 use time::OffsetDateTime;
 
 use crate::{
     app_repository::{query_apps, APP_COLUMNS},
+    attention_repository::insert_reminder,
     map_lock_error, map_sql_error,
     repository::{
         ensure_changed, format_time, guard_deletable, parse_time, query_capture, to_fts_query,
@@ -845,6 +846,67 @@ impl WorkRepository for SqliteStorage {
         query_task(&connection, id)
     }
 
+    fn create_task_from_capture_with_reminder(
+        &self,
+        capture_id: CaptureId,
+        task: NewTask,
+        reminder: Option<NewReminder>,
+    ) -> Result<(Task, Option<Reminder>), CoreError> {
+        let task_id = task.id;
+        let reminder_id = reminder.as_ref().map(|draft| draft.id);
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+
+        // A mesma guarda de `create_task_from_capture`: uma Capture tem no
+        // maximo uma Task derivada, e o UNIQUE da coluna ja a imporia — mas o
+        // erro dele fala de constraint, e este fala de produto.
+        let already_exists: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM tasks WHERE source_capture_id = ?1)",
+                [capture_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(map_sql_error)?;
+        if already_exists {
+            return Err(CoreError::new(
+                ErrorCode::InvalidTransition,
+                "Esta Capture ja possui uma Task derivada.",
+                false,
+            ));
+        }
+
+        insert_task(&transaction, task, Some(capture_id))?;
+
+        // O Reminder aponta para a TASK, e nao para a Capture. Quando ele tocar
+        // amanha as nove, "o que eu tenho de fazer?" precisa de resposta sem
+        // passar pela Inbox.
+        if let Some(draft) = reminder {
+            let draft = draft.with_target(mos_core::ReminderTarget::Task(task_id));
+            insert_reminder(&transaction, &draft)?;
+        }
+
+        let changed = transaction
+            .execute(
+                "UPDATE captures SET processing_state = 'processed', updated_at = ?1
+                 WHERE id = ?2 AND processing_state = 'inbox' AND lifecycle_state = 'active'",
+                params![format_time(OffsetDateTime::now_utc())?, capture_id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        if changed != 1 {
+            return Err(CoreError::new(
+                ErrorCode::InvalidTransition,
+                "A Capture nao esta disponivel para processamento.",
+                false,
+            ));
+        }
+
+        transaction.commit().map_err(map_sql_error)?;
+        let task = query_task(&connection, task_id)?;
+        drop(connection);
+        let reminder = reminder_id.map(|id| self.reminder(id)).transpose()?;
+        Ok((task, reminder))
+    }
+
     fn update_task(
         &self,
         id: TaskId,
@@ -1362,6 +1424,98 @@ mod tests {
         )
         .unwrap();
         (directory, storage)
+    }
+
+    /// Task, Reminder e o processamento da Capture caem juntos ou nao caem.
+    ///
+    /// O que este teste protege e o instante que nao pode existir: a Task
+    /// gravada e o aviso dela nao. Numa acao derivada de voz esse instante e
+    /// especialmente caro, porque ninguem digitou nada — a pessoa falou, leu
+    /// "lembrete criado" e foi embora confiando.
+    #[test]
+    fn voz_cria_task_e_reminder_na_mesma_transacao() {
+        use mos_core::{AttentionRepository, Clock, FixedClock, NewReminder, ReminderSource};
+
+        let (_guard, storage) = storage();
+        let clock = FixedClock::at(OffsetDateTime::from_unix_timestamp(1_787_000_000).unwrap());
+        let capture = storage
+            .create(
+                NewCapture::create(
+                    "me lembra amanha as nove de revisar o memorial",
+                    CaptureSource::Voice,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        let quando = clock.now() + time::Duration::hours(18);
+        let (task, reminder) = storage
+            .create_task_from_capture_with_reminder(
+                capture.id,
+                NewTask::create("Revisar o memorial", "", None).unwrap(),
+                Some(
+                    NewReminder::at("Revisar o memorial", "", quando, &clock)
+                        .unwrap()
+                        .from_source(ReminderSource::Capture),
+                ),
+            )
+            .unwrap();
+
+        let reminder = reminder.expect("o lembrete faz parte da mesma acao");
+        assert_eq!(task.source_capture_id, Some(capture.id));
+        // O lembrete aponta para a TASK: quando ele tocar, "o que eu tenho de
+        // fazer?" tem resposta sem passar pela Inbox.
+        assert_eq!(
+            reminder.target,
+            Some(mos_core::ReminderTarget::Task(task.id))
+        );
+        assert_eq!(reminder.source, ReminderSource::Capture);
+        // E o lembrete esta de verdade no banco, e nao so no valor devolvido.
+        assert_eq!(AttentionRepository::reminder(&storage, reminder.id).unwrap().id, reminder.id);
+        // A Capture saiu da Inbox pela mesma transacao.
+        assert_eq!(
+            storage.get(capture.id).unwrap().processing_state,
+            mos_core::ProcessingState::Processed
+        );
+    }
+
+    /// Uma Capture tem no maximo uma Task derivada, e a segunda tentativa nao
+    /// pode deixar um Reminder orfao para tras.
+    #[test]
+    fn a_segunda_acao_sobre_a_mesma_capture_nao_deixa_lembrete_orfao() {
+        use mos_core::{AttentionRepository, Clock, FixedClock, NewReminder};
+
+        let (_guard, storage) = storage();
+        let clock = FixedClock::at(OffsetDateTime::from_unix_timestamp(1_787_000_000).unwrap());
+        let capture = storage
+            .create(NewCapture::create("comprar cafe", CaptureSource::Voice).unwrap())
+            .unwrap();
+        storage
+            .create_task_from_capture_with_reminder(
+                capture.id,
+                NewTask::create("Comprar cafe", "", None).unwrap(),
+                None,
+            )
+            .unwrap();
+
+        let erro = storage
+            .create_task_from_capture_with_reminder(
+                capture.id,
+                NewTask::create("Comprar cafe de novo", "", None).unwrap(),
+                Some(
+                    NewReminder::at(
+                        "Comprar cafe de novo",
+                        "",
+                        clock.now() + time::Duration::hours(2),
+                        &clock,
+                    )
+                    .unwrap(),
+                ),
+            )
+            .unwrap_err();
+        assert_eq!(erro.code, ErrorCode::InvalidTransition);
+        // A transacao inteira voltou atras: nenhum lembrete ficou agendado.
+        assert!(AttentionRepository::open_reminders(&storage).unwrap().is_empty());
     }
 
     #[test]

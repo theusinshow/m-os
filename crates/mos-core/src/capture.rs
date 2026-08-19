@@ -37,6 +37,11 @@ impl std::fmt::Display for CaptureId {
 pub enum CaptureSource {
     Home,
     QuickCapture,
+    /// Falada. A Capture guarda a TRANSCRICAO, e a nota de voz que a produziu
+    /// aponta para ela — a proveniencia corre no sentido audio -> texto, e nao
+    /// o contrario, porque o texto e o que sobrevive (o audio e apagado assim
+    /// que ele existe).
+    Voice,
 }
 
 impl CaptureSource {
@@ -44,6 +49,7 @@ impl CaptureSource {
         match self {
             Self::Home => "home",
             Self::QuickCapture => "quick_capture",
+            Self::Voice => "voice",
         }
     }
 
@@ -51,6 +57,7 @@ impl CaptureSource {
         match value {
             "home" => Ok(Self::Home),
             "quick_capture" => Ok(Self::QuickCapture),
+            "voice" => Ok(Self::Voice),
             _ => Err(CoreError::new(
                 ErrorCode::DataIntegrity,
                 "Origem de Capture desconhecida.",

@@ -1125,6 +1125,27 @@ impl WorkService {
         }
     }
 
+    /// Task, Reminder e o processamento da Capture, numa transacao so.
+    ///
+    /// E o caminho das acoes derivadas de voz. O `title` vem de
+    /// `voice::title_from`, e nao da fala inteira: a Capture guarda o que foi
+    /// dito, e a Task guarda o que ha para fazer.
+    pub fn create_task_from_capture_with_reminder(
+        &self,
+        capture_id: &str,
+        title: &str,
+        description: &str,
+        project_id: Option<ProjectId>,
+        reminder: Option<crate::NewReminder>,
+    ) -> Result<(Task, Option<crate::Reminder>), CoreError> {
+        let task = NewTask::create(title, description, project_id)?;
+        self.repository.create_task_from_capture_with_reminder(
+            CaptureId::parse(capture_id)?,
+            task,
+            reminder,
+        )
+    }
+
     pub fn update_task(&self, input: UpdateTaskInput) -> Result<Task, CoreError> {
         let project_id = input
             .project_id
@@ -1733,5 +1754,131 @@ fn settle_channel(outcome: crate::ChannelOutcome, duration_ms: i64) -> crate::Ch
             reason: "A gravacao foi interrompida sem produzir audio.".into(),
         },
         outro => outro,
+    }
+}
+
+/// Voice Inbox: o ciclo de vida de uma nota de voz.
+///
+/// **Casca fina sobre o dominio.** Toda decisao — se a transicao e legitima, se
+/// a transcricao vale, se o audio ainda e necessario — vive em `voice.rs` e e
+/// testada la. O que sobra aqui e traduzir id de texto para id de dominio e
+/// mandar gravar, que e exatamente o que os outros servicos fazem.
+#[derive(Clone)]
+pub struct VoiceService {
+    notes: Arc<dyn crate::VoiceRepository>,
+    clock: Arc<dyn crate::Clock>,
+}
+
+impl VoiceService {
+    pub fn new(notes: Arc<dyn crate::VoiceRepository>, clock: Arc<dyn crate::Clock>) -> Self {
+        Self { notes, clock }
+    }
+
+    /// Abre a nota ANTES de o microfone abrir.
+    ///
+    /// Mesma ordem do `meeting_start`, e pela mesma razao: se a captura falhar,
+    /// existe uma nota em `recording` que a proxima abertura reconcilia — e uma
+    /// gravacao sem linha no banco seria audio que ninguem encontraria.
+    pub fn start(
+        &self,
+        project_id: Option<&str>,
+        task_id: Option<&str>,
+    ) -> Result<crate::VoiceNote, CoreError> {
+        let project_id = project_id
+            .filter(|value| !value.trim().is_empty())
+            .map(ProjectId::parse)
+            .transpose()?;
+        let task_id = task_id
+            .filter(|value| !value.trim().is_empty())
+            .map(TaskId::parse)
+            .transpose()?;
+        self.notes.create_note(crate::NewVoiceNote::create(
+            self.clock.now(),
+            project_id,
+            task_id,
+        ))
+    }
+
+    pub fn note(&self, id: &str) -> Result<crate::VoiceNote, CoreError> {
+        self.notes.note(crate::VoiceNoteId::parse(id)?)
+    }
+
+    pub fn unfinished(&self) -> Result<Vec<crate::VoiceNote>, CoreError> {
+        self.notes.unfinished_notes()
+    }
+
+    pub fn recorded(
+        &self,
+        id: &str,
+        duration_ms: i64,
+        peak_level: u64,
+    ) -> Result<crate::VoiceNote, CoreError> {
+        self.transition(
+            id,
+            crate::VoiceTransition::Recorded {
+                duration_ms,
+                peak_level,
+            },
+        )
+    }
+
+    pub fn transcribing(&self, id: &str) -> Result<crate::VoiceNote, CoreError> {
+        self.transition(id, crate::VoiceTransition::Transcribing)
+    }
+
+    pub fn failed(&self, id: &str, message: &str) -> Result<crate::VoiceNote, CoreError> {
+        self.transition(
+            id,
+            crate::VoiceTransition::Failed {
+                message: message.to_owned(),
+            },
+        )
+    }
+
+    pub fn cancel(&self, id: &str) -> Result<crate::VoiceNote, CoreError> {
+        self.transition(id, crate::VoiceTransition::Cancelled)
+    }
+
+    /// A transcricao vira Capture, e a nota fecha sobre ela.
+    ///
+    /// A Capture nasce com a transcricao INTEIRA. Titulo, prazo e Project sao
+    /// leitura, e leitura nao substitui o que foi dito.
+    pub fn captured(
+        &self,
+        id: &str,
+        transcript: &str,
+        provider: &str,
+    ) -> Result<(crate::VoiceNote, Capture), CoreError> {
+        let note = self.note(id)?;
+        let capture = NewCapture::create(transcript, CaptureSource::Voice)?;
+        let closed = crate::apply_voice(
+            &note,
+            crate::VoiceTransition::Captured {
+                capture_id: capture.id,
+                transcript: transcript.trim().to_owned(),
+                provider: provider.to_owned(),
+            },
+            self.clock.now(),
+        )?;
+        self.notes.capture_note(&closed, capture)
+    }
+
+    pub fn mark_audio_deleted(&self, id: &str) -> Result<crate::VoiceNote, CoreError> {
+        self.notes
+            .mark_audio_deleted(crate::VoiceNoteId::parse(id)?, self.clock.now())
+    }
+
+    pub fn discard(&self, id: &str) -> Result<(), CoreError> {
+        self.notes.delete_note(crate::VoiceNoteId::parse(id)?)
+    }
+
+    fn transition(
+        &self,
+        id: &str,
+        transition: crate::VoiceTransition,
+    ) -> Result<crate::VoiceNote, CoreError> {
+        let note = self.note(id)?;
+        let next = crate::apply_voice(&note, transition, self.clock.now())?;
+        self.notes.save_note(&next)
     }
 }

@@ -5,8 +5,9 @@ use time::OffsetDateTime;
 
 use crate::{
     AppId, Capture, CaptureId, CoreError, HiddenWidget, LifecycleState, NewCapture, NewProject,
-    NewRegisteredApp, NewTask, NewWorkspace, ProcessingState, Project, ProjectId, RegisteredApp,
-    SearchItem, Task, TaskId, TaskState, Workspace, WorkspaceId,
+    NewRegisteredApp, NewReminder, NewTask, NewVoiceNote, NewWorkspace, ProcessingState, Project,
+    ProjectId, RegisteredApp, Reminder, SearchItem, Task, TaskId, TaskState, VoiceNote,
+    VoiceNoteId, Workspace, WorkspaceId,
 };
 
 #[derive(Clone, Debug)]
@@ -183,6 +184,22 @@ pub trait WorkRepository: Send + Sync {
         capture_id: CaptureId,
         task: NewTask,
     ) -> Result<Task, CoreError>;
+    /// Task, Reminder e o processamento da Capture — **numa transacao so**.
+    ///
+    /// Os tres juntos, e nao em sequencia, pela mesma razao do
+    /// `accept_insight`: existe um instante entre eles em que a Task existe e o
+    /// aviso dela nao, e uma queda ali deixa o compromisso mudo. Numa acao
+    /// derivada de voz isso e pior ainda, porque ninguem digitou nada — a
+    /// pessoa falou, viu "lembrete criado" e foi embora.
+    ///
+    /// O Reminder aponta para a Task, e nao para a Capture: quando ele tocar,
+    /// "o que eu tenho de fazer?" tem de ter resposta sem passar pela Inbox.
+    fn create_task_from_capture_with_reminder(
+        &self,
+        capture_id: CaptureId,
+        task: NewTask,
+        reminder: Option<NewReminder>,
+    ) -> Result<(Task, Option<Reminder>), CoreError>;
     fn update_task(
         &self,
         id: TaskId,
@@ -676,4 +693,55 @@ pub trait DataMaintenance: Send + Sync {
     fn restore_backup(&self, source: &Path) -> Result<BackupReceipt, CoreError>;
     fn ensure_daily_snapshot(&self) -> Result<Option<BackupReceipt>, CoreError>;
     fn export_json(&self, destination: &Path) -> Result<BackupReceipt, CoreError>;
+}
+
+/// Persistencia do Voice Inbox.
+///
+/// **Duas escritas atomicas, e nenhum `update_transcript`.** `capture_note`
+/// grava a Capture e liga a nota a ela de uma vez; `realize` nao existe aqui
+/// porque criar Task e trabalho de `WorkRepository`, e a nota nunca precisa
+/// saber que uma Task nasceu — ela aponta para a Capture, e a Capture e que
+/// carrega a proveniencia do resto do M/OS.
+///
+/// **Nao existe `delete_note_audio`.** Apagar bytes e trabalho de filesystem, e
+/// este trait so conhece o banco. Ele apenas MARCA (`mark_audio_deleted`), e
+/// quem apaga e o adapter — que assim nao pode apagar sem registrar. E a mesma
+/// regra do `MeetingRepository`.
+pub trait VoiceRepository: Send + Sync {
+    fn create_note(&self, note: NewVoiceNote) -> Result<VoiceNote, CoreError>;
+    fn note(&self, id: VoiceNoteId) -> Result<VoiceNote, CoreError>;
+
+    /// Grava o resultado de uma transicao. Devolve o que FICOU GRAVADO, e nao o
+    /// que foi mandado — mesma regra do `save_reminder` e do `save_meeting`.
+    fn save_note(&self, note: &VoiceNote) -> Result<VoiceNote, CoreError>;
+
+    /// As notas que ainda guardam informacao que o banco nao tem.
+    ///
+    /// E a consulta da reconciliacao de abertura: uma linha em `recording` num
+    /// processo recem-nascido significa, necessariamente, que o anterior morreu
+    /// sem terminar. E uma em `failed` e audio esperando um retry.
+    fn unfinished_notes(&self) -> Result<Vec<VoiceNote>, CoreError>;
+
+    /// Cria a Capture e fecha a nota sobre ela, numa transacao.
+    ///
+    /// A nota chega ja transicionada — o dominio decide, o adapter grava. Uma
+    /// Capture sem nota apontando para ela seria uma transcricao sem origem; uma
+    /// nota apontando para uma Capture que nao existe seria pior.
+    fn capture_note(
+        &self,
+        note: &VoiceNote,
+        capture: NewCapture,
+    ) -> Result<(VoiceNote, Capture), CoreError>;
+
+    fn mark_audio_deleted(
+        &self,
+        id: VoiceNoteId,
+        at: time::OffsetDateTime,
+    ) -> Result<VoiceNote, CoreError>;
+
+    /// Exclusao definitiva de uma nota que nao virou nada.
+    ///
+    /// Recusa nota com Capture: apagar a origem de um texto que continua no
+    /// banco deixaria a proveniencia apontando para o vazio.
+    fn delete_note(&self, id: VoiceNoteId) -> Result<(), CoreError>;
 }

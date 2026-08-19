@@ -8,6 +8,7 @@ mod monitoring_repository;
 mod repository;
 mod resource_repository;
 mod tracking_repository;
+mod voice_repository;
 mod work_repository;
 
 use std::{
@@ -23,7 +24,7 @@ use serde::Serialize;
 
 pub use cronocad_import::ImportReport;
 
-const SCHEMA_VERSION: u32 = 21;
+const SCHEMA_VERSION: u32 = 22;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -50,6 +51,7 @@ const MIGRATION_019: &str = include_str!("../migrations/0019_ocultos_sem_workspa
 // migration de conserto em vez de uma renumeracao.
 const MIGRATION_020: &str = include_str!("../migrations/0020_meetings.sql");
 const MIGRATION_021: &str = include_str!("../migrations/0021_radial_pins.sql");
+const MIGRATION_022: &str = include_str!("../migrations/0022_voice.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -285,6 +287,54 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
             .execute_batch(MIGRATION_021)
             .map_err(map_sql_error)?;
     }
+    if current <= 21 {
+        migrate_captures_for_voice(connection)?;
+    }
+    Ok(())
+}
+
+/// A 0022, e a guarda que ela precisa ter desligada.
+///
+/// Ela RECRIA `captures`, que e tabela-pai de `tasks.source_capture_id` e
+/// `resources.source_capture_id` (ON DELETE RESTRICT). Com `foreign_keys=ON`,
+/// o `DROP TABLE` de um pai com filhos e recusado — e `PRAGMA foreign_keys` e
+/// no-op dentro de transacao, entao o desligamento nao cabe dentro do `BEGIN`
+/// do arquivo `.sql`. Ele acontece aqui, em volta.
+///
+/// **O `foreign_key_check` nao e cerimonia.** Quem desliga a guarda tem de
+/// provar que nao precisava dela: se alguma Task ficou apontando para uma
+/// Capture que sumiu no swap, isto falha e o banco nao abre — que e o desfecho
+/// certo, porque o snapshot pre-migration ja foi criado e a versao anterior
+/// continua utilizavel.
+fn migrate_captures_for_voice(connection: &Connection) -> Result<(), CoreError> {
+    connection
+        .execute_batch("PRAGMA foreign_keys=OFF;")
+        .map_err(map_sql_error)?;
+    let migrated = connection.execute_batch(MIGRATION_022);
+    // O religamento acontece ACONTECA O QUE ACONTECER. Um erro na migration nao
+    // pode deixar a conexao sem integridade referencial — mesmo que ela va ser
+    // descartada logo em seguida, `open` ainda faz coisas com ela no caminho de
+    // volta.
+    let restored = connection.execute_batch("PRAGMA foreign_keys=ON;");
+    migrated.map_err(map_sql_error)?;
+    restored.map_err(map_sql_error)?;
+
+    let mut statement = connection
+        .prepare("PRAGMA foreign_key_check")
+        .map_err(map_sql_error)?;
+    let violations = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(map_sql_error)?
+        .count();
+    if violations > 0 {
+        return Err(CoreError::new(
+            ErrorCode::DataIntegrity,
+            format!(
+                "A migration de voz deixou {violations} referencias orfas.                  O banco anterior esta no snapshot pre-migration."
+            ),
+            false,
+        ));
+    }
     Ok(())
 }
 
@@ -514,6 +564,155 @@ mod tests {
             ))
             .unwrap();
         assert_eq!(storage.meeting(meeting.id).unwrap().project_id, Some(project.id));
+    }
+
+    /// Sobe um banco v21 POVOADO ate a v22.
+    ///
+    /// Este e o teste que a `0022` precisava ter antes de alcancar a maquina de
+    /// alguem, porque ela e a unica migration do M/OS que **recria uma tabela
+    /// PAI** — e faz isso com a guarda de integridade referencial desligada.
+    ///
+    /// Tres coisas podiam quebrar em silencio, e as tres sao verificadas aqui:
+    ///
+    /// 1. **A busca apontar para a linha errada.** `capture_search` e uma FTS5
+    ///    de conteudo externo indexada por `content_rowid`. Se o swap
+    ///    renumerasse as linhas, procurar por uma palavra devolveria outra
+    ///    Capture — sem erro nenhum, e sem sintoma ate alguem ler o resultado.
+    /// 2. **A proveniencia se perder.** `tasks.source_capture_id` aponta para
+    ///    `captures` com ON DELETE RESTRICT. Com as FKs desligadas, um erro no
+    ///    caminho deixaria a Task apontando para o vazio em vez de falhar.
+    /// 3. **A guarda nao voltar.** Sair da migration com `foreign_keys=OFF`
+    ///    seria pior que o problema que ela resolve.
+    #[test]
+    fn upgrades_v21_preserving_the_search_index_and_the_provenance() {
+        use mos_core::{CaptureSource, NewCapture, NewProject, NewTask, WorkRepository};
+        use rusqlite::params_from_iter;
+
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("mos.db");
+        let backups = directory.path().join("backups");
+        fs::create_dir_all(&backups).unwrap();
+
+        let connection = Connection::open(&database).unwrap();
+        configure_connection(&connection).unwrap();
+        for migration in [
+            MIGRATION_001, MIGRATION_002, MIGRATION_003, MIGRATION_004, MIGRATION_005,
+            MIGRATION_006, MIGRATION_007, MIGRATION_008, MIGRATION_009, MIGRATION_010,
+            MIGRATION_011, MIGRATION_012, MIGRATION_013, MIGRATION_014, MIGRATION_015,
+            MIGRATION_016, MIGRATION_017, MIGRATION_018, MIGRATION_019, MIGRATION_020,
+            MIGRATION_021,
+        ] {
+            connection.execute_batch(migration).unwrap();
+        }
+
+        // DUAS Captures, e a que interessa e a SEGUNDA: com uma so, qualquer
+        // desalinhamento de rowid ainda devolveria a linha certa por acidente.
+        for (id, content) in [
+            ("0198a7d5-a64e-7000-8000-0000000000b1", "a primeira, sobre orcamento"),
+            ("0198a7d5-a64e-7000-8000-0000000000b2", "a segunda, sobre memorial"),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO captures (
+                        id, content, source_kind, processing_state, lifecycle_state,
+                        captured_at, created_at, updated_at
+                     ) VALUES (?1, ?2, 'quick_capture', 'inbox', 'active',
+                        '2026-08-18T00:00:00Z', '2026-08-18T00:00:00Z', '2026-08-18T00:00:00Z')",
+                    params_from_iter([id, content]),
+                )
+                .unwrap();
+            let rowid = connection.last_insert_rowid();
+            connection
+                .execute(
+                    "INSERT INTO capture_search (rowid, content)
+                     SELECT rowid, content FROM captures WHERE rowid = ?1",
+                    [rowid],
+                )
+                .unwrap();
+        }
+
+        // E uma Task derivada da segunda: e a FK que o DROP TABLE recusaria.
+        connection
+            .execute(
+                "INSERT INTO tasks (
+                    id, title, description, project_id, source_capture_id, work_state,
+                    lifecycle_state, created_at, updated_at
+                 ) VALUES (
+                    '0198a7d5-a64e-7000-8000-0000000000c1', 'Revisar memorial', '', NULL,
+                    '0198a7d5-a64e-7000-8000-0000000000b2', 'backlog', 'active',
+                    '2026-08-18T00:00:00Z', '2026-08-18T00:00:00Z'
+                 )",
+                [],
+            )
+            .unwrap();
+
+        let version: u32 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 21, "o banco de partida precisa estar na v21");
+        drop(connection);
+
+        let storage = SqliteStorage::open(&database, &backups).unwrap();
+        assert_eq!(storage.health().unwrap().schema_version, SCHEMA_VERSION);
+        assert_eq!(storage.health().unwrap().integrity, "ok");
+
+        // 1. A busca continua apontando para a Capture certa.
+        let achados = CaptureRepository::search(
+            &storage,
+            SearchRequest {
+                query: "memorial".into(),
+                include_archived: false,
+                limit: 10,
+            },
+        )
+        .unwrap();
+        assert_eq!(achados.len(), 1);
+        assert_eq!(achados[0].content, "a segunda, sobre memorial");
+
+        // 2. A proveniencia sobreviveu ao swap.
+        let tasks = WorkRepository::tasks(&storage, false).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(
+            tasks[0].source_capture_id.map(|id| id.to_string()),
+            Some("0198a7d5-a64e-7000-8000-0000000000b2".to_owned())
+        );
+
+        // 3. A guarda voltou, e nao sobrou referencia orfa.
+        {
+            let connection = storage.connection.lock().unwrap();
+            let foreign_keys: i64 = connection
+                .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(foreign_keys, 1, "as FKs precisam voltar ligadas");
+            let mut check = connection.prepare("PRAGMA foreign_key_check").unwrap();
+            let orfas = check
+                .query_map([], |row| row.get::<_, String>(0))
+                .unwrap()
+                .count();
+            assert_eq!(orfas, 0);
+        }
+
+        // E a origem nova passa a ser aceita — o ponto de tudo isto.
+        let falada = CaptureRepository::create(
+            &storage,
+            NewCapture::create("comprar cafe", CaptureSource::Voice).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(falada.source, CaptureSource::Voice);
+
+        // E a Task com Reminder atomica funciona sobre o schema novo.
+        let projeto = storage
+            .create_project(NewProject::create("NexoDoc", "", "").unwrap())
+            .unwrap();
+        let (task, reminder) = storage
+            .create_task_from_capture_with_reminder(
+                falada.id,
+                NewTask::create("Comprar cafe", "", Some(projeto.id)).unwrap(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(task.source_capture_id, Some(falada.id));
+        assert!(reminder.is_none());
     }
 
     #[test]

@@ -14,6 +14,8 @@ mod ports;
 mod resource;
 mod service;
 mod tracking;
+mod voice;
+mod voice_when;
 mod work;
 
 pub use action::{
@@ -64,7 +66,8 @@ pub use monitoring::{
 pub use ports::{
     AppRepository, AttentionRepository, BackupInspection, BackupReceipt, CaptureRepository,
     ConversationRepository, DataMaintenance, MeetingRepository, MonitoringRepository,
-    ResourceRepository, SearchRequest, TimeTrackingRepository, WorkRepository,
+    ResourceRepository, SearchRequest, TimeTrackingRepository, VoiceRepository,
+    WorkRepository,
 };
 pub use resource::{
     validate_resource_url, NewResource, Resource, ResourceId, ResourceKind, ResourceWorkspace,
@@ -74,8 +77,14 @@ pub use service::{
     CreateCaptureInput, CreateProjectInput, CreateResourceInput, CreateTaskInput,
     CreateWorkspaceInput, DataService, MeetingService, MemoryService, MonitoringService,
     TrackingService, UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput,
-    UpdateWorkspaceInput, WorkService,
+    UpdateWorkspaceInput, VoiceService, WorkService,
 };
+pub use voice::{
+    apply as apply_voice, heard, is_hallucination, title_from, understand, Heard, NewVoiceNote,
+    ProjectHint, ProjectSource, Understanding, VoiceAction, VoiceContext, VoiceNote, VoiceNoteId,
+    VoiceNoteStatus, VoiceTransition, MAX_DURATION_MS, MIN_DURATION_MS, MIN_PEAK_LEVEL,
+};
+pub use voice_when::{resolve_when, ResolvedWhen};
 pub use tracking::{
     aggregate_by_project, amount_for_duration, billable_duration, elapsed_seconds, net_duration,
     parse_moment, round_duration, settle, ActiveTimer, ActivityType, Client, ClientId, ClientInput,
