@@ -12,12 +12,13 @@ export const api = {
   // Manda a faixa inteira, e nao "o widget X foi para a posicao 3": quem
   // sabe o que acontece com quem estava la e o front, que conhece a faixa.
   // Mover entre faixas manda as DUAS na mesma chamada, porque as duas mudaram.
-  setWidgetLayout(workspaceId: string, placements: WidgetPlacementInput[]) {
+  // `workspaceId` nulo e a visao "Todos", que arruma a propria Home.
+  setWidgetLayout(workspaceId: string | null, placements: WidgetPlacementInput[]) {
     return invoke<WidgetPlacement[]>("set_widget_layout", { workspaceId, placements });
   },
   // Volta ao desenho APAGANDO as linhas. Gravar o catalogo por cima
   // petrificaria o desenho de hoje, que e o oposto do que a inversao faz.
-  resetWidgetLayout(workspaceId: string) {
+  resetWidgetLayout(workspaceId: string | null) {
     return invoke<WidgetPlacement[]>("reset_widget_layout", { workspaceId });
   },
   // --- Inicializacao com o Windows (ADR-043) ---

@@ -497,11 +497,14 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
   const arrangement = useMemo(() => arrangeHome(widgetPlacements, currentWorkspaceId), [widgetPlacements, currentWorkspaceId]);
 
   /* O modo de arrumar e local e nao persiste: ele descreve o que a pessoa esta
-     fazendo agora, e nao uma preferencia. Trocar para "Todos" o desliga —
-     arrumar sem Workspace nao tem onde gravar, e deixar a tela em modo de
-     edicao sem poder gravar nada seria uma promessa falsa. */
+     fazendo agora, e nao uma preferencia.
+
+     Trocar de contexto o desliga. Nao por falta de onde gravar — "Todos" tem o
+     proprio arranjo desde a migration 0018 —, mas porque cada contexto tem a
+     propria Home: continuar em modo de edicao depois de trocar seria oferecer
+     controles sobre um arranjo que a pessoa nao veio arrumar. */
   const [arranging, setArranging] = useState(false);
-  useEffect(() => { if (!currentWorkspaceId) setArranging(false); }, [currentWorkspaceId]);
+  useEffect(() => { setArranging(false); }, [currentWorkspaceId]);
 
   /* Grava as faixas que mudaram, e nao o movimento.
 
@@ -519,17 +522,18 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
         parecer engasgado, e a escrita e pequena o bastante para o otimismo
         valer. Se ela falhar, o estado anterior volta inteiro. */
   const commitLayout = useCallback((next: ArrangedWidget[], touched: string[]) => {
-    if (!currentWorkspaceId) return;
     const placements = placementsFor(next, touched);
     if (!placements.length) return;
 
+    // O banco guarda "Todos" como NULL; o seletor carrega string vazia.
+    const escopo = currentWorkspaceId || null;
     const anterior = widgetPlacements;
     const mexidos = new Set(placements.map((entry) => entry.widgetId));
     setWidgetPlacements([
-      ...anterior.filter((entry) => entry.workspaceId !== currentWorkspaceId || !mexidos.has(entry.widgetId)),
-      ...placements.map((entry) => ({ workspaceId: currentWorkspaceId, ...entry })),
+      ...anterior.filter((entry) => (entry.workspaceId ?? "") !== currentWorkspaceId || !mexidos.has(entry.widgetId)),
+      ...placements.map((entry) => ({ workspaceId: escopo, ...entry })),
     ]);
-    void api.setWidgetLayout(currentWorkspaceId, placements)
+    void api.setWidgetLayout(escopo, placements)
       .then(setWidgetPlacements)
       .catch(() => setWidgetPlacements(anterior));
   }, [currentWorkspaceId, widgetPlacements, setWidgetPlacements]);
@@ -558,9 +562,8 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
   const [confirmingRestore, setConfirmingRestore] = useState(false);
   useEffect(() => { if (!arranging) setConfirmingRestore(false); }, [arranging]);
   const restoreLayout = useCallback(() => {
-    if (!currentWorkspaceId) return;
     setConfirmingRestore(false);
-    void api.resetWidgetLayout(currentWorkspaceId).then(setWidgetPlacements).catch(() => undefined);
+    void api.resetWidgetLayout(currentWorkspaceId || null).then(setWidgetPlacements).catch(() => undefined);
   }, [currentWorkspaceId, setWidgetPlacements]);
 
   // O tempo carrega por fora do `refresh()`: aquele é o caminho de boot do app
@@ -586,12 +589,14 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
         <button type="button" aria-pressed={!currentWorkspace} data-selected={!currentWorkspace || undefined} onClick={() => setCurrentWorkspaceId("")}><strong>Todos</strong></button>
         {activeWorkspaces.map((workspace) => <button key={workspace.id} type="button" aria-pressed={workspace.id === currentWorkspaceId} data-selected={workspace.id === currentWorkspaceId || undefined} title={`Selecionar ${workspace.name}; clique duplo para abrir`} onClick={() => setCurrentWorkspaceId(workspace.id)} onDoubleClick={() => openWorkspace(workspace)}><strong>{workspace.name}</strong></button>)}
       </div>
-      {/* Arrumar e uma escolha POR Workspace, e por isso "Todos" nao arruma: nao
-          existe onde gravar, e um botao que aceita o clique e nao faz nada e
-          pior que um botao desligado. O `title` diz por que. */}
+      {/* Cada contexto arruma a propria Home, "Todos" inclusive. Ele nao e um
+          estado degradado a espera de um Workspace: para quem nunca criou
+          nenhum — e da para usar o M/OS inteiro assim — "Todos" e A Home, e
+          deixar o botao desligado ali tirava a feature do alcance dessa pessoa
+          sem dizer por que. Ver a migration 0018. */}
       <div className="home-arrange">
         {arranging ? <Button variant={confirmingRestore ? "danger" : "ghost"} size="sm" title={confirmingRestore ? "Apaga o arranjo deste Workspace. Não há Desfazer." : undefined} onClick={() => { if (confirmingRestore) restoreLayout(); else setConfirmingRestore(true); }}>{confirmingRestore ? "Confirmar: apagar o arranjo" : "Restaurar o desenho"}</Button> : null}
-        <Button variant={arranging ? "primary" : "outline"} size="sm" disabled={!currentWorkspaceId} title={currentWorkspaceId ? undefined : "Escolha um Workspace: o arranjo da Home é guardado por Workspace."} onClick={() => setArranging((ligado) => !ligado)}>{arranging ? "Concluir" : "Arrumar"}</Button>
+        <Button variant={arranging ? "primary" : "outline"} size="sm" title={currentWorkspace ? `Arrumar a Home de ${currentWorkspace.name}.` : "Arrumar a Home de Todos. Cada contexto guarda o próprio arranjo."} onClick={() => setArranging((ligado) => !ligado)}>{arranging ? "Concluir" : "Arrumar"}</Button>
       </div>
     </section>
 

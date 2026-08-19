@@ -544,6 +544,21 @@ impl DataService {
     }
 }
 
+/// Traduz o escopo que vem da interface para o do dominio.
+///
+/// O front nao tem `Option` no caminho de um seletor: "Todos" chega como string
+/// vazia, porque e o valor que o botao carrega. Aqui essa string vira `None`, e
+/// dai para baixo o escopo e um `Option` honesto. A traducao mora num lugar so
+/// de proposito — espalhada, um `""` esqueceria de virar `None` e o arranjo de
+/// "Todos" iria parar num Workspace de id invalido.
+fn parse_scope(workspace: Option<&str>) -> Result<Option<crate::WorkspaceId>, CoreError> {
+    match workspace.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => Ok(Some(crate::WorkspaceId::parse(value)?)),
+        None => Ok(None),
+    }
+}
+
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateProjectInput {
@@ -1015,20 +1030,20 @@ impl WorkService {
     /// na posicao ja e do front — e ele que conhece a faixa e o catalogo.
     pub fn set_widget_layout(
         &self,
-        workspace: &str,
+        workspace: Option<&str>,
         placements: &[crate::WidgetPlacementInput],
     ) -> Result<Vec<crate::WidgetPlacement>, CoreError> {
         self.repository
-            .set_widget_layout(crate::WorkspaceId::parse(workspace)?, placements)
+            .set_widget_layout(parse_scope(workspace)?, placements)
     }
 
-    /// Devolve a Home de um Workspace ao desenho, apagando o arranjo.
+    /// Devolve uma Home ao desenho, apagando o arranjo dela.
     pub fn reset_widget_layout(
         &self,
-        workspace: &str,
+        workspace: Option<&str>,
     ) -> Result<Vec<crate::WidgetPlacement>, CoreError> {
         self.repository
-            .reset_widget_layout(crate::WorkspaceId::parse(workspace)?)
+            .reset_widget_layout(parse_scope(workspace)?)
     }
     pub fn hidden_widgets(&self) -> Result<Vec<HiddenWidget>, CoreError> {
         self.repository.hidden_widgets()

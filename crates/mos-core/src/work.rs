@@ -250,10 +250,14 @@ pub enum SearchItem {
 /// desenho escolheu". Sem isso, o primeiro arrasto de qualquer widget
 /// petrificaria a largura e a faixa que ele tinha naquele dia, e mudar o
 /// desenho depois nao alcancaria mais ninguem que ja tivesse arrumado a Home.
+/// `workspace_id` vazio e a visao "Todos", e nao um dado faltando. Ela e um
+/// contexto de verdade — o unico de quem nunca criou Workspace nenhum — e tem
+/// arranjo proprio desde a migration 0018. Ver o comentario dela para por que o
+/// NULL diz isso melhor que um id sentinela.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetPlacement {
-    pub workspace_id: WorkspaceId,
+    pub workspace_id: Option<WorkspaceId>,
     pub widget_id: String,
     pub position: i64,
     pub section: Option<String>,
@@ -509,7 +513,7 @@ mod tests {
 
     fn placed(workspace: WorkspaceId, id: &str, position: i64) -> WidgetPlacement {
         WidgetPlacement {
-            workspace_id: workspace,
+            workspace_id: Some(workspace),
             widget_id: id.to_owned(),
             position,
             section: None,

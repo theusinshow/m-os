@@ -115,9 +115,11 @@ pub trait WorkRepository: Send + Sync {
     ///
     /// Mover entre faixas manda as DUAS faixas na mesma chamada, pela mesma
     /// razao — a de origem tambem mudou, e as duas precisam cair juntas.
+    ///
+    /// `workspace` ausente e a visao "Todos", que arruma a propria Home.
     fn set_widget_layout(
         &self,
-        workspace: crate::WorkspaceId,
+        workspace: Option<crate::WorkspaceId>,
         placements: &[crate::WidgetPlacementInput],
     ) -> Result<Vec<crate::WidgetPlacement>, CoreError>;
 
@@ -129,7 +131,7 @@ pub trait WorkRepository: Send + Sync {
     /// desta feature evita.
     fn reset_widget_layout(
         &self,
-        workspace: crate::WorkspaceId,
+        workspace: Option<crate::WorkspaceId>,
     ) -> Result<Vec<crate::WidgetPlacement>, CoreError>;
     fn create_project(&self, project: NewProject) -> Result<Project, CoreError>;
     fn update_project(

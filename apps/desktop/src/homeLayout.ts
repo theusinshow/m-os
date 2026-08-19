@@ -90,7 +90,10 @@ export type ArrangedWidget = { id: string; label: string; role: HomeWidgetRole; 
  *    do catalogo. Banco meio gravado nao pode custar um widget.
  */
 export function arrangeHome(placements: WidgetPlacement[], workspaceId: string): ArrangedWidget[] {
-  const saved = new Map(placements.filter((entry) => entry.workspaceId === workspaceId).map((entry) => [entry.widgetId, entry] as const));
+  /* O front carrega "Todos" como string vazia, porque e o valor que o botao do
+     seletor tem; o banco carrega como NULL, porque la e a ausencia de Workspace
+     (migration 0018). Os dois se encontram aqui, e so aqui. */
+  const saved = new Map(placements.filter((entry) => (entry.workspaceId ?? "") === workspaceId).map((entry) => [entry.widgetId, entry] as const));
   const bands = HOME_SECTIONS.map((section) => section.id);
 
   const resolved = HOME_WIDGETS.map((widget, index) => {

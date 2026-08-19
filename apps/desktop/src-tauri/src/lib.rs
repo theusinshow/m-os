@@ -1098,21 +1098,26 @@ fn widget_placements(
     state.work.widget_placements()
 }
 
+/// `workspace_id` ausente e a visao "Todos", que arruma a propria Home
+/// (migration 0018). O front manda `null` quando nenhum Workspace esta
+/// selecionado.
 #[tauri::command]
 fn set_widget_layout(
     state: tauri::State<'_, AppState>,
-    workspace_id: String,
+    workspace_id: Option<String>,
     placements: Vec<mos_core::WidgetPlacementInput>,
 ) -> Result<Vec<mos_core::WidgetPlacement>, CoreError> {
-    state.work.set_widget_layout(&workspace_id, &placements)
+    state
+        .work
+        .set_widget_layout(workspace_id.as_deref(), &placements)
 }
 
 #[tauri::command]
 fn reset_widget_layout(
     state: tauri::State<'_, AppState>,
-    workspace_id: String,
+    workspace_id: Option<String>,
 ) -> Result<Vec<mos_core::WidgetPlacement>, CoreError> {
-    state.work.reset_widget_layout(&workspace_id)
+    state.work.reset_widget_layout(workspace_id.as_deref())
 }
 fn load_settings(path: &std::path::Path) -> UserSettings {
     let mut settings = fs::read_to_string(path)

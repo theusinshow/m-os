@@ -96,6 +96,26 @@ describe("arrangeHome", () => {
     expect(idsDa(arranjo, "now")).toEqual(["now", "timer", "today_hours"]);
   });
 
+  /* A visao "Todos" arruma a propria Home desde a migration 0018. O banco a
+     guarda como NULL e o seletor a carrega como string vazia — este e o unico
+     ponto do front onde os dois vocabularios se encontram, e por isso e o unico
+     lugar onde um `??` esquecido apagaria o arranjo de quem nunca criou
+     Workspace nenhum. */
+  it("aplica o arranjo de Todos, que o banco guarda como nulo", () => {
+    const arranjo = arrangeHome([{ workspaceId: null, widgetId: "today_hours", position: 0, section: null, span: 12 }], "");
+    expect(idsDa(arranjo, "now")).toEqual(["today_hours", "now", "timer"]);
+    expect(arranjo.find((slot) => slot.id === "today_hours")?.span).toBe(12);
+  });
+
+  it("nao deixa o arranjo de Todos vazar para um Workspace", () => {
+    const deTodos = [{ workspaceId: null, widgetId: "today_hours", position: 0, section: null, span: null }];
+    expect(idsDa(arrangeHome(deTodos, WORKSPACE), "now")).toEqual(["now", "timer", "today_hours"]);
+  });
+
+  it("nem o de um Workspace para Todos", () => {
+    expect(idsDa(arrangeHome([guardado("today_hours", 0)], ""), "now")).toEqual(["now", "timer", "today_hours"]);
+  });
+
   /* Linha de widget que nao existe mais e inofensiva, do mesmo jeito que a
      tabela de ocultos ja trata. */
   it("ignora linha de widget que saiu do catalogo", () => {

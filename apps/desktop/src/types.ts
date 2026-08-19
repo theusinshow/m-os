@@ -521,7 +521,10 @@ export type DeliveryEvent = {
    migration 0017 — mandar o valor efetivo em toda reordenacao petrificaria o
    desenho de hoje no primeiro arrasto. */
 export type WidgetPlacement = {
-  workspaceId: string;
+  /* Nulo e a visao "Todos", e nao um dado faltando: ela e um contexto de
+     verdade — o unico de quem nunca criou Workspace — e arruma a propria Home
+     desde a migration 0018. */
+  workspaceId: string | null;
   widgetId: string;
   position: number;
   section: string | null;
