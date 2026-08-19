@@ -33,8 +33,11 @@ export type Workspace = {
 };
 
 /** Uma entrada significa OCULTO — ausencia e o padrao visivel. Ver migration 0008. */
+/* A LINHA SIGNIFICA OCULTO — ausencia dela significa visivel. E `workspaceId`
+   nulo e a visao "Todos", que esconde os proprios widgets desde a migration
+   0019, e nao um dado faltando. */
 export type HiddenWidget = {
-  workspaceId: string;
+  workspaceId: string | null;
   widgetId: string;
 };
 
@@ -514,10 +517,30 @@ export type DeliveryEvent = {
   level: string;
 };
 
-export type WidgetPosition = {
-  workspaceId: string;
+/* Onde um widget foi posto na Home de um Workspace.
+
+   `section` e `span` sao anulaveis, e o `null` e a parte que importa: dentro de
+   uma linha que existe, campo vazio significa "o que o desenho escolheu". Ver a
+   migration 0017 — mandar o valor efetivo em toda reordenacao petrificaria o
+   desenho de hoje no primeiro arrasto. */
+export type WidgetPlacement = {
+  /* Nulo e a visao "Todos", e nao um dado faltando: ela e um contexto de
+     verdade — o unico de quem nunca criou Workspace — e arruma a propria Home
+     desde a migration 0018. */
+  workspaceId: string | null;
   widgetId: string;
   position: number;
+  section: string | null;
+  span: number | null;
+};
+
+/* O que se manda para gravar. Sem o Workspace, que vem por fora porque a
+   escrita inteira e de um so. */
+export type WidgetPlacementInput = {
+  widgetId: string;
+  position: number;
+  section: string | null;
+  span: number | null;
 };
 
 // ===========================================================================

@@ -256,6 +256,6 @@ CREATE TABLE meeting_transcript_index (
 
 CREATE INDEX meeting_transcript_index_by_meeting ON meeting_transcript_index (meeting_id);
 
-PRAGMA user_version = 17;
+PRAGMA user_version = 20;
 
 COMMIT;

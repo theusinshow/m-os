@@ -3,7 +3,8 @@ import type { UndoStep } from "./hermes";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
-  MeetingTick, TranscriberStatus, TranscriptSegment, WidgetPosition, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+  MeetingTick, TranscriberStatus, TranscriptSegment,
+  WidgetPlacement, WidgetPlacementInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -22,6 +23,9 @@ export type AcceptReceipt = {
 };
 
 export const api = {
+  widgetPlacements() {
+    return invoke<WidgetPlacement[]>("widget_placements");
+  },
 
   // ===========================================================================
   // Meeting Agent
@@ -127,13 +131,17 @@ export const api = {
   meetingSetAnalysisConsent(granted: boolean) {
     return invoke<AnalysisConsent>("meeting_set_analysis_consent", { granted });
   },
-  widgetPositions() {
-    return invoke<WidgetPosition[]>("widget_positions");
+  // Manda a faixa inteira, e nao "o widget X foi para a posicao 3": quem
+  // sabe o que acontece com quem estava la e o front, que conhece a faixa.
+  // Mover entre faixas manda as DUAS na mesma chamada, porque as duas mudaram.
+  // `workspaceId` nulo e a visao "Todos", que arruma a propria Home.
+  setWidgetLayout(workspaceId: string | null, placements: WidgetPlacementInput[]) {
+    return invoke<WidgetPlacement[]>("set_widget_layout", { workspaceId, placements });
   },
-  // Manda a secao inteira, e nao "o widget X foi para a posicao 3": quem
-  // sabe o que acontece com quem estava la e o front, que conhece a secao.
-  setWidgetOrder(workspaceId: string, ordered: string[]) {
-    return invoke<WidgetPosition[]>("set_widget_order", { workspaceId, ordered });
+  // Volta ao desenho APAGANDO as linhas. Gravar o catalogo por cima
+  // petrificaria o desenho de hoje, que e o oposto do que a inversao faz.
+  resetWidgetLayout(workspaceId: string | null) {
+    return invoke<WidgetPlacement[]>("reset_widget_layout", { workspaceId });
   },
   // --- Inicializacao com o Windows (ADR-043) ---
   //
@@ -371,7 +379,8 @@ export const api = {
   hiddenWidgets() {
     return invoke<HiddenWidget[]>("list_hidden_widgets");
   },
-  setWorkspaceWidget(widgetId: string, workspaceId: string, visible: boolean) {
+  // `workspaceId` nulo e a visao "Todos", que esconde os proprios widgets.
+  setWorkspaceWidget(widgetId: string, workspaceId: string | null, visible: boolean) {
     return invoke<void>("set_workspace_widget", { widgetId, workspaceId, visible });
   },
   markRegisteredAppOpened(id: string) {

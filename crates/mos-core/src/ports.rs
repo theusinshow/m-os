@@ -97,26 +97,44 @@ pub trait WorkRepository: Send + Sync {
     fn delete_task(&self, id: TaskId) -> Result<(), CoreError>;
     fn delete_project(&self, id: ProjectId) -> Result<(), CoreError>;
     fn delete_workspace(&self, id: WorkspaceId) -> Result<(), CoreError>;
+    /// A LINHA SIGNIFICA OCULTO — ausencia dela significa visivel. `workspace_id`
+    /// ausente e a visao "Todos", que esconde os proprios widgets.
     fn set_widget_hidden(
         &self,
-        workspace_id: WorkspaceId,
+        workspace_id: Option<WorkspaceId>,
         widget_id: &str,
         hidden: bool,
     ) -> Result<(), CoreError>;
     fn hidden_widgets(&self) -> Result<Vec<HiddenWidget>, CoreError>;
 
-    fn widget_positions(&self) -> Result<Vec<crate::WidgetPosition>, CoreError>;
+    fn widget_placements(&self) -> Result<Vec<crate::WidgetPlacement>, CoreError>;
 
-    /// Grava a ordem de um conjunto de widgets, numa transacao.
+    /// Grava o arranjo de um conjunto de widgets, numa transacao.
     ///
     /// Recebe a lista inteira e nao um movimento: gravar "o widget X foi para
     /// a posicao 3" obrigaria o banco a saber o que acontece com quem estava
-    /// la, e essa regra ja existe no front, que e quem conhece a secao.
-    fn set_widget_order(
+    /// la, e essa regra ja existe no front, que e quem conhece a faixa.
+    ///
+    /// Mover entre faixas manda as DUAS faixas na mesma chamada, pela mesma
+    /// razao — a de origem tambem mudou, e as duas precisam cair juntas.
+    ///
+    /// `workspace` ausente e a visao "Todos", que arruma a propria Home.
+    fn set_widget_layout(
         &self,
-        workspace: crate::WorkspaceId,
-        ordered: &[String],
-    ) -> Result<Vec<crate::WidgetPosition>, CoreError>;
+        workspace: Option<crate::WorkspaceId>,
+        placements: &[crate::WidgetPlacementInput],
+    ) -> Result<Vec<crate::WidgetPlacement>, CoreError>;
+
+    /// Apaga o arranjo de um Workspace, devolvendo a Home ao desenho.
+    ///
+    /// APAGAR e a operacao certa, e nao gravar os valores do catalogo: a
+    /// inversao da 0016 diz que ausencia de linha significa o desenho, entao
+    /// gravar o desenho de hoje seria petrifica-lo — exatamente o que o resto
+    /// desta feature evita.
+    fn reset_widget_layout(
+        &self,
+        workspace: Option<crate::WorkspaceId>,
+    ) -> Result<Vec<crate::WidgetPlacement>, CoreError>;
     fn create_project(&self, project: NewProject) -> Result<Project, CoreError>;
     fn update_project(
         &self,

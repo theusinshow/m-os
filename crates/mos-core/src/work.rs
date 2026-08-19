@@ -126,7 +126,8 @@ pub struct Workspace {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HiddenWidget {
-    pub workspace_id: WorkspaceId,
+    /// Vazio e a visao "Todos", e nao um dado faltando (migration 0019).
+    pub workspace_id: Option<WorkspaceId>,
     pub widget_id: String,
 }
 
@@ -251,60 +252,100 @@ pub enum SearchItem {
     },
 }
 
+/// Onde um widget foi posto na Home de um Workspace.
+///
+/// Espelha a inversao de `workspace_hidden_widgets`: **ausencia de linha
+/// significa o que o desenho escolheu.** Workspace novo nao precisa de nenhuma
+/// escrita, e widget criado depois nasce onde o catalogo o pos, em vez de
+/// nascer no lugar que uma tabela vazia sortear.
+///
+/// A REGRA que resolve isto contra o catalogo NAO mora aqui. Ela vive no front,
+/// em `apps/desktop/src/homeLayout.ts`, junto do catalogo de widgets — que e do
+/// desenho da Home e nao do dominio. O `CORE.md` lista os conceitos que este
+/// crate carrega (Capture, Inbox, Project, Task, Workspace); largura de widget
+/// nao e um deles. O que fica deste lado e o que o BANCO precisa para nao
+/// aceitar lixo: o tipo, e os validadores logo abaixo.
+///
+/// `section` e `span` sao `Option` pelo mesmo motivo, um degrau mais fundo:
+/// dentro de uma linha que existe, o campo vazio continua significando "o que o
+/// desenho escolheu". Sem isso, o primeiro arrasto de qualquer widget
+/// petrificaria a largura e a faixa que ele tinha naquele dia, e mudar o
+/// desenho depois nao alcancaria mais ninguem que ja tivesse arrumado a Home.
+/// `workspace_id` vazio e a visao "Todos", e nao um dado faltando. Ela e um
+/// contexto de verdade — o unico de quem nunca criou Workspace nenhum — e tem
+/// arranjo proprio desde a migration 0018. Ver o comentario dela para por que o
+/// NULL diz isso melhor que um id sentinela.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetPlacement {
+    pub workspace_id: Option<WorkspaceId>,
+    pub widget_id: String,
+    pub position: i64,
+    pub section: Option<String>,
+    pub span: Option<i64>,
+}
+
+/// O que o front pede para gravar: a mesma linha, sem o Workspace, que vem por
+/// fora porque a escrita inteira e de um Workspace so.
+///
+/// A escrita e AUTORITATIVA — o que chega aqui e o que fica gravado, campo por
+/// campo. Nao ha "nao mexi neste": `span: None` significa **volte ao desenho**,
+/// e e assim que se desfaz um redimensionamento. Um `COALESCE` no banco daria a
+/// leitura oposta e tornaria impossivel voltar atras, que foi o motivo de ele
+/// sair daqui.
+///
+/// `section` e obrigatoria porque posicao sem faixa nao quer dizer nada: sao a
+/// mesma informacao — onde na Home o widget esta. E por isso reordenar uma
+/// faixa FIXA a faixa dos widgets dela, de proposito: quem arrumou aquela faixa
+/// escolheu quem mora nela, e o desenho mudar de ideia depois nao pode arrastar
+/// um widget para fora de um arranjo que a pessoa montou. E a mesma regra que
+/// faz widget novo ir para o fim, aplicada a outra dimensao.
+///
+/// `span` NAO segue essa regra, e a assimetria e deliberada: largura e uma
+/// escolha ortogonal a arrumacao. Quem so arrastou nunca escolheu largura
+/// nenhuma, entao reordenar tem de deixar `span: None` passar intacto — e a
+/// responsabilidade de quem monta a lista.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetPlacementInput {
+    pub widget_id: String,
+    pub position: i64,
+    pub section: String,
+    pub span: Option<i64>,
+}
+
+/// Quantas das doze colunas o widget ocupa.
+///
+/// Valida FORMA e nao vocabulario, igual ao id: a grade tem doze colunas e
+/// desenha qualquer numero delas. Qual subconjunto a interface oferece
+/// (3,4,5,6,8,9,12) e escolha de desenho, e desenho muda mais rapido que core.
+pub fn validate_span(value: i64) -> Result<i64, CoreError> {
+    if (1..=12).contains(&value) {
+        Ok(value)
+    } else {
+        Err(CoreError::new(
+            ErrorCode::InvalidInput,
+            "A largura de um widget vai de 1 a 12 colunas.",
+            false,
+        ))
+    }
+}
+
+/// Mesma forma do id de widget, e pelo mesmo motivo: as faixas da Home vivem no
+/// front, e enum aqui faria de cada faixa nova uma migration.
+pub fn validate_section_id(value: &str) -> Result<String, CoreError> {
+    validate_widget_id(value).map_err(|_| {
+        CoreError::new(
+            ErrorCode::InvalidInput,
+            "ID de faixa da Home invalido.",
+            false,
+        )
+    })
+}
+
 /// Espelha o CHECK da migration 0008: minuscula inicial, depois minuscula,
 /// digito ou `_`. O core valida forma, nao vocabulario — quem conhece o catalogo
 /// de widgets e o front, em HOME_WIDGETS.
-/// A posicao de um widget na Home de um Workspace.
-///
-/// Espelha a inversao de `workspace_hidden_widgets`: **ausencia de linha
-/// significa a ordem do catalogo.** Workspace novo nao precisa de nenhuma
-/// escrita, e widget criado depois nasce onde o catalogo o pos, em vez de
-/// nascer no lugar que uma tabela vazia sortear.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WidgetPosition {
-    pub workspace_id: WorkspaceId,
-    pub widget_id: String,
-    pub position: i64,
-}
-
-/// Ordena ids de widget aplicando as posicoes guardadas.
-///
-/// O core NAO conhece o catalogo — ele vive no front, em `HOME_WIDGETS`, e a
-/// mesma razao que fez `workspace_hidden_widgets` guardar string opaca vale
-/// aqui: enum no nucleo faria de cada widget novo uma migration.
-///
-/// Tres regras, e cada uma existe para um caso que da errado sozinho:
-///
-/// 1. quem tem posicao guardada vem primeiro, na ordem dela;
-/// 2. quem nao tem vai para o fim, preservando a ordem em que chegou — que e a
-///    do catalogo. Widget novo aparecendo no meio de um arranjo que a pessoa
-///    montou seria o sistema desfazendo a escolha dela;
-/// 3. posicao repetida ou salteada nao quebra nada: o desempate e a ordem de
-///    chegada. Banco com linha orfa ou meio gravada nao pode sumir com widget.
-pub fn order_widgets(catalog: &[String], saved: &[WidgetPosition]) -> Vec<String> {
-    let mut ordered: Vec<(Option<i64>, usize, &String)> = catalog
-        .iter()
-        .enumerate()
-        .map(|(index, id)| {
-            let position = saved
-                .iter()
-                .find(|entry| &entry.widget_id == id)
-                .map(|entry| entry.position);
-            (position, index, id)
-        })
-        .collect();
-
-    ordered.sort_by(|left, right| match (left.0, right.0) {
-        (Some(a), Some(b)) => a.cmp(&b).then(left.1.cmp(&right.1)),
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => left.1.cmp(&right.1),
-    });
-
-    ordered.into_iter().map(|(_, _, id)| id.clone()).collect()
-}
-
 pub fn validate_widget_id(value: &str) -> Result<String, CoreError> {
     let value = value.trim();
     let valid = !value.is_empty()
@@ -374,101 +415,24 @@ mod tests {
         assert!(TaskState::parse("").is_err());
     }
 
-    // ------------------------------------------------------ ordem dos widgets
+    // ------------------------------------------------ validacao do que entra
 
-    fn catalog() -> Vec<String> {
-        ["timer", "now", "today_hours", "inbox_pulse"]
-            .iter()
-            .map(|id| (*id).to_owned())
-            .collect()
-    }
-
-    fn placed(workspace: WorkspaceId, id: &str, position: i64) -> WidgetPosition {
-        WidgetPosition {
-            workspace_id: workspace,
-            widget_id: id.to_owned(),
-            position,
-        }
-    }
-
-    /// Sem nenhuma escrita, a Home e a do catalogo. E o caso de quem nunca
-    /// arrastou nada, que e a maioria.
     #[test]
-    fn without_saved_positions_the_catalog_order_wins() {
-        assert_eq!(order_widgets(&catalog(), &[]), catalog());
+    fn a_span_outside_the_grid_is_refused() {
+        assert!(validate_span(0).is_err());
+        assert!(validate_span(13).is_err());
+        assert!(validate_span(-1).is_err());
+        assert_eq!(validate_span(1).unwrap(), 1);
+        assert_eq!(validate_span(12).unwrap(), 12);
+        assert_eq!(validate_span(7).unwrap(), 7, "forma, e nao o vocabulario do desenho");
     }
 
     #[test]
-    fn saved_positions_decide_the_order() {
-        let workspace = WorkspaceId::new();
-        let saved = [
-            placed(workspace, "inbox_pulse", 0),
-            placed(workspace, "timer", 1),
-            placed(workspace, "now", 2),
-            placed(workspace, "today_hours", 3),
-        ];
-        assert_eq!(
-            order_widgets(&catalog(), &saved),
-            ["inbox_pulse", "timer", "now", "today_hours"]
-        );
-    }
-
-    /// O caso que decide se a feature envelhece bem: alguem arrumou a Home, e
-    /// meses depois um widget novo entra no catalogo. Ele NAO pode aparecer no
-    /// meio do arranjo — isso seria o sistema desfazendo a escolha da pessoa.
-    #[test]
-    fn a_widget_added_later_goes_to_the_end_of_an_arranged_home() {
-        let workspace = WorkspaceId::new();
-        let saved = [
-            placed(workspace, "inbox_pulse", 0),
-            placed(workspace, "timer", 1),
-        ];
-        let mut with_newcomer = catalog();
-        with_newcomer.push("brand_new".to_owned());
-
-        assert_eq!(
-            order_widgets(&with_newcomer, &saved),
-            ["inbox_pulse", "timer", "now", "today_hours", "brand_new"],
-            "os sem posicao vao para o fim, na ordem do catalogo"
-        );
-    }
-
-    /// Linha de widget que nao existe mais e inofensiva, do mesmo jeito que a
-    /// tabela de ocultos ja trata.
-    #[test]
-    fn a_position_for_a_widget_that_no_longer_exists_is_ignored() {
-        let workspace = WorkspaceId::new();
-        let saved = [placed(workspace, "widget_extinto", 0), placed(workspace, "now", 1)];
-        assert_eq!(
-            order_widgets(&catalog(), &saved),
-            ["now", "timer", "today_hours", "inbox_pulse"]
-        );
-    }
-
-    /// Banco meio gravado nao pode sumir com widget nenhum.
-    #[test]
-    fn repeated_or_gapped_positions_never_drop_a_widget() {
-        let workspace = WorkspaceId::new();
-        let saved = [
-            placed(workspace, "now", 5),
-            placed(workspace, "timer", 5),
-            placed(workspace, "inbox_pulse", 900),
-        ];
-        let result = order_widgets(&catalog(), &saved);
-
-        assert_eq!(result.len(), catalog().len(), "ninguem se perde");
-        for id in catalog() {
-            assert!(result.contains(&id), "{id} sumiu");
-        }
-        assert_eq!(
-            &result[..2],
-            ["timer", "now"],
-            "empate desempata pela ordem do catalogo"
-        );
-    }
-
-    #[test]
-    fn an_empty_catalog_orders_to_nothing() {
-        assert!(order_widgets(&[], &[]).is_empty());
+    fn a_section_id_follows_the_same_shape_as_a_widget_id() {
+        assert_eq!(validate_section_id("overview").unwrap(), "overview");
+        assert_eq!(validate_section_id("faixa_2").unwrap(), "faixa_2");
+        assert!(validate_section_id("Overview").is_err());
+        assert!(validate_section_id("2overview").is_err());
+        assert!(validate_section_id("").is_err());
     }
 }

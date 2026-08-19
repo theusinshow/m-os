@@ -544,6 +544,21 @@ impl DataService {
     }
 }
 
+/// Traduz o escopo que vem da interface para o do dominio.
+///
+/// O front nao tem `Option` no caminho de um seletor: "Todos" chega como string
+/// vazia, porque e o valor que o botao carrega. Aqui essa string vira `None`, e
+/// dai para baixo o escopo e um `Option` honesto. A traducao mora num lugar so
+/// de proposito — espalhada, um `""` esqueceria de virar `None` e o arranjo de
+/// "Todos" iria parar num Workspace de id invalido.
+fn parse_scope(workspace: Option<&str>) -> Result<Option<crate::WorkspaceId>, CoreError> {
+    match workspace.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => Ok(Some(crate::WorkspaceId::parse(value)?)),
+        None => Ok(None),
+    }
+}
+
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateProjectInput {
@@ -997,29 +1012,38 @@ impl WorkService {
 
     pub fn set_widget_hidden(
         &self,
-        workspace_id: &str,
+        workspace_id: Option<&str>,
         widget_id: &str,
         hidden: bool,
     ) -> Result<(), CoreError> {
         self.repository
-            .set_widget_hidden(WorkspaceId::parse(workspace_id)?, widget_id, hidden)
+            .set_widget_hidden(parse_scope(workspace_id)?, widget_id, hidden)
     }
 
-    pub fn widget_positions(&self) -> Result<Vec<crate::WidgetPosition>, CoreError> {
-        self.repository.widget_positions()
+    pub fn widget_placements(&self) -> Result<Vec<crate::WidgetPlacement>, CoreError> {
+        self.repository.widget_placements()
     }
 
-    /// Grava a ordem de uma secao da Home.
+    /// Grava o arranjo das faixas que mudaram.
     ///
     /// Recebe a lista inteira porque a regra de o que acontece com quem estava
-    /// na posicao ja e do front — e ele que conhece a secao e o catalogo.
-    pub fn set_widget_order(
+    /// na posicao ja e do front — e ele que conhece a faixa e o catalogo.
+    pub fn set_widget_layout(
         &self,
-        workspace: &str,
-        ordered: &[String],
-    ) -> Result<Vec<crate::WidgetPosition>, CoreError> {
+        workspace: Option<&str>,
+        placements: &[crate::WidgetPlacementInput],
+    ) -> Result<Vec<crate::WidgetPlacement>, CoreError> {
         self.repository
-            .set_widget_order(crate::WorkspaceId::parse(workspace)?, ordered)
+            .set_widget_layout(parse_scope(workspace)?, placements)
+    }
+
+    /// Devolve uma Home ao desenho, apagando o arranjo dela.
+    pub fn reset_widget_layout(
+        &self,
+        workspace: Option<&str>,
+    ) -> Result<Vec<crate::WidgetPlacement>, CoreError> {
+        self.repository
+            .reset_widget_layout(parse_scope(workspace)?)
     }
     pub fn hidden_widgets(&self) -> Result<Vec<HiddenWidget>, CoreError> {
         self.repository.hidden_widgets()
