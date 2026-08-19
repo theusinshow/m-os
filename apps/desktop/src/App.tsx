@@ -421,7 +421,7 @@ function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
   return nextIndex;
 }
 
-function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, setHiddenWidgets, widgetPlacements, setWidgetPlacements, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; setHiddenWidgets: (next: HiddenWidget[]) => void; widgetPlacements: WidgetPlacement[]; setWidgetPlacements: (next: WidgetPlacement[]) => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent }) {
+function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, setHiddenWidgets, widgetPlacements, setWidgetPlacements, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, openFinancePage, openCalendarPage, openMeetingsPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; setHiddenWidgets: (next: HiddenWidget[]) => void; widgetPlacements: WidgetPlacement[]; setWidgetPlacements: (next: WidgetPlacement[]) => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; openFinancePage: () => void; openCalendarPage: () => void; openMeetingsPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
   const [workspaceApps, setWorkspaceApps] = useState<RegisteredApp[]>([]);
@@ -713,7 +713,15 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
         // ele, com zero apps cadastrados a busca do Command nao acha nada e a
         // pagina fica inalcancavel para criar o primeiro.
         { id: "apps", node: <Panel label="APPS" value={String(activeApps.length)} unit={activeApps.length === 1 ? "app" : "apps"} action={<Button variant="ghost" onClick={() => openAppsPage()}>Gerenciar</Button>}><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><AppIcon app={app} />{index < 9 ? <span className="app-shortcut">Ctrl {index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel> },
-        { id: "quick_actions", node: <Panel label="AÇÕES"><div className="quick-actions"><Button variant="outline" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button><Button variant="outline" size="sm" onClick={() => openTasksPage()}>Nova Task</Button><Button variant="outline" size="sm" onClick={() => openProjectsPage()}>Novo Project</Button></div></Panel> },
+        { id: "quick_actions", node: <Panel label="AÇÕES"><div className="quick-actions"><Button variant="outline" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button><Button variant="outline" size="sm" onClick={() => openTasksPage()}>Nova Task</Button><Button variant="outline" size="sm" onClick={() => openProjectsPage()}>Novo Project</Button>{/* As tres portas dos destinos que sairam do rail (ADR-045). Entram JUNTO
+            com a saida, e nao depois: a ADR-038 registrou que tirar Apps do rail
+            sem porta nova deixaria "a pagina inalcancavel", e o leque sozinho
+            nao basta — uma petala pode ser trocada por outra coisa.
+
+            Ficam aqui, e nao em widgets proprios, porque ACOES ja e o lugar de
+            "ir fazer uma coisa" e nenhum dos tres tem widget na Home: criar tres
+            widgets para tres botoes seria caro demais para a divida que a
+            ADR-038 pagou com um botao so. */}<Button variant="outline" size="sm" onClick={() => openCalendarPage()}>Calendário</Button><Button variant="outline" size="sm" onClick={() => openFinancePage()}>Finance</Button><Button variant="outline" size="sm" onClick={() => openMeetingsPage()}>Reuniões</Button></div></Panel> },
         // SISTEMA nao duplica INTEGRIDADE das Settings — aquele e diagnostico
         // (schema, WAL), este responde "esta salvo?".
         { id: "system_health", node: <Panel label="SISTEMA"><SystemHealth status={status} /></Panel> },
@@ -2996,49 +3004,44 @@ function DesktopApp() {
   // Sete destinos: o Hermes entrou como tela propria no desenho v0.1 do chat
   // completo, logo depois da Home. Ele deixou de ser so camada dentro do
   // Command — continua alcancavel por la, mas agora tem endereco.
-  const nav: { page: Page; label: string; icon: IconName; count?: number }[] = [{ page: "home", label: "Home", icon: "home" }, { page: "hermes", label: "Hermes", icon: "hermes" }, { page: "inbox", label: "Inbox", icon: "inbox", count: inbox.length }, { page: "tasks", label: "Tasks", icon: "board" }, { page: "projects", label: "Projects", icon: "projects" }, /* Workspaces entra no rail. O icone ja existia desenhado em Icon.tsx desde o
-     handoff, para um item que nunca foi acrescentado — e ate agora a unica
-     porta era o Ctrl+K. Workspace nao e feature nova que precise justificar
-     presenca na navegacao (DESIGN-FOUNDATIONS 5): e um dos conceitos centrais
-     da VISION 7, e estava invisivel para quem nao conhece o Command. */
-  { page: "workspaces", label: "Workspaces", icon: "workspaces" },
-  /* Tempo e o NONO destino, e a ADR-036 revisou o teto da ADR-031 para caber
-     ele. O argumento nao e frequencia de uso: e que o usuario fatura por hora,
-     entao tempo rastreado e o registro de onde sai a renda dele — e isso nao
-     vive atras de um Ctrl+K. Entra depois de Projects porque a hora sempre
-     pertence a um Project. */
+  /* OITO destinos, e a ADR-045 explica por que o teto parou de subir.
+     Ele foi de seis a oito (ADR-031), nove (036), dez (038), onze (039) e doze
+     (044) — cinco revisoes em pouco mais de duas semanas, cada uma com um bom
+     argumento e nenhuma segurando o conjunto, porque o teto era um numero e nao
+     um caminho.
+
+     Calendario, Finance e Reunioes sairam para o leque, e a regra nova e que
+     destino novo NASCE la: ele so sobe ao rail quando provar ser renda ou
+     memoria, pelo criterio que a ADR-036 escreveu. As tres paginas continuam
+     existindo, e as portas delas entraram JUNTO com a saida — no leque e no
+     widget ACOES da Home —, que e a divida que a ADR-038 registrou ao tirar
+     Apps daqui. */
+  const nav: { page: Page; label: string; icon: IconName; count?: number }[] = [{ page: "home", label: "Home", icon: "home" }, { page: "hermes", label: "Hermes", icon: "hermes" }, { page: "tasks", label: "Tasks", icon: "board" }, { page: "projects", label: "Projects", icon: "projects" },
+  /* Tempo entrou pela ADR-036, e o argumento nao era frequencia: o usuario
+     fatura por hora, entao tempo rastreado e o registro de onde sai a renda
+     dele. Fica ao lado de Projects porque a hora sempre pertence a um. */
   { page: "tempo", label: "Tempo", icon: "tempo" },
-  /* Calendario e o DECIMO, e a ADR-036 dizia que o decimo exige retirar um.
-     Quem saiu foi Apps, por dois motivos que se somam: o banco do usuario tem
-     zero apps cadastrados, e o criterio da propria ADR-036 e "renda ou
-     memoria", nao conveniencia — um lancador e conveniencia. Ver ADR-038.
-
-     Apps continua sendo pagina: chega pelo Command, pelo botao do widget APPS
-     na Home e pelos Workspaces. O botao no widget foi acrescentado JUNTO com
-     esta troca, e nao depois: sem ele, com zero apps a busca nao acha nada e a
-     pagina ficaria inalcancavel para criar o primeiro — que e exatamente a
-     falha que a ADR-031 registrou quando Workspaces foi rebaixado. */
-  { page: "calendario", label: "Calendário", icon: "calendar" },
-  // ADR-039: onze destinos. Finance entra depois de Calendario porque, como
-  // Tempo, e de onde sai (ou vai) renda — nao e conveniencia.
-  { page: "finance", label: "Finance", icon: "finance" },
-  /* Reunioes e o DECIMO SEGUNDO, e a ADR-039 dizia que ele exigiria retirar um
-     ou uma ADR que justificasse nao retirar. Esta e a segunda: o criterio
-     fixado pela ADR-036 e "algo de que depende a renda ou a MEMORIA do
-     usuario", e uma reuniao gravada e literalmente memoria — e as decisoes que
-     saem dela sustentam trabalho faturado.
-
-     Entra no grupo TRABALHO, depois de Finance: ela pertence ao mesmo eixo de
-     Tempo e Calendario, que e o que aconteceu e quando. Ver ADR-044. */
-  { page: "reunioes", label: "Reuniões", icon: "meetings" },
+  /* Workspaces e a lente sobre tudo (ADR-038). Ele ja foi rebaixado uma vez e
+     ficou "invisivel para quem nao conhece o Command, ate ser promovido de
+     volta" — a ADR-031 registra isso, e e por isso que ele NAO foi para o
+     leque nesta troca. */
+  { page: "workspaces", label: "Workspaces", icon: "workspaces" },
+  { page: "inbox", label: "Inbox", icon: "inbox", count: inbox.length },
   { page: "library", label: "Library", icon: "library" }];
-  /* Os grupos explicitam a leitura da ordem atual sem mudar a IA aprovada.
-     No rail colapsado eles existem apenas semanticamente; labels aparecem
-     quando o usuario pede contexto expandindo a navegacao. */
+  /* Os grupos usam o vocabulario que a ADR-038 fixou ao definir o que e item de
+     rail: "Library e memoria, Inbox e a entrada dela, Workspaces e a lente sobre
+     tudo, e Tempo e de onde sai a renda".
+
+     Antes eram tres, SETE e um. Sete itens sob um rotulo e uma lista, nao um
+     grupo — o rotulo para de informar. E Inbox ficava em GERAL, longe da Library
+     que ele alimenta, enquanto Workspaces sumia no meio dos sete.
+
+     No rail colapsado os grupos existem apenas semanticamente; os rotulos
+     aparecem quando o usuario pede contexto expandindo a navegacao. */
   const navGroups = [
-    { label: "GERAL", items: nav.slice(0, 3) },
-    { label: "TRABALHO", items: nav.slice(3, 10) },
-    { label: "MEMÓRIA", items: nav.slice(10) },
+    { label: "GERAL", items: nav.slice(0, 2) },
+    { label: "TRABALHO", items: nav.slice(2, 6) },
+    { label: "MEMÓRIA", items: nav.slice(6) },
   ];
   const pageLabels: Record<Page, string> = { home: "Home", hermes: "Hermes", inbox: "Inbox", tasks: "Tasks", projects: "Projects", tempo: "Tempo", calendario: "Calendário", finance: "Finance", reunioes: "Reuniões", library: "Library", apps: "Apps", workspaces: "Workspaces", settings: "Settings" };
   const pageMeta = useMemo(() => {
@@ -3047,7 +3050,7 @@ function DesktopApp() {
   }, [page]);
   const pageContent = useMemo(() => {
     if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} />;
-    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} setHiddenWidgets={setHiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} />;
+    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} setHiddenWidgets={setHiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} openFinancePage={() => setPage("finance")} openCalendarPage={() => setPage("calendario")} openMeetingsPage={() => setPage("reunioes")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} />;
     if (page === "tempo") return <TempoPage projects={projects} openProject={openProject} receipt={showReceipt} />;
     if (page === "finance") return <FinancePage />;
     if (page === "calendario") return <CalendarPage />;
