@@ -452,7 +452,12 @@ button {
   animation: barSpin 900ms linear infinite;
 }
 
+/* `relative` existe para o leque: sem um ancestral posicionado, o `absolute`
+   dele resolve contra o viewport e a ancora centra na JANELA em vez da coluna —
+   fora do centro por metade da largura do rail. Ela e irma do `.content`, e nao
+   filha, entao continua parada enquanto a pagina rola. */
 .main-column {
+  position: relative;
   display: grid;
   min-width: 0;
   height: 100vh;
@@ -596,6 +601,10 @@ button {
 /* Troca de página: uma entrada curta por destino, nunca coreografia de layout. */
 .page-surface {
   min-height: 100%;
+  /* O par obrigatorio do `.leque` ser `absolute`: sem esta folga, o fim de uma
+     lista longa mora debaixo da ancora e "sobrepor" vira "esconder". Os dois
+     andam juntos ou o desenho mente. */
+  padding-bottom: calc(var(--height-control-lg) + var(--space-6));
   animation: viewEnter var(--dur-enter) var(--ease-enter);
 }
 
@@ -7404,6 +7413,130 @@ input[type="checkbox"]:disabled {
   font: var(--text-meta);
   color: var(--text-secondary);
   font-style: normal;
+}
+
+/* --- O leque (ADR-045) ---------------------------------------------------- */
+
+/* `absolute`, e nao um lugar no fluxo: uma faixa permanente roubaria altura de
+   TODA pagina para servir a um gesto. O par disto e o `padding-bottom` da
+   `.page-surface`, la em cima.
+
+   O rodape ja e disputado, e o centro e o que sobrou: o recibo de desfazer mora
+   no canto inferior esquerdo e o toast de atencao no direito. Nenhum dos dois
+   passa pelo centro, entao a ancora fechada convive com os dois. */
+.leque {
+  position: absolute;
+  bottom: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  /* Acima do recibo e do toast. O criterio nao e hierarquia visual, e INTENCAO:
+     o leque so esta aberto porque alguem acabou de clicar nele, enquanto recibo
+     e toast aparecem sozinhos. O que a pessoa pediu agora cobre o que o sistema
+     ofereceu sozinho — e os dois sao transitorios de qualquer forma. */
+  z-index: calc(var(--z-receipt) + 1);
+}
+
+.leque-ancora {
+  display: grid;
+  place-items: center;
+  width: var(--height-control-lg);
+  height: var(--height-control-lg);
+  color: var(--on-signal);
+  background: var(--signal-fill);
+  border: 0;
+  border-radius: 50%;
+  box-shadow: var(--shadow-overlay);
+}
+
+/* NAO ha giro da ancora enquanto aberta. Foi tentado e removido: o simbolo dela
+   e de tres pontos, e girar tres pontos so os poe na diagonal — movimento que
+   nao carrega dado nenhum, que e o que a ADR-034 chama de gasto. Quem diz que o
+   leque esta aberto sao as petalas, e elas ja dizem. */
+
+.leque-petalas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.leque[data-aberto] .leque-petalas {
+  pointer-events: auto;
+}
+
+.leque-petala {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  width: var(--height-control);
+  height: var(--height-control);
+  margin: auto;
+  color: var(--text);
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border-strong);
+  border-radius: 50%;
+  opacity: 0;
+  transform: translate3d(0, 0, 0) scale(0.6);
+  transition:
+    transform var(--dur-enter) var(--ease-enter),
+    opacity var(--dur-instant) linear,
+    border-color var(--dur-instant) var(--ease-state);
+}
+
+.leque[data-aberto] .leque-petala {
+  opacity: 1;
+  transform: translate3d(var(--x), var(--y), 0) scale(1);
+  /* Escalonado a partir da ancora: o olho segue a abertura em vez de receber
+     cinco pontos de uma vez. Dentro do orcamento da ADR-034. */
+  transition-delay: calc(var(--ordem) * 20ms);
+}
+
+.leque-petala:hover {
+  border-color: var(--signal-ink);
+}
+
+/* Fechado, a petala nao recebe clique nem foco — `pointer-events` ja resolve o
+   mouse, e o `tabIndex` do componente resolve o teclado. Isto aqui e para o
+   caso de a transicao ser cortada no meio: uma petala com opacidade zero em
+   cima da ancora roubaria o clique dela. */
+.leque:not([data-aberto]) .leque-petala {
+  pointer-events: none;
+}
+
+/* O percurso e o que se corta, e nao a presenca: as petalas continuam
+   aparecendo, so nao viajam. */
+@media (prefers-reduced-motion: reduce) {
+  .leque-petala {
+    transition: opacity var(--dur-instant) linear;
+    transform: translate3d(var(--x), var(--y), 0);
+  }
+  .leque[data-aberto] .leque-petala {
+    transition-delay: 0ms;
+  }
+  .leque[data-aberto] .leque-ancora {
+    transition: none;
+  }
+}
+
+.leque-seletor {
+  display: grid;
+  gap: var(--space-3);
+  width: min(28rem, calc(100vw - var(--space-6)));
+  max-height: calc(100vh - var(--space-6));
+  overflow-y: auto;
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-overlay);
+}
+
+/* `auto-fit` e nao um numero fixo de colunas: a lista de apps cresce com o
+   cadastro, e uma grade fixa deixaria buraco com um app e estouro com sete. */
+.leque-seletor-grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: var(--space-2);
 }
 
 /* --- Estreito ------------------------------------------------------------- */

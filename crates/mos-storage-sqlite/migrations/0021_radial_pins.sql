@@ -6,7 +6,7 @@
 -- slot nao congela os outros quatro.
 --
 -- `kind` e string opaca. O vocabulario de hoje e `app`, `acao` e `pagina`, e ele
--- mora em `leque.ts`; o CHECK garante FORMA, nao vocabulario. Um enum aqui faria
+-- mora em `lequePetalas.ts`; o CHECK garante FORMA, nao vocabulario. Um enum aqui faria
 -- de cada tipo novo de petala uma migration.
 --
 -- `slot` aceita 0..11 embora o desenho use CINCO. O banco guarda "qual das

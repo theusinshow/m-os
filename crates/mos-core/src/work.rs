@@ -318,7 +318,7 @@ pub struct WidgetPlacementInput {
 ///
 /// `workspace_id` nulo e a visao "Todos", e nao um dado faltando — mesma leitura
 /// da 0018, agora na 0021. A AUSENCIA de linha para um slot tambem significa
-/// algo: "o que o desenho escolheu". Quem resolve isso e `leque.ts`, que e a
+/// algo: "o que o desenho escolheu". Quem resolve isso e `lequePetalas.ts`, que e a
 /// unica copia da regra.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -392,7 +392,7 @@ pub fn validate_widget_id(value: &str) -> Result<String, CoreError> {
 
 /// A forma de um `kind` de petala, e so a forma.
 ///
-/// O vocabulario — `app`, `acao`, `pagina` — vive no front, em `leque.ts`, pelo
+/// O vocabulario — `app`, `acao`, `pagina` — vive no front, em `lequePetalas.ts`, pelo
 /// mesmo motivo que `widget_id` e opaco aqui: um enum no banco faria de cada
 /// tipo novo de petala uma migration, e tipo de petala muda mais rapido que
 /// schema. Espelha o CHECK da migration 0021.

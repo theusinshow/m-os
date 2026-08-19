@@ -1050,7 +1050,7 @@ impl WorkService {
     }
 
     /// As petalas fixadas. Repasse puro: a regra do leque — padrao de fabrica e
-    /// geometria — mora em `leque.ts`, e uma segunda copia aqui e exatamente o
+    /// geometria — mora em `lequePetalas.ts`, e uma segunda copia aqui e exatamente o
     /// que o `homeLayout.ts` conta ter dado errado com o arranjo da Home.
     pub fn radial_pins(&self) -> Result<Vec<crate::RadialPin>, CoreError> {
         self.repository.radial_pins()

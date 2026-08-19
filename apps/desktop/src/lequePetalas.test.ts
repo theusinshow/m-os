@@ -5,7 +5,7 @@ import {
   anguloDaPetala,
   posicaoDaPetala,
   resolverPetalas,
-} from "./leque";
+} from "./lequePetalas";
 import type { RadialPin } from "./types";
 
 describe("o padrão de fábrica", () => {

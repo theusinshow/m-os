@@ -547,7 +547,27 @@ export type WidgetPlacementInput = {
    leitura da 0018, agora na 0021.
 
    A AUSÊNCIA de linha para um slot também significa algo — "o que o desenho
-   escolheu" — e quem resolve isso é `leque.ts`, a única cópia da regra. */
+   escolheu" — e quem resolve isso é `lequePetalas.ts`, a única cópia da regra. */
+/** Os enderecos do shell.
+ *
+ * Mora aqui, e nao no `App.tsx`, porque deixou de ser assunto so dele: o leque
+ * navega por `pagina`, e importar o tipo de la criaria ciclo — o `App` ja
+ * importa o `Leque`. */
+export type Page =
+  | "home"
+  | "hermes"
+  | "inbox"
+  | "projects"
+  | "workspaces"
+  | "apps"
+  | "library"
+  | "tasks"
+  | "tempo"
+  | "calendario"
+  | "finance"
+  | "reunioes"
+  | "settings";
+
 export type RadialPin = {
   workspaceId: string | null;
   slot: number;
