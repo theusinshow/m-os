@@ -50,6 +50,17 @@ Estados possíveis:
 | ADR-032 | Os Apps próprios entram no monorepo, com profundidade decidida por app | Accepted |
 | ADR-033 | A unificação troca o valor por trás do nome, não o componente | Accepted |
 | ADR-034 | A família de widgets entra pela geometria, e só onde há dado | Accepted |
+| ADR-035 | Desfazer arquiva, nunca apaga | Accepted |
+| ADR-036 | O rail vai a nove, e Tempo ganha endereço | Accepted |
+| ADR-037 | O M/OS observa nomes de programa, e nada além disso | Accepted |
+| ADR-038 | O rail vai a dez, e Apps sai para o Calendário entrar | Accepted |
+| ADR-039 | O rail vai a onze, e Finance entra sem tirar ninguém | Accepted |
+| ADR-040 | A ponta arredondada entra compensada, e a moldura entra só na Home | Accepted |
+| ADR-041 | Argos, a face do estado, e por que ela não é AI slop | Accepted |
+| ADR-042 | O lembrete assenta, e o sódio passa a nomear em vez de contornar | Accepted |
+| ADR-043 | O M/OS pode iniciar com o Windows, e o registro é quem manda | Accepted |
+| ADR-044 | O rail vai a doze, e Reuniões entra sem tirar ninguém | Accepted |
+| ADR-044 | O rail vai a doze, e Reuniões entra sem tirar ninguém | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -1743,3 +1754,77 @@ mostrar a janela principal quando ele está presente.
 - esta ADR autoriza a preferência, não o P1 inteiro. Canal de notificação do
   Windows, tray com "Próximo" e ações no toast continuam sendo trabalho próprio,
   descrito no `ATTENTION-SYSTEM.md` §11 e §34.
+
+## ADR-044 — O rail vai a doze, e Reuniões entra sem tirar ninguém
+
+**Data:** 2026-08-19
+**Status:** aceito, por decisão do proprietário do produto
+**Revisa:** ADR-039, ADR-038, ADR-036, ADR-031
+
+### Contexto
+
+A ADR-039 levou o rail a onze e manteve a regra herdada: *"o décimo segundo
+exige retirar um, ou uma ADR nova que justifique não retirar, como esta fez"*.
+
+Este é o décimo segundo, e esta ADR existe para que ele seja revisão e não
+omissão.
+
+O pedido: o Meeting Agent (`MEETING-AGENT.md`) — gravar uma reunião, transcrever
+localmente, analisar com o Hermes e transformar o que ficou combinado em Task e
+Reminder.
+
+### Decisão
+
+**Doze destinos. Reuniões entra sem ninguém sair, e o teto passa a ser doze** —
+com a mesma regra de troca valendo daqui em diante.
+
+O critério fixado pela ADR-036 é *"algo de que depende a renda ou a **memória** do
+usuário, não algo que ele usa com frequência"*. Reuniões passa por ele pela
+segunda metade, e de forma literal: **uma reunião gravada é memória.** É o único
+lugar do M/OS onde uma hora de conversa — decisões, prazos, compromissos — deixa
+de existir se ninguém a guardar.
+
+E ela passa também pela primeira metade, por consequência: as decisões que saem
+de uma reunião comercial sustentam trabalho faturado.
+
+### Por que não as alternativas
+
+**Dentro de Calendário** foi considerado com seriedade. Calendário já é o destino
+temporal e já mostra o que aconteceu em cada dia, e uma reunião é exatamente
+isso. Mas Calendário responde *"o que aconteceu naquele dia?"*, e Reuniões
+responde *"o que ficou combinado?"* — perguntas diferentes, com objetos
+diferentes. Enterrar a lista de reuniões atrás de uma navegação de mês faria a
+segunda pergunta custar três cliques.
+
+**Sem ícone no rail, alcançável só pelo `Ctrl+K`** está descartado por evidência,
+e não por preferência. A ADR-031 registra que esse experimento já foi feito com
+Workspaces e falhou: o item ficou *"invisível para quem não conhece o Command"*
+até ser promovido de volta. Repetir sabendo o resultado não é rigor.
+
+**Retirar um dos onze** foi a saída da ADR-038, e ali havia um candidato claro —
+Apps era conveniência. Hoje não há: os onze passam pelo critério de renda ou
+memória, e remover qualquer um seria trocar uma violação de contagem por uma
+perda real.
+
+### Consequências
+
+- o teto vira doze, e a regra de troca continua: o décimo terceiro exige retirar
+  um, ou outra ADR;
+- Reuniões entra no grupo `TRABALHO`, depois de Finance e antes de `MEMÓRIA`.
+  Ela pertence ao mesmo eixo de Tempo e Calendário — o que aconteceu, e quando;
+- `mos-design-system.md` continua dizendo "máximo 6". A distância entre o
+  documento e o produto passa a ser de seis, e ela está registrada aqui e nas
+  quatro ADRs anteriores em vez de descoberta depois;
+- **o risco assumido cresce, e vale nomeá-lo de novo:** cada revisão do teto
+  torna a próxima mais fácil, e é assim que um rail vira depósito. A defesa nunca
+  foi o número — é a exigência de uma ADR para mexer nele, e o fato de que
+  escrever esta obrigou a comparar Reuniões com Calendário antes de aceitar.
+
+### O que esta decisão NÃO autoriza
+
+Ela autoriza o destino, e não a superfície. A barra de gravação vive no shell —
+fora do rail e fora da página — porque a promessa de que **nunca se grava sem
+indicação visível** (`MEETING-AGENT.md` §17.2) não pode depender de qual tela
+está aberta. Isso é uma peça de shell, como o Argos e o estado de sistema, e não
+um décimo terceiro destino.
+

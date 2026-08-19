@@ -25,7 +25,11 @@ crate-type = ["rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+# Captura de audio do Meeting Agent. Ele NAO alcanca o banco nem o dominio,
+# e por isso a traducao entre os dois mora em `src/meeting.rs`.
+mos-audio = { path = "../../../crates/mos-audio" }
 mos-core = { path = "../../../crates/mos-core" }
+mos-transcribe = { path = "../../../crates/mos-transcribe" }
 mos-hermes = { path = "../../../crates/mos-hermes" }
 mos-storage-sqlite = { path = "../../../crates/mos-storage-sqlite" }
 tokio = { version = "1", features = ["rt", "sync", "macros"] }

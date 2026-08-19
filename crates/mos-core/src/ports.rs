@@ -476,6 +476,155 @@ pub trait AttentionRepository: Send + Sync {
         reminder: crate::ReminderId,
     ) -> Result<Vec<crate::Notification>, CoreError>;
 }
+/// Persistencia do Meeting Agent.
+///
+/// Duas regras que a assinatura impoe, e nao a documentacao:
+///
+/// 1. **`replace_transcript` e `replace_analysis` substituem tudo de uma vez.**
+///    Nao ha `append_segment` nem `add_insight`. Transcrever de novo produz uma
+///    transcricao inteira, e analisar de novo produz uma analise inteira —
+///    metade de uma transcricao no banco seria uma reuniao que le errado sem
+///    nada falhar.
+/// 2. **Nao ha `delete_meeting_audio` aqui.** Apagar bytes e trabalho de
+///    filesystem, e este trait so conhece o banco. Ele apenas MARCA
+///    (`mark_audio_deleted`), e quem apaga e o adapter — que assim nao pode
+///    apagar sem registrar.
+pub trait MeetingRepository: Send + Sync {
+    fn create_meeting(&self, meeting: crate::NewMeeting) -> Result<crate::Meeting, CoreError>;
+    fn meeting(&self, id: crate::MeetingId) -> Result<crate::Meeting, CoreError>;
+    fn meetings(&self, include_archived: bool) -> Result<Vec<crate::Meeting>, CoreError>;
+
+    /// Grava o resultado de uma transicao. Devolve o que FICOU GRAVADO, e nao o
+    /// que foi mandado: quem le depois le do banco, nunca da memoria de quem
+    /// escreveu. Mesma regra do `save_reminder`.
+    fn save_meeting(&self, meeting: &crate::Meeting) -> Result<crate::Meeting, CoreError>;
+
+    /// As reunioes que o processo anterior deixou em captura.
+    ///
+    /// E a consulta da reconciliacao de abertura (§9.1). Uma linha em
+    /// `recording` ou `stopping` num processo recem-nascido significa,
+    /// necessariamente, que o anterior morreu sem terminar.
+    fn capturing_meetings(&self) -> Result<Vec<crate::Meeting>, CoreError>;
+
+    /// Reunioes cujo audio a politica de retencao ja autoriza apagar.
+    fn meetings_with_deletable_audio(
+        &self,
+        now: time::OffsetDateTime,
+    ) -> Result<Vec<crate::Meeting>, CoreError>;
+
+    fn mark_audio_deleted(
+        &self,
+        id: crate::MeetingId,
+        at: time::OffsetDateTime,
+    ) -> Result<crate::Meeting, CoreError>;
+
+    fn set_meeting_project(
+        &self,
+        id: crate::MeetingId,
+        project_id: Option<crate::ProjectId>,
+    ) -> Result<crate::Meeting, CoreError>;
+
+    fn set_meeting_title(
+        &self,
+        id: crate::MeetingId,
+        title: &str,
+    ) -> Result<crate::Meeting, CoreError>;
+
+    fn set_meeting_lifecycle(
+        &self,
+        id: crate::MeetingId,
+        lifecycle: LifecycleState,
+    ) -> Result<crate::Meeting, CoreError>;
+
+    /// Troca a transcricao inteira, numa transacao.
+    fn replace_transcript(
+        &self,
+        id: crate::MeetingId,
+        segments: Vec<crate::TranscriptSegment>,
+    ) -> Result<usize, CoreError>;
+
+    fn transcript(
+        &self,
+        id: crate::MeetingId,
+    ) -> Result<Vec<crate::TranscriptSegment>, CoreError>;
+
+    /// Troca resumo e itens inteiros, numa transacao.
+    ///
+    /// Os itens ja ACEITOS sao preservados: uma reanalise nao pode desfazer uma
+    /// Task que a pessoa criou. Sem essa regra, reanalisar apagaria a
+    /// proveniencia de trabalho que ja existe no M/OS.
+    fn replace_analysis(
+        &self,
+        analysis: crate::MeetingAnalysis,
+        insights: Vec<crate::MeetingInsight>,
+    ) -> Result<usize, CoreError>;
+
+    fn analysis(
+        &self,
+        id: crate::MeetingId,
+    ) -> Result<Option<crate::MeetingAnalysis>, CoreError>;
+
+    fn insights(&self, id: crate::MeetingId) -> Result<Vec<crate::MeetingInsight>, CoreError>;
+
+    /// Marca um item como aceito e liga a Task e ao Reminder criados, numa
+    /// transacao com a criacao deles.
+    fn link_insight_result(
+        &self,
+        insight_id: crate::InsightId,
+        task_id: Option<crate::TaskId>,
+        reminder_id: Option<crate::ReminderId>,
+    ) -> Result<crate::MeetingInsight, CoreError>;
+
+    fn set_insight_status(
+        &self,
+        insight_id: crate::InsightId,
+        status: crate::InsightStatus,
+    ) -> Result<crate::MeetingInsight, CoreError>;
+
+    /// A reuniao a que um item pertence.
+    ///
+    /// Existe porque o corpo do Reminder cita o titulo da reuniao: quando ele
+    /// tocar amanha as 9h, "de onde veio isto?" precisa ter resposta sem abrir
+    /// mais nada.
+    fn insights_meeting(&self, insight_id: crate::InsightId)
+        -> Result<crate::MeetingId, CoreError>;
+
+    /// Cria Task, opcionalmente Reminder, e liga o item aos dois — **numa
+    /// transacao so**.
+    ///
+    /// Os tres juntos, e nao em sequencia, porque existe um instante entre eles
+    /// em que a Task existe e o lembrete dela nao. Uma queda ali deixaria o
+    /// compromisso sem aviso, que e exatamente o modo de falhar que esta feature
+    /// existe para nao ter.
+    ///
+    /// Recusa item que nao esteja em `proposed`: aceitar duas vezes criaria duas
+    /// Tasks para o mesmo compromisso.
+    fn accept_insight(
+        &self,
+        accept: crate::AcceptInsight,
+        task: crate::NewTask,
+        reminder: Option<crate::NewReminder>,
+    ) -> Result<crate::AcceptedInsight, CoreError>;
+
+    /// Compromissos meus que continuam em aberto, de todas as reunioes.
+    ///
+    /// E uma query, e nao uma pergunta de linguagem: *"quais compromissos de
+    /// reunioes eu ainda nao conclui?"* tem resposta em SQL, e onde a regra
+    /// deterministica serve ela ganha da IA (§15.3).
+    fn open_commitments(&self) -> Result<Vec<crate::MeetingInsight>, CoreError>;
+
+    fn search_meetings(&self, request: SearchRequest) -> Result<Vec<crate::Meeting>, CoreError>;
+
+    /// Busca na transcricao. Devolve (reuniao, trecho), DEDUPLICADO por reuniao:
+    /// uma reuniao, um resultado, mesmo que a palavra apareca quarenta vezes.
+    fn search_transcripts(
+        &self,
+        request: SearchRequest,
+    ) -> Result<Vec<(crate::Meeting, String)>, CoreError>;
+
+    fn rebuild_meeting_search(&self) -> Result<usize, CoreError>;
+}
+
 pub trait DataMaintenance: Send + Sync {
     fn create_backup(&self, destination: &Path) -> Result<BackupReceipt, CoreError>;
     fn inspect_backup(&self, source: &Path) -> Result<BackupInspection, CoreError>;

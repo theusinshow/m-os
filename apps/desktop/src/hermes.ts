@@ -265,7 +265,14 @@ export type UndoStep =
   | { step: "archiveResource"; id: string }
   | { step: "restoreTaskState"; id: string; state: string }
   /** Sessão para a lixeira. Soft delete: volta pela lixeira do Histórico. */
-  | { step: "trashTimeEntry"; id: string };
+  | { step: "trashTimeEntry"; id: string }
+  /**
+   * O inverso de aceitar um item de reunião: arquiva a Task, cancela o
+   * Reminder e devolve o item à lista. Um passo só porque a aceitação foi uma
+   * ação só — desfazer pela metade deixaria um lembrete tocando para uma Task
+   * que já saiu da tela.
+   */
+  | { step: "undoMeetingInsight"; insightId: string; taskId: string; reminderId: string | null };
 
 export type ActionResolution = {
   message: Message;

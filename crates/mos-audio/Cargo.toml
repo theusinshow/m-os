@@ -1,0 +1,33 @@
+[package]
+name = "mos-audio"
+version.workspace = true
+description = "Captura de audio do Meeting Agent do M/OS"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# Este crate NAO depende de `mos-core` nem de `mos-storage-sqlite`, e a ausencia
+# e a decisao (`MEETING-AGENT.md` §4.2).
+#
+# E o mesmo truque estrutural da ADR-024, que tirou `mos-storage-sqlite` do
+# `mos-hermes` para que "Hermes nunca escreve no SQLite" deixasse de ser regra a
+# lembrar e virasse impossibilidade de compilacao. Aqui ele compra duas coisas:
+#
+# 1. a thread de captura nao PODE esperar o lock do SQLite — um `INSERT` no
+#    caminho do audio seria uma thread de tempo real bloqueada por um backup;
+# 2. a captura nao PODE inventar semantica de dominio. Ela produz bytes e fatos;
+#    o que isso significa para uma Meeting e decidido em `mos-core`.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+wasapi = "0.24"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile = "3"

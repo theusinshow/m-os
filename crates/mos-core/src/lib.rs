@@ -7,6 +7,8 @@ mod clock;
 mod conversation;
 mod error;
 mod functions;
+mod meeting;
+mod meeting_analysis;
 mod monitoring;
 mod ports;
 mod resource;
@@ -42,23 +44,37 @@ pub use functions::{
     function_registry, search_functions, FunctionCategory, FunctionConfirmation,
     FunctionDefinition, FunctionRisk,
 };
+pub use meeting::{
+    apply as apply_meeting, interleave, AudioRetention, Channel as MeetingChannel, ChannelOutcome,
+    Confidence, FailedStage, InsightId, InsightKind, InsightStatus, Meeting, MeetingAnalysis,
+    MeetingEvidence, MeetingFailure, MeetingId, MeetingInsight, MeetingSource, MeetingStatus,
+    clean_segments, is_speech, AcceptInsight, AcceptedInsight, InsightPreview, NewMeeting,
+    RawSegment, SegmentId, TranscriptSegment,
+    Transition as MeetingTransition, TranscriptionError, TranscriptionProvider,
+    TranscriptionRequest,
+};
+pub use meeting_analysis::{
+    build_windows, instructions, parse_analysis, AnalysisError, AnalysisOutcome, PromptWindow,
+    Rejections, WINDOW_BUDGET_CHARS,
+};
 pub use monitoring::{
     diff_transitions, open_periods, uncovered, ActivityEvent, ActivityEventId, ActivityKind,
     MonitoredApp, MonitoringSettings, NewActivityEvent, Period,
 };
 pub use ports::{
-    AppRepository, AttentionRepository, BackupInspection, BackupReceipt, CaptureRepository, ConversationRepository,
-    DataMaintenance, MonitoringRepository, ResourceRepository, SearchRequest,
-    TimeTrackingRepository, WorkRepository,
+    AppRepository, AttentionRepository, BackupInspection, BackupReceipt, CaptureRepository,
+    ConversationRepository, DataMaintenance, MeetingRepository, MonitoringRepository,
+    ResourceRepository, SearchRequest, TimeTrackingRepository, WorkRepository,
 };
 pub use resource::{
     validate_resource_url, NewResource, Resource, ResourceId, ResourceKind, ResourceWorkspace,
 };
 pub use service::{
-    AppService, AttentionService, CaptureService, ConversationService, CreateAppInput, CreateCaptureInput,
-    CreateProjectInput, CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService,
-    MemoryService, MonitoringService, TrackingService, UpdateAppInput, UpdateProjectInput,
-    UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, WorkService,
+    AppService, AttentionService, AudioOutcome, CaptureService, ConversationService, CreateAppInput,
+    CreateCaptureInput, CreateProjectInput, CreateResourceInput, CreateTaskInput,
+    CreateWorkspaceInput, DataService, MeetingService, MemoryService, MonitoringService,
+    TrackingService, UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput,
+    UpdateWorkspaceInput, WorkService,
 };
 pub use tracking::{
     aggregate_by_project, amount_for_duration, billable_duration, elapsed_seconds, net_duration,

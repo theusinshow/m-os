@@ -6688,3 +6688,468 @@ input[type="checkbox"]:disabled {
     transition: none;
   }
 }
+
+/* ==========================================================================
+   Meeting Agent
+   ==========================================================================
+
+   Nenhum literal de cor: tudo sai dos tokens que o design system ja define.
+   A unica excecao deliberada e o ponto de gravacao, que usa `--danger` fora de
+   contexto destrutivo — ponto vermelho para gravacao em curso e a convencao
+   universal, e `UX-PRINCIPLES` §63 manda ser familiar onde e util. O sodio
+   continua reservado para carga (ADR-034).
+   ========================================================================== */
+
+/* --- A barra de gravacao, no shell --------------------------------------- */
+
+.recording-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.recording-bar[data-warning] {
+  border-color: var(--danger);
+}
+
+.recording-open {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.recording-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+/* O ponto pulsa uma vez por segundo, e o movimento CARREGA dado: ele e a unica
+   confirmacao contínua de que a captura esta viva. E o loop que o orcamento da
+   ADR-034 reserva para esta tela. */
+@keyframes recording-pulse {
+  0%, 70%, 100% { opacity: 1; }
+  85% { opacity: 0.35; }
+}
+
+.recording-dot {
+  animation: recording-pulse 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recording-dot { animation: none; }
+}
+
+.recording-clock {
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.meeting-channel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.meeting-channel[data-state="lost"] .micro-label,
+.meeting-channel[data-state="unavailable"] .micro-label {
+  color: var(--danger);
+}
+
+.meeting-channel-note {
+  font: var(--text-meta);
+  color: var(--text-secondary);
+}
+
+/* Oito degraus. Nunca waveform: a interface precisa responder "esta me
+   ouvindo?", e nao desenhar audio. */
+.meeting-level {
+  display: inline-flex;
+  gap: 2px;
+  align-items: flex-end;
+}
+
+.meeting-level i {
+  display: block;
+  width: 2px;
+  height: 8px;
+  background: var(--border-control);
+}
+
+.meeting-level i[data-on] {
+  background: var(--text);
+}
+
+.recording-note {
+  font: var(--text-meta);
+  color: var(--danger);
+}
+
+.recording-stop {
+  margin-left: auto;
+}
+
+/* --- A lista -------------------------------------------------------------- */
+
+.meetings-split {
+  min-height: 0;
+}
+
+.meetings-page .meeting-groups {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.meeting-group {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.meeting-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "time title duration"
+    "time meta  meta";
+  align-items: baseline;
+  gap: 0 var(--space-3);
+  text-align: left;
+}
+
+.meeting-row-time {
+  grid-area: time;
+  font-family: var(--font-system);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.meeting-row-title { grid-area: title; }
+
+.meeting-row-duration {
+  grid-area: duration;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.meeting-row-meta {
+  grid-area: meta;
+  font: var(--text-meta);
+  color: var(--text-secondary);
+}
+
+/* --- O detalhe ------------------------------------------------------------ */
+
+.meeting-detail {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.meeting-head h2 {
+  margin: 0;
+}
+
+.meeting-head-meta {
+  margin: var(--space-1) 0 0;
+  font: var(--text-small);
+  color: var(--text-secondary);
+}
+
+/* So aparece quando algo saiu do normal. Uma linha dizendo "funcionou" em toda
+   reuniao viraria ruido; o que precisa ser visivel e a excecao. */
+.meeting-health,
+.meeting-recovery,
+.meeting-failure {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.meeting-health,
+.meeting-failure {
+  border-color: var(--danger);
+}
+
+.meeting-health p,
+.meeting-recovery p,
+.meeting-failure p {
+  margin: 0;
+  font: var(--text-small);
+}
+
+.meeting-interrupted-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.meeting-interrupted-notice p { margin: 0; }
+
+.meeting-working {
+  font: var(--text-small);
+  color: var(--text-secondary);
+}
+
+/* --- O controle segmentado ------------------------------------------------ */
+
+/* Ele troca PROJECAO da mesma informacao. Aba esconderia coisas diferentes, e
+   Acoes e Decisoes nao sao outra informacao — sao o resumo em outro nivel. */
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.segmented button {
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: var(--text-small);
+  cursor: pointer;
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--border-control);
+}
+
+.segmented button[aria-selected="true"] {
+  background: var(--surface-active);
+  color: var(--text);
+}
+
+/* --- Itens e evidencia ---------------------------------------------------- */
+
+.meeting-overview {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.meeting-summary {
+  margin: 0;
+  max-width: 70ch;
+}
+
+.meeting-windows {
+  margin: var(--space-2) 0 0;
+  font: var(--text-meta);
+  color: var(--text-secondary);
+}
+
+.meeting-insight {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+}
+
+.meeting-insight-text {
+  margin: 0;
+  max-width: 70ch;
+}
+
+.meeting-insight-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0;
+  font: var(--text-meta);
+  color: var(--text-secondary);
+}
+
+/* Confianca baixa NAO usa cor de erro: ela nao e falha, e uma frase que era
+   hipotetica. O aviso e tipografico. */
+.meeting-insight[data-confidence="low"] .meeting-insight-text {
+  color: var(--text-secondary);
+}
+
+.meeting-insight-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* O `WHY?`. Clicar leva a fala que sustenta o item — e a diferenca entre uma
+   afirmacao e uma afirmacao com procedencia. */
+.meeting-evidence {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.meeting-evidence-link {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-left: 2px solid var(--border-control);
+  background: none;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  text-align: left;
+  cursor: pointer;
+}
+
+.meeting-evidence-link:hover {
+  background: var(--surface-hover);
+  border-left-color: var(--text);
+}
+
+.meeting-evidence-time {
+  font-family: var(--font-system);
+  font-variant-numeric: tabular-nums;
+}
+
+.meeting-evidence-who {
+  font: var(--text-meta);
+  letter-spacing: 0.04em;
+}
+
+.meeting-evidence-quote {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meeting-no-evidence {
+  margin: 0;
+  font: var(--text-meta);
+  color: var(--danger);
+}
+
+/* --- Transcricao ---------------------------------------------------------- */
+
+.meeting-transcript {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.meeting-line {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: baseline;
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius);
+  scroll-margin: var(--space-6);
+}
+
+.meeting-line-time {
+  font-family: var(--font-system);
+  font-variant-numeric: tabular-nums;
+  font: var(--text-meta);
+  color: var(--text-secondary);
+}
+
+/* VOCE e REMOTO sao o que o sistema SABE. Nome de pessoa so aparece quando
+   houver diarizacao confiavel — inventar um seria pior que a ausencia. */
+.meeting-line-who {
+  font: var(--text-meta);
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.meeting-line[data-channel="mic"] .meeting-line-who {
+  color: var(--text);
+}
+
+.meeting-line-text {
+  max-width: 70ch;
+}
+
+/* O salto vindo da evidencia. Ele pisca UMA vez e para: um destaque permanente
+   viraria seleção, e nao ha selecao aqui. */
+.meeting-line.is-target {
+  background: var(--surface-active);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .meeting-line.is-target {
+    transition: background 160ms ease-out;
+  }
+}
+
+/* --- Dialogos ------------------------------------------------------------- */
+
+.meeting-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: var(--overlay-backdrop);
+}
+
+.meeting-dialog {
+  display: grid;
+  gap: var(--space-3);
+  width: min(520px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  padding: var(--space-5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-overlay);
+}
+
+.meeting-dialog h2 {
+  margin: 0;
+}
+
+.meeting-dialog p {
+  margin: 0;
+  max-width: 60ch;
+  font: var(--text-small);
+}
+
+.meeting-field {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.meeting-field-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.meeting-due-hint {
+  font: var(--text-meta);
+  color: var(--text-secondary);
+  font-style: normal;
+}
+
+/* --- Estreito ------------------------------------------------------------- */
+
+@media (max-width: 960px) {
+  .recording-bar {
+    gap: var(--space-2);
+  }
+  /* A ordem de sacrificio: o nivel sai antes do relogio, e o relogio nunca
+     sai. Saber HA QUANTO TEMPO grava e o que a barra existe para dizer. */
+  .recording-bar .meeting-level {
+    display: none;
+  }
+}

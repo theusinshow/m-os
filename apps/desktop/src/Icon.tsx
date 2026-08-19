@@ -28,6 +28,7 @@ export type IconName =
   | "library"
   | "board"
   | "tempo"
+  | "meetings"
   | "calendar"
   | "finance"
   | "settings"
@@ -55,6 +56,9 @@ const OUTLINE_20: Record<IconName, ReactNode> = {
   // Cronometro, e nao relogio de parede: a coroa em cima e o que separa "medir
   // uma duracao" de "ver que horas sao". Duas maos apenas — a terceira, de
   // segundos, some no traco de 1.25.
+  // Microfone: capsula, arco de captacao, haste e base. O arco e o que
+  // separa "microfone" de "pilula" a 20px — sem ele a silhueta some.
+  meetings: <><rect x="8.5" y="2.5" width="3" height="8" rx="1.5" /><path d="M5.5 9.5a4.5 4.5 0 0 0 9 0M10 14v3.5M7.5 17.5h5" /></>,
   tempo: <><circle cx="10" cy="11.5" r="5.5" /><path d="M8 3.5h4M10 4v2M10 11.5V8M10 11.5h2.5" /></>,
   // Folha com a regua do cabecalho e as duas argolas. A regua e o que separa
   // "calendario" de "janela" a 20px.
@@ -103,6 +107,7 @@ const SOLID_20: Partial<Record<IconName, ReactNode>> = {
   attention: <><path d="M6 13.2V9.2l1.8-3.4h4.4L14 9.2v4z" /><rect x="4" y="14.1" width="12" height="1.7" /></>,
   // Sem os ponteiros: a silhueta nao recorta, e um ponteiro vazado exigiria
   // recorte. Corpo, coroa e haste bastam para reconhecer o cronometro.
+  meetings: <><rect x="8.2" y="2.2" width="3.6" height="8.8" rx="1.8" /><rect x="9.1" y="13.4" width="1.8" height="4.2" /><rect x="6.9" y="17.6" width="6.2" height="1.6" /><path d="M4.9 8.2h1.9v1.1a3.2 3.2 0 0 0 6.4 0V8.2h1.9v1.1a5.1 5.1 0 0 1-10.2 0z" /></>,
   tempo: <><circle cx="10" cy="11.6" r="5.9" /><rect x="7.8" y="3.2" width="4.4" height="1.9" /><rect x="9.1" y="4.8" width="1.8" height="1.4" /></>,
   calendar: <><rect x="3.2" y="5.2" width="13.6" height="11.6" /><rect x="6.4" y="2.9" width="1.6" height="3.4" /><rect x="12" y="2.9" width="1.6" height="3.4" /></>,
   // Sem o circulo vazado: a silhueta nao recorta, e um furo no meio exigiria

@@ -655,6 +655,20 @@ pub enum UndoStep {
     TrashTimeEntry {
         id: String,
     },
+    /// O inverso de aceitar um item de reuniao.
+    ///
+    /// Tres reversoes num passo so porque a aceitacao foi UMA acao: arquivar a
+    /// Task, cancelar o Reminder e devolver o item a `proposed`. Desfazer
+    /// parcialmente deixaria um lembrete tocando para uma Task que nao existe
+    /// mais na tela.
+    ///
+    /// Arquiva e cancela — nao apaga (ADR-035). O item volta a ser oferecido, o
+    /// que e o ponto: quem desfez provavelmente quer refazer diferente.
+    UndoMeetingInsight {
+        insight_id: String,
+        task_id: String,
+        reminder_id: Option<String>,
+    },
 }
 
 /// O contrato que desce no prompt.

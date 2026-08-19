@@ -1,0 +1,25 @@
+[package]
+name = "mos-transcribe"
+version.workspace = true
+description = "Transcricao local do Meeting Agent do M/OS"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# Depende de `mos-core` porque IMPLEMENTA uma porta dele, exatamente como
+# `mos-storage-sqlite` faz. E o oposto de `mos-audio`, que nao implementa porta
+# nenhuma e por isso fica sem a dependencia.
+#
+# O que este crate NAO tem, e a decisao D-6: nenhuma dependencia de C++.
+# `whisper-rs` traria `cmake` e a compilacao do ggml para dentro do
+# `cargo build` de todo mundo — e o `SETUP-MAQUINA.md` documenta uma cadeia de
+# ferramentas que ja custou uma tarde por causa de um `windres` faltando. Um
+# build de C++ ali dentro e a proxima tarde.
+[dependencies]
+mos-core = { path = "../mos-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

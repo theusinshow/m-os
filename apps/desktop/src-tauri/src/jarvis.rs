@@ -547,6 +547,25 @@ pub async fn action_undo<R: Runtime>(
                 .tracking
                 .trash(mos_core::TimeEntryId::parse(&id)?)?;
         }
+        mos_core::UndoStep::UndoMeetingInsight {
+            insight_id,
+            task_id,
+            reminder_id,
+        } => {
+            // A ordem e deliberada: primeiro tirar da vista o que TOCA. Um
+            // lembrete que dispara enquanto o desfazer roda avisaria sobre uma
+            // Task que a pessoa acabou de dizer que nao queria.
+            if let Some(reminder_id) = reminder_id {
+                services.attention.transition(
+                    mos_core::ReminderId::parse(&reminder_id)?,
+                    mos_core::Transition::Cancel,
+                )?;
+            }
+            services.work.set_task_archived(&task_id, true)?;
+            // Por ultimo o item volta a ser oferecido — e isso e o ponto: quem
+            // desfez provavelmente quer refazer diferente.
+            services.meetings.reopen_insight(&insight_id)?;
+        }
     }
     let _ = app.emit("data-changed", "undo");
     Ok(())

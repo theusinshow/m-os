@@ -519,3 +519,145 @@ export type WidgetPosition = {
   widgetId: string;
   position: number;
 };
+
+// ===========================================================================
+// Meeting Agent
+// ===========================================================================
+
+/** A ordem em que o pipeline anda. `failed` carrega o estágio em `failure`. */
+export type MeetingStatus =
+  | "recording" | "stopping" | "interrupted" | "recorded"
+  | "transcribing" | "transcribed" | "analyzing" | "ready"
+  | "failed" | "cancelled";
+
+export type FailedStage = "audio" | "transcription" | "analysis";
+
+/**
+ * O destino de um canal.
+ *
+ * Três variantes e não um booleano: "nunca abriu" e "abriu e caiu aos 32:10"
+ * pedem frases diferentes na tela e preservam quantidades diferentes de áudio.
+ */
+export type ChannelOutcome =
+  | { state: "capturing" }
+  | { state: "captured" }
+  | { state: "unavailable"; reason: string }
+  | { state: "lost"; atMs: number; reason: string };
+
+export type AudioRetention = "delete_after_processing" | "keep_24h" | "keep";
+
+export type Meeting = {
+  id: string;
+  title: string;
+  status: MeetingStatus;
+  lifecycleState: LifecycleState;
+  source: "manual" | "calendar" | "detected";
+  startedAt: string;
+  endedAt: string | null;
+  /** Medida em frames gravados, nunca por diferença de relógio. */
+  durationMs: number;
+  projectId: string | null;
+  audioDir: string;
+  retention: AudioRetention;
+  audioDeletedAt: string | null;
+  mic: ChannelOutcome;
+  system: ChannelOutcome;
+  failure: { stage: FailedStage; message: string } | null;
+  createdAt: string;
+  updatedAt: string;
+  cancelledAt: string | null;
+};
+
+/** MIC é quem gravou; SYSTEM são os outros. É a distinção que a V1 protege. */
+export type MeetingChannel = "mic" | "system";
+
+export type TranscriptSegment = {
+  id: string;
+  meetingId: string;
+  seq: number;
+  startMs: number;
+  endMs: number;
+  channel: MeetingChannel;
+  text: string;
+  speaker: string | null;
+  confidence: number | null;
+};
+
+export type InsightKind =
+  | "decision" | "my_action" | "other_action" | "deadline"
+  | "follow_up" | "open_question" | "risk" | "topic";
+
+export type Confidence = "high" | "medium" | "low";
+export type InsightStatus = "proposed" | "accepted" | "dismissed";
+
+/** Referência a um trecho. O texto não é copiado: ele É o segmento. */
+export type MeetingEvidence = {
+  segmentId: string;
+  seq: number;
+  charStart: number | null;
+  charEnd: number | null;
+};
+
+export type MeetingInsight = {
+  id: string;
+  meetingId: string;
+  kind: InsightKind;
+  seq: number;
+  text: string;
+  owner: string | null;
+  /** O prazo COMO FOI DITO. Quem resolve para um instante é esta tela. */
+  dueHint: string | null;
+  confidence: Confidence;
+  status: InsightStatus;
+  createdTaskId: string | null;
+  createdReminderId: string | null;
+  evidence: MeetingEvidence[];
+};
+
+export type MeetingAnalysis = {
+  meetingId: string;
+  summary: string;
+  model: string;
+  producedAt: string;
+  /** Quantas janelas de transcrição foram enviadas. Aparece na tela. */
+  windows: number;
+};
+
+export type InsightPreview = {
+  insightId: string;
+  kind: InsightKind;
+  title: string;
+  owner: string | null;
+  dueHint: string | null;
+  confidence: Confidence;
+  evidenceCount: number;
+  eligibleForBulk: boolean;
+  /** Vazio quando não há bloqueio. Nunca um beco sem saída. */
+  blockedReason: string;
+};
+
+/** O que chega uma vez por segundo enquanto grava. Nunca PCM. */
+export type MeetingTick = {
+  meetingId: string;
+  durationMs: number;
+  mic: ChannelOutcome;
+  system: ChannelOutcome;
+  /** RMS em milésimos, já reduzido no Rust. */
+  micLevel: number;
+  systemLevel: number;
+};
+
+export type TranscriberStatus = {
+  configured: boolean;
+  ready: boolean;
+  problem: string;
+  name: string;
+  binary: string;
+  model: string;
+  threads: number;
+};
+
+export type AnalysisConsent = {
+  granted: boolean;
+  grantedAt: string;
+};

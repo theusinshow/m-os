@@ -8,6 +8,7 @@ use mos_core::{
     AttentionService,
     AppCatalogEntry, AppLaunchKind, AppService, BackupInspection, BackupReceipt, Capture,
     CaptureService, ConversationService, CoreError, CreateAppInput, CreateCaptureInput,
+    MeetingService,
     CreateProjectInput, CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService,
     FunctionDefinition, HiddenWidget, MemoryService, MonitoringService, Project, RegisteredApp,
     Resource, ResourceWorkspace, SearchItem, Task, TaskState, TrackingService, UpdateAppInput,
@@ -28,6 +29,7 @@ mod attention;
 mod finance;
 mod hermes;
 mod jarvis;
+mod meeting;
 mod monitor;
 mod pdf;
 mod tracking;
@@ -41,6 +43,7 @@ struct AppState {
     memory: MemoryService,
     conversations: ConversationService,
     tracking: TrackingService,
+    meetings: MeetingService,
     monitoring: MonitoringService,
     data: DataService,
     attention: AttentionService,
@@ -64,6 +67,22 @@ struct UserSettings {
     /// segunda fonte de verdade que aquela ADR existe para evitar.
     #[serde(default)]
     start_minimized: bool,
+    /// Caminhos do transcritor local.
+    ///
+    /// Preferencia NOSSA, e nao do sistema, entao ela mora aqui — diferente de
+    /// "iniciar com o Windows", que vive no registro e e lida de la (ADR-043).
+    /// Os caminhos ficam em Settings em vez de embutidos porque a decisao D-7
+    /// (qual modelo, CPU ou Vulkan) e do usuario: trocar o binario nao pode
+    /// exigir recompilar o M/OS.
+    #[serde(default)]
+    whisper: mos_transcribe::WhisperConfig,
+    /// Quando o envio da transcricao ao Hermes foi autorizado, em RFC3339.
+    ///
+    /// Vazio significa nunca. E um INSTANTE e nao um booleano porque a ADR-027
+    /// pede que "o que saiu e quando" tenha resposta — e a data em que a pessoa
+    /// autorizou faz parte dessa resposta.
+    #[serde(default)]
+    analysis_consent_at: String,
 }
 
 #[derive(Serialize)]
@@ -989,24 +1008,66 @@ fn reveal_window<R: Runtime>(app: &AppHandle<R>, label: &str) {
     }
 }
 
+/// O tray, e os dois menus que ele alterna.
+///
+/// **Dois menus, e nao itens escondidos.** `MenuItem` do Tauri 2 nao tem
+/// `set_visible`, e um item permanente dizendo "Meeting Notes: parado" seria
+/// ruido no unico lugar do sistema que o usuario olha de canto de olho. A troca
+/// acontece so na TRANSICAO — o relogio de cada segundo e `set_text`, que nao
+/// reconstroi nada.
+pub struct TrayHandles {
+    pub tray: tauri::tray::TrayIcon<tauri::Wry>,
+    /// O item que carrega o relogio. Vive dentro de `live`.
+    pub clock: tauri::menu::MenuItem<tauri::Wry>,
+    pub idle: Menu<tauri::Wry>,
+    pub live: Menu<tauri::Wry>,
+    /// Qual menu esta montado agora.
+    pub live_shown: std::sync::atomic::AtomicBool,
+}
+
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Abrir M/OS", true, None::<&str>)?;
     let capture = MenuItem::with_id(app, "capture", "Captura rapida", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &capture, &quit])?;
+    let idle = Menu::with_items(app, &[&open, &capture, &quit])?;
+
+    // Um item so pertence a um menu, entao o menu de gravacao tem instancias
+    // proprias. Os ids sao os mesmos: quem trata o evento nao precisa saber
+    // qual menu estava montado.
+    let clock = MenuItem::with_id(app, "meeting_open", "Meeting Notes", true, None::<&str>)?;
+    let stop = MenuItem::with_id(app, "meeting_stop", "Parar gravacao", true, None::<&str>)?;
+    let open_live = MenuItem::with_id(app, "open", "Abrir M/OS", true, None::<&str>)?;
+    let capture_live = MenuItem::with_id(app, "capture", "Captura rapida", true, None::<&str>)?;
+    let quit_live = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
+    let live = Menu::with_items(
+        app,
+        &[&clock, &stop, &open_live, &capture_live, &quit_live],
+    )?;
+
     let mut tray = TrayIconBuilder::new()
         .tooltip("M/OS")
-        .menu(&menu)
+        .menu(&idle)
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "open" => reveal_window(app, "main"),
+            "open" | "meeting_open" => reveal_window(app, "main"),
             "capture" => reveal_window(app, "quick-capture"),
+            // Parar pelo tray existe porque a janela pode estar escondida — e e
+            // exatamente nessa situacao que a pessoa precisa parar sem procurar
+            // o aplicativo atras do Meet.
+            "meeting_stop" => meeting::stop_from_tray(app),
             "quit" => app.exit(0),
             _ => {}
         });
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
     }
-    tray.build(app)?;
+    let tray = tray.build(app)?;
+    app.manage(TrayHandles {
+        tray,
+        clock,
+        idle,
+        live,
+        live_shown: std::sync::atomic::AtomicBool::new(false),
+    });
     Ok(())
 }
 
@@ -1143,6 +1204,37 @@ fn save_settings(path: &std::path::Path, settings: &UserSettings) -> Result<(), 
     })
 }
 
+/// Le a configuracao do transcritor local.
+///
+/// Ler do arquivo a cada consulta, e nao guardar em memoria, e a mesma regra da
+/// ADR-043: o arquivo e a fonte de verdade, e um espelho em memoria divergiria
+/// no primeiro caminho que o gravasse sem avisar.
+fn whisper_config(path: &std::path::Path) -> mos_transcribe::WhisperConfig {
+    load_settings(path).whisper
+}
+
+fn set_whisper_config(
+    path: &std::path::Path,
+    whisper: mos_transcribe::WhisperConfig,
+) -> Result<(), CoreError> {
+    // Ler-modificar-gravar, e nao reconstruir: um `UserSettings` montado so com
+    // este campo apagaria o atalho e o `start_minimized` no proximo clique em
+    // Aplicar — sem erro nenhum.
+    let mut settings = load_settings(path);
+    settings.whisper = whisper;
+    save_settings(path, &settings)
+}
+
+fn analysis_consent(path: &std::path::Path) -> String {
+    load_settings(path).analysis_consent_at
+}
+
+fn set_analysis_consent(path: &std::path::Path, at: &str) -> Result<(), CoreError> {
+    let mut settings = load_settings(path);
+    settings.analysis_consent_at = at.to_owned();
+    save_settings(path, &settings)
+}
+
 fn persist_shortcut(path: &std::path::Path, shortcut: &str) -> Result<(), CoreError> {
     let mut settings = load_settings(path);
     settings.capture_shortcut = shortcut.into();
@@ -1276,6 +1368,7 @@ pub fn run() {
                 memory: MemoryService::new(storage.clone()),
                 conversations: ConversationService::new(storage.clone()),
                 tracking: TrackingService::new(storage.clone()),
+                meetings: MeetingService::new(storage.clone(), clock.clone()),
                 monitoring: MonitoringService::new(storage.clone()),
                 data: DataService::new(storage.clone()),
                 attention: AttentionService::new(storage.clone(), clock.clone()),
@@ -1291,6 +1384,30 @@ pub fn run() {
             // turno, e uma mensagem gravada como `streaming` voltaria
             // eternamente em curso na tela.
             let _ = app.state::<AppState>().conversations.settle_unfinished();
+
+            app.manage(meeting::RecordingState::default());
+            // A reconciliacao roda ANTES da limpeza, e a ordem e a garantia:
+            // uma reuniao interrompida precisa virar `interrupted` antes que
+            // qualquer rotina olhe para o disco dela. Invertida, a limpeza veria
+            // uma reuniao ainda em `recording` — que ela nao apaga, mas o
+            // acoplamento seria por sorte e nao por desenho.
+            match meeting::reconcile_on_open(app.handle()) {
+                Ok(recovered) if !recovered.is_empty() => {
+                    // O aviso e emitido, e nao imposto: quem decide entre
+                    // processar e descartar e a pessoa.
+                    let _ = app.emit("meeting-interrupted", recovered.len());
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    // Falhar aqui NAO pode impedir o app de abrir. Uma reuniao
+                    // que ficou por reconciliar continua no banco e sera vista
+                    // na proxima abertura; um M/OS que nao abre perde tudo.
+                    eprintln!("meeting: reconciliacao de abertura falhou: {error}");
+                }
+            }
+            if let Err(error) = meeting::clean_expired_audio(app.handle()) {
+                eprintln!("meeting: limpeza de audio falhou: {error}");
+            }
 
             let shortcut_status = match app.global_shortcut().register(configured_shortcut.as_str())
             {
@@ -1318,6 +1435,7 @@ pub fn run() {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(monitor::run(handle));
             tauri::async_runtime::spawn(attention::run(app.handle().clone()));
+            tauri::async_runtime::spawn(meeting::run(app.handle().clone()));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1340,6 +1458,31 @@ pub fn run() {
             hermes::hermes_approve,
             hermes::hermes_clarify,
             hermes::hermes_clarify_cancel,
+            meeting::meeting_start,
+            meeting::meeting_stop,
+            meeting::meeting_recording,
+            meeting::meeting_list,
+            meeting::meeting_get,
+            meeting::meeting_transcript,
+            meeting::meeting_analysis,
+            meeting::meeting_insights,
+            meeting::meeting_set_project,
+            meeting::meeting_set_title,
+            meeting::meeting_set_archived,
+            meeting::meeting_process_recovered,
+            meeting::meeting_discard,
+            meeting::meeting_interrupted,
+            meeting::meeting_open_commitments,
+            meeting::meeting_transcribe,
+            meeting::meeting_retry,
+            meeting::meeting_transcriber_status,
+            meeting::meeting_set_transcriber,
+            meeting::meeting_analyze,
+            meeting::meeting_analysis_consent,
+            meeting::meeting_set_analysis_consent,
+            meeting::meeting_previews,
+            meeting::meeting_accept_insight,
+            meeting::meeting_dismiss_insight,
             jarvis::action_undo,
             calendar::calendar_window,
             tracking::tracking_default_cronocad_path,
@@ -1499,6 +1642,11 @@ pub fn run() {
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
             ) {
                 app.state::<monitor::Monitor>().stop();
+                // Uma gravacao em curso no `Quit` precisa FECHAR, e nao ser
+                // abandonada. Sem isto, o ultimo chunk fica sem `sync_all` e a
+                // proxima abertura recupera a reuniao como interrompida — o que
+                // seria verdade, mas seria uma interrupcao causada por nos.
+                meeting::shutdown(app);
             }
         });
 }

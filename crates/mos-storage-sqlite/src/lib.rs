@@ -3,6 +3,7 @@ mod attention_repository;
 mod backup;
 mod conversation_repository;
 mod cronocad_import;
+mod meeting_repository;
 mod monitoring_repository;
 mod repository;
 mod resource_repository;
@@ -22,7 +23,7 @@ use serde::Serialize;
 
 pub use cronocad_import::ImportReport;
 
-const SCHEMA_VERSION: u32 = 16;
+const SCHEMA_VERSION: u32 = 17;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -39,6 +40,7 @@ const MIGRATION_013: &str = include_str!("../migrations/0013_tracking_surface.sq
 const MIGRATION_014: &str = include_str!("../migrations/0014_project_budget.sql");
 const MIGRATION_015: &str = include_str!("../migrations/0015_attention.sql");
 const MIGRATION_016: &str = include_str!("../migrations/0016_widget_order.sql");
+const MIGRATION_017: &str = include_str!("../migrations/0017_meetings.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -249,6 +251,11 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
             .execute_batch(MIGRATION_016)
             .map_err(map_sql_error)?;
     }
+    if current <= 16 {
+        connection
+            .execute_batch(MIGRATION_017)
+            .map_err(map_sql_error)?;
+    }
     Ok(())
 }
 
@@ -384,6 +391,101 @@ mod tests {
     use mos_core::{
         AppRepository, CaptureRepository, NewResource, ResourceRepository, SearchRequest,
     };
+
+    /// Sobe um banco v16 POVOADO ate a v17.
+    ///
+    /// O teste que importa nao e "a migration roda": e "a migration roda sem
+    /// perder o que ja estava la". Um banco de verdade na hora do upgrade tem
+    /// Captures, Projects e Tasks, e a `0017` so acrescenta tabelas — mas e
+    /// exatamente esse tipo de certeza que precisa ser exercitado antes de
+    /// alcancar a maquina de alguem.
+    #[test]
+    fn upgrades_v16_preserving_existing_data() {
+        use mos_core::{MeetingRepository, MeetingSource, NewMeeting, NewProject, WorkRepository};
+
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("mos.db");
+        let backups = directory.path().join("backups");
+        fs::create_dir_all(&backups).unwrap();
+
+        // Um banco parado na versao anterior, com dado dentro.
+        let connection = Connection::open(&database).unwrap();
+        configure_connection(&connection).unwrap();
+        for migration in [
+            MIGRATION_001,
+            MIGRATION_002,
+            MIGRATION_003,
+            MIGRATION_004,
+            MIGRATION_005,
+            MIGRATION_006,
+            MIGRATION_007,
+            MIGRATION_008,
+            MIGRATION_009,
+            MIGRATION_010,
+            MIGRATION_011,
+            MIGRATION_012,
+            MIGRATION_013,
+            MIGRATION_014,
+            MIGRATION_015,
+            MIGRATION_016,
+        ] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection
+            .execute(
+                "INSERT INTO captures (
+                    id, content, source_kind, processing_state, lifecycle_state,
+                    captured_at, created_at, updated_at
+                 ) VALUES (
+                    '0198a7d5-a64e-7000-8000-0000000000aa', 'Sobreviveu ao upgrade', 'home',
+                    'inbox', 'active', '2026-08-18T00:00:00Z',
+                    '2026-08-18T00:00:00Z', '2026-08-18T00:00:00Z'
+                 )",
+                [],
+            )
+            .unwrap();
+        let version: u32 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 16, "o banco de partida precisa estar na v16");
+        drop(connection);
+
+        // A abertura migra.
+        let storage = SqliteStorage::open(&database, &backups).unwrap();
+        assert_eq!(storage.health().unwrap().schema_version, SCHEMA_VERSION);
+        assert_eq!(storage.health().unwrap().integrity, "ok");
+
+        // O que ja existia continua la.
+        assert_eq!(CaptureRepository::recent(&storage, 10).unwrap().len(), 1);
+
+        // E o snapshot pre-migration foi criado, como manda `ARCHITECTURE.md` §16.
+        assert_eq!(
+            fs::read_dir(&backups)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("pre-migration-v16-"))
+                .count(),
+            1
+        );
+
+        // E as tabelas novas funcionam, incluindo a FK para `projects`, que so
+        // existe porque a migration anterior ja tinha rodado.
+        let project = storage
+            .create_project(NewProject::create("NexoDoc", "", "").unwrap())
+            .unwrap();
+        let meeting = storage
+            .create_meeting(NewMeeting::start(
+                "Primeira reuniao depois do upgrade",
+                MeetingSource::Manual,
+                Some(project.id),
+                time::macros::datetime!(2026-08-18 14:00:00 UTC),
+            ))
+            .unwrap();
+        assert_eq!(storage.meeting(meeting.id).unwrap().project_id, Some(project.id));
+    }
 
     #[test]
     fn opens_with_required_pragmas_and_schema() {

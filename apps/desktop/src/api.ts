@@ -1,11 +1,132 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { UndoStep } from "./hermes";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { WidgetPosition, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
+  MeetingTick, TranscriberStatus, TranscriptSegment, WidgetPosition, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
+/**
+ * O recibo de uma aceitacao.
+ *
+ * Vive aqui, e nao em `types.ts`, porque carrega o `UndoStep` — que mora junto
+ * da ponte do Hermes por ser o contrato do desfazer do M/OS inteiro. Manter os
+ * dois no mesmo lado evita um import de tipo atravessando na direcao errada.
+ */
+export type AcceptReceipt = {
+  insight: MeetingInsight;
+  taskId: string;
+  reminderId: string | null;
+  undo: UndoStep;
+};
+
 export const api = {
+
+  // ===========================================================================
+  // Meeting Agent
+  // ===========================================================================
+  //
+  // Nenhum destes carrega audio: a captura inteira vive no Rust, e o que sobe
+  // para ca e estado. `meetingRecording` le atomicos, entao chamar de segundo em
+  // segundo custa quase nada.
+  meetingStart(title: string, projectId?: string | null) {
+    return invoke<Meeting>("meeting_start", { title, projectId: projectId ?? null });
+  },
+  meetingStop() {
+    return invoke<Meeting>("meeting_stop");
+  },
+  /** `null` quando nao ha gravacao em curso. */
+  meetingRecording() {
+    return invoke<MeetingTick | null>("meeting_recording");
+  },
+  meetings(includeArchived = false) {
+    return invoke<Meeting[]>("meeting_list", { includeArchived });
+  },
+  meeting(id: string) {
+    return invoke<Meeting>("meeting_get", { id });
+  },
+  meetingTranscript(id: string) {
+    return invoke<TranscriptSegment[]>("meeting_transcript", { id });
+  },
+  meetingAnalysis(id: string) {
+    return invoke<MeetingAnalysis | null>("meeting_analysis", { id });
+  },
+  meetingInsights(id: string) {
+    return invoke<MeetingInsight[]>("meeting_insights", { id });
+  },
+  meetingPreviews(id: string) {
+    return invoke<InsightPreview[]>("meeting_previews", { id });
+  },
+  meetingSetProject(id: string, projectId: string | null) {
+    return invoke<Meeting>("meeting_set_project", { id, projectId });
+  },
+  meetingSetTitle(id: string, title: string) {
+    return invoke<Meeting>("meeting_set_title", { id, title });
+  },
+  meetingSetArchived(id: string, archived: boolean) {
+    return invoke<Meeting>("meeting_set_archived", { id, archived });
+  },
+  /** As reunioes que a abertura encontrou interrompidas e que esperam decisao. */
+  meetingInterrupted() {
+    return invoke<Meeting[]>("meeting_interrupted");
+  },
+  meetingProcessRecovered(id: string) {
+    return invoke<Meeting>("meeting_process_recovered", { id });
+  },
+  /** Descarta a gravacao. Apaga o audio DEPOIS de mudar o estado. */
+  meetingDiscard(id: string) {
+    return invoke<Meeting>("meeting_discard", { id });
+  },
+  meetingTranscribe(id: string) {
+    return invoke<Meeting>("meeting_transcribe", { id });
+  },
+  meetingAnalyze(id: string) {
+    return invoke<Meeting>("meeting_analyze", { id });
+  },
+  meetingRetry(id: string) {
+    return invoke<Meeting>("meeting_retry", { id });
+  },
+  meetingOpenCommitments() {
+    return invoke<MeetingInsight[]>("meeting_open_commitments");
+  },
+  /**
+   * Aceita um item: cria Task e, quando `remindAt` vier, Reminder.
+   *
+   * `remindAt` sai DAQUI resolvido para instante. O `dueHint` guarda a palavra
+   * dita ("amanha"); quem sabe que horas isso significa e o fuso de quem esta
+   * olhando, e esse fuso so existe no renderer.
+   */
+  meetingAcceptInsight(input: {
+    insightId: string;
+    title: string;
+    description?: string;
+    projectId?: string | null;
+    remindAt?: Date | null;
+  }) {
+    return invoke<AcceptReceipt>("meeting_accept_insight", {
+      insightId: input.insightId,
+      title: input.title,
+      description: input.description ?? null,
+      projectId: input.projectId ?? null,
+      remindAt: input.remindAt ? input.remindAt.toISOString() : null,
+    });
+  },
+  meetingDismissInsight(insightId: string) {
+    return invoke<MeetingInsight>("meeting_dismiss_insight", { insightId });
+  },
+  meetingTranscriberStatus() {
+    return invoke<TranscriberStatus>("meeting_transcriber_status");
+  },
+  meetingSetTranscriber(binary: string, model: string, threads: number) {
+    return invoke<TranscriberStatus>("meeting_set_transcriber", { binary, model, threads });
+  },
+  meetingAnalysisConsent() {
+    return invoke<AnalysisConsent>("meeting_analysis_consent");
+  },
+  meetingSetAnalysisConsent(granted: boolean) {
+    return invoke<AnalysisConsent>("meeting_set_analysis_consent", { granted });
+  },
   widgetPositions() {
     return invoke<WidgetPosition[]>("widget_positions");
   },

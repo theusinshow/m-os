@@ -131,42 +131,11 @@ fn encode_trigger(trigger: &Trigger) -> Result<String, CoreError> {
 
 impl AttentionRepository for SqliteStorage {
     fn create_reminder(&self, reminder: NewReminder) -> Result<Reminder, CoreError> {
+        let id = reminder.id;
         let connection = self.connection.lock().map_err(map_lock_error)?;
-        let (target_type, target_id) = match reminder.target {
-            Some(target) => {
-                let (kind, id) = target.as_columns();
-                (Some(kind.to_owned()), Some(id))
-            }
-            None => (None, None),
-        };
-
-        connection
-            .execute(
-                "INSERT INTO reminders (id, title, body, target_type, target_id, trigger_kind, \
-                 trigger, priority, status, source, snooze_allowed, privacy, next_due_at, \
-                 created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)",
-                params![
-                    reminder.id.to_string(),
-                    reminder.title,
-                    reminder.body,
-                    target_type,
-                    target_id,
-                    reminder.trigger.kind_str(),
-                    encode_trigger(&reminder.trigger)?,
-                    reminder.priority.as_str(),
-                    ReminderStatus::Scheduled.as_str(),
-                    reminder.source.as_str(),
-                    i64::from(reminder.policy.snooze_allowed),
-                    reminder.policy.privacy.as_str(),
-                    reminder.next_due_at.map(format_time).transpose()?,
-                    format_time(reminder.created_at)?,
-                ],
-            )
-            .map_err(map_sql_error)?;
-
+        insert_reminder(&connection, &reminder)?;
         drop(connection);
-        self.reminder(reminder.id)
+        self.reminder(id)
     }
 
     fn reminder(&self, id: ReminderId) -> Result<Reminder, CoreError> {
@@ -403,6 +372,50 @@ impl SqliteStorage {
         }
         Ok(found)
     }
+}
+
+/// Insere um Reminder numa conexao ou transacao ja aberta.
+///
+/// `pub(crate)` pela mesma razao que `insert_task`: aceitar um item de reuniao
+/// cria Task e Reminder juntos, e "juntos" precisa ser uma transacao so — senao
+/// existe um instante em que a Task existe e o lembrete dela nao, e uma queda
+/// ali deixaria o compromisso sem aviso.
+pub(crate) fn insert_reminder(
+    connection: &rusqlite::Connection,
+    reminder: &NewReminder,
+) -> Result<(), CoreError> {
+    let (target_type, target_id) = match reminder.target {
+        Some(target) => {
+            let (kind, id) = target.as_columns();
+            (Some(kind.to_owned()), Some(id))
+        }
+        None => (None, None),
+    };
+    connection
+        .execute(
+            "INSERT INTO reminders (id, title, body, target_type, target_id, trigger_kind, \
+             trigger, priority, status, source, snooze_allowed, privacy, next_due_at, \
+             created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)",
+            params![
+                reminder.id.to_string(),
+                reminder.title,
+                reminder.body,
+                target_type,
+                target_id,
+                reminder.trigger.kind_str(),
+                encode_trigger(&reminder.trigger)?,
+                reminder.priority.as_str(),
+                ReminderStatus::Scheduled.as_str(),
+                reminder.source.as_str(),
+                i64::from(reminder.policy.snooze_allowed),
+                reminder.policy.privacy.as_str(),
+                reminder.next_due_at.map(format_time).transpose()?,
+                format_time(reminder.created_at)?,
+            ],
+        )
+        .map_err(map_sql_error)?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -612,3 +612,217 @@ pub async fn hermes_load_history<R: Runtime>(app: AppHandle<R>) -> Result<(), St
 pub async fn hermes_disconnect<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     order(&app, Order::Close).await
 }
+
+/// A `base_url` configurada agora.
+///
+/// Existe para quem precisa falar com o gateway FORA da conexao da conversa —
+/// hoje, a analise de reuniao. Ler daqui em vez de duplicar o padrao garante que
+/// trocar o endereco em Settings valha para os dois caminhos.
+pub fn current_base_url<R: Runtime>(app: &AppHandle<R>) -> String {
+    get(&app.state::<HermesState>().base_url)
+}
+
+/// Uma pergunta ao Hermes fora da conversa.
+///
+/// **A analise nao e uma conversa** (`MEETING-AGENT.md` §11.2). Despejar uma
+/// transcricao de uma hora na thread do usuario seria ruido, e a resposta — um
+/// bloco estruturado — nao e feita para ser lida como prosa.
+///
+/// Ela abre socket e sessao proprios, faz UMA pergunta, junta a resposta e
+/// fecha. Nao toca o `HermesState`, entao uma analise em curso nao interfere na
+/// conversa aberta e vice-versa.
+pub async fn ask_once(base_url: &str, prompt: &str) -> Result<String, HermesError> {
+    use tokio::time::{interval, timeout, Duration};
+
+    // Uma reuniao de uma hora e um prompt grande, e o modelo pensa antes de
+    // responder. Cinco minutos e generoso; sem teto nenhum, um turno travado na
+    // VPS deixaria a reuniao em `analyzing` para sempre.
+    const TETO: Duration = Duration::from_secs(300);
+
+    let channels = handshake(base_url).await?;
+    let mut bridge = Bridge::new(channels);
+
+    // A sessao e aberta IMEDIATAMENTE, como o laco da conversa faz — e nao
+    // depois de esperar `gateway.ready`.
+    //
+    // A primeira versao esperava, e travava. `gateway.ready` e o `result` do
+    // `session.create` sao os dois absorvidos por `Bridge::absorb` sem produzir
+    // saida visivel, e `next()` continua lendo em vez de devolver. Quem espera
+    // por eles fica bloqueado num socket que nao vai mandar mais nada, porque a
+    // proxima coisa a acontecer depende de NOS enviarmos a pergunta.
+    bridge.open_session(None).await?;
+
+    let mut resposta = String::new();
+    let mut enviado = false;
+    // O relogio que devolve o controle para perguntar se a sessao ja abriu. E o
+    // mesmo mecanismo que o canal de ordens cumpre no laco da conversa: sem uma
+    // segunda fonte de acordar, `next()` monopoliza o laco.
+    let mut relogio = interval(Duration::from_millis(50));
+
+    let colheita = timeout(TETO, async {
+        loop {
+            tokio::select! {
+                event = bridge.next() => match event {
+                    Some(Ok(Outcome::Delta { text })) => resposta.push_str(&text),
+                    Some(Ok(Outcome::Complete)) => return Ok(()),
+                    Some(Ok(Outcome::Failed { message })) => {
+                        return Err(HermesError::Gateway(message))
+                    }
+                    // O agente pediu aprovacao no meio. Numa sessao efemera nao
+                    // ha ninguem para responder, e esperar travaria a analise
+                    // ate o teto. Negar e a resposta honesta, e e a mesma
+                    // omissao que o `HERMES-GATEWAY-CONTRACT.md` §6 fixou.
+                    Some(Ok(Outcome::Approval { .. })) => {
+                        bridge.respond_approval(false).await?;
+                    }
+                    Some(Ok(_)) => {}
+                    Some(Err(error)) => return Err(error),
+                    None => {
+                        return Err(HermesError::Unreachable(
+                            "o gateway fechou no meio da analise".into(),
+                        ))
+                    }
+                },
+                _ = relogio.tick(), if !enviado => {
+                    if bridge.session_id().is_some() {
+                        bridge.submit(prompt).await?;
+                        enviado = true;
+                    }
+                }
+            }
+        }
+    })
+    .await;
+
+    // Fechar em qualquer desfecho: uma sessao efemera que nao fecha vira lixo na
+    // VPS, e elas se acumulam a cada reuniao.
+    let _ = bridge.close().await;
+
+    match colheita {
+        Ok(Ok(())) => Ok(resposta),
+        Ok(Err(error)) => Err(error),
+        Err(_) => Err(HermesError::Unreachable(
+            "o Hermes nao respondeu a tempo".into(),
+        )),
+    }
+}
+
+#[cfg(test)]
+mod gate_d {
+    //! Prova o Gate D contra o Hermes REAL.
+    //!
+    //! `#[ignore]` porque depende de um tunel aberto e da credencial no
+    //! Credential Manager. Ele nao pede senha e nao a le: usa
+    //! `Credentials::load()`, exatamente o caminho que o aplicativo usa.
+    //!
+    //! ```powershell
+    //! cargo test -p mos-desktop --lib gate_d -- --ignored --nocapture
+    //! ```
+
+    use mos_core::{interleave, MeetingId, RawSegment};
+
+    /// Uma reuniao curta e realista, com compromissos dos dois lados.
+    fn transcricao() -> Vec<mos_core::TranscriptSegment> {
+        let fala = |start: i64, text: &str| RawSegment {
+            start_ms: start,
+            end_ms: start + 4_000,
+            text: text.into(),
+            confidence: None,
+        };
+        interleave(
+            MeetingId::new(),
+            vec![
+                fala(0, "Bom dia pessoal, vamos comecar o alinhamento do NexoDoc."),
+                fala(5_000, "Eu termino os slides da apresentacao amanha de manha e mando para voces."),
+                fala(11_000, "Sobre o orcamento, acho que precisamos revisar os valores antes de fechar."),
+                fala(17_000, "Ficou decidido entao que usamos o Hermes para a camada de inteligencia."),
+                fala(23_000, "Eu fico responsavel por falar com o cliente ainda esta semana."),
+            ],
+            vec![
+                fala(1_000, "Perfeito, bom dia. Eu revisei o documento ontem a noite."),
+                fala(6_500, "Combinado, eu reviso os slides na sexta-feira pela manha."),
+                fala(12_500, "Concordo com a revisao do orcamento. Eu levanto os numeros do trimestre."),
+                fala(19_000, "Uma duvida que ficou em aberto e se o prazo de entrega continua o mesmo."),
+                fala(25_000, "Talvez a gente possa antecipar a proxima reuniao, mas nao tenho certeza."),
+            ],
+        )
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa do tunel do Hermes aberto e da credencial salva"]
+    async fn o_hermes_devolve_um_bloco_que_o_dominio_aceita() {
+        let segments = transcricao();
+        let meeting_id = segments[0].meeting_id;
+        let windows = mos_core::build_windows(&segments, mos_core::WINDOW_BUDGET_CHARS);
+        assert_eq!(windows.len(), 1, "esta transcricao cabe numa janela");
+
+        let prompt = format!(
+            "{}\n\n---\n\n{}",
+            mos_core::instructions("NexoDoc — Comercial"),
+            windows[0].text
+        );
+        println!("prompt: {} caracteres", prompt.len());
+
+        let resposta = super::ask_once(super::DEFAULT_BASE_URL, &prompt)
+            .await
+            .expect("o Hermes precisa responder");
+        println!("\nresposta crua ({} caracteres):\n{resposta}", resposta.len());
+
+        let outcome = mos_core::parse_analysis(meeting_id, &resposta, &segments)
+            .expect("o bloco precisa passar pela validacao do dominio");
+
+        println!("\nRESUMO: {}", outcome.summary);
+        println!("TOPICOS: {:?}", outcome.topics);
+        println!("\n{} itens:", outcome.insights.len());
+        for item in &outcome.insights {
+            println!(
+                "  [{:>13}] {:<6} {}  (evidencias: {})",
+                item.kind.as_str(),
+                item.confidence.as_str(),
+                item.text,
+                item.evidence.len()
+            );
+            for evidencia in &item.evidence {
+                let trecho = segments
+                    .iter()
+                    .find(|s| s.id == evidencia.segment_id)
+                    .map(|s| s.text.as_str())
+                    .unwrap_or("<<<INEXISTENTE>>>");
+                println!("        → {trecho}");
+            }
+        }
+        println!("\nRECUSAS: {:?}", outcome.rejections);
+
+        assert!(!outcome.summary.is_empty(), "precisa vir resumo");
+        assert!(!outcome.insights.is_empty(), "precisa vir item");
+
+        // A prova que sustenta o `WHY?`: toda evidencia que sobreviveu aponta
+        // para um segmento que EXISTE. A validacao ja garante isso; o assert
+        // existe para que uma regressao nela apareca aqui.
+        for item in &outcome.insights {
+            for evidencia in &item.evidence {
+                assert!(
+                    segments.iter().any(|s| s.id == evidencia.segment_id),
+                    "evidencia apontando para segmento inexistente sobreviveu"
+                );
+            }
+        }
+
+        // E o que a feature promete: pelo menos um compromisso MEU, com
+        // proveniencia. Sem isso, "o que EU prometi" nao existe.
+        let meus: Vec<_> = outcome
+            .insights
+            .iter()
+            .filter(|item| item.kind == mos_core::InsightKind::MyAction)
+            .collect();
+        println!("\ncompromissos meus: {}", meus.len());
+        assert!(
+            !meus.is_empty(),
+            "a transcricao tem dois compromissos meus explicitos"
+        );
+        assert!(
+            meus.iter().any(|item| !item.evidence.is_empty()),
+            "pelo menos um compromisso precisa de evidencia"
+        );
+    }
+}

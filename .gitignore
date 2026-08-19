@@ -27,3 +27,9 @@ artifacts/
 .DS_Store
 Thumbs.db
 *.suo
+
+# Sessoes gravadas pelo spike de audio: contem audio real de reuniao e nunca
+# devem ser versionadas.
+spikes/meeting-audio/meeting-spike/
+spikes/**/*.pcm
+spikes/**/report.json

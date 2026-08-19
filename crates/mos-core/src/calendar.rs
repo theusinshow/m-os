@@ -27,6 +27,13 @@ pub enum CalendarKind {
     /// e a informacao. Fechar dobraria as marcas do dia sem responder nada que
     /// a abertura ja nao tenha respondido.
     AppOpened,
+    /// Uma reuniao que aconteceu. Este calendario e retrospectivo por
+    /// construcao, e uma reuniao gravada e exatamente o material dele.
+    ///
+    /// Ela entra como fato passado, e NAO como compromisso futuro: `Event` nao
+    /// existe no M/OS, e uma variante que sugerisse agenda prometeria uma
+    /// capacidade sem lastro.
+    Meeting,
 }
 
 impl CalendarKind {
@@ -37,6 +44,7 @@ impl CalendarKind {
             Self::TaskCreated => "task_created",
             Self::Capture => "capture",
             Self::AppOpened => "app_opened",
+            Self::Meeting => "meeting",
         }
     }
 }

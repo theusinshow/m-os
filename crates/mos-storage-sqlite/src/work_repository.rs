@@ -911,7 +911,12 @@ impl WorkRepository for SqliteStorage {
     }
 }
 
-fn insert_task(
+/// Insere uma Task dentro de uma transacao ja aberta.
+///
+/// `pub(crate)` porque a aceitacao de um item de reuniao precisa criar Task,
+/// Reminder e o vinculo na MESMA transacao. Duplicar o INSERT la seria criar um
+/// segundo lugar que precisa lembrar do FTS.
+pub(crate) fn insert_task(
     transaction: &Transaction<'_>,
     task: NewTask,
     source_capture_id: Option<CaptureId>,

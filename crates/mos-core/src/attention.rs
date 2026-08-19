@@ -206,6 +206,13 @@ pub enum ReminderTarget {
     Resource(ResourceId),
     Conversation(ConversationId),
     App(AppId),
+    /// O setimo braco, e ele destrava o que o `ATTENTION-SYSTEM.md` §0.2
+    /// registrou como bloqueado: *"Smart Snooze 'apos a reuniao' — bloqueado —
+    /// nao ha reuniao no sistema"*. Agora ha.
+    ///
+    /// Custo: uma migration e uma linha em cada `match`. E exatamente a
+    /// consequencia que a ADR-012 aceitou ao recusar tabela generica de arestas.
+    Meeting(crate::MeetingId),
 }
 
 impl ReminderTarget {
@@ -218,6 +225,7 @@ impl ReminderTarget {
             Self::Resource(id) => ("resource", id.to_string()),
             Self::Conversation(id) => ("conversation", id.to_string()),
             Self::App(id) => ("app", id.to_string()),
+            Self::Meeting(id) => ("meeting", id.to_string()),
         }
     }
 
@@ -229,6 +237,7 @@ impl ReminderTarget {
             "resource" => Ok(Self::Resource(ResourceId::parse(id)?)),
             "conversation" => Ok(Self::Conversation(ConversationId::parse(id)?)),
             "app" => Ok(Self::App(AppId::parse(id)?)),
+            "meeting" => Ok(Self::Meeting(crate::MeetingId::parse(id)?)),
             _ => Err(CoreError::new(
                 ErrorCode::DataIntegrity,
                 "Tipo de alvo de Reminder desconhecido.",

@@ -16,6 +16,10 @@ pub enum FunctionCategory {
     /// entre os onze conceitos fundamentais desde o inicio.
     Attention,
     App,
+    /// Reunioes. Categoria propria pelo mesmo criterio que deu uma a `Time` e
+    /// outra a `Attention`: e um substantivo central do produto, e nao uma
+    /// faceta de outro. `ATTENTION-SYSTEM.md` §0.2 ja dependia dela existir.
+    Meeting,
     Data,
     System,
 }
@@ -144,6 +148,71 @@ pub fn function_registry() -> Vec<FunctionDefinition> {
             "Lancar tempo",
             "Registra tempo trabalhado que o cronometro nao contou.",
             FunctionCategory::Time,
+            FunctionRisk::Medium,
+            FunctionConfirmation::Explicit,
+        ),
+        // As sete da reuniao. O risco NAO e uniforme, e a diferenca e a mesma
+        // que separa `time.start` de `time.record`: o que so mexe em dado local
+        // e barato, o que atravessa a fronteira da maquina ou apaga bytes nao.
+        function(
+            "meeting.start",
+            "Iniciar Meeting Notes",
+            "Comeca a gravar microfone e audio do sistema. Nunca acontece sem clique.",
+            FunctionCategory::Meeting,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "meeting.stop",
+            "Parar Meeting Notes",
+            "Encerra a gravacao e fecha os arquivos de audio.",
+            FunctionCategory::Meeting,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "meeting.transcribe",
+            "Transcrever reuniao",
+            "Transcreve o audio localmente. Nada sai da maquina.",
+            FunctionCategory::Meeting,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        // Risco medio, e a razao nao e a consequencia local: e que ela ENVIA a
+        // transcricao para a VPS do Hermes. O consentimento e dado uma vez e
+        // registrado (ADR-027), mas a acao continua marcada como o limite que
+        // ela atravessa.
+        function(
+            "meeting.analyze",
+            "Analisar reuniao com o Hermes",
+            "Envia a transcricao ao Hermes e recebe resumo, decisoes e acoes.",
+            FunctionCategory::Meeting,
+            FunctionRisk::Medium,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "meeting.accept_insight",
+            "Criar Task a partir da reuniao",
+            "Cria Task e, quando pedido, Reminder a partir de um item da reuniao.",
+            FunctionCategory::Meeting,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "meeting.link_project",
+            "Vincular reuniao a Project",
+            "Relaciona a reuniao ao contexto em que ela pertence.",
+            FunctionCategory::Meeting,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        // A unica da familia que APAGA bytes. Confirmacao explicita pela mesma
+        // razao que `data.restore` a exige: o inverso nao existe.
+        function(
+            "meeting.delete_audio",
+            "Apagar audio da reuniao",
+            "Remove os arquivos de audio. A transcricao e a analise permanecem.",
+            FunctionCategory::Meeting,
             FunctionRisk::Medium,
             FunctionConfirmation::Explicit,
         ),
@@ -317,6 +386,26 @@ mod tests {
             .expect("m-finance.create_bill deveria estar registrada");
         assert_eq!(entry.risk, FunctionRisk::High);
         assert_eq!(entry.confirmation, FunctionConfirmation::Explicit);
+    }
+
+    #[test]
+    fn apagar_audio_de_reuniao_exige_confirmacao_explicita() {
+        let entry = function_registry()
+            .into_iter()
+            .find(|item| item.id == "meeting.delete_audio")
+            .expect("meeting.delete_audio deveria estar registrada");
+        assert_eq!(entry.confirmation, FunctionConfirmation::Explicit);
+    }
+
+    #[test]
+    fn analisar_reuniao_nao_e_risco_baixo() {
+        // Ela envia a transcricao para fora da maquina. Rebaixa-la para `Low`
+        // apagaria o unico lugar do registro onde esse limite aparece.
+        let entry = function_registry()
+            .into_iter()
+            .find(|item| item.id == "meeting.analyze")
+            .expect("meeting.analyze deveria estar registrada");
+        assert_eq!(entry.risk, FunctionRisk::Medium);
     }
 
     #[test]

@@ -1292,3 +1292,398 @@ impl ConversationService {
         self.repository.rebuild_conversation_search()
     }
 }
+
+/// Camada de aplicacao do Meeting Agent.
+///
+/// Ela coordena a maquina de estados e a persistencia, e **nao conhece WASAPI,
+/// Whisper nem o Hermes**. As tres portas dos estagios chegam nas fases delas;
+/// o que existe aqui e o que sobrevive a todas: a reuniao, o estado dela e a
+/// regra de quem pode transitar para onde.
+pub struct MeetingService {
+    repository: Arc<dyn crate::MeetingRepository>,
+    clock: Arc<dyn crate::Clock>,
+}
+
+/// O que a captura mediu quando os arquivos fecharam.
+///
+/// Chega do adapter de audio, e a duracao vem em FRAMES GRAVADOS. O servico nao
+/// a recalcula, e nao existe caminho aqui que a derive de `ended_at - started_at`
+/// — seria justamente no caso em que um canal caiu que esse numero mentiria.
+#[derive(Clone, Debug)]
+pub struct AudioOutcome {
+    pub duration_ms: i64,
+    pub mic: crate::ChannelOutcome,
+    pub system: crate::ChannelOutcome,
+}
+
+impl MeetingService {
+    pub fn new(repository: Arc<dyn crate::MeetingRepository>, clock: Arc<dyn crate::Clock>) -> Self {
+        Self { repository, clock }
+    }
+
+    /// Comeca a gravar.
+    ///
+    /// **Recusa quando ja existe uma gravacao em curso.** Recusar em vez de
+    /// substituir e a mesma regra do cronometro em `TimeTrackingRepository`, e
+    /// pelo mesmo motivo: encerrar a anterior por conta descartaria uma sessao
+    /// que o usuario nao mandou descartar. Aqui o custo seria pior — dois
+    /// gravadores disputando o mesmo dispositivo.
+    pub fn start(
+        &self,
+        title: &str,
+        project_id: Option<&str>,
+    ) -> Result<crate::Meeting, CoreError> {
+        if let Some(current) = self.recording()? {
+            return Err(CoreError::new(
+                crate::ErrorCode::InvalidTransition,
+                format!("Ja existe uma gravacao em curso: \"{}\".", current.title),
+                false,
+            ));
+        }
+        let project_id = project_id.map(crate::ProjectId::parse).transpose()?;
+        self.repository.create_meeting(crate::NewMeeting::start(
+            title,
+            // `Manual` fixo, e nao um parametro. A §17.2 promete que nenhum
+            // caminho de codigo inicia gravacao sem clique; um parametro de
+            // origem abriria exatamente esse caminho.
+            crate::MeetingSource::Manual,
+            project_id,
+            self.clock.now(),
+        ))
+    }
+
+    /// A gravacao em curso, se houver.
+    pub fn recording(&self) -> Result<Option<crate::Meeting>, CoreError> {
+        Ok(self.repository.capturing_meetings()?.into_iter().next())
+    }
+
+    /// O usuario clicou em Parar. O audio ainda esta fechando.
+    pub fn stop(&self, id: &str) -> Result<crate::Meeting, CoreError> {
+        self.transition(id, crate::MeetingTransition::Stop)
+    }
+
+    /// A captura fechou os arquivos e mediu o que gravou.
+    pub fn settle_audio(
+        &self,
+        id: &str,
+        outcome: AudioOutcome,
+    ) -> Result<crate::Meeting, CoreError> {
+        let meeting = self.repository.meeting(crate::MeetingId::parse(id)?)?;
+        let mut settled = crate::apply_meeting(
+            &meeting,
+            crate::MeetingTransition::AudioSettled,
+            self.clock.now(),
+        )?;
+        settled.duration_ms = outcome.duration_ms;
+        settled.mic = outcome.mic;
+        settled.system = outcome.system;
+
+        // Os DOIS canais mudos e uma gravacao que nao existe. Ela nao vira
+        // `Recorded`, porque `Recorded` promete audio processavel — e transcrever
+        // silencio produziria uma reuniao vazia com cara de reuniao real.
+        if !settled.mic.has_audio() && !settled.system.has_audio() {
+            let mut failed = settled;
+            failed.status = crate::MeetingStatus::Failed(crate::FailedStage::Audio);
+            failed.failure = Some(crate::MeetingFailure {
+                stage: crate::FailedStage::Audio,
+                message: "Nenhum dos dois canais capturou audio.".into(),
+            });
+            return self.repository.save_meeting(&failed);
+        }
+        self.repository.save_meeting(&settled)
+    }
+
+    /// Reconcilia a abertura do M/OS.
+    ///
+    /// Uma reuniao em captura num processo recem-nascido significa,
+    /// necessariamente, que o anterior morreu sem terminar. **Nada e apagado**:
+    /// ela vira `Interrupted` com a duracao que o disco sustenta, e quem decide
+    /// entre processar e descartar e a pessoa (§9.2).
+    ///
+    /// `recovered` diz, por reuniao, quanto de audio existe em disco. Reunioes
+    /// ausentes do mapa recebem zero — e zero e um fato a mostrar, nao um motivo
+    /// para apagar.
+    pub fn reconcile_on_open(
+        &self,
+        recovered: &dyn Fn(&crate::Meeting) -> i64,
+    ) -> Result<Vec<crate::Meeting>, CoreError> {
+        let now = self.clock.now();
+        let mut interrupted = Vec::new();
+        for meeting in self.repository.capturing_meetings()? {
+            let mut next =
+                crate::apply_meeting(&meeting, crate::MeetingTransition::DetectInterrupted, now)?;
+            next.duration_ms = recovered(&meeting);
+            // O canal para de estar "capturando" — ninguem esta capturando. Se
+            // ele tinha audio, ele o tem ate onde chegou.
+            next.mic = settle_channel(next.mic, next.duration_ms);
+            next.system = settle_channel(next.system, next.duration_ms);
+            interrupted.push(self.repository.save_meeting(&next)?);
+        }
+        Ok(interrupted)
+    }
+
+    /// O usuario escolheu [Processar] numa reuniao recuperada.
+    pub fn process_recovered(&self, id: &str) -> Result<crate::Meeting, CoreError> {
+        self.transition(id, crate::MeetingTransition::ProcessRecovered)
+    }
+
+    /// O usuario escolheu [Descartar].
+    pub fn cancel(&self, id: &str) -> Result<crate::Meeting, CoreError> {
+        self.transition(id, crate::MeetingTransition::Cancel)
+    }
+
+    pub fn start_transcription(&self, id: &str) -> Result<crate::Meeting, CoreError> {
+        self.transition(id, crate::MeetingTransition::StartTranscription)
+    }
+
+    /// Grava a transcricao e fecha o estagio, numa ordem que importa.
+    ///
+    /// A transcricao entra ANTES da transicao de estado. Se a escrita falhar, a
+    /// reuniao continua `Transcribing` e o retry a encontra; se o estado mudasse
+    /// primeiro, uma falha deixaria uma reuniao `Transcribed` sem transcricao —
+    /// que e a forma mais silenciosa de perder o trabalho.
+    pub fn finish_transcription(
+        &self,
+        id: &str,
+        segments: Vec<crate::TranscriptSegment>,
+    ) -> Result<crate::Meeting, CoreError> {
+        let meeting_id = crate::MeetingId::parse(id)?;
+        self.repository.replace_transcript(meeting_id, segments)?;
+        self.transition(id, crate::MeetingTransition::TranscriptionDone)
+    }
+
+    pub fn start_analysis(&self, id: &str) -> Result<crate::Meeting, CoreError> {
+        self.transition(id, crate::MeetingTransition::StartAnalysis)
+    }
+
+    /// Grava a analise e fecha o estagio. Mesma ordem, mesma razao.
+    pub fn finish_analysis(
+        &self,
+        analysis: crate::MeetingAnalysis,
+        insights: Vec<crate::MeetingInsight>,
+    ) -> Result<crate::Meeting, CoreError> {
+        let id = analysis.meeting_id;
+        self.repository.replace_analysis(analysis, insights)?;
+        self.transition(&id.to_string(), crate::MeetingTransition::AnalysisDone)
+    }
+
+    /// Registra uma falha de estagio, preservando o insumo do estagio anterior.
+    pub fn fail(
+        &self,
+        id: &str,
+        stage: crate::FailedStage,
+        message: &str,
+    ) -> Result<crate::Meeting, CoreError> {
+        let meeting = self.repository.meeting(crate::MeetingId::parse(id)?)?;
+        let mut failed = crate::apply_meeting(
+            &meeting,
+            crate::MeetingTransition::Fail(stage),
+            self.clock.now(),
+        )?;
+        failed.failure = Some(crate::MeetingFailure {
+            stage,
+            // A mensagem e para a PESSOA, e nunca carrega texto de transcricao
+            // (§16.3). Quem constroi a string e quem chama; o servico so a
+            // guarda, e a guarda inteira para que o diagnostico nao vire
+            // adivinhacao.
+            message: message.trim().to_owned(),
+        });
+        self.repository.save_meeting(&failed)
+    }
+
+    pub fn retry(&self, id: &str) -> Result<crate::Meeting, CoreError> {
+        self.transition(id, crate::MeetingTransition::Retry)
+    }
+
+    pub fn meeting(&self, id: &str) -> Result<crate::Meeting, CoreError> {
+        self.repository.meeting(crate::MeetingId::parse(id)?)
+    }
+
+    pub fn meetings(&self, include_archived: bool) -> Result<Vec<crate::Meeting>, CoreError> {
+        self.repository.meetings(include_archived)
+    }
+
+    pub fn transcript(&self, id: &str) -> Result<Vec<crate::TranscriptSegment>, CoreError> {
+        self.repository.transcript(crate::MeetingId::parse(id)?)
+    }
+
+    pub fn analysis(&self, id: &str) -> Result<Option<crate::MeetingAnalysis>, CoreError> {
+        self.repository.analysis(crate::MeetingId::parse(id)?)
+    }
+
+    pub fn insights(&self, id: &str) -> Result<Vec<crate::MeetingInsight>, CoreError> {
+        self.repository.insights(crate::MeetingId::parse(id)?)
+    }
+
+    /// Os itens que podem virar Task num clique so.
+    ///
+    /// A regra mora no dominio (`eligible_for_bulk`), e o servico apenas a
+    /// aplica. Duplicar o criterio aqui criaria duas definicoes de "elegivel",
+    /// e a interface acabaria oferecendo um lote que a criacao recusa.
+    pub fn bulk_candidates(&self, id: &str) -> Result<Vec<crate::MeetingInsight>, CoreError> {
+        Ok(self
+            .insights(id)?
+            .into_iter()
+            .filter(crate::MeetingInsight::eligible_for_bulk)
+            .collect())
+    }
+
+    pub fn set_project(
+        &self,
+        id: &str,
+        project_id: Option<&str>,
+    ) -> Result<crate::Meeting, CoreError> {
+        let project_id = project_id.map(crate::ProjectId::parse).transpose()?;
+        self.repository
+            .set_meeting_project(crate::MeetingId::parse(id)?, project_id)
+    }
+
+    pub fn set_title(&self, id: &str, title: &str) -> Result<crate::Meeting, CoreError> {
+        self.repository
+            .set_meeting_title(crate::MeetingId::parse(id)?, title)
+    }
+
+    pub fn set_lifecycle(
+        &self,
+        id: &str,
+        lifecycle: LifecycleState,
+    ) -> Result<crate::Meeting, CoreError> {
+        self.repository
+            .set_meeting_lifecycle(crate::MeetingId::parse(id)?, lifecycle)
+    }
+
+    /// *"Quais compromissos de reunioes eu ainda nao conclui?"*
+    ///
+    /// Responde por SQL, e nao por modelo. Onde a regra deterministica serve,
+    /// ela ganha da IA (§15.3).
+    pub fn open_commitments(&self) -> Result<Vec<crate::MeetingInsight>, CoreError> {
+        self.repository.open_commitments()
+    }
+
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<crate::Meeting>, CoreError> {
+        self.repository.search_meetings(crate::SearchRequest {
+            query: query.to_owned(),
+            include_archived: false,
+            limit,
+        })
+    }
+
+    pub fn search_transcripts(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<(crate::Meeting, String)>, CoreError> {
+        self.repository.search_transcripts(crate::SearchRequest {
+            query: query.to_owned(),
+            include_archived: false,
+            limit,
+        })
+    }
+
+    /// As reunioes cujo audio ja pode sair do disco.
+    ///
+    /// O servico so LISTA. Quem apaga bytes e o adapter, e ele marca depois de
+    /// apagar — a ordem importa: marcar antes deixaria uma reuniao dizendo que o
+    /// audio sumiu com o audio ainda la, ocupando disco para sempre porque
+    /// ninguem mais o procuraria.
+    pub fn audio_to_clean(&self) -> Result<Vec<crate::Meeting>, CoreError> {
+        self.repository
+            .meetings_with_deletable_audio(self.clock.now())
+    }
+
+    pub fn mark_audio_deleted(&self, id: &str) -> Result<crate::Meeting, CoreError> {
+        self.repository
+            .mark_audio_deleted(crate::MeetingId::parse(id)?, self.clock.now())
+    }
+
+    /// O preview de todos os itens de uma reuniao.
+    ///
+    /// A interface pede isto ANTES de qualquer criacao. Todo item mostra
+    /// preview, inclusive os de confianca alta (§13.2).
+    pub fn previews(&self, id: &str) -> Result<Vec<crate::InsightPreview>, CoreError> {
+        Ok(self
+            .insights(id)?
+            .iter()
+            .map(crate::MeetingInsight::preview)
+            .collect())
+    }
+
+    /// Aceita um item: cria a Task, opcionalmente o Reminder, e liga os tres.
+    ///
+    /// **O Meeting Agent nao escreve em Tasks.** Ele monta um `NewTask` validado
+    /// pelo mesmo construtor que a interface usa, e a escrita acontece numa
+    /// transacao do repositorio. O caminho e o mesmo; o que muda e quem propos.
+    pub fn accept_insight(
+        &self,
+        accept: crate::AcceptInsight,
+    ) -> Result<crate::AcceptedInsight, CoreError> {
+        let task = crate::NewTask::create(&accept.title, &accept.description, accept.project_id)?;
+
+        let reminder = match accept.remind_at {
+            Some(instant) => {
+                // O corpo do lembrete cita a reuniao, e nao a Task: quando ele
+                // tocar amanha as 9h, "de onde veio isto?" precisa ter resposta
+                // sem abrir mais nada.
+                let meeting = self.repository.meeting(
+                    self.repository
+                        .insights_meeting(accept.insight_id)?,
+                )?;
+                Some(
+                    crate::NewReminder::at(
+                        &accept.title,
+                        &format!("Da reuniao \"{}\"", meeting.title),
+                        instant,
+                        self.clock.as_ref(),
+                    )?
+                    .with_target(crate::ReminderTarget::Task(task.id)),
+                )
+            }
+            None => None,
+        };
+
+        self.repository.accept_insight(accept, task, reminder)
+    }
+
+    /// Descarta um item. Ele some da lista de propostas e continua no banco.
+    pub fn dismiss_insight(&self, insight_id: &str) -> Result<crate::MeetingInsight, CoreError> {
+        self.repository.set_insight_status(
+            crate::InsightId::parse(insight_id)?,
+            crate::InsightStatus::Dismissed,
+        )
+    }
+
+    /// Devolve um item aceito ao estado de proposta.
+    ///
+    /// E a metade do desfazer que mora no dominio da reuniao; arquivar a Task e
+    /// cancelar o Reminder acontecem pelos servicos deles.
+    pub fn reopen_insight(&self, insight_id: &str) -> Result<crate::MeetingInsight, CoreError> {
+        self.repository.set_insight_status(
+            crate::InsightId::parse(insight_id)?,
+            crate::InsightStatus::Proposed,
+        )
+    }
+
+    fn transition(
+        &self,
+        id: &str,
+        transition: crate::MeetingTransition,
+    ) -> Result<crate::Meeting, CoreError> {
+        let meeting = self.repository.meeting(crate::MeetingId::parse(id)?)?;
+        let next = crate::apply_meeting(&meeting, transition, self.clock.now())?;
+        self.repository.save_meeting(&next)
+    }
+}
+
+/// Fecha um canal que ficou "capturando" quando o processo morreu.
+///
+/// `Capturing` num processo novo e mentira: ninguem esta capturando. O que ele
+/// tinha, ele tem ate onde o disco alcanca.
+fn settle_channel(outcome: crate::ChannelOutcome, duration_ms: i64) -> crate::ChannelOutcome {
+    match outcome {
+        crate::ChannelOutcome::Capturing if duration_ms > 0 => crate::ChannelOutcome::Captured,
+        crate::ChannelOutcome::Capturing => crate::ChannelOutcome::Unavailable {
+            reason: "A gravacao foi interrompida sem produzir audio.".into(),
+        },
+        outro => outro,
+    }
+}

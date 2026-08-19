@@ -2,9 +2,11 @@
 resolver = "2"
 members = [
     "apps/desktop/src-tauri",
+    "crates/mos-audio",
     "crates/mos-core",
     "crates/mos-hermes",
     "crates/mos-storage-sqlite",
+    "crates/mos-transcribe",
 ]
 
 # O CronoCAD entrou no monorepo com o proprio `src-tauri`, e um pacote Rust

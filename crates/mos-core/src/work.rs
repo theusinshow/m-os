@@ -236,6 +236,19 @@ pub enum SearchItem {
     App {
         app: RegisteredApp,
     },
+    /// A REUNIAO, e nunca um segmento de transcricao.
+    ///
+    /// Uma reuniao de uma hora tem ~600 segmentos; tres reunioes dominariam
+    /// qualquer busca por qualquer palavra comum. A transcricao tem indice
+    /// proprio e chega aqui promovendo a Meeting, com o trecho como snippet
+    /// (`MEETING-AGENT.md` §15).
+    Meeting {
+        meeting: crate::Meeting,
+        project: Option<Project>,
+        /// O trecho que casou, quando o acerto veio da transcricao. `None`
+        /// quando casou por titulo, resumo ou item.
+        snippet: Option<String>,
+    },
 }
 
 /// Espelha o CHECK da migration 0008: minuscula inicial, depois minuscula,
