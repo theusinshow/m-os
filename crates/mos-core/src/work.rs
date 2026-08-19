@@ -314,6 +314,31 @@ pub struct WidgetPlacementInput {
     pub span: Option<i64>,
 }
 
+/// Uma petala fixada no leque.
+///
+/// `workspace_id` nulo e a visao "Todos", e nao um dado faltando — mesma leitura
+/// da 0018, agora na 0021. A AUSENCIA de linha para um slot tambem significa
+/// algo: "o que o desenho escolheu". Quem resolve isso e `leque.ts`, que e a
+/// unica copia da regra.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadialPin {
+    pub workspace_id: Option<WorkspaceId>,
+    pub slot: i64,
+    pub kind: String,
+    pub target: String,
+}
+
+/// O que o front pede para fixar. Sem o Workspace, que vem por fora porque a
+/// escrita e de um escopo so.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadialPinInput {
+    pub slot: i64,
+    pub kind: String,
+    pub target: String,
+}
+
 /// Quantas das doze colunas o widget ocupa.
 ///
 /// Valida FORMA e nao vocabulario, igual ao id: a grade tem doze colunas e

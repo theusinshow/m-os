@@ -1049,6 +1049,30 @@ impl WorkService {
         self.repository.hidden_widgets()
     }
 
+    /// As petalas fixadas. Repasse puro: a regra do leque — padrao de fabrica e
+    /// geometria — mora em `leque.ts`, e uma segunda copia aqui e exatamente o
+    /// que o `homeLayout.ts` conta ter dado errado com o arranjo da Home.
+    pub fn radial_pins(&self) -> Result<Vec<crate::RadialPin>, CoreError> {
+        self.repository.radial_pins()
+    }
+
+    pub fn set_radial_pin(
+        &self,
+        workspace: Option<&str>,
+        pin: crate::RadialPinInput,
+    ) -> Result<Vec<crate::RadialPin>, CoreError> {
+        self.repository.set_radial_pin(parse_scope(workspace)?, pin)
+    }
+
+    pub fn clear_radial_pin(
+        &self,
+        workspace: Option<&str>,
+        slot: i64,
+    ) -> Result<Vec<crate::RadialPin>, CoreError> {
+        self.repository
+            .clear_radial_pin(parse_scope(workspace)?, slot)
+    }
+
     pub fn create_project(&self, input: CreateProjectInput) -> Result<Project, CoreError> {
         self.repository.create_project(NewProject::create(
             &input.name,

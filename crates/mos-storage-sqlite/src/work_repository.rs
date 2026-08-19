@@ -596,6 +596,110 @@ impl WorkRepository for SqliteStorage {
         self.widget_placements()
     }
 
+    /// Todas as petalas de uma vez, pelo mesmo motivo de `widget_placements`:
+    /// sao poucas linhas, e uma chamada so deixa a troca de Workspace filtrar
+    /// em memoria em vez de ir ao core a cada clique.
+    fn radial_pins(&self) -> Result<Vec<mos_core::RadialPin>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let mut statement = connection
+            .prepare(
+                "SELECT workspace_id, slot, kind, target
+                 FROM radial_pins
+                 ORDER BY COALESCE(workspace_id, ''), slot",
+            )
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(map_sql_error)?;
+
+        let mut found = Vec::new();
+        for row in rows {
+            let (workspace_id, slot, kind, target) = row.map_err(map_sql_error)?;
+            found.push(mos_core::RadialPin {
+                // Nulo e a visao "Todos", e nao um dado faltando (migration 0021).
+                workspace_id: workspace_id.as_deref().map(WorkspaceId::parse).transpose()?,
+                slot,
+                kind,
+                target,
+            });
+        }
+        Ok(found)
+    }
+
+    fn set_radial_pin(
+        &self,
+        workspace: Option<WorkspaceId>,
+        pin: mos_core::RadialPinInput,
+    ) -> Result<Vec<mos_core::RadialPin>, CoreError> {
+        // Valida ANTES de tocar no banco, como `set_widget_layout` faz.
+        let kind = mos_core::validate_pin_kind(&pin.kind)?;
+        let target = pin.target.trim().to_owned();
+        if target.is_empty() {
+            return Err(CoreError::new(
+                mos_core::ErrorCode::InvalidInput,
+                "Petala sem alvo.",
+                false,
+            ));
+        }
+
+        {
+            let now = format_time(OffsetDateTime::now_utc())?;
+            let escopo = workspace.map(|id| id.to_string());
+            let connection = self.connection.lock().map_err(map_lock_error)?;
+            let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+            // Apaga e insere, e nao `ON CONFLICT`, pela mesma razao do
+            // `set_widget_layout`: a unicidade vive num indice sobre
+            // `COALESCE(workspace_id, '')`, e um upsert teria de repetir essa
+            // expressao — uma segunda copia da regra, num lugar onde escrever
+            // `workspace_id` cru compila e silenciosamente para de casar as
+            // linhas de "Todos".
+            transaction
+                .execute(
+                    "DELETE FROM radial_pins
+                      WHERE COALESCE(workspace_id, '') = COALESCE(?1, '') AND slot = ?2",
+                    params![escopo, pin.slot],
+                )
+                .map_err(map_sql_error)?;
+            transaction
+                .execute(
+                    "INSERT INTO radial_pins (workspace_id, slot, kind, target, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![escopo, pin.slot, kind, target, now],
+                )
+                .map_err(map_sql_error)?;
+            transaction.commit().map_err(map_sql_error)?;
+        }
+        self.radial_pins()
+    }
+
+    fn clear_radial_pin(
+        &self,
+        workspace: Option<WorkspaceId>,
+        slot: i64,
+    ) -> Result<Vec<mos_core::RadialPin>, CoreError> {
+        {
+            let connection = self.connection.lock().map_err(map_lock_error)?;
+            // APAGA a linha em vez de gravar um alvo vazio: e a inversao da
+            // 0021, e e o que faz o slot voltar a seguir o padrao em vez de
+            // congelar no padrao de hoje.
+            connection
+                .execute(
+                    "DELETE FROM radial_pins
+                      WHERE COALESCE(workspace_id, '') = COALESCE(?1, '') AND slot = ?2",
+                    params![workspace.map(|id| id.to_string()), slot],
+                )
+                .map_err(map_sql_error)?;
+        }
+        self.radial_pins()
+    }
+
     fn create_project(&self, project: NewProject) -> Result<Project, CoreError> {
         let now = format_time(project.created_at)?;
         let connection = self.connection.lock().map_err(map_lock_error)?;
@@ -2029,5 +2133,72 @@ mod tests {
             saved.iter().find(|p| p.widget_id == "now").and_then(|p| p.span),
             Some(8)
         );
+    }
+
+    #[test]
+    fn petala_grava_le_e_respeita_o_escopo_de_todos() {
+        let (_directory, storage) = storage();
+
+        // Vazio significa o desenho, e nao lista vazia de erro.
+        assert!(storage.radial_pins().unwrap().is_empty());
+
+        let pins = storage
+            .set_radial_pin(
+                None,
+                mos_core::RadialPinInput {
+                    slot: 0,
+                    kind: "pagina".into(),
+                    target: "calendario".into(),
+                },
+            )
+            .unwrap();
+        assert_eq!(pins.len(), 1);
+        assert_eq!(pins[0].slot, 0);
+        assert_eq!(pins[0].kind, "pagina");
+        assert!(pins[0].workspace_id.is_none());
+
+        // O MESMO slot em "Todos" substitui, e nao acumula. E o buraco que o
+        // indice sobre COALESCE existe para fechar.
+        let pins = storage
+            .set_radial_pin(
+                None,
+                mos_core::RadialPinInput {
+                    slot: 0,
+                    kind: "app".into(),
+                    target: "019ffc4f-2936-7152-84b7-672d7bdb5bfc".into(),
+                },
+            )
+            .unwrap();
+        assert_eq!(pins.len(), 1, "slot 0 de Todos nao pode ter duas linhas");
+        assert_eq!(pins[0].kind, "app");
+
+        // Kind fora de forma nunca chega ao banco.
+        assert!(storage
+            .set_radial_pin(
+                None,
+                mos_core::RadialPinInput {
+                    slot: 1,
+                    kind: "Pagina".into(),
+                    target: "x".into(),
+                },
+            )
+            .is_err());
+
+        // Alvo vazio tambem nao: uma petala sem alvo e uma petala que nao faz
+        // nada quando clicada.
+        assert!(storage
+            .set_radial_pin(
+                None,
+                mos_core::RadialPinInput {
+                    slot: 1,
+                    kind: "pagina".into(),
+                    target: "   ".into(),
+                },
+            )
+            .is_err());
+
+        // Limpar devolve o slot ao desenho.
+        let pins = storage.clear_radial_pin(None, 0).unwrap();
+        assert!(pins.is_empty());
     }
 }

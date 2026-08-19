@@ -135,6 +135,33 @@ pub trait WorkRepository: Send + Sync {
         &self,
         workspace: Option<crate::WorkspaceId>,
     ) -> Result<Vec<crate::WidgetPlacement>, CoreError>;
+
+    /// Todas as petalas fixadas, de todos os escopos.
+    ///
+    /// Devolve tudo de uma vez pelo mesmo motivo de `widget_placements`: sao
+    /// poucas linhas, e uma chamada so deixa a troca de Workspace filtrar em
+    /// memoria em vez de ir ao core a cada clique.
+    fn radial_pins(&self) -> Result<Vec<crate::RadialPin>, CoreError>;
+
+    /// Fixa UMA petala. Um slot por chamada, e nao a lista inteira: aqui nao ha
+    /// o efeito em cadeia que obriga `set_widget_layout` a receber tudo junto —
+    /// a posicao de uma petala nao depende das outras, e essa independencia e
+    /// justamente o que o leque promete a memoria muscular.
+    fn set_radial_pin(
+        &self,
+        workspace: Option<crate::WorkspaceId>,
+        pin: crate::RadialPinInput,
+    ) -> Result<Vec<crate::RadialPin>, CoreError>;
+
+    /// Devolve um slot ao desenho, APAGANDO a linha.
+    ///
+    /// Mesma razao do `reset_widget_layout`: a 0021 diz que ausencia de linha
+    /// significa o padrao, entao gravar o padrao de hoje o petrificaria.
+    fn clear_radial_pin(
+        &self,
+        workspace: Option<crate::WorkspaceId>,
+        slot: i64,
+    ) -> Result<Vec<crate::RadialPin>, CoreError>;
     fn create_project(&self, project: NewProject) -> Result<Project, CoreError>;
     fn update_project(
         &self,

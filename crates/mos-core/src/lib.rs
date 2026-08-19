@@ -84,7 +84,7 @@ pub use tracking::{
     TrackedSession, TrackingSettings, TrackingStatus,
 };
 pub use work::{
-    validate_section_id, validate_span, validate_widget_id, HiddenWidget, NewProject, NewTask,
-    NewWorkspace, Project, ProjectId, SearchItem, Task, TaskId, TaskState, WidgetPlacement,
-    WidgetPlacementInput, Workspace, WorkspaceId,
+    validate_pin_kind, validate_section_id, validate_span, validate_widget_id, HiddenWidget,
+    NewProject, NewTask, NewWorkspace, Project, ProjectId, RadialPin, RadialPinInput, SearchItem,
+    Task, TaskId, TaskState, WidgetPlacement, WidgetPlacementInput, Workspace, WorkspaceId,
 };
