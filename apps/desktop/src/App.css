@@ -604,7 +604,7 @@ button {
   /* O par obrigatorio do `.leque` ser `absolute`: sem esta folga, o fim de uma
      lista longa mora debaixo da ancora e "sobrepor" vira "esconder". Os dois
      andam juntos ou o desenho mente. */
-  padding-bottom: calc(var(--height-control-lg) + var(--space-6));
+  padding-bottom: calc(36px + var(--space-6));
   animation: viewEnter var(--dur-enter) var(--ease-enter);
 }
 
@@ -7426,7 +7426,12 @@ input[type="checkbox"]:disabled {
    passa pelo centro, entao a ancora fechada convive com os dois. */
 .leque {
   position: absolute;
-  bottom: var(--space-4);
+  /* Colada na borda de baixo: a cupula e um circulo cortado ao meio pela propria
+     borda da coluna, e quem faz o corte e o `overflow: hidden` do
+     `.main-column`. Nada de mascara nem de meia-lua desenhada a mao — a metade
+     que falta simplesmente nao cabe, que e por onde o desenho fica honesto em
+     qualquer altura de janela. */
+  bottom: 0;
   left: 50%;
   transform: translateX(-50%);
   /* Acima do recibo e do toast. O criterio nao e hierarquia visual, e INTENCAO:
@@ -7436,15 +7441,24 @@ input[type="checkbox"]:disabled {
   z-index: calc(var(--z-receipt) + 1);
 }
 
+/* A cupula: um circulo de 72px do qual so a metade de cima existe.
+   `border-radius` nos dois cantos de cima e altura igual ao RAIO — e assim que
+   uma meia-lua se escreve sem SVG e sem clip-path.
+
+   72 e nao 44 porque metade de 44 sao 22px de altura util, e um icone de 20
+   dentro de 22 nao tem folga optica nenhuma. */
 .leque-ancora {
   display: grid;
   place-items: center;
-  width: var(--height-control-lg);
-  height: var(--height-control-lg);
+  width: 72px;
+  height: 36px;
+  /* O icone desce um pouco: no meio geometrico da meia-lua ele parece alto,
+     porque a massa amarela e maior embaixo. */
+  padding-top: var(--space-1);
   color: var(--on-signal);
   background: var(--signal-fill);
   border: 0;
-  border-radius: 50%;
+  border-radius: 999px 999px 0 0;
   box-shadow: var(--shadow-overlay);
 }
 
@@ -7453,9 +7467,16 @@ input[type="checkbox"]:disabled {
    nao carrega dado nenhum, que e o que a ADR-034 chama de gasto. Quem diz que o
    leque esta aberto sao as petalas, e elas ja dizem. */
 
+/* Altura zero, colada embaixo: a origem do arco passa a ser exatamente o centro
+   do circulo de que a cupula e metade — que mora NA borda da coluna. Com
+   `inset: 0` a origem cairia no meio da caixa da cupula, e o leque nasceria 18px
+   acima de onde a forma diz que ele nasce. */
 .leque-petalas {
   position: absolute;
-  inset: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 0;
   pointer-events: none;
 }
 
@@ -7465,30 +7486,38 @@ input[type="checkbox"]:disabled {
 
 .leque-petala {
   position: absolute;
-  inset: 0;
+  bottom: 0;
+  left: 50%;
   display: grid;
   place-items: center;
   width: var(--height-control);
   height: var(--height-control);
-  margin: auto;
+  /* Meia petala para cada lado: o CENTRO dela cai na origem do arco, que e o que
+     `posicaoDaPetala` assume ao devolver o deslocamento. */
+  margin: 0 0 calc(var(--height-control) / -2) calc(var(--height-control) / -2);
   color: var(--text);
   background: var(--surface-raised);
   border: var(--line) solid var(--border-strong);
   border-radius: 50%;
   opacity: 0;
-  transform: translate3d(0, 0, 0) scale(0.6);
+  /* O percurso fechado e CURTO: a petala espera a 88% do caminho, e nao em cima
+     da ancora. Ela nao voa do centro — ela se assenta. Foi o pedido de uma
+     transicao mais sutil, e o que sobrou de movimento e so o bastante para o
+     olho saber de onde a coisa veio. */
+  transform: translate3d(calc(var(--x) * 0.88), calc(var(--y) * 0.88), 0) scale(0.96);
   transition:
     transform var(--dur-enter) var(--ease-enter),
-    opacity var(--dur-instant) linear,
+    opacity var(--dur-enter) var(--ease-enter),
     border-color var(--dur-instant) var(--ease-state);
 }
 
 .leque[data-aberto] .leque-petala {
   opacity: 1;
   transform: translate3d(var(--x), var(--y), 0) scale(1);
-  /* Escalonado a partir da ancora: o olho segue a abertura em vez de receber
-     cinco pontos de uma vez. Dentro do orcamento da ADR-034. */
-  transition-delay: calc(var(--ordem) * 20ms);
+  /* Escalonado a partir da esquerda, e nao do centro: a ordem angular e a ordem
+     de leitura, e o olho ja varre nessa direcao. 16ms e curto de proposito —
+     acima de ~25ms a cascata deixa de ser textura e vira espera. */
+  transition-delay: calc(var(--ordem) * 16ms);
 }
 
 .leque-petala:hover {
@@ -7504,7 +7533,7 @@ input[type="checkbox"]:disabled {
 }
 
 /* O percurso e o que se corta, e nao a presenca: as petalas continuam
-   aparecendo, so nao viajam. */
+   aparecendo, so nao viajam nem escalonam. */
 @media (prefers-reduced-motion: reduce) {
   .leque-petala {
     transition: opacity var(--dur-instant) linear;
@@ -7512,9 +7541,6 @@ input[type="checkbox"]:disabled {
   }
   .leque[data-aberto] .leque-petala {
     transition-delay: 0ms;
-  }
-  .leque[data-aberto] .leque-ancora {
-    transition: none;
   }
 }
 
