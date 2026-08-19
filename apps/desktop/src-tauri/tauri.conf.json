@@ -47,7 +47,8 @@
         "maximizable": false,
         "minimizable": false,
         "decorations": false,
-        "focus": false
+        "focus": false,
+        "shadow": false
       }
     ],
     "security": {
