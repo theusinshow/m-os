@@ -475,11 +475,12 @@ impl WorkRepository for SqliteStorage {
     /// Devolve todas as posicoes de uma vez, pelo mesmo motivo de
     /// `hidden_widgets`: sao poucas linhas, e uma chamada so deixa a troca de
     /// contexto na Home filtrar em memoria em vez de ir ao core a cada clique.
-    fn widget_positions(&self) -> Result<Vec<mos_core::WidgetPosition>, CoreError> {
+    fn widget_placements(&self) -> Result<Vec<mos_core::WidgetPlacement>, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let mut statement = connection
             .prepare(
-                "SELECT workspace_id, widget_id, position FROM workspace_widget_order
+                "SELECT workspace_id, widget_id, position, section, span
+                 FROM workspace_widget_layout
                  ORDER BY workspace_id, position",
             )
             .map_err(map_sql_error)?;
@@ -489,54 +490,90 @@ impl WorkRepository for SqliteStorage {
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, i64>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
                 ))
             })
             .map_err(map_sql_error)?;
 
         let mut found = Vec::new();
         for row in rows {
-            let (workspace_id, widget_id, position) = row.map_err(map_sql_error)?;
-            found.push(mos_core::WidgetPosition {
+            let (workspace_id, widget_id, position, section, span) = row.map_err(map_sql_error)?;
+            found.push(mos_core::WidgetPlacement {
                 workspace_id: WorkspaceId::parse(&workspace_id)?,
                 widget_id,
                 position,
+                section,
+                span,
             });
         }
         Ok(found)
     }
 
-    fn set_widget_order(
+    fn set_widget_layout(
         &self,
         workspace: WorkspaceId,
-        ordered: &[String],
-    ) -> Result<Vec<mos_core::WidgetPosition>, CoreError> {
-        // Valida ANTES de abrir a transacao: um id fora de formato no meio da
-        // lista deixaria metade da secao gravada e metade nao.
-        let ids: Vec<String> = ordered
+        placements: &[mos_core::WidgetPlacementInput],
+    ) -> Result<Vec<mos_core::WidgetPlacement>, CoreError> {
+        // Valida a lista INTEIRA antes de abrir a transacao: um id fora de
+        // formato ou um span fora da grade no meio dela deixaria metade da
+        // faixa gravada e metade nao.
+        let entries: Vec<(String, i64, String, Option<i64>)> = placements
             .iter()
-            .map(|id| mos_core::validate_widget_id(id))
-            .collect::<Result<_, _>>()?;
+            .map(|entry| {
+                Ok((
+                    mos_core::validate_widget_id(&entry.widget_id)?,
+                    entry.position,
+                    mos_core::validate_section_id(&entry.section)?,
+                    entry.span.map(mos_core::validate_span).transpose()?,
+                ))
+            })
+            .collect::<Result<_, CoreError>>()?;
 
         let now = format_time(OffsetDateTime::now_utc())?;
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
 
-        for (position, id) in ids.iter().enumerate() {
+        for (id, position, section, span) in &entries {
+            // Escrita autoritativa: o que chega e o que fica. Sem COALESCE de
+            // proposito — com ele, `span: NULL` passaria a significar "nao
+            // mexi" e nao haveria como desfazer um redimensionamento. Quem
+            // monta a lista e responsavel por repassar o `span` ja guardado
+            // quando esta so reordenando.
             transaction
                 .execute(
-                    "INSERT INTO workspace_widget_order
-                     (workspace_id, widget_id, position, created_at)
-                     VALUES (?1, ?2, ?3, ?4)
+                    "INSERT INTO workspace_widget_layout
+                     (workspace_id, widget_id, position, section, span, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                      ON CONFLICT(workspace_id, widget_id)
-                     DO UPDATE SET position = excluded.position",
-                    params![workspace.to_string(), id, position as i64, now],
+                     DO UPDATE SET
+                         position = excluded.position,
+                         section = excluded.section,
+                         span = excluded.span",
+                    params![workspace.to_string(), id, position, section, span, now],
                 )
                 .map_err(map_sql_error)?;
         }
 
         transaction.commit().map_err(map_sql_error)?;
         drop(connection);
-        self.widget_positions()
+        self.widget_placements()
+    }
+
+    fn reset_widget_layout(
+        &self,
+        workspace: WorkspaceId,
+    ) -> Result<Vec<mos_core::WidgetPlacement>, CoreError> {
+        {
+            let connection = self.connection.lock().map_err(map_lock_error)?;
+            connection
+                .execute(
+                    "DELETE FROM workspace_widget_layout WHERE workspace_id = ?1",
+                    params![workspace.to_string()],
+                )
+                .map_err(map_sql_error)?;
+        }
+        self.widget_placements()
     }
 
     fn create_project(&self, project: NewProject) -> Result<Project, CoreError> {
@@ -1453,14 +1490,32 @@ mod tests {
         assert!(storage.hidden_widgets().unwrap().is_empty());
     }
 
-    // ------------------------------------------------------ ordem dos widgets
+    // ----------------------------------------------------- arranjo dos widgets
+
+    /// A escrita mais comum: uma faixa inteira, na ordem nova, com a largura
+    /// de todo mundo no que o desenho escolheu.
+    fn ordem(ids: &[&str]) -> Vec<mos_core::WidgetPlacementInput> {
+        faixa("agora", ids)
+    }
+
+    fn faixa(section: &str, ids: &[&str]) -> Vec<mos_core::WidgetPlacementInput> {
+        ids.iter()
+            .enumerate()
+            .map(|(position, id)| mos_core::WidgetPlacementInput {
+                widget_id: (*id).to_owned(),
+                position: position as i64,
+                section: section.to_owned(),
+                span: None,
+            })
+            .collect()
+    }
 
     /// Sem nenhuma escrita a tabela fica vazia — e a inversao herdada da 0008:
     /// quem nunca arrastou nada nao gera linha nenhuma.
     #[test]
     fn a_home_never_arranged_stores_nothing() {
         let (_guard, storage) = storage();
-        assert!(storage.widget_positions().unwrap().is_empty());
+        assert!(storage.widget_placements().unwrap().is_empty());
     }
 
     #[test]
@@ -1470,8 +1525,9 @@ mod tests {
             .create_workspace(NewWorkspace::create("Web Design", "").unwrap())
             .unwrap();
 
-        let ordered = ["inbox_pulse", "timer", "now"].map(str::to_owned).to_vec();
-        let saved = storage.set_widget_order(workspace.id, &ordered).unwrap();
+        let saved = storage
+            .set_widget_layout(workspace.id, &ordem(&["inbox_pulse", "timer", "now"]))
+            .unwrap();
 
         assert_eq!(saved.len(), 3);
         assert_eq!(
@@ -1492,10 +1548,10 @@ mod tests {
             .unwrap();
 
         storage
-            .set_widget_order(workspace.id, &["timer".into(), "now".into()])
+            .set_widget_layout(workspace.id, &ordem(&["timer", "now"]))
             .unwrap();
         let saved = storage
-            .set_widget_order(workspace.id, &["now".into(), "timer".into()])
+            .set_widget_layout(workspace.id, &ordem(&["now", "timer"]))
             .unwrap();
 
         assert_eq!(saved.len(), 2, "duas linhas, nao quatro");
@@ -1516,13 +1572,13 @@ mod tests {
             .unwrap();
 
         storage
-            .set_widget_order(design.id, &["timer".into(), "now".into()])
+            .set_widget_layout(design.id, &ordem(&["timer", "now"]))
             .unwrap();
         storage
-            .set_widget_order(financas.id, &["now".into(), "timer".into()])
+            .set_widget_layout(financas.id, &ordem(&["now", "timer"]))
             .unwrap();
 
-        let all = storage.widget_positions().unwrap();
+        let all = storage.widget_placements().unwrap();
         let of = |id: WorkspaceId| {
             all.iter()
                 .filter(|p| p.workspace_id == id)
@@ -1543,15 +1599,12 @@ mod tests {
             .unwrap();
 
         let error = storage
-            .set_widget_order(
-                workspace.id,
-                &["timer".into(), "NAO PODE".into(), "now".into()],
-            )
+            .set_widget_layout(workspace.id, &ordem(&["timer", "NAO PODE", "now"]))
             .unwrap_err();
 
         assert_eq!(error.code, ErrorCode::InvalidInput);
         assert!(
-            storage.widget_positions().unwrap().is_empty(),
+            storage.widget_placements().unwrap().is_empty(),
             "nem o `timer`, que vinha antes do invalido, foi gravado"
         );
     }
@@ -1565,9 +1618,9 @@ mod tests {
             .create_workspace(NewWorkspace::create("Efemero", "").unwrap())
             .unwrap();
         storage
-            .set_widget_order(workspace.id, &["timer".into()])
+            .set_widget_layout(workspace.id, &ordem(&["timer"]))
             .unwrap();
-        assert_eq!(storage.widget_positions().unwrap().len(), 1);
+        assert_eq!(storage.widget_placements().unwrap().len(), 1);
 
         // Arquivar antes: o dominio recusa excluir Workspace ativo, e essa
         // regra e do produto, nao um detalhe do teste.
@@ -1575,7 +1628,7 @@ mod tests {
             .set_workspace_lifecycle(workspace.id, LifecycleState::Archived)
             .unwrap();
         storage.delete_workspace(workspace.id).unwrap();
-        assert!(storage.widget_positions().unwrap().is_empty());
+        assert!(storage.widget_placements().unwrap().is_empty());
     }
 
     /// O que o domínio faz com o que o banco devolve: a ponta a ponta da
@@ -1593,19 +1646,169 @@ mod tests {
             .collect();
 
         assert_eq!(
-            mos_core::order_widgets(&catalog, &storage.widget_positions().unwrap()),
+            mos_core::order_widgets(&catalog, &storage.widget_placements().unwrap()),
             catalog,
             "sem arrumacao, a ordem e a do catalogo"
         );
 
         storage
-            .set_widget_order(workspace.id, &["today_hours".into(), "timer".into()])
+            .set_widget_layout(workspace.id, &ordem(&["today_hours", "timer"]))
             .unwrap();
 
         assert_eq!(
-            mos_core::order_widgets(&catalog, &storage.widget_positions().unwrap()),
+            mos_core::order_widgets(&catalog, &storage.widget_placements().unwrap()),
             ["today_hours", "timer", "now"],
             "o nao arrumado cai para o fim"
+        );
+    }
+
+    /// A escrita e autoritativa: campo por campo, o que chega e o que fica.
+    /// `span: None` e como se desfaz um redimensionamento — se ele significasse
+    /// "nao mexi", voltar a largura do desenho seria impossivel sem apagar o
+    /// arranjo inteiro.
+    #[test]
+    fn writing_is_authoritative_field_by_field() {
+        let (_guard, storage) = storage();
+        let workspace = storage
+            .create_workspace(NewWorkspace::create("Estudio", "").unwrap())
+            .unwrap();
+
+        storage
+            .set_widget_layout(
+                workspace.id,
+                &[mos_core::WidgetPlacementInput {
+                    widget_id: "timer".to_owned(),
+                    position: 0,
+                    section: "overview".to_owned(),
+                    span: Some(12),
+                }],
+            )
+            .unwrap();
+
+        let mudou_de_faixa = storage
+            .set_widget_layout(workspace.id, &faixa("agora", &["now", "timer"]))
+            .unwrap();
+        let timer = mudou_de_faixa.iter().find(|p| p.widget_id == "timer").unwrap();
+        assert_eq!(timer.position, 1);
+        assert_eq!(timer.section.as_deref(), Some("agora"), "voltou de faixa");
+        assert_eq!(timer.span, None, "e a largura voltou ao desenho");
+    }
+
+    /// O contrato que o front tem de honrar, escrito como teste para ficar
+    /// visivel: quem so reordena PRECISA repassar o `span` ja guardado. E o
+    /// preco de nao ter COALESCE, e o unico jeito de errar aqui.
+    #[test]
+    fn reordering_must_carry_the_stored_width_along() {
+        let (_guard, storage) = storage();
+        let workspace = storage
+            .create_workspace(NewWorkspace::create("Estudio", "").unwrap())
+            .unwrap();
+
+        storage
+            .set_widget_layout(
+                workspace.id,
+                &[mos_core::WidgetPlacementInput {
+                    widget_id: "timer".to_owned(),
+                    position: 0,
+                    section: "agora".to_owned(),
+                    span: Some(12),
+                }],
+            )
+            .unwrap();
+
+        // A reordenacao repassa o que ja estava guardado, em vez de mandar None.
+        let guardado = storage.widget_placements().unwrap();
+        let span_de = |id: &str| {
+            guardado
+                .iter()
+                .find(|p| p.widget_id == id)
+                .and_then(|p| p.span)
+        };
+        let saved = storage
+            .set_widget_layout(
+                workspace.id,
+                &["now", "timer"]
+                    .iter()
+                    .enumerate()
+                    .map(|(position, id)| mos_core::WidgetPlacementInput {
+                        widget_id: (*id).to_owned(),
+                        position: position as i64,
+                        section: "agora".to_owned(),
+                        span: span_de(id),
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+
+        let timer = saved.iter().find(|p| p.widget_id == "timer").unwrap();
+        assert_eq!(timer.position, 1, "a ordem nova valeu");
+        assert_eq!(timer.span, Some(12), "e a largura escolhida sobreviveu");
+    }
+
+    /// Largura fora da grade e recusada antes da transacao, igual ao id.
+    #[test]
+    fn a_span_outside_the_grid_is_refused_without_writing_anything() {
+        let (_guard, storage) = storage();
+        let workspace = storage
+            .create_workspace(NewWorkspace::create("Testes", "").unwrap())
+            .unwrap();
+
+        let error = storage
+            .set_widget_layout(
+                workspace.id,
+                &[
+                    mos_core::WidgetPlacementInput {
+                        widget_id: "timer".to_owned(),
+                        position: 0,
+                        section: "agora".to_owned(),
+                        span: None,
+                    },
+                    mos_core::WidgetPlacementInput {
+                        widget_id: "now".to_owned(),
+                        position: 1,
+                        section: "agora".to_owned(),
+                        span: Some(99),
+                    },
+                ],
+            )
+            .unwrap_err();
+
+        assert_eq!(error.code, ErrorCode::InvalidInput);
+        assert!(
+            storage.widget_placements().unwrap().is_empty(),
+            "nem o `timer`, que vinha antes do invalido, foi gravado"
+        );
+    }
+
+    /// Voltar ao desenho APAGA as linhas, e nao grava o catalogo por cima.
+    /// Gravar petrificaria o desenho de hoje — o oposto do que a inversao faz.
+    #[test]
+    fn restoring_the_design_deletes_the_rows_instead_of_writing_them() {
+        let (_guard, storage) = storage();
+        let meu = storage
+            .create_workspace(NewWorkspace::create("Meu", "").unwrap())
+            .unwrap();
+        let outro = storage
+            .create_workspace(NewWorkspace::create("Outro", "").unwrap())
+            .unwrap();
+
+        storage
+            .set_widget_layout(meu.id, &ordem(&["timer", "now"]))
+            .unwrap();
+        storage
+            .set_widget_layout(outro.id, &ordem(&["now", "timer"]))
+            .unwrap();
+
+        let restante = storage.reset_widget_layout(meu.id).unwrap();
+
+        assert!(
+            !restante.iter().any(|p| p.workspace_id == meu.id),
+            "o arranjo do Workspace some por inteiro"
+        );
+        assert_eq!(
+            restante.iter().filter(|p| p.workspace_id == outro.id).count(),
+            2,
+            "e o do vizinho fica intacto"
         );
     }
 }

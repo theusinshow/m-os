@@ -1,18 +1,24 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import type { WidgetPosition, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+import type { WidgetPlacement, WidgetPlacementInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, FunctionDefinition, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
 export const api = {
-  widgetPositions() {
-    return invoke<WidgetPosition[]>("widget_positions");
+  widgetPlacements() {
+    return invoke<WidgetPlacement[]>("widget_placements");
   },
-  // Manda a secao inteira, e nao "o widget X foi para a posicao 3": quem
-  // sabe o que acontece com quem estava la e o front, que conhece a secao.
-  setWidgetOrder(workspaceId: string, ordered: string[]) {
-    return invoke<WidgetPosition[]>("set_widget_order", { workspaceId, ordered });
+  // Manda a faixa inteira, e nao "o widget X foi para a posicao 3": quem
+  // sabe o que acontece com quem estava la e o front, que conhece a faixa.
+  // Mover entre faixas manda as DUAS na mesma chamada, porque as duas mudaram.
+  setWidgetLayout(workspaceId: string, placements: WidgetPlacementInput[]) {
+    return invoke<WidgetPlacement[]>("set_widget_layout", { workspaceId, placements });
+  },
+  // Volta ao desenho APAGANDO as linhas. Gravar o catalogo por cima
+  // petrificaria o desenho de hoje, que e o oposto do que a inversao faz.
+  resetWidgetLayout(workspaceId: string) {
+    return invoke<WidgetPlacement[]>("reset_widget_layout", { workspaceId });
   },
   // --- Inicializacao com o Windows (ADR-043) ---
   //

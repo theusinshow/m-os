@@ -1092,19 +1092,27 @@ fn set_start_minimized(
     Ok(value)
 }
 #[tauri::command]
-fn widget_positions(
+fn widget_placements(
     state: tauri::State<'_, AppState>,
-) -> Result<Vec<mos_core::WidgetPosition>, CoreError> {
-    state.work.widget_positions()
+) -> Result<Vec<mos_core::WidgetPlacement>, CoreError> {
+    state.work.widget_placements()
 }
 
 #[tauri::command]
-fn set_widget_order(
+fn set_widget_layout(
     state: tauri::State<'_, AppState>,
     workspace_id: String,
-    ordered: Vec<String>,
-) -> Result<Vec<mos_core::WidgetPosition>, CoreError> {
-    state.work.set_widget_order(&workspace_id, &ordered)
+    placements: Vec<mos_core::WidgetPlacementInput>,
+) -> Result<Vec<mos_core::WidgetPlacement>, CoreError> {
+    state.work.set_widget_layout(&workspace_id, &placements)
+}
+
+#[tauri::command]
+fn reset_widget_layout(
+    state: tauri::State<'_, AppState>,
+    workspace_id: String,
+) -> Result<Vec<mos_core::WidgetPlacement>, CoreError> {
+    state.work.reset_widget_layout(&workspace_id)
 }
 fn load_settings(path: &std::path::Path) -> UserSettings {
     let mut settings = fs::read_to_string(path)
@@ -1370,8 +1378,9 @@ pub fn run() {
             tracking::tracking_clients,
             tracking::tracking_save_client,
             tracking::tracking_set_client_archived,
-            widget_positions,
-            set_widget_order,
+            widget_placements,
+            set_widget_layout,
+            reset_widget_layout,
             autostart_enabled,
             autostart_set,
             start_minimized,

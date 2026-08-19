@@ -1005,21 +1005,30 @@ impl WorkService {
             .set_widget_hidden(WorkspaceId::parse(workspace_id)?, widget_id, hidden)
     }
 
-    pub fn widget_positions(&self) -> Result<Vec<crate::WidgetPosition>, CoreError> {
-        self.repository.widget_positions()
+    pub fn widget_placements(&self) -> Result<Vec<crate::WidgetPlacement>, CoreError> {
+        self.repository.widget_placements()
     }
 
-    /// Grava a ordem de uma secao da Home.
+    /// Grava o arranjo das faixas que mudaram.
     ///
     /// Recebe a lista inteira porque a regra de o que acontece com quem estava
-    /// na posicao ja e do front — e ele que conhece a secao e o catalogo.
-    pub fn set_widget_order(
+    /// na posicao ja e do front — e ele que conhece a faixa e o catalogo.
+    pub fn set_widget_layout(
         &self,
         workspace: &str,
-        ordered: &[String],
-    ) -> Result<Vec<crate::WidgetPosition>, CoreError> {
+        placements: &[crate::WidgetPlacementInput],
+    ) -> Result<Vec<crate::WidgetPlacement>, CoreError> {
         self.repository
-            .set_widget_order(crate::WorkspaceId::parse(workspace)?, ordered)
+            .set_widget_layout(crate::WorkspaceId::parse(workspace)?, placements)
+    }
+
+    /// Devolve a Home de um Workspace ao desenho, apagando o arranjo.
+    pub fn reset_widget_layout(
+        &self,
+        workspace: &str,
+    ) -> Result<Vec<crate::WidgetPlacement>, CoreError> {
+        self.repository
+            .reset_widget_layout(crate::WorkspaceId::parse(workspace)?)
     }
     pub fn hidden_widgets(&self) -> Result<Vec<HiddenWidget>, CoreError> {
         self.repository.hidden_widgets()

@@ -879,12 +879,25 @@ textarea::placeholder {
   min-width: 0;
 }
 
+/* As doze, e nao so as sete que a interface oferece.
+
+   A escala do desenho e 3,4,5,6,8,9,12 e ela vive no front, em `HOME_SPANS`. O
+   BANCO aceita 1..12, porque a migration 0017 guarda forma e nao vocabulario —
+   quantas das doze colunas, e nao qual subconjunto o desenho gosta hoje.
+   Desenhar so as sete deixaria qualquer largura de fora da escala cair no
+   `span 1` por omissao, virando uma tira de uma coluna. E barato cobrir a
+   grade inteira, e quem escolhe o que oferecer continua sendo o `HOME_SPANS`. */
+:is(.widget, .arrangeable)[data-span="1"] { grid-column: span 1; }
+:is(.widget, .arrangeable)[data-span="2"] { grid-column: span 2; }
 :is(.widget, .arrangeable)[data-span="3"] { grid-column: span 3; }
 :is(.widget, .arrangeable)[data-span="4"] { grid-column: span 4; }
 :is(.widget, .arrangeable)[data-span="5"] { grid-column: span 5; }
 :is(.widget, .arrangeable)[data-span="6"] { grid-column: span 6; }
+:is(.widget, .arrangeable)[data-span="7"] { grid-column: span 7; }
 :is(.widget, .arrangeable)[data-span="8"] { grid-column: span 8; }
 :is(.widget, .arrangeable)[data-span="9"] { grid-column: span 9; }
+:is(.widget, .arrangeable)[data-span="10"] { grid-column: span 10; }
+:is(.widget, .arrangeable)[data-span="11"] { grid-column: span 11; }
 :is(.widget, .arrangeable)[data-span="12"] { grid-column: span 12; }
 
 /* ---------- Moldura de widget (ADR-040) ----------
@@ -899,9 +912,29 @@ textarea::placeholder {
   display: flex;
   flex-direction: column;
   padding: var(--space-3);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: var(--radius-widget);
-  background: var(--surface-raised);
+  /* O card e um retangulo quase invisivel: a MESMA superficie de antes, so que
+     translucida. O dot field volta a correr por baixo em vez de ser tapado em
+     quinze retangulos opacos, e a Home para de ler como uma parede de caixas.
+
+     A mistura e com `--surface-raised`, e nao com `--text`, porque so ela
+     mantem a escada das superficies de pe nos DOIS temas. `--surface-raised` e
+     o degrau de cima em ambos — #171B1F sobre #0A0C0E no escuro, #FFFFFF sobre
+     #F4F6F7 no claro — entao diluir esse degrau afasta o card do fundo no
+     sentido certo em qualquer tema. Misturar `--text` parecia equivalente e nao
+     e: no claro a tinta e escura, e o card ficava mais ESCURO que a pagina,
+     passando a competir com o `.widget-plot` que deveria estar um degrau
+     abaixo dele.
+
+     Um unico valor para toda largura, de proposito: card grande e card pequeno
+     pesando diferente daria ritmo, mas daria tambem mais uma coisa para sair de
+     sincronia.
+
+     Em `forced-colors` a mistura vira o Canvas do sistema e sobra a borda, que
+     e o mesmo mecanismo que ja carrega o tema claro — por isso nao ha excecao a
+     escrever aqui. */
+  background: color-mix(in srgb, var(--surface-raised) 45%, transparent);
 }
 
 /* A superfície onde a forma é desenhada, um degrau abaixo do card.
@@ -2155,19 +2188,24 @@ tr:focus-within .tempo-row-actions {
   color: var(--success);
 }
 
+/* Os dois seletores, e nao so `.widget`: arrumando, quem e item da grade e o
+   `.arrangeable` que embrulha o widget, e uma regra que so alcanca o de dentro
+   nao muda coluna nenhuma. Foi exatamente o que aconteceu quando o involucro
+   entrou — abaixo de 1100px a Home virava uma escada de larguras irregulares,
+   com um widget de span 8 sobrando de uma grade de 6 colunas. */
 @media (max-width: 1100px) {
   .home-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-  .widget[data-span="3"] { grid-column: span 3; }
-  .widget[data-span="4"],
-  .widget[data-span="5"],
-  .widget[data-span="6"],
-  .widget[data-span="8"],
-  .widget[data-span="9"],
-  .widget[data-span="12"] { grid-column: span 6; }
+  /* Tudo cai para meia largura, e so os estreitos continuam pareando. A regra
+     larga vem antes e a estreita depois, de proposito: assim qualquer largura
+     nova entra pelo caso geral em vez de precisar ser lembrada aqui. */
+  :is(.widget, .arrangeable)[data-span] { grid-column: span 6; }
+  :is(.widget, .arrangeable)[data-span="1"],
+  :is(.widget, .arrangeable)[data-span="2"],
+  :is(.widget, .arrangeable)[data-span="3"] { grid-column: span 3; }
 }
 
 @media (max-width: 760px) {
-  .widget[data-span] { grid-column: span 6; }
+  :is(.widget, .arrangeable)[data-span] { grid-column: span 6; }
 }
 
 /* Contexto é controle persistente, não conteúdo editorial. Uma faixa compacta
@@ -6634,11 +6672,11 @@ input[type="checkbox"]:disabled {
 
 /* ------------------------------------------------------- Arrumar a Home
 
-   Os botoes de mover so aparecem no foco e no hover. Eles existem para quem
-   precisa deles — e para quem nao pode arrastar, que e a razao de existirem
-   (DESIGN-FOUNDATIONS §12) — sem cobrar presenca visual de quem so quer ler a
-   Home. O ADR-034 pede que a Home seja lida em meio segundo; controles sempre
-   visiveis competiriam com o dado. */
+   Tudo daqui para baixo so existe DENTRO do modo de arrumar. Em repouso o
+   widget e o proprio item da grade, sem involucro e sem controle nenhum — o
+   ADR-034 pede a Home lida em meio segundo, e controle sempre visivel competiria
+   com o dado. A versao anterior mostrava dois botoes em todo hover; esta nao
+   desenha nada ate a pessoa pedir. */
 
 .arrangeable {
   position: relative;
@@ -6647,44 +6685,143 @@ input[type="checkbox"]:disabled {
   flex-direction: column;
 }
 
-.arrangeable > * {
+.arrangeable-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.arrangeable-body > * {
   flex: 1;
 }
 
-.arrangeable[data-over] {
-  outline: var(--line) dashed var(--signal-ink);
-  outline-offset: var(--space-1);
-}
-
-.arrangeable-handles {
-  position: absolute;
-  top: var(--space-1);
-  right: var(--space-1);
-  z-index: 1;
+/* A barra e uma LINHA DE VERDADE acima do card, e nao uma camada flutuando
+   sobre ele. Flutuando no canto superior direito — que foi a primeira tentativa
+   — ela caia exatamente sobre o "Ver todos" e o "Gerenciar" do `.panel-header`,
+   e passar o mouse por um widget engolia o botao de acao dele. Uma linha propria
+   nao tem como colidir com coisa nenhuma. */
+.arrange-bar {
   display: flex;
-  gap: 2px;
-  padding: 2px;
-  background: var(--surface-raised);
+  min-height: var(--height-control-sm);
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-1) 0 0;
   border: var(--line) solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--radius-widget) var(--radius-widget) 0 0;
+  background: var(--surface-raised);
+}
+
+.arrange-grip {
+  display: grid;
+  width: var(--height-control-sm);
+  height: var(--height-control-sm);
+  place-items: center;
+  color: var(--text-system);
+  cursor: grab;
+  /* O punho e o unico pedaco arrastavel. O card inteiro `draggable` cobria rows
+     clicaveis, os tiles de app e o cronometro: qualquer tentativa de selecionar
+     texto virava um arrasto. */
+  user-select: none;
+}
+
+.arrange-grip:active {
+  cursor: grabbing;
+}
+
+.arrange-name {
+  overflow: hidden;
+  flex: 1;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arrange-group {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.arrange-bar .icon-button {
+  width: 22px;
+  height: 22px;
   border-radius: var(--radius-sm);
-  opacity: 0;
-  transition: opacity var(--dur-state) var(--ease-enter);
-}
-
-.arrangeable:hover .arrangeable-handles,
-.arrangeable:focus-within .arrangeable-handles {
-  opacity: 1;
-}
-
-.arrangeable-handles .icon-button {
-  width: var(--height-control-sm, 24px);
-  height: var(--height-control-sm, 24px);
   font: var(--text-meta);
   line-height: 1;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .arrangeable-handles {
-    transition: none;
+.arrange-width {
+  min-width: 2ch;
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-align: center;
+  /* Os degraus tem uma e duas casas (3 a 12), e sem isto a barra dança a cada
+     clique no + porque o numero muda de largura. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* O card, arrumando, fecha em cima com a barra em vez de arredondar sozinho. */
+.arrangeable .widget {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* Onde o widget vai cair, e nao apenas sobre quem ele esta. Um contorno no card
+   inteiro dizia "e este", que e a pergunta errada: quem arrasta quer saber se
+   solta ANTES ou DEPOIS. */
+.arrangeable[data-over]::after {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--signal-ink);
+  border-radius: 1px;
+  content: "";
+}
+
+.arrangeable[data-over="before"]::after {
+  left: calc(var(--space-2) * -0.5);
+}
+
+.arrangeable[data-over="after"]::after {
+  right: calc(var(--space-2) * -0.5);
+}
+
+/* Faixa vazia so aparece arrumando, e precisa de um alvo: sem ela, mover o
+   ultimo widget para fora de uma faixa tornaria aquela faixa inalcancavel. */
+.home-drop-hint {
+  grid-column: span 12;
+  margin: 0;
+  padding: var(--space-4);
+  border: var(--line) dashed var(--border);
+  border-radius: var(--radius-widget);
+  color: var(--text-system);
+  font: var(--text-small);
+  text-align: center;
+}
+
+/* O par de botoes do modo, empurrado para a direita da faixa de contexto. */
+.home-arrange {
+  display: flex;
+  margin-left: auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.home-arrange-hint {
+  margin: var(--space-2) 0 0;
+  color: var(--text-system);
+  font: var(--text-small);
+}
+
+@media (max-width: 760px) {
+  .home-drop-hint {
+    grid-column: span 6;
   }
 }

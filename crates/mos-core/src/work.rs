@@ -238,21 +238,69 @@ pub enum SearchItem {
     },
 }
 
-/// Espelha o CHECK da migration 0008: minuscula inicial, depois minuscula,
-/// digito ou `_`. O core valida forma, nao vocabulario — quem conhece o catalogo
-/// de widgets e o front, em HOME_WIDGETS.
-/// A posicao de um widget na Home de um Workspace.
+/// Onde um widget foi posto na Home de um Workspace.
 ///
 /// Espelha a inversao de `workspace_hidden_widgets`: **ausencia de linha
-/// significa a ordem do catalogo.** Workspace novo nao precisa de nenhuma
+/// significa o que o desenho escolheu.** Workspace novo nao precisa de nenhuma
 /// escrita, e widget criado depois nasce onde o catalogo o pos, em vez de
 /// nascer no lugar que uma tabela vazia sortear.
+///
+/// `section` e `span` sao `Option` pelo mesmo motivo, um degrau mais fundo:
+/// dentro de uma linha que existe, o campo vazio continua significando "o que o
+/// desenho escolheu". Sem isso, o primeiro arrasto de qualquer widget
+/// petrificaria a largura e a faixa que ele tinha naquele dia, e mudar o
+/// desenho depois nao alcancaria mais ninguem que ja tivesse arrumado a Home.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WidgetPosition {
+pub struct WidgetPlacement {
     pub workspace_id: WorkspaceId,
     pub widget_id: String,
     pub position: i64,
+    pub section: Option<String>,
+    pub span: Option<i64>,
+}
+
+/// O que o front pede para gravar: a mesma linha, sem o Workspace, que vem por
+/// fora porque a escrita inteira e de um Workspace so.
+///
+/// A escrita e AUTORITATIVA — o que chega aqui e o que fica gravado, campo por
+/// campo. Nao ha "nao mexi neste": `span: None` significa **volte ao desenho**,
+/// e e assim que se desfaz um redimensionamento. Um `COALESCE` no banco daria a
+/// leitura oposta e tornaria impossivel voltar atras, que foi o motivo de ele
+/// sair daqui.
+///
+/// `section` e obrigatoria porque posicao sem faixa nao quer dizer nada: sao a
+/// mesma informacao — onde na Home o widget esta. E por isso reordenar uma
+/// faixa FIXA a faixa dos widgets dela, de proposito: quem arrumou aquela faixa
+/// escolheu quem mora nela, e o desenho mudar de ideia depois nao pode arrastar
+/// um widget para fora de um arranjo que a pessoa montou. E a mesma regra que
+/// faz widget novo ir para o fim, aplicada a outra dimensao.
+///
+/// `span` NAO segue essa regra, e a assimetria e deliberada: largura e uma
+/// escolha ortogonal a arrumacao. Quem so arrastou nunca escolheu largura
+/// nenhuma, entao reordenar tem de deixar `span: None` passar intacto — e a
+/// responsabilidade de quem monta a lista.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetPlacementInput {
+    pub widget_id: String,
+    pub position: i64,
+    pub section: String,
+    pub span: Option<i64>,
+}
+
+/// Um widget do catalogo, com a faixa e a largura que o DESENHO escolheu.
+///
+/// O core continua sem conhecer o catalogo — ele chega por parametro. O que
+/// esta estrutura acrescenta e que o catalogo agora carrega tres coisas por
+/// widget, e nao so o id: sem a faixa e a largura de origem, nao ha contra o
+/// que comparar o que foi guardado.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetSlot {
+    pub id: String,
+    pub section: String,
+    pub span: i64,
 }
 
 /// Ordena ids de widget aplicando as posicoes guardadas.
@@ -269,7 +317,7 @@ pub struct WidgetPosition {
 ///    montou seria o sistema desfazendo a escolha dela;
 /// 3. posicao repetida ou salteada nao quebra nada: o desempate e a ordem de
 ///    chegada. Banco com linha orfa ou meio gravada nao pode sumir com widget.
-pub fn order_widgets(catalog: &[String], saved: &[WidgetPosition]) -> Vec<String> {
+pub fn order_widgets(catalog: &[String], saved: &[WidgetPlacement]) -> Vec<String> {
     let mut ordered: Vec<(Option<i64>, usize, &String)> = catalog
         .iter()
         .enumerate()
@@ -292,6 +340,95 @@ pub fn order_widgets(catalog: &[String], saved: &[WidgetPosition]) -> Vec<String
     ordered.into_iter().map(|(_, _, id)| id.clone()).collect()
 }
 
+/// Resolve o catalogo inteiro contra o que foi guardado: faixa, largura e ordem.
+///
+/// E a regra completa do arranjo da Home, e ela vive aqui porque e dominio. A
+/// Home a repete em TypeScript (`arrangeHome`, em `App.tsx`) por uma razao
+/// especifica: resolver isso e trabalho de cada render, e um round-trip por
+/// render seria um custo desproporcional. As duas implementacoes apontam uma
+/// para a outra de proposito — mudar uma sem a outra e o defeito a evitar.
+///
+/// Tres decisoes, e cada uma existe para um caso que da errado sozinho:
+///
+/// 1. campo guardado vazio significa "o que o desenho escolheu", e nao zero.
+///    Um widget que foi so REORDENADO nao pode ter a largura congelada no valor
+///    que ela tinha naquele dia;
+/// 2. as faixas saem na ordem em que o catalogo as apresenta. Faixa que so
+///    existe por escrita — alguem moveu um widget para uma faixa que o desenho
+///    esvaziou — vai para o fim, em vez de sumir com o widget dentro dela;
+/// 3. dentro da faixa vale `order_widgets`, com o desempate dele.
+pub fn arrange_widgets(catalog: &[WidgetSlot], saved: &[WidgetPlacement]) -> Vec<WidgetSlot> {
+    let resolved: Vec<WidgetSlot> = catalog
+        .iter()
+        .map(|slot| {
+            let placement = saved.iter().find(|entry| entry.widget_id == slot.id);
+            WidgetSlot {
+                id: slot.id.clone(),
+                section: placement
+                    .and_then(|entry| entry.section.clone())
+                    .unwrap_or_else(|| slot.section.clone()),
+                span: placement.and_then(|entry| entry.span).unwrap_or(slot.span),
+            }
+        })
+        .collect();
+
+    // Primeiro as faixas do desenho, na ordem dele; depois as que so aparecem
+    // porque alguem moveu um widget para la.
+    let mut sections: Vec<String> = Vec::new();
+    for slot in catalog.iter().map(|slot| &slot.section).chain(resolved.iter().map(|slot| &slot.section)) {
+        if !sections.iter().any(|known| known == slot) {
+            sections.push(slot.clone());
+        }
+    }
+
+    let mut arranged = Vec::with_capacity(resolved.len());
+    for section in sections {
+        let ids: Vec<String> = resolved
+            .iter()
+            .filter(|slot| slot.section == section)
+            .map(|slot| slot.id.clone())
+            .collect();
+        for id in order_widgets(&ids, saved) {
+            if let Some(slot) = resolved.iter().find(|slot| slot.id == id) {
+                arranged.push(slot.clone());
+            }
+        }
+    }
+    arranged
+}
+
+/// Quantas das doze colunas o widget ocupa.
+///
+/// Valida FORMA e nao vocabulario, igual ao id: a grade tem doze colunas e
+/// desenha qualquer numero delas. Qual subconjunto a interface oferece
+/// (3,4,5,6,8,9,12) e escolha de desenho, e desenho muda mais rapido que core.
+pub fn validate_span(value: i64) -> Result<i64, CoreError> {
+    if (1..=12).contains(&value) {
+        Ok(value)
+    } else {
+        Err(CoreError::new(
+            ErrorCode::InvalidInput,
+            "A largura de um widget vai de 1 a 12 colunas.",
+            false,
+        ))
+    }
+}
+
+/// Mesma forma do id de widget, e pelo mesmo motivo: as faixas da Home vivem no
+/// front, e enum aqui faria de cada faixa nova uma migration.
+pub fn validate_section_id(value: &str) -> Result<String, CoreError> {
+    validate_widget_id(value).map_err(|_| {
+        CoreError::new(
+            ErrorCode::InvalidInput,
+            "ID de faixa da Home invalido.",
+            false,
+        )
+    })
+}
+
+/// Espelha o CHECK da migration 0008: minuscula inicial, depois minuscula,
+/// digito ou `_`. O core valida forma, nao vocabulario — quem conhece o catalogo
+/// de widgets e o front, em HOME_WIDGETS.
 pub fn validate_widget_id(value: &str) -> Result<String, CoreError> {
     let value = value.trim();
     let valid = !value.is_empty()
@@ -370,12 +507,38 @@ mod tests {
             .collect()
     }
 
-    fn placed(workspace: WorkspaceId, id: &str, position: i64) -> WidgetPosition {
-        WidgetPosition {
+    fn placed(workspace: WorkspaceId, id: &str, position: i64) -> WidgetPlacement {
+        WidgetPlacement {
             workspace_id: workspace,
             widget_id: id.to_owned(),
             position,
+            section: None,
+            span: None,
         }
+    }
+
+    /// O catalogo do arranjo: dois widgets em `agora`, dois em `visao`.
+    fn slots() -> Vec<WidgetSlot> {
+        [
+            ("timer", "agora", 3),
+            ("now", "agora", 6),
+            ("today_hours", "visao", 3),
+            ("inbox_pulse", "visao", 4),
+        ]
+        .iter()
+        .map(|(id, section, span)| WidgetSlot {
+            id: (*id).to_owned(),
+            section: (*section).to_owned(),
+            span: *span,
+        })
+        .collect()
+    }
+
+    fn shape(arranged: &[WidgetSlot]) -> Vec<(&str, &str, i64)> {
+        arranged
+            .iter()
+            .map(|slot| (slot.id.as_str(), slot.section.as_str(), slot.span))
+            .collect()
     }
 
     /// Sem nenhuma escrita, a Home e a do catalogo. E o caso de quem nunca
@@ -457,5 +620,110 @@ mod tests {
     #[test]
     fn an_empty_catalog_orders_to_nothing() {
         assert!(order_widgets(&[], &[]).is_empty());
+    }
+
+    // ------------------------------------------------ arranjo: faixa e largura
+
+    /// Sem escrita nenhuma, o arranjo e o desenho — faixa, largura e ordem.
+    #[test]
+    fn without_anything_saved_the_design_wins() {
+        assert_eq!(
+            shape(&arrange_widgets(&slots(), &[])),
+            [
+                ("timer", "agora", 3),
+                ("now", "agora", 6),
+                ("today_hours", "visao", 3),
+                ("inbox_pulse", "visao", 4),
+            ]
+        );
+    }
+
+    /// O caso que a inversao existe para proteger: a pessoa REORDENOU, e nada
+    /// mais. Largura e faixa tem de continuar sendo as do desenho — se a
+    /// reordenacao congelasse o valor efetivo, mudar o desenho de um widget
+    /// nunca mais alcancaria quem tivesse arrastado qualquer coisa uma vez.
+    #[test]
+    fn reordering_never_freezes_width_or_section() {
+        let workspace = WorkspaceId::new();
+        let saved = [placed(workspace, "now", 0), placed(workspace, "timer", 1)];
+
+        assert_eq!(
+            shape(&arrange_widgets(&slots(), &saved)),
+            [
+                ("now", "agora", 6),
+                ("timer", "agora", 3),
+                ("today_hours", "visao", 3),
+                ("inbox_pulse", "visao", 4),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_saved_span_beats_the_designed_one() {
+        let workspace = WorkspaceId::new();
+        let mut entry = placed(workspace, "timer", 0);
+        entry.span = Some(12);
+
+        let arranged = arrange_widgets(&slots(), &[entry]);
+        assert_eq!(arranged[0], WidgetSlot { id: "timer".to_owned(), section: "agora".to_owned(), span: 12 });
+        assert_eq!(arranged[1].span, 6, "o vizinho nao muda de largura");
+    }
+
+    /// Mover entre faixas e a operacao que mais mexe no resultado: o widget
+    /// sai de uma lista e entra em outra, e a posicao guardada passa a valer
+    /// contra os vizinhos NOVOS.
+    #[test]
+    fn a_saved_section_moves_the_widget_between_bands() {
+        let workspace = WorkspaceId::new();
+        let mut entry = placed(workspace, "timer", 0);
+        entry.section = Some("visao".to_owned());
+
+        assert_eq!(
+            shape(&arrange_widgets(&slots(), &[entry])),
+            [
+                ("now", "agora", 6),
+                ("timer", "visao", 3),
+                ("today_hours", "visao", 3),
+                ("inbox_pulse", "visao", 4),
+            ],
+            "sai de `agora`, e entra em `visao` na posicao que foi gravada"
+        );
+    }
+
+    /// Uma faixa pode ficar vazia por escrita, e o desenho pode esvaziar outra.
+    /// Nos dois casos ninguem some: a faixa que so existe porque alguem moveu
+    /// um widget para la sai no fim, e nao desaparece com o widget dentro.
+    #[test]
+    fn a_section_that_only_exists_because_someone_moved_a_widget_still_renders() {
+        let workspace = WorkspaceId::new();
+        let mut entry = placed(workspace, "now", 0);
+        entry.section = Some("acervo".to_owned());
+
+        let arranged = arrange_widgets(&slots(), &[entry]);
+        assert_eq!(arranged.len(), 4, "ninguem se perde");
+        assert_eq!(
+            shape(&arranged).last().copied(),
+            Some(("now", "acervo", 6)),
+            "a faixa fora do desenho vai para o fim"
+        );
+    }
+
+    #[test]
+    fn a_span_outside_the_grid_is_refused() {
+        assert!(validate_span(0).is_err());
+        assert!(validate_span(13).is_err());
+        assert!(validate_span(-1).is_err());
+        assert_eq!(validate_span(1).unwrap(), 1);
+        assert_eq!(validate_span(12).unwrap(), 12);
+        assert_eq!(validate_span(7).unwrap(), 7, "forma, e nao o vocabulario do desenho");
+    }
+
+    #[test]
+    fn a_section_id_follows_the_same_shape_as_a_widget_id() {
+        assert_eq!(validate_section_id("overview").unwrap(), "overview");
+        assert_eq!(validate_section_id("faixa_2").unwrap(), "faixa_2");
+        assert!(validate_section_id("Overview").is_err());
+        assert!(validate_section_id("2overview").is_err());
+        assert!(validate_section_id("").is_err());
     }
 }

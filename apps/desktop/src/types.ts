@@ -514,8 +514,25 @@ export type DeliveryEvent = {
   level: string;
 };
 
-export type WidgetPosition = {
+/* Onde um widget foi posto na Home de um Workspace.
+
+   `section` e `span` sao anulaveis, e o `null` e a parte que importa: dentro de
+   uma linha que existe, campo vazio significa "o que o desenho escolheu". Ver a
+   migration 0017 — mandar o valor efetivo em toda reordenacao petrificaria o
+   desenho de hoje no primeiro arrasto. */
+export type WidgetPlacement = {
   workspaceId: string;
   widgetId: string;
   position: number;
+  section: string | null;
+  span: number | null;
+};
+
+/* O que se manda para gravar. Sem o Workspace, que vem por fora porque a
+   escrita inteira e de um so. */
+export type WidgetPlacementInput = {
+  widgetId: string;
+  position: number;
+  section: string | null;
+  span: number | null;
 };

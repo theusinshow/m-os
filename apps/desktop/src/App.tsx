@@ -1,10 +1,13 @@
-import { Children, DragEvent, FormEvent, isValidElement, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ReactElement, ReactNode } from "react";
+import { DragEvent, Fragment, FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, appError } from "./api";
 import { DotField } from "./DotField";
+/* O arranjo da Home mora fora daqui para poder ser testado: sem DOM no runner
+   (ver `vitest.config.ts`), o que da para verificar tem de ser funcao pura. */
+import { arrangeHome, HOME_SECTIONS, HOME_WIDGETS, moveInArrangement, placementsFor, stepSpan, touchedSections, type ArrangedWidget, type HomeWidgetRole, type HomeWidgetSpan } from "./homeLayout";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
 import { hermes, type HermesConnectionState, type HermesFailure, type HermesStatus } from "./hermes";
 import { HermesPage } from "./HermesPage";
@@ -25,7 +28,7 @@ import { Icon, type IconName } from "./Icon";
 import { Ring, RingLabel } from "./Ring";
 import { monthActivity, MonthDensity, TaskProgressRing, WeekRings } from "./Widgets";
 import { MosSymbol } from "./Symbol";
-import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, HiddenWidget, WidgetPosition, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
+import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, HiddenWidget, WidgetPlacement, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
 import "./App.css";
 
 /* `apps` continua sendo uma pagina, e so deixou de ser um destino do rail
@@ -104,15 +107,10 @@ function IconButton({ label, icon, active = false, disabled = false, onClick }: 
 }
 
 
-/* Cuida so do posicionamento na grade. A moldura e o rotulo continuam no Panel, para
-   que a etapa 2 (modo de edicao) mude posicao sem tocar em nenhum widget.
-   `hidden` devolve null: a regra de visibilidade fica num lugar so, e a grade nao
-   precisa saber de nada — os widgets restantes reflowam sozinhos. */
-type HomeWidgetRole = "focus" | "attention" | "overview" | "collection" | "utility";
-type HomeWidgetSpan = 3 | 4 | 5 | 6 | 8 | 9 | 12;
-
-function Widget({ id, role, span, hidden = false, footLeft, footRight, children }: { id: string; role: HomeWidgetRole; span: HomeWidgetSpan; hidden?: boolean; footLeft?: string; footRight?: string; children: ReactNode }) {
-  if (hidden) return null;
+/* Cuida so da moldura e do rodape. O rotulo continua no Panel, e a POSICAO na
+   grade agora vem resolvida de fora — o widget nao sabe mais qual e a largura
+   dele, porque ela pode ter sido escolhida pela pessoa. */
+function Widget({ id, role, span, footLeft, footRight, children }: { id: string; role: HomeWidgetRole; span: HomeWidgetSpan; footLeft?: string; footRight?: string; children: ReactNode }) {
   return (
     <div className="widget" data-widget={id} data-role={role} data-span={span}>
       {children}
@@ -126,74 +124,142 @@ function Widget({ id, role, span, hidden = false, footLeft, footRight, children 
 }
 
 /**
- * Uma faixa da Home, com os widgets dela na ordem que a pessoa escolheu.
+ * A Home inteira: as faixas, e os widgets dentro delas na ordem escolhida.
  *
- * A seção ordena os PRÓPRIOS FILHOS lendo o `id` de cada um, em vez de exigir
- * que cada chamada monte um array na ordem certa. Isso mantém o JSX de cada
- * widget onde ele já estava e concentra a regra num lugar só.
+ * Os widgets chegam numa lista PLANA, e nao aninhados na faixa a que pertencem.
+ * Foi o que mover entre faixas exigiu: com o JSX declarando a faixa, o widget
+ * so podia ser desenhado onde estava escrito, e a escolha da pessoa nao teria
+ * onde caber.
  *
- * E ordena o DOM, não o `order` do CSS. `order` mudaria só o visual, e a
- * `DESIGN-FOUNDATIONS.md` §14 exige que "ordem de foco acompanha ordem visual"
- * — com `order`, tabular pela Home seguiria uma ordem que ninguém vê.
+ * A faixa vazia some sozinha, em vez de cada chamada listar a mao quem mora
+ * nela. Aquela lista virou mentira no instante em que um widget pode mudar de
+ * faixa — e mentira em codigo de visibilidade some com widget na tela.
  */
-function HomeSection({ id, title, hidden = false, rank, arrange, children }: { id: string; title: string; hidden?: boolean; rank?: (widgetId: string) => number; arrange?: (widgetId: string, direction: -1 | 1, siblings: string[]) => void; children: ReactNode }) {
-  if (hidden) return null;
-  const headingId = `home-${id}-heading`;
+function HomeBoard({ widgets, arrangement, arranging, hiddenIds, onMove, onResize }: { widgets: { id: string; available?: boolean; footLeft?: string; footRight?: string; node: ReactNode }[]; arrangement: ArrangedWidget[]; arranging: boolean; hiddenIds: Set<string>; onMove: (id: string, section: string, before: string | null) => void; onResize: (id: string, span: HomeWidgetSpan | null) => void }) {
+  const nodes = new Map(widgets.map((widget) => [widget.id, widget] as const));
 
-  const items = Children.toArray(children).filter((child): child is ReactElement<{ id: string }> => isValidElement(child));
-  const visible = items.filter((child) => !(child.props as { hidden?: boolean }).hidden);
-  const sorted = rank ? [...visible].sort((left, right) => rank(left.props.id) - rank(right.props.id)) : visible;
-  const siblings = sorted.map((child) => child.props.id);
+  return <>{HOME_SECTIONS.map((section, sectionIndex) => {
+    const slots = arrangement.filter((slot) => {
+      const node = nodes.get(slot.id);
+      return slot.section === section.id && node !== undefined && node.available !== false && !hiddenIds.has(slot.id);
+    });
+    /* Arrumando, a faixa vazia FICA: ela e o alvo de quem quer mover um widget
+       para ca. Em repouso ela some, porque um titulo sobre o nada nao informa. */
+    if (!slots.length && !arranging) return null;
+    const headingId = `home-${section.id}-heading`;
 
-  return <section className="home-section" data-section={id} aria-labelledby={headingId}><header className="home-section-heading"><h2 id={headingId}>{title}</h2></header><div className="home-grid">{sorted.map((child, index) => arrange ? <Arrangeable key={child.props.id} id={child.props.id} span={(child.props as { span?: HomeWidgetSpan }).span} index={index} siblings={siblings} arrange={arrange}>{child}</Arrangeable> : child)}</div></section>;
+    return <section className="home-section" data-section={section.id} data-arranging={arranging || undefined} key={section.id} aria-labelledby={headingId}>
+      <header className="home-section-heading"><h2 id={headingId}>{section.title}</h2></header>
+      <div
+        className="home-grid"
+        onDragOver={arranging ? (event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } : undefined}
+        onDrop={arranging ? (event) => { event.preventDefault(); const dragged = event.dataTransfer.getData("text/mos-widget"); if (dragged) onMove(dragged, section.id, null); } : undefined}
+      >
+        {slots.map((slot, index) => {
+          const node = nodes.get(slot.id);
+          if (!node) return null;
+          const widget = <Widget id={slot.id} role={slot.role} span={slot.span} footLeft={node.footLeft} footRight={node.footRight}>{node.node}</Widget>;
+          /* Em repouso o widget E o item da grade: nenhum involucro, nenhum
+             controle, nenhum listener de arrasto. A ADR-034 pede a Home lida em
+             meio segundo, e o jeito mais barato de honrar isso e o modo de
+             leitura nao carregar o peso do modo de edicao. */
+          if (!arranging) return <Fragment key={slot.id}>{widget}</Fragment>;
+          return <Arrangeable
+            key={slot.id}
+            slot={slot}
+            section={section.id}
+            first={index === 0}
+            last={index === slots.length - 1}
+            previous={index > 0 ? slots[index - 1].id : null}
+            next={index + 1 < slots.length ? slots[index + 1].id : null}
+            afterNext={index + 2 < slots.length ? slots[index + 2].id : null}
+            bandAbove={sectionIndex > 0 ? HOME_SECTIONS[sectionIndex - 1].id : null}
+            bandBelow={sectionIndex + 1 < HOME_SECTIONS.length ? HOME_SECTIONS[sectionIndex + 1].id : null}
+            onMove={onMove}
+            onResize={onResize}
+          >{widget}</Arrangeable>;
+        })}
+        {arranging && !slots.length ? <p className="home-drop-hint">Faixa vazia. Arraste um widget para cá.</p> : null}
+      </div>
+    </section>;
+  })}</>;
 }
 
 /**
- * Envolve um widget com o gesto de arrastar e com a alternativa por teclado.
+ * Um widget no modo de arrumar: a barra de controle, e o gesto de arrastar.
  *
- * A alternativa NÃO é opcional: a `DESIGN-FOUNDATIONS.md` §12 diz que "nenhum
- * fluxo crítico depende de drag and drop", e é a mesma regra que o Kanban já
- * segue. Arrastar é o caminho rápido; as setas são o caminho que sempre existe.
+ * A barra e uma LINHA DE VERDADE acima do card, e nao uma camada flutuando
+ * sobre ele. A primeira tentativa flutuava no canto superior direito, que e
+ * exatamente onde o `.panel-header` desenha "Ver todos" e "Gerenciar" — passar
+ * o mouse por um widget engolia o botao de acao dele. Uma linha propria nao tem
+ * como colidir com nada, e so existe enquanto se esta arrumando.
  *
- * Sem biblioteca, com o drag nativo — igual ao Kanban, e sem dependência nova.
+ * Arrastar sai do PUNHO, e nao do card inteiro. Um card inteiro `draggable`
+ * cobre rows clicaveis, os tiles de app e o cronometro: qualquer tentativa de
+ * selecionar texto virava um arrasto. O Kanban ja segue essa regra.
+ *
+ * As setas NAO sao enfeite: a `DESIGN-FOUNDATIONS.md` §12 diz que "nenhum fluxo
+ * critico depende de drag and drop". Arrastar e o caminho rapido; as setas sao
+ * o caminho que sempre existe — inclusive para mover entre faixas, que e o que
+ * ↑ e ↓ fazem.
  */
-function Arrangeable({ id, span, index, siblings, arrange, children }: { id: string; span?: HomeWidgetSpan; index: number; siblings: string[]; arrange: (widgetId: string, direction: -1 | 1, siblings: string[]) => void; children: ReactNode }) {
-  const [over, setOver] = useState(false);
+function Arrangeable({ slot, section, first, last, previous, next, afterNext, bandAbove, bandBelow, onMove, onResize, children }: { slot: ArrangedWidget; section: string; first: boolean; last: boolean; previous: string | null; next: string | null; afterNext: string | null; bandAbove: string | null; bandBelow: string | null; onMove: (id: string, section: string, before: string | null) => void; onResize: (id: string, span: HomeWidgetSpan | null) => void; children: ReactNode }) {
+  const [over, setOver] = useState<"before" | "after" | null>(null);
+  const estreito = stepSpan(slot.span, -1);
+  const largo = stepSpan(slot.span, 1);
 
-  function move(direction: -1 | 1) {
-    const target = index + direction;
-    if (target < 0 || target >= siblings.length) return;
-    arrange(id, direction, siblings);
+  /* Qual metade do card o cursor esta pedindo. Sem isso o alvo do arrasto e o
+     card inteiro, e nao da para dizer se o widget cai antes ou depois dele. */
+  function side(event: DragEvent<HTMLDivElement>): "before" | "after" {
+    const box = event.currentTarget.getBoundingClientRect();
+    return event.clientX < box.left + box.width / 2 ? "before" : "after";
   }
 
   return (
     <div
       className="arrangeable"
-      data-span={span}
-      data-over={over || undefined}
-      draggable
-      onDragEnd={() => setOver(false)}
-      onDragOver={(event) => { event.preventDefault(); setOver(true); }}
-      onDragLeave={() => setOver(false)}
-      onDragStart={(event) => { event.dataTransfer.setData("text/mos-widget", id); event.dataTransfer.effectAllowed = "move"; }}
+      data-span={slot.span}
+      data-over={over ?? undefined}
+      onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "move"; setOver(side(event)); }}
+      onDragLeave={() => setOver(null)}
       onDrop={(event) => {
         event.preventDefault();
-        setOver(false);
+        /* Sem isto o `onDrop` da faixa dispara logo depois e manda o widget
+           para o fim, desfazendo a mira que a pessoa acabou de fazer. */
+        event.stopPropagation();
+        const onde = side(event);
+        setOver(null);
         const dragged = event.dataTransfer.getData("text/mos-widget");
-        const from = siblings.indexOf(dragged);
-        if (!dragged || dragged === id || from < 0) return;
-        const next = siblings.filter((entry) => entry !== dragged);
-        next.splice(siblings.indexOf(id), 0, dragged);
-        arrange(dragged, next.indexOf(dragged) > from ? 1 : -1, next);
+        if (!dragged || dragged === slot.id) return;
+        onMove(dragged, section, onde === "before" ? slot.id : next);
       }}
     >
-      {children}
-      {/* Os botões só aparecem no foco e no hover: eles existem para quem
-          precisa deles, e a Home continua silenciosa para quem não precisa. */}
-      <div className="arrangeable-handles">
-        <button aria-label="Mover para trás" className="icon-button" disabled={index === 0} onClick={() => move(-1)} type="button">‹</button>
-        <button aria-label="Mover para frente" className="icon-button" disabled={index === siblings.length - 1} onClick={() => move(1)} type="button">›</button>
+      <div className="arrange-bar">
+        {/* O punho e o unico pedaco arrastavel, e some do leitor de tela: o
+            caminho por teclado sao as setas ao lado, e anunciar os dois faria a
+            mesma acao existir duas vezes. */}
+        <span className="arrange-grip" aria-hidden="true" draggable onDragStart={(event) => { event.dataTransfer.setData("text/mos-widget", slot.id); event.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => setOver(null)}>⠿</span>
+        {/* O nome do widget NAO se repete aqui: o `.panel-header` logo abaixo ja
+            o diz, e escrever duas vezes a mesma palavra a 20px de distancia so
+            gasta a linha. Ele continua nos `aria-label` dos botoes, que e onde
+            faz falta — "Alargar" sozinho nao diz alargar o que. */}
+        <span className="arrange-name" aria-hidden="true" />
+        <span className="arrange-group" role="group" aria-label={`Largura de ${slot.label}`}>
+          <button className="icon-button" type="button" aria-label={`Estreitar ${slot.label}`} disabled={!estreito} onClick={() => { if (estreito) onResize(slot.id, estreito); }}>−</button>
+          <span className="arrange-width">{slot.span}</span>
+          <button className="icon-button" type="button" aria-label={`Alargar ${slot.label}`} disabled={!largo} onClick={() => { if (largo) onResize(slot.id, largo); }}>+</button>
+        </span>
+        <span className="arrange-group" role="group" aria-label={`Mover ${slot.label}`}>
+          <button className="icon-button" type="button" aria-label={`Mover ${slot.label} para trás`} disabled={first} onClick={() => onMove(slot.id, section, previous)}>←</button>
+          <button className="icon-button" type="button" aria-label={`Mover ${slot.label} para frente`} disabled={last} onClick={() => onMove(slot.id, section, afterNext)}>→</button>
+          <button className="icon-button" type="button" aria-label={`Mover ${slot.label} para a faixa acima`} disabled={!bandAbove} onClick={() => { if (bandAbove) onMove(slot.id, bandAbove, null); }}>↑</button>
+          <button className="icon-button" type="button" aria-label={`Mover ${slot.label} para a faixa abaixo`} disabled={!bandBelow} onClick={() => { if (bandBelow) onMove(slot.id, bandBelow, null); }}>↓</button>
+        </span>
       </div>
+      {/* `inert` e nao `pointer-events`: arrumando, o conteudo do widget sai do
+          foco tambem. Sem isso, tabular pela Home em modo de edicao passaria por
+          cada row de cada lista antes de chegar no proximo widget. */}
+      <div className="arrangeable-body" inert>{children}</div>
     </div>
   );
 }
@@ -225,31 +291,6 @@ function SystemHealth({ status }: { status: AppStatus | null }) {
 /* O vazio de um painel com escopo tem duas causas que a mensagem antiga confundia:
    nada cadastrado, ou nada vinculado ao Workspace ativo. Sem separar as duas, a Home
    afirma que o usuario nao tem apps enquanto esconde os que ele tem. */
-/* Fonte de verdade unica dos ids de widget. Os ids VAO PARA O BANCO: renomear
-   um deles apaga em silencio a escolha de quem tinha ocultado o widget, porque
-   a linha guardada deixa de casar com qualquer widget do catalogo. O rotulo
-   pode mudar a vontade; o id, nunca. */
-const HOME_WIDGETS: { id: string; label: string }[] = [
-  { id: "timer", label: "CRONÔMETRO" },
-  { id: "now", label: "EM ANDAMENTO" },
-  // Os tres de tempo. Ids novos e nao renomeados: `week_rings` continua sendo a
-  // semana de TASKS, e reaproveitar o id daria a quem ocultou um o outro
-  // escondido sem ter pedido.
-  { id: "today_hours", label: "HOJE" },
-  { id: "week_by_project", label: "SEMANA POR PROJECT" },
-  { id: "budget_ring", label: "META" },
-  { id: "week_rings", label: "SEMANA" },
-  { id: "task_progress", label: "CONCLUÍDO" },
-  { id: "month_density", label: "MÊS" },
-  { id: "recent", label: "RECENTES" },
-  { id: "projects", label: "PROJECTS" },
-  { id: "apps", label: "APPS" },
-  { id: "recent_resources", label: "RECURSOS" },
-  { id: "inbox_pulse", label: "INBOX" },
-  { id: "quick_actions", label: "AÇÕES" },
-  { id: "system_health", label: "SISTEMA" },
-];
-
 function ScopedEmptyState({ total, workspace, noun, onLink, linkLabel = "Vincular" }: { total: number; workspace: Workspace | null; noun: "app" | "project" | "resource"; onLink: () => void; linkLabel?: string }) {
   if (total === 0 || !workspace) {
     return <EmptyState>{noun === "app" ? "Apps cadastrados aparecerão aqui." : noun === "resource" ? "Referências salvas aparecerão aqui." : "Projects criados aparecerão aqui."}</EmptyState>;
@@ -339,7 +380,7 @@ function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
   return nextIndex;
 }
 
-function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, widgetPositions, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; widgetPositions: WidgetPosition[]; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent }) {
+function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, widgetPlacements, setWidgetPlacements, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; widgetPlacements: WidgetPlacement[]; setWidgetPlacements: (next: WidgetPlacement[]) => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
   const [workspaceApps, setWorkspaceApps] = useState<RegisteredApp[]>([]);
@@ -448,43 +489,80 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
   const hiddenIds = useMemo(() => new Set(currentWorkspaceId ? hiddenWidgets.filter((entry) => entry.workspaceId === currentWorkspaceId).map((entry) => entry.widgetId) : []), [hiddenWidgets, currentWorkspaceId]);
   const allWidgetsHidden = HOME_WIDGETS.every((widget) => hiddenIds.has(widget.id));
 
-  /* A ordem escolhida, resolvida uma vez por render.
+  /* O arranjo desta Home, resolvido uma vez por render: faixa, largura e ordem
+     de cada widget, ja com o que foi guardado por cima do desenho.
 
-     Quem tem posicao guardada vem primeiro, na ordem dela; quem nao tem cai
-     para o fim, na ordem do catalogo. E a mesma regra do `order_widgets` no
-     core, e ela existe para um caso especifico: widget novo nao pode se enfiar
-     no meio de um arranjo que a pessoa montou. */
-  const rankOf = useMemo(() => {
-    const saved = new Map(
-      widgetPositions
-        .filter((entry) => entry.workspaceId === currentWorkspaceId)
-        .map((entry) => [entry.widgetId, entry.position] as const),
-    );
-    const catalogo = new Map(HOME_WIDGETS.map((widget, index) => [widget.id, index] as const));
-    return (id: string) => {
-      const position = saved.get(id);
-      if (position !== undefined) return position;
-      return HOME_WIDGETS.length + (catalogo.get(id) ?? HOME_WIDGETS.length);
-    };
-  }, [widgetPositions, currentWorkspaceId]);
+     Sem Workspace selecionado ("Todos") nao ha arranjo a aplicar, e a funcao
+     devolve o desenho — pelo mesmo motivo que "Todos" nao oculta nada. */
+  const arrangement = useMemo(() => arrangeHome(widgetPlacements, currentWorkspaceId), [widgetPlacements, currentWorkspaceId]);
 
-  /* Grava a secao inteira, e nao o movimento. O backend nao precisa saber o
-     que acontece com quem estava na posicao — essa regra e daqui, que e quem
-     conhece a secao. */
-  const arrangeWidgets = useCallback((widgetId: string, direction: -1 | 1, siblings: string[]) => {
+  /* O modo de arrumar e local e nao persiste: ele descreve o que a pessoa esta
+     fazendo agora, e nao uma preferencia. Trocar para "Todos" o desliga —
+     arrumar sem Workspace nao tem onde gravar, e deixar a tela em modo de
+     edicao sem poder gravar nada seria uma promessa falsa. */
+  const [arranging, setArranging] = useState(false);
+  useEffect(() => { if (!currentWorkspaceId) setArranging(false); }, [currentWorkspaceId]);
+
+  /* Grava as faixas que mudaram, e nao o movimento.
+
+     Tres cuidados, e cada um veio de um jeito de errar:
+
+     1. escreve as DUAS faixas quando o widget muda de casa. A de origem tambem
+        mudou — quem ficou la subiu uma posicao — e gravar so o destino deixaria
+        a origem com um buraco na numeracao;
+     2. repassa `savedSpan`, e nao `span`. A escrita e autoritativa: mandar o
+        span resolvido congelaria o desenho de hoje, e mandar `null` apagaria a
+        largura que a pessoa escolheu. E o contrato que o teste
+        `reordering_must_carry_the_stored_width_along` fixa no Rust;
+     3. aplica na hora e reconcilia com o que o banco devolve. Esperar o
+        round-trip para so entao mexer o widget faria cada clique de seta
+        parecer engasgado, e a escrita e pequena o bastante para o otimismo
+        valer. Se ela falhar, o estado anterior volta inteiro. */
+  const commitLayout = useCallback((next: ArrangedWidget[], touched: string[]) => {
     if (!currentWorkspaceId) return;
-    const from = siblings.indexOf(widgetId);
-    if (from < 0) return;
-    const next = [...siblings];
-    // Quando o arrasto ja entregou a lista na ordem final, `direction` so diz
-    // o sentido e nao ha o que trocar aqui.
-    const to = from + direction;
-    if (to >= 0 && to < next.length && siblings[to] !== undefined) {
-      [next[from], next[to]] = [next[to], next[from]];
-    }
-    void api.setWidgetOrder(currentWorkspaceId, next).then(() => refresh()).catch(() => undefined);
-  }, [currentWorkspaceId, refresh]);
-  const widgetVisible = (id: string) => !hiddenIds.has(id);
+    const placements = placementsFor(next, touched);
+    if (!placements.length) return;
+
+    const anterior = widgetPlacements;
+    const mexidos = new Set(placements.map((entry) => entry.widgetId));
+    setWidgetPlacements([
+      ...anterior.filter((entry) => entry.workspaceId !== currentWorkspaceId || !mexidos.has(entry.widgetId)),
+      ...placements.map((entry) => ({ workspaceId: currentWorkspaceId, ...entry })),
+    ]);
+    void api.setWidgetLayout(currentWorkspaceId, placements)
+      .then(setWidgetPlacements)
+      .catch(() => setWidgetPlacements(anterior));
+  }, [currentWorkspaceId, widgetPlacements, setWidgetPlacements]);
+
+  const moveWidget = useCallback((widgetId: string, section: string, before: string | null) => {
+    commitLayout(moveInArrangement(arrangement, widgetId, section, before), touchedSections(arrangement, widgetId, section));
+  }, [arrangement, commitLayout]);
+
+  /* Redimensiona. `null` devolve a largura do desenho, e e o unico jeito de
+     desfazer um redimensionamento sem apagar o arranjo inteiro. */
+  const resizeWidget = useCallback((widgetId: string, span: HomeWidgetSpan | null) => {
+    const atual = arrangement.find((slot) => slot.id === widgetId);
+    if (!atual) return;
+    commitLayout(arrangement.map((slot) => slot.id === widgetId ? { ...slot, savedSpan: span } : slot), [atual.section]);
+  }, [arrangement, commitLayout]);
+
+  /* Devolve a Home ao desenho apagando as linhas. Apagar e diferente de gravar
+     o catalogo por cima: gravar petrificaria o desenho de HOJE, e um widget que
+     mudasse de largura depois nunca mais alcancaria este Workspace.
+
+     Em duas etapas, e nao num clique so. Nao ha Desfazer aqui, e o que se perde
+     e o trabalho de posicionar quinze widgets — refazer isso e caro o bastante
+     para um clique acidental doer. Duas etapas em vez de um `<dialog>` porque a
+     acao e reversivel pelas maos da pessoa, so trabalhosa: o peso da confirmacao
+     acompanha o peso do estrago. */
+  const [confirmingRestore, setConfirmingRestore] = useState(false);
+  useEffect(() => { if (!arranging) setConfirmingRestore(false); }, [arranging]);
+  const restoreLayout = useCallback(() => {
+    if (!currentWorkspaceId) return;
+    setConfirmingRestore(false);
+    void api.resetWidgetLayout(currentWorkspaceId).then(setWidgetPlacements).catch(() => undefined);
+  }, [currentWorkspaceId, setWidgetPlacements]);
+
   // O tempo carrega por fora do `refresh()`: aquele é o caminho de boot do app
   // inteiro, e um erro no rastreio não pode ser motivo para a Home não abrir.
   const trackedTime = useTrackedTime();
@@ -508,64 +586,60 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
         <button type="button" aria-pressed={!currentWorkspace} data-selected={!currentWorkspace || undefined} onClick={() => setCurrentWorkspaceId("")}><strong>Todos</strong></button>
         {activeWorkspaces.map((workspace) => <button key={workspace.id} type="button" aria-pressed={workspace.id === currentWorkspaceId} data-selected={workspace.id === currentWorkspaceId || undefined} title={`Selecionar ${workspace.name}; clique duplo para abrir`} onClick={() => setCurrentWorkspaceId(workspace.id)} onDoubleClick={() => openWorkspace(workspace)}><strong>{workspace.name}</strong></button>)}
       </div>
+      {/* Arrumar e uma escolha POR Workspace, e por isso "Todos" nao arruma: nao
+          existe onde gravar, e um botao que aceita o clique e nao faz nada e
+          pior que um botao desligado. O `title` diz por que. */}
+      <div className="home-arrange">
+        {arranging ? <Button variant={confirmingRestore ? "danger" : "ghost"} size="sm" title={confirmingRestore ? "Apaga o arranjo deste Workspace. Não há Desfazer." : undefined} onClick={() => { if (confirmingRestore) restoreLayout(); else setConfirmingRestore(true); }}>{confirmingRestore ? "Confirmar: apagar o arranjo" : "Restaurar o desenho"}</Button> : null}
+        <Button variant={arranging ? "primary" : "outline"} size="sm" disabled={!currentWorkspaceId} title={currentWorkspaceId ? undefined : "Escolha um Workspace: o arranjo da Home é guardado por Workspace."} onClick={() => setArranging((ligado) => !ligado)}>{arranging ? "Concluir" : "Arrumar"}</Button>
+      </div>
     </section>
 
-    {/* A primeira dobra responde às duas perguntas imediatas: em que contexto
-        estou e o que está acontecendo agora. TodayHours fica aqui porque horas
-        de hoje são estado presente; semana e mês continuam na visão ampla. */}
-    <HomeSection rank={rankOf} arrange={arrangeWidgets} id="now" title="Agora" hidden={!(["now", "timer", "today_hours"].some(widgetVisible))}>
-      <Widget id="now" role="focus" span={6} hidden={hiddenIds.has("now")}><Panel label="EM ANDAMENTO" value={String(doing.length)} unit="em andamento" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel></Widget>
-      <Widget id="timer" role="focus" span={3} hidden={hiddenIds.has("timer")}><Panel label="CRONÔMETRO"><Timer projects={projects} onChanged={() => void refresh()} /></Panel></Widget>
-      <Widget id="today_hours" role="focus" span={3} hidden={hiddenIds.has("today_hours")} footLeft="7 DIAS · CONTRA O PICO" footRight={`PICO ${hoursLabel(weekTime.peakSeconds)}`}><Panel label="HORAS HOJE"><TodayHours time={trackedTime} /></Panel></Widget>
-    </HomeSection>
+    {arranging ? <p className="home-arrange-hint" role="status">Arraste pelo punho, ou use as setas: ← → dentro da faixa, ↑ ↓ entre faixas. − e + mudam a largura.</p> : null}
 
-    {/* Retomada vem antes de analytics: Inbox pede decisão, Recentes recupera o
-        fio, e Projects mostra os contextos de trabalho que mudaram. */}
-    <HomeSection rank={rankOf} arrange={arrangeWidgets} id="resume" title="Retomar" hidden={!(["inbox_pulse", "recent", "projects"].some(widgetVisible))}>
-      <Widget id="inbox_pulse" role="attention" span={3} hidden={hiddenIds.has("inbox_pulse")} footLeft="ENVELHECENDO" footRight={inbox.length ? `${staleInbox} DE ${inbox.length}${inboxCapped ? "+" : ""}` : undefined}><Panel label="INBOX">{/* O numero cru vira anel. A proporcao mostrada e o que esta ENVELHECENDO
-    dentro da Inbox, nao o tamanho dela: uma Inbox grande e processada hoje e
-    saudavel, e uma pequena parada ha uma semana nao e. O anel vazio com o
-    numero no centro le exatamente como "nada envelhecendo", que e o estado
-    bom — e e por isso que zero nao desenha ponto de sodio. */}
-<button type="button" className="pulse" onClick={() => openInbox()}><Ring size={88} segments={[{ value: inbox.length ? staleInbox / inbox.length : 0 }]}><RingLabel value={inboxCapped ? `${INBOX_PAGE}+` : String(inbox.length)} /></Ring><small>{inbox.length === 1 ? "capture por processar" : "captures por processar"}</small>{staleInbox ? <small className="pulse-stale">{staleInbox === 1 && !inboxCapped ? "1 com mais de 3 dias" : `${staleInbox}${inboxCapped ? "+" : ""} com mais de 3 dias`}</small> : null}</button></Panel></Widget>
-      <Widget id="recent" role="attention" span={5} hidden={hiddenIds.has("recent")}><Panel label="RECENTES" value={String(recent.length)} unit={recent.length === 1 ? "captura" : "capturas"}>{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nada capturado ainda. O que você escrever no campo acima aparece aqui.</EmptyState>}</Panel></Widget>
-      <Widget id="projects" role="attention" span={4} hidden={hiddenIds.has("projects")}><Panel label="PROJECTS" value={String(scopedProjects.length)} unit="ativos" action={scopedProjects.length > 5 ? <Button variant="ghost" onClick={() => openProjectsPage()}>Ver todos</Button> : undefined}>{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} aria-hidden="true" />} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <ScopedEmptyState total={projects.filter((project) => project.lifecycleState === "active").length} workspace={currentWorkspace} noun="project" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
-    </HomeSection>
-
-    {/* Analytics ficam depois da retomada. Todos mostram trabalho ou horas já
-        registrados; nenhum deles precisa competir com o presente. */}
-    <HomeSection rank={rankOf} arrange={arrangeWidgets} id="overview" title="Visão" hidden={!(["month_density", "week_rings", "week_by_project", "task_progress"].some(widgetVisible) || (hasBudget && widgetVisible("budget_ring")))}>
-      <Widget id="month_density" role="overview" span={6} hidden={hiddenIds.has("month_density")} footLeft="MÊS CORRENTE · 4 DEGRAUS" footRight={`PICO ${month.peak}`}><Panel label="MÊS" value={String(month.records)} unit="registros"><MonthDensity tasks={tasks} captures={recent} /></Panel></Widget>
-      <Widget id="week_rings" role="overview" span={6} hidden={hiddenIds.has("week_rings")} footLeft="SEG–DOM · CONTRA O PICO" footRight={`PICO ${taskWeek.peak}`}><Panel label="TASKS NA SEMANA" value={String(taskWeek.done)} unit="concluídas"><WeekRings tasks={tasks} onOpen={openTasksPage} /></Panel></Widget>
-      <Widget id="week_by_project" role="overview" span={6} hidden={hiddenIds.has("week_by_project")} footLeft={`${weekTime.projectCount} PROJECTS · 7 DIAS`} footRight={weekTime.topProject ? `MAIOR: ${weekTime.topProject}` : undefined}><Panel label="HORAS POR PROJECT" value={hoursLabel(weekTime.seconds)} unit="na semana"><WeekByProject time={trackedTime} projects={projects} onOpen={openTempoPage} /></Panel></Widget>
-      <Widget id="task_progress" role="overview" span={3} hidden={hiddenIds.has("task_progress")}><Panel label="CONCLUÍDO"><TaskProgressRing tasks={tasks} /></Panel></Widget>
-      {/* Escondido quando nenhum Project tem meta: um anel preenchido contra um
-          alvo que ninguém definiu ensinaria a confiar numa medida inexistente. */}
-      <Widget id="budget_ring" role="overview" span={3} hidden={hiddenIds.has("budget_ring") || !hasBudget} footLeft="CONTRA A META"><Panel label="META"><BudgetRing time={trackedTime} projects={projects} onOpen={openProject} /></Panel></Widget>
-    </HomeSection>
-
-    {/* O acervo é navegação, não processamento. O corte em cinco continua
-        explícito pelo link "Ver todos" quando há conteúdo além dele. */}
-    <HomeSection rank={rankOf} arrange={arrangeWidgets} id="collection" title="Acervo" hidden={!(["recent_resources", "apps"].some(widgetVisible))}>
-      <Widget id="recent_resources" role="collection" span={8} hidden={hiddenIds.has("recent_resources")}><Panel label="RECURSOS" value={String(activeResources.length)} unit={activeResources.length === 1 ? "recurso" : "recursos"} action={activeResources.length > 5 ? <Button variant="ghost" onClick={() => openLibraryPage()}>Ver todos</Button> : undefined}>{activeResources.length ? activeResources.slice(0, 5).map((resource) => <DataRow key={resource.id} primary={resource.title} secondary={resourceHost(resource.url)} meta={relativeTime(resource.updatedAt)} onClick={() => openResource(resource)} />) : <ScopedEmptyState total={allActiveResources.length} workspace={currentWorkspace} noun="resource" onLink={() => openLibraryPage()} linkLabel="Ver tudo" />}</Panel></Widget>
-      {/* O nome do app nao entra: o icone com a inicial e o atalho ja o
-          identificam, e a linha de nomes competiria com as rows ao lado. */}
-      {/* O botao "Gerenciar" e a porta de Apps desde que ele saiu do rail
-          (ADR-038). Sem ele, com zero apps cadastrados a busca do Command nao
-          acha nada e a pagina fica inalcancavel para criar o primeiro — a
-          mesma falha que a ADR-031 registrou com Workspaces. */}
-      <Widget id="apps" role="collection" span={4} hidden={hiddenIds.has("apps")}><Panel label="APPS" value={String(activeApps.length)} unit={activeApps.length === 1 ? "app" : "apps"} action={<Button variant="ghost" onClick={() => openAppsPage()}>Gerenciar</Button>}><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><AppIcon app={app} />{index < 9 ? <span className="app-shortcut">Ctrl {index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel></Widget>
-    </HomeSection>
-
-    {/* Última faixa: atalho e tranquilidade não são a
-        pergunta que abre a Home. SISTEMA não duplica INTEGRIDADE das Settings —
-        aquele é diagnóstico (schema, WAL), este responde "está salvo?". */}
-    <HomeSection rank={rankOf} arrange={arrangeWidgets} id="utilities" title="Utilidades" hidden={!(["quick_actions", "system_health"].some(widgetVisible))}>
-      <Widget id="quick_actions" role="utility" span={6} hidden={hiddenIds.has("quick_actions")}><Panel label="AÇÕES"><div className="quick-actions"><Button variant="outline" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button><Button variant="outline" size="sm" onClick={() => openTasksPage()}>Nova Task</Button><Button variant="outline" size="sm" onClick={() => openProjectsPage()}>Novo Project</Button></div></Panel></Widget>
-      <Widget id="system_health" role="utility" span={6} hidden={hiddenIds.has("system_health")}><Panel label="SISTEMA"><SystemHealth status={status} /></Panel></Widget>
-    </HomeSection>
-    {/* Ocultar os sete e escolha legitima. O que nao pode e a Home virar um
-        branco sem explicacao — quem escondeu tudo precisa do caminho de volta. */}
+    {/* A ordem em que os widgets aparecem AQUI nao decide mais nada: quem decide
+        e o catalogo, em `HOME_WIDGETS`, junto com o que a pessoa arrumou. Esta
+        lista so diz o que cada widget desenha. */}
+    <HomeBoard
+      arrangement={arrangement}
+      arranging={arranging}
+      hiddenIds={hiddenIds}
+      onMove={moveWidget}
+      onResize={resizeWidget}
+      widgets={[
+        { id: "now", node: <Panel label="EM ANDAMENTO" value={String(doing.length)} unit="em andamento" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel> },
+        { id: "timer", node: <Panel label="CRONÔMETRO"><Timer projects={projects} onChanged={() => void refresh()} /></Panel> },
+        { id: "today_hours", footLeft: "7 DIAS · CONTRA O PICO", footRight: `PICO ${hoursLabel(weekTime.peakSeconds)}`, node: <Panel label="HORAS HOJE"><TodayHours time={trackedTime} /></Panel> },
+        /* O numero cru vira anel. A proporcao mostrada e o que esta ENVELHECENDO
+           dentro da Inbox, nao o tamanho dela: uma Inbox grande e processada hoje e
+           saudavel, e uma pequena parada ha uma semana nao e. O anel vazio com o
+           numero no centro le exatamente como "nada envelhecendo", que e o estado
+           bom — e e por isso que zero nao desenha ponto de sodio. */
+        { id: "inbox_pulse", footLeft: "ENVELHECENDO", footRight: inbox.length ? `${staleInbox} DE ${inbox.length}${inboxCapped ? "+" : ""}` : undefined, node: <Panel label="INBOX"><button type="button" className="pulse" onClick={() => openInbox()}><Ring size={88} segments={[{ value: inbox.length ? staleInbox / inbox.length : 0 }]}><RingLabel value={inboxCapped ? `${INBOX_PAGE}+` : String(inbox.length)} /></Ring><small>{inbox.length === 1 ? "capture por processar" : "captures por processar"}</small>{staleInbox ? <small className="pulse-stale">{staleInbox === 1 && !inboxCapped ? "1 com mais de 3 dias" : `${staleInbox}${inboxCapped ? "+" : ""} com mais de 3 dias`}</small> : null}</button></Panel> },
+        { id: "recent", node: <Panel label="RECENTES" value={String(recent.length)} unit={recent.length === 1 ? "captura" : "capturas"}>{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nada capturado ainda. O que você escrever no campo acima aparece aqui.</EmptyState>}</Panel> },
+        { id: "projects", node: <Panel label="PROJECTS" value={String(scopedProjects.length)} unit="ativos" action={scopedProjects.length > 5 ? <Button variant="ghost" onClick={() => openProjectsPage()}>Ver todos</Button> : undefined}>{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} aria-hidden="true" />} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <ScopedEmptyState total={projects.filter((project) => project.lifecycleState === "active").length} workspace={currentWorkspace} noun="project" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel> },
+        { id: "month_density", footLeft: "MÊS CORRENTE · 4 DEGRAUS", footRight: `PICO ${month.peak}`, node: <Panel label="MÊS" value={String(month.records)} unit="registros"><MonthDensity tasks={tasks} captures={recent} /></Panel> },
+        { id: "week_rings", footLeft: "SEG–DOM · CONTRA O PICO", footRight: `PICO ${taskWeek.peak}`, node: <Panel label="TASKS NA SEMANA" value={String(taskWeek.done)} unit="concluídas"><WeekRings tasks={tasks} onOpen={openTasksPage} /></Panel> },
+        { id: "week_by_project", footLeft: `${weekTime.projectCount} PROJECTS · 7 DIAS`, footRight: weekTime.topProject ? `MAIOR: ${weekTime.topProject}` : undefined, node: <Panel label="HORAS POR PROJECT" value={hoursLabel(weekTime.seconds)} unit="na semana"><WeekByProject time={trackedTime} projects={projects} onOpen={openTempoPage} /></Panel> },
+        { id: "task_progress", node: <Panel label="CONCLUÍDO"><TaskProgressRing tasks={tasks} /></Panel> },
+        // Indisponivel quando nenhum Project tem meta: um anel preenchido contra
+        // um alvo que ninguem definiu ensinaria a confiar numa medida inexistente.
+        { id: "budget_ring", available: hasBudget, footLeft: "CONTRA A META", node: <Panel label="META"><BudgetRing time={trackedTime} projects={projects} onOpen={openProject} /></Panel> },
+        { id: "recent_resources", node: <Panel label="RECURSOS" value={String(activeResources.length)} unit={activeResources.length === 1 ? "recurso" : "recursos"} action={activeResources.length > 5 ? <Button variant="ghost" onClick={() => openLibraryPage()}>Ver todos</Button> : undefined}>{activeResources.length ? activeResources.slice(0, 5).map((resource) => <DataRow key={resource.id} primary={resource.title} secondary={resourceHost(resource.url)} meta={relativeTime(resource.updatedAt)} onClick={() => openResource(resource)} />) : <ScopedEmptyState total={allActiveResources.length} workspace={currentWorkspace} noun="resource" onLink={() => openLibraryPage()} linkLabel="Ver tudo" />}</Panel> },
+        // O nome do app nao entra: o icone com a inicial e o atalho ja o
+        // identificam, e a linha de nomes competiria com as rows ao lado. O botao
+        // "Gerenciar" e a porta de Apps desde que ele saiu do rail (ADR-038) — sem
+        // ele, com zero apps cadastrados a busca do Command nao acha nada e a
+        // pagina fica inalcancavel para criar o primeiro.
+        { id: "apps", node: <Panel label="APPS" value={String(activeApps.length)} unit={activeApps.length === 1 ? "app" : "apps"} action={<Button variant="ghost" onClick={() => openAppsPage()}>Gerenciar</Button>}><div className="app-row">{activeApps.map((app, index) => <button key={app.id} type="button" className="app-tile" onClick={() => openApp(app)} title={app.name} aria-label={app.name}><AppIcon app={app} />{index < 9 ? <span className="app-shortcut">Ctrl {index + 1}</span> : null}</button>)}</div>{!activeApps.length ? <ScopedEmptyState total={apps.filter((app) => app.lifecycleState === "active").length} workspace={currentWorkspace} noun="app" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel> },
+        { id: "quick_actions", node: <Panel label="AÇÕES"><div className="quick-actions"><Button variant="outline" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button><Button variant="outline" size="sm" onClick={() => openTasksPage()}>Nova Task</Button><Button variant="outline" size="sm" onClick={() => openProjectsPage()}>Novo Project</Button></div></Panel> },
+        // SISTEMA nao duplica INTEGRIDADE das Settings — aquele e diagnostico
+        // (schema, WAL), este responde "esta salvo?".
+        { id: "system_health", node: <Panel label="SISTEMA"><SystemHealth status={status} /></Panel> },
+      ]}
+    />
+    {/* Ocultar todos e escolha legitima. O que nao pode e a Home virar um branco
+        sem explicacao — quem escondeu tudo precisa do caminho de volta. */}
     {allWidgetsHidden ? <div className="scoped-empty"><EmptyState>Todos os widgets estão ocultos neste Workspace.</EmptyState><Button variant="outline" size="sm" onClick={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }}>Ajustar</Button></div> : null}
   </div>;
 }
@@ -2570,7 +2644,7 @@ function DesktopApp() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [hiddenWidgets, setHiddenWidgets] = useState<HiddenWidget[]>([]);
-  const [widgetPositions, setWidgetPositions] = useState<WidgetPosition[]>([]);
+  const [widgetPlacements, setWidgetPlacements] = useState<WidgetPlacement[]>([]);
   const [resourceWorkspaces, setResourceWorkspaces] = useState<ResourceWorkspace[]>([]);
   // O contexto ativo deixou de ser assunto da Home: a Library filtra por ele.
   // Continua em localStorage porque e preferencia de leitura, nao dado do core.
@@ -2628,9 +2702,9 @@ function DesktopApp() {
   const refresh = useCallback(async () => {
     setBusy(true);
     try {
-      const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus, nextHiddenWidgets, nextResourceWorkspaces, nextWidgetPositions] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status(), api.hiddenWidgets(), api.resourceWorkspaces(), api.widgetPositions()]);
+      const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus, nextHiddenWidgets, nextResourceWorkspaces, nextWidgetPlacements] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status(), api.hiddenWidgets(), api.resourceWorkspaces(), api.widgetPlacements()]);
       setRecent(nextRecent); setInbox(nextInbox); setArchived(nextArchived); setTrashed(nextTrashed); setProjects(nextProjects); setWorkspaces(nextWorkspaces); setApps(nextApps); setResources(nextResources); setTrashedResources(nextTrashedResources); setTasks(nextTasks); setStatus(nextStatus); setHiddenWidgets(nextHiddenWidgets);
-      setWidgetPositions(nextWidgetPositions); setResourceWorkspaces(nextResourceWorkspaces);
+      setWidgetPlacements(nextWidgetPlacements); setResourceWorkspaces(nextResourceWorkspaces);
       setDrawerTask((current) => current ? nextTasks.find((task) => task.id === current.id) ?? null : null);
     } finally {
       setBusy(false);
@@ -2876,7 +2950,7 @@ function DesktopApp() {
   }, [page]);
   const pageContent = useMemo(() => {
     if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} />;
-    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} widgetPositions={widgetPositions} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} />;
+    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} />;
     if (page === "tempo") return <TempoPage projects={projects} openProject={openProject} receipt={showReceipt} />;
     if (page === "finance") return <FinancePage />;
     if (page === "calendario") return <CalendarPage />;
