@@ -50,6 +50,13 @@ pub struct MeetingTick {
     pub system: ChannelState,
     pub mic_level: u64,
     pub system_level: u64,
+    /// Lido do atomico da sessao, e nao do banco.
+    ///
+    /// A barra precisa parar de pulsar no MESMO instante em que o audio para, e
+    /// o banco so sabe depois que a transicao gravou. Um ponto pulsando com o
+    /// microfone fechado e a mentira que a §17.2 proibe, e meio segundo dela ja
+    /// e meio segundo.
+    pub paused: bool,
 }
 
 fn audio_error(error: AudioError) -> CoreError {
@@ -270,6 +277,7 @@ fn tick(active: &Active) -> MeetingTick {
         system: state.system,
         mic_level: state.mic_level,
         system_level: state.system_level,
+        paused: active.recording.is_paused(),
     }
 }
 

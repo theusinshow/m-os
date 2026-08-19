@@ -722,6 +722,9 @@ export type MeetingTick = {
   /** RMS em milésimos, já reduzido no Rust. */
   micLevel: number;
   systemLevel: number;
+  /** Vem do átomo da sessão, e não do banco: a barra precisa parar de pulsar no
+   *  MESMO instante em que o áudio para. */
+  paused: boolean;
 };
 
 export type TranscriberStatus = {

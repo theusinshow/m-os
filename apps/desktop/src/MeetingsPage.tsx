@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { conversations } from "./hermes";
 import { Button } from "./Button";
+import { CardGravacao } from "./CardGravacao";
 import { formatMeetingClock } from "./RecordingBar";
 import { EmptyState, Inspector, PageHeader, PaneHeader, Panel, StateMessage } from "./Surface";
 import type {
@@ -316,7 +317,7 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
 }) {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [chosenId, setChosenId] = useState<string | null>(focus ?? null);
-  const [view, setView] = useState<"overview" | "transcript">("overview");
+  const [view, setView] = useState<"overview" | "transcript" | "notes">("overview");
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [insights, setInsights] = useState<MeetingInsight[]>([]);
   const [analysis, setAnalysis] = useState<MeetingAnalysis | null>(null);
@@ -378,6 +379,15 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
     () => meetings.find((meeting) => meeting.id === chosenId) ?? null,
     [meetings, chosenId],
   );
+
+  /* `chosen` sai da LISTA, entao atualizar a reuniao e substituir a linha dela.
+     Sem isto, pausar mudaria o banco e a tela continuaria mostrando "gravando"
+     ate o proximo `loadList`. */
+  const substituir = useCallback((atualizada: Meeting) => {
+    setMeetings((atuais) =>
+      atuais.map((meeting) => (meeting.id === atualizada.id ? atualizada : meeting)),
+    );
+  }, []);
 
   const loadDetail = useCallback(async () => {
     if (!chosenId) { setSegments([]); setInsights([]); setAnalysis(null); return; }
@@ -531,6 +541,10 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
                 <ChannelHealth meeting={chosen} />
               </header>
 
+              {chosen.status === "recording" || chosen.status === "paused" ? (
+                <CardGravacao meeting={chosen} onMudou={substituir} />
+              ) : null}
+
               <MeetingActions meeting={chosen} act={act} refresh={refresh} />
 
               <div className="segmented" role="tablist" aria-label="Visão da reunião">
@@ -544,9 +558,31 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
                   aria-selected={view === "transcript"}
                   onClick={() => setView("transcript")}
                 >Transcrição</button>
+                <button
+                  role="tab"
+                  aria-selected={view === "notes"}
+                  onClick={() => setView("notes")}
+                >Anotações</button>
               </div>
 
-              {view === "overview" ? (
+              {view === "notes" ? (
+                <div className="meeting-overview">
+                  {chosen.status === "recording" || chosen.status === "paused" ? (
+                    /* Gravando, o campo esta no card acima — nao ha dois lugares
+                       para escrever a mesma nota. */
+                    <p className="support-copy">
+                      Escreva no card acima. O que você anotar sobe junto com a transcrição
+                      quando a análise rodar.
+                    </p>
+                  ) : chosen.notes ? (
+                    <Panel label="ANOTAÇÕES">
+                      <p className="meeting-summary">{chosen.notes}</p>
+                    </Panel>
+                  ) : (
+                    <EmptyState>Nada foi anotado nesta reunião.</EmptyState>
+                  )}
+                </div>
+              ) : view === "overview" ? (
                 <div className="meeting-overview">
                   {analysis ? (
                     <Panel label="RESUMO">
@@ -607,7 +643,16 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
                     />
                   </label>
                   <p className="micro-label">{filteredSegments.length} de {segments.length} segmentos</p>
-                  {segments.length === 0 ? (
+                  {chosen.status === "recording" || chosen.status === "paused" ? (
+                    /* Nao fica vazia nem promete o que nao vai cumprir. A razao
+                       esta escrita porque ela e uma escolha e nao um limite:
+                       transcrever pedacos soltos corta palavras na emenda. */
+                    <EmptyState>
+                      A transcrição chega quando você parar. Ela é feita de uma vez, com a
+                      reunião inteira — transcrever pedaços soltos corta palavras na emenda
+                      e perde o contexto que desambigua.
+                    </EmptyState>
+                  ) : segments.length === 0 ? (
                     <EmptyState>Esta reunião ainda não foi transcrita.</EmptyState>
                   ) : (
                     filteredSegments.map((segment) => (

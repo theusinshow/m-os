@@ -12,9 +12,16 @@ import type { ChannelOutcome, Meeting, MeetingTick } from "./types";
  * §17.2). Se ela morasse na tela de Reuniões, navegar para a Home apagaria da
  * vista o fato de que o microfone está aberto.
  *
- * Sem waveform, sem medidor grande, sem cockpit. Um nível discreto é permitido
- * porque responde a uma pergunta real — "está me ouvindo?" — e qualquer coisa
- * maior seria o showcase que o desenho proíbe.
+ * O NÍVEL SAIU DAQUI e virou onda no card da página Reuniões. A razão é a mesma
+ * que antes justificava tê-lo: a pergunta que a forma responde. Aqui a barra
+ * acompanha você por telas que não são sobre a reunião, e o que importa é
+ * "estou gravando?" e "perdi o áudio?" — a primeira o relógio responde, a
+ * segunda o `data-warning` responde. "Está me ouvindo AGORA?" é pergunta de quem
+ * está na reunião, e é lá que ela é respondida.
+ *
+ * O que fica: relógio, o ponto, o alarme de canal perdido e PARAR. Parar não
+ * pode exigir navegar até Reuniões — a §17.2 promete indicação em qualquer tela,
+ * e poder agir de qualquer tela é a consequência prática dela.
  */
 
 function clock(ms: number) {
@@ -26,18 +33,6 @@ function clock(ms: number) {
   return h ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
-/** Oito degraus. Mais que isso vira animação, e animação aqui não carrega dado. */
-function Level({ value }: { value: number }) {
-  const filled = Math.min(8, Math.round((value / 1000) * 8));
-  return (
-    <span className="meeting-level" aria-hidden="true">
-      {Array.from({ length: 8 }, (_, index) => (
-        <i key={index} data-on={index < filled || undefined} />
-      ))}
-    </span>
-  );
-}
-
 /**
  * O estado de um canal, em uma palavra e uma cor de estado.
  *
@@ -45,10 +40,9 @@ function Level({ value }: { value: number }) {
  * gravando, e §20 exige que a pessoa consiga distinguir "perdi a gravação" de
  * "um canal caiu e o outro continua".
  */
-function Channel({ label, outcome, level }: {
+function Channel({ label, outcome }: {
   label: string;
   outcome: ChannelOutcome;
-  level: number;
 }) {
   const state = outcome.state;
   const detail =
@@ -57,10 +51,10 @@ function Channel({ label, outcome, level }: {
         : null;
   return (
     <span className="meeting-channel" data-state={state} title={detail ?? undefined}>
+      {/* Sem medidor: o que fica e o ROTULO e, quando algo deu errado, o que
+          deu errado. Canal saudavel nao precisa dizer nada alem de existir. */}
       <span className="micro-label">{label}</span>
-      {state === "capturing" || state === "captured"
-        ? <Level value={level} />
-        : <span className="meeting-channel-note">{detail}</span>}
+      {detail ? <span className="meeting-channel-note">{detail}</span> : null}
     </span>
   );
 }
@@ -122,11 +116,12 @@ export function RecordingBar({ onStopped, openMeeting }: {
         onClick={() => openMeeting(tick.meetingId)}
         aria-label="Abrir a reunião em gravação"
       >
-        <span className="recording-dot" aria-hidden="true" />
+        <span className="recording-dot" data-pausada={tick.paused || undefined} aria-hidden="true" />
         <span className="recording-clock">{clock(tick.durationMs)}</span>
       </button>
-      <Channel label="MIC" outcome={tick.mic} level={tick.micLevel} />
-      <Channel label="SISTEMA" outcome={tick.system} level={tick.systemLevel} />
+      <Channel label="MIC" outcome={tick.mic} />
+      <Channel label="SISTEMA" outcome={tick.system} />
+      {tick.paused ? <span className="micro-label">PAUSADO</span> : null}
       {/* O `title` existe porque o CSS trunca: a mensagem do backend pode ser
           longa, e truncar sem deixar como ler o resto esconderia justamente a
           razao de a gravacao nao ter parado. */}
