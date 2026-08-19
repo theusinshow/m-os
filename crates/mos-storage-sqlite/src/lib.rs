@@ -23,7 +23,7 @@ use serde::Serialize;
 
 pub use cronocad_import::ImportReport;
 
-const SCHEMA_VERSION: u32 = 20;
+const SCHEMA_VERSION: u32 = 21;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -49,6 +49,7 @@ const MIGRATION_019: &str = include_str!("../migrations/0019_ocultos_sem_workspa
 // nao poderia ser distinguido de um com o 17 de widgets, e a saida seria uma
 // migration de conserto em vez de uma renumeracao.
 const MIGRATION_020: &str = include_str!("../migrations/0020_meetings.sql");
+const MIGRATION_021: &str = include_str!("../migrations/0021_radial_pins.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -277,6 +278,11 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
     if current <= 19 {
         connection
             .execute_batch(MIGRATION_020)
+            .map_err(map_sql_error)?;
+    }
+    if current <= 20 {
+        connection
+            .execute_batch(MIGRATION_021)
             .map_err(map_sql_error)?;
     }
     Ok(())

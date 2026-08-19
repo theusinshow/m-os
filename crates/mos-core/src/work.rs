@@ -365,6 +365,31 @@ pub fn validate_widget_id(value: &str) -> Result<String, CoreError> {
     }
 }
 
+/// A forma de um `kind` de petala, e so a forma.
+///
+/// O vocabulario — `app`, `acao`, `pagina` — vive no front, em `leque.ts`, pelo
+/// mesmo motivo que `widget_id` e opaco aqui: um enum no banco faria de cada
+/// tipo novo de petala uma migration, e tipo de petala muda mais rapido que
+/// schema. Espelha o CHECK da migration 0021.
+pub fn validate_pin_kind(value: &str) -> Result<String, CoreError> {
+    let value = value.trim();
+    let valid = !value.is_empty()
+        && value.len() <= 40
+        && value.starts_with(|character: char| character.is_ascii_lowercase())
+        && value.chars().all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_'
+        });
+    if valid {
+        Ok(value.to_owned())
+    } else {
+        Err(CoreError::new(
+            ErrorCode::InvalidInput,
+            "Tipo de petala invalido.",
+            false,
+        ))
+    }
+}
+
 fn required(value: &str, message: &str) -> Result<String, CoreError> {
     let value = value.trim();
     if value.is_empty() {
@@ -434,5 +459,19 @@ mod tests {
         assert!(validate_section_id("Overview").is_err());
         assert!(validate_section_id("2overview").is_err());
         assert!(validate_section_id("").is_err());
+    }
+
+    #[test]
+    fn kind_de_petala_aceita_forma_e_recusa_lixo() {
+        assert_eq!(validate_pin_kind("app").unwrap(), "app");
+        assert_eq!(validate_pin_kind("  pagina  ").unwrap(), "pagina");
+        assert_eq!(validate_pin_kind("acao_rapida").unwrap(), "acao_rapida");
+
+        // Forma, e nao vocabulario: um kind novo passa sem migration.
+        assert_eq!(validate_pin_kind("widget3").unwrap(), "widget3");
+
+        for lixo in ["", "  ", "App", "3app", "app-ficha", "app.ficha", "açao"] {
+            assert!(validate_pin_kind(lixo).is_err(), "deveria recusar {lixo:?}");
+        }
     }
 }
