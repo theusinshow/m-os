@@ -196,9 +196,14 @@ pub fn function_registry() -> Vec<FunctionDefinition> {
             FunctionConfirmation::None,
         ),
         function(
-            "workspace.set_widget",
+            // Nasceu `workspace.set_widget`, dentro do inspetor de Workspace.
+            // Mudou de nome junto com o lugar: esconder widget e capacidade da
+            // HOME, e vale em qualquer contexto — inclusive em "Todos", que nao
+            // e Workspace nenhum. O id nao vai para o banco nem para o Hermes;
+            // vive so entre este registro, o mapa de intents e a ancora no DOM.
+            "home.set_widget",
             "Escolher widgets da Home",
-            "Mostra ou oculta um widget da Home dentro de uma lente de contexto.",
+            "Mostra ou oculta um widget da Home, no contexto atual.",
             FunctionCategory::Work,
             FunctionRisk::Low,
             FunctionConfirmation::None,
@@ -344,7 +349,7 @@ mod tests {
     fn widget_visibility_is_a_declared_function() {
         assert!(function_registry()
             .iter()
-            .any(|item| item.id == "workspace.set_widget"));
+            .any(|item| item.id == "home.set_widget"));
     }
 
     #[test]

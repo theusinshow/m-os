@@ -282,8 +282,12 @@ function Arrangeable({ slot, section, first, last, previous, next, afterNext, ba
         </span>
         {/* Esconder nao apaga nada — a escolha e uma linha no banco, e trazer de
             volta e o mesmo botao. Por isso o rotulo fala em Home, e nao em
-            excluir: "×" aqui tira da tela, e nao do sistema. */}
-        <button className="icon-button" type="button" aria-label={hidden ? `Mostrar ${slot.label} na Home` : `Ocultar ${slot.label} da Home`} title={hidden ? "Mostrar na Home" : "Ocultar da Home"} onClick={() => onHide(slot.id, !hidden)}>{hidden ? "+" : "×"}</button>
+            excluir: "×" aqui tira da tela, e nao do sistema.
+
+            `data-function-action` amarra o botao ao registro de Functions, que
+            e onde a capacidade esta declarada. Ela morava no inspetor de
+            Workspace e mudou de nome junto com o lugar. */}
+        <button className="icon-button" data-function-action="home.set_widget" type="button" aria-label={hidden ? `Mostrar ${slot.label} na Home` : `Ocultar ${slot.label} da Home`} title={hidden ? "Mostrar na Home" : "Ocultar da Home"} onClick={() => onHide(slot.id, !hidden)}>{hidden ? "+" : "×"}</button>
       </div>
       {/* Apagado sozinho diria "desligado" ou "carregando" tao bem quanto diria
           "oculto". A palavra tira a duvida, e e decorativa de proposito: quem
@@ -540,6 +544,10 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
      propria Home: continuar em modo de edicao depois de trocar seria oferecer
      controles sobre um arranjo que a pessoa nao veio arrumar. */
   const [arranging, setArranging] = useState(false);
+  /* O registro de Functions manda `home.set_widget` para ca. Chegar na Home e
+     metade do caminho: os controles so existem arrumando, entao o intent tem de
+     abrir o modo, e nao apenas trocar de pagina. */
+  useEffect(() => { if (intent?.target === "home_arrange") setArranging(true); }, [intent?.key, intent?.target]);
   const [layoutError, setLayoutError] = useState("");
   useEffect(() => { setArranging(false); setLayoutError(""); }, [currentWorkspaceId]);
 
@@ -1128,7 +1136,7 @@ function WorkspaceForm({ workspace, cancel, saved }: { workspace?: Workspace; ca
   </form>;
 }
 
-function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWorkspaceId, refresh, receipt, openProject, openApp, intent }: { workspaces: Workspace[]; projects: Project[]; apps: RegisteredApp[]; hiddenWidgets: HiddenWidget[]; initialWorkspaceId: string; refresh: () => Promise<void>; receipt: (action: UndoAction) => void; openProject: (project: Project) => void; openApp: (app: RegisteredApp) => void; intent?: FunctionIntent }) {
+function WorkspacesPage({ workspaces, projects, apps, initialWorkspaceId, refresh, receipt, openProject, openApp, openHome, intent }: { workspaces: Workspace[]; projects: Project[]; apps: RegisteredApp[]; initialWorkspaceId: string; refresh: () => Promise<void>; receipt: (action: UndoAction) => void; openProject: (project: Project) => void; openApp: (app: RegisteredApp) => void; openHome: (workspace: Workspace) => void; intent?: FunctionIntent }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const activeProjects = projects.filter((project) => project.lifecycleState === "active");
   const activeApps = apps.filter((app) => app.lifecycleState === "active");
@@ -1160,7 +1168,6 @@ function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWork
     const sections: Partial<Record<FunctionIntentTarget, string>> = {
       workspaces_link_project: "workspace.link_project",
       workspaces_link_app: "workspace.link_app",
-      workspaces_set_widget: "workspace.set_widget",
     };
     const relation = sections[intent.target];
     if (relation) {
@@ -1181,7 +1188,6 @@ function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWork
   const selected = activeWorkspaces.find((workspace) => workspace.id === selectedId) ?? null;
   const linkedProjectIds = new Set(workspaceProjects.map((project) => project.id));
   const linkedAppIds = new Set(workspaceApps.map((app) => app.id));
-  const hiddenWidgetIds = new Set(hiddenWidgets.filter((entry) => entry.workspaceId === selectedId).map((entry) => entry.widgetId));
   const workspacesEmpty = !activeWorkspaces.length && mode !== "new";
 
   const refreshLinks = useCallback(async () => {
@@ -1245,15 +1251,6 @@ function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWork
 
   // `refresh` e nao `refreshLinks`: o dado dos ocultos vem do componente raiz,
   // nao do estado local desta pagina.
-  async function toggleWidget(widget: { id: string; label: string }, visible: boolean) {
-    if (!selected) return;
-    try {
-      await api.setWorkspaceWidget(widget.id, selected.id, visible);
-      setMessage(visible ? "Widget visível na Home." : "Widget oculto na Home.");
-      await refresh();
-    } catch (nextError) { setMessage(appError(nextError).message); }
-  }
-
   async function archiveWorkspace(workspace: Workspace) {
     setPendingAction("archive");
     setError("");
@@ -1378,12 +1375,20 @@ function WorkspacesPage({ workspaces, projects, apps, hiddenWidgets, initialWork
                 : <EmptyState>Apps ativos aparecerão aqui.</EmptyState>}
             </Panel>
           </div>
-          {/* Caixa marcada significa VISIVEL: a interface fala em visivel, so a
-              tabela guarda o oculto. Sem botao Abrir — widget nao e entidade
-              que se abre. */}
-          <div data-function-section="workspace.set_widget">
-            <Panel label="WIDGETS">
-              {HOME_WIDGETS.map((widget) => <div className="relation-row" key={widget.id}><label><input type="checkbox" checked={!hiddenWidgetIds.has(widget.id)} onChange={(event) => void toggleWidget(widget, event.currentTarget.checked)} /><span><strong>{widget.label}</strong><small>Widget da Home.</small></span></label></div>)}
+          {/* A lista de caixinhas morava aqui e foi para a Home.
+
+              Nao era duplicacao inofensiva: a mesma escolha em dois lugares e
+              como eles divergem. E a versao da Home sabe mais — la se ve O QUE
+              se esconde, onde ele fica e o que a faixa vira sem ele; aqui era
+              uma lista de rotulos que nao mostrava nada disso.
+
+              Fica o caminho, porque quem procurou aqui uma vez vai procurar de
+              novo. O botao leva ao contexto certo; abrir o modo de arrumar e o
+              clique seguinte, e ele esta a vista. */}
+          <div>
+            <Panel label="WIDGETS DA HOME">
+              <p className="support-copy">A Home de cada contexto se arruma na própria Home: lá dá para esconder, mover e mudar o tamanho de cada widget vendo o resultado.</p>
+              <div className="button-line"><Button variant="outline" size="sm" onClick={() => openHome(selected)}>Abrir a Home de {selected.name}</Button></div>
             </Panel>
           </div>
         </div>
@@ -2968,7 +2973,7 @@ function DesktopApp() {
     }
     functionIntentKey.current += 1;
     setFunctionIntent({ target, key: functionIntentKey.current });
-    if (target === "home_capture") setPage("home");
+    if (target === "home_capture" || target === "home_arrange") setPage("home");
     else if (target === "inbox_process" || target === "inbox_create_task") setPage("inbox");
     else if (target === "tasks_create" || target === "tasks_move") setPage("tasks");
     else if (target === "projects_create") setPage("projects");
@@ -3032,7 +3037,7 @@ function DesktopApp() {
     if (page === "calendario") return <CalendarPage />;
     if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} openResource={openResource} intent={functionIntent ?? undefined} />;
     if (page === "projects") return <ProjectsPage projects={projects} tasks={tasks} initialProjectId={selectedProjectId} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
-    if (page === "workspaces") return <WorkspacesPage workspaces={workspaces} projects={projects} apps={apps} hiddenWidgets={hiddenWidgets} initialWorkspaceId={selectedWorkspaceId} refresh={refresh} receipt={showReceipt} openProject={openProject} openApp={openRegisteredApp} intent={functionIntent ?? undefined} />;
+    if (page === "workspaces") return <WorkspacesPage workspaces={workspaces} projects={projects} apps={apps} initialWorkspaceId={selectedWorkspaceId} refresh={refresh} receipt={showReceipt} openProject={openProject} openApp={openRegisteredApp} openHome={(workspace) => { setCurrentWorkspaceId(workspace.id); setPage("home"); }} intent={functionIntent ?? undefined} />;
     if (page === "apps") return <AppsPage apps={apps} initialAppId={selectedAppId} refresh={refresh} receipt={showReceipt} intent={functionIntent ?? undefined} />;
     if (page === "library") return <LibraryPage resources={resources} workspaces={workspaces} resourceWorkspaces={resourceWorkspaces} currentWorkspace={currentWorkspace} initialResourceId={selectedResourceId} initialResourceKey={resourceOpenKey} refresh={refresh} receipt={showReceipt} openCapture={setViewedCapture} intent={functionIntent ?? undefined} />;
     if (page === "tasks") return <BoardPage tasks={tasks} projects={projects} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
