@@ -473,7 +473,7 @@ impl IngestionRepository for SqliteStorage {
             &format!(
                 "SELECT {INGESTION_COLUMNS} FROM ingestions
                  WHERE state = 'completed' AND extraction_state = 'pending'
-                   AND stored_path <> ''
+                   AND stored_path <> '' AND resource_id IS NOT NULL
                  ORDER BY created_at ASC"
             ),
         )

@@ -239,7 +239,10 @@ pub fn ingest_finish(
     // --- Daqui para baixo, nada mais custa o arquivo ----------------------
 
     let receipt = derive(&state, &app, ingestion)?;
-    if receipt.ingestion.detected_kind.has_text() && !receipt.ingestion.stored_path.is_empty() {
+    // Duplicata nao le de novo: o texto daqueles bytes ja foi lido pela ingestao
+    // que os trouxe da primeira vez, e reler custaria segundos de CPU para
+    // gravar a mesma coisa num lugar que a busca nem alcanca.
+    if receipt.ingestion.resource_id.is_some() && receipt.ingestion.detected_kind.has_text() {
         spawn_extraction(&app, ingest.store.clone(), receipt.ingestion.clone());
     }
     Ok(receipt)
