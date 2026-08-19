@@ -62,6 +62,7 @@ Estados possíveis:
 | ADR-044 | O rail vai a doze, e Reuniões entra sem tirar ninguém | Accepted |
 | ADR-045 | O rail volta a oito, e o recém-chegado nasce no leque | Accepted |
 | ADR-046 | Todo drop vira Capture primeiro, e a entidade vem depois | Accepted |
+| ADR-047 | A detecção de reunião observa o microfone, e nunca o conteúdo | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -2041,3 +2042,73 @@ corrigir.
 **Sem OCR e sem embeddings.** Um PDF escaneado registra `extraction_state =
 'empty'`, e isso não é uma falha: é a fila de trabalho do OCR no dia em que ele
 existir.
+
+## ADR-047 — A detecção de reunião observa o microfone, e nunca o conteúdo
+
+**Data:** 2026-08-19
+**Status:** aceito, por decisão do proprietário do produto
+**Revisa:** ADR-037
+
+### Contexto
+
+O Meeting Agent grava, transcreve e analisa — mas só se alguém lembrar de abrir o
+M/OS e clicar. O pedido do proprietário foi o que o Notion faz: uma janelinha que
+aparece sobre o Meet oferecendo gravar.
+
+A escolha inicial dele foi **detectar por título de janela**, e ela foi tomada a
+partir de uma tabela que eu apresentei — na qual eu classifiquei "microfone em
+uso" como a opção mais cara. **Estava errado.** A pergunta dele — *"como o Notion
+faz?"* — desfez o erro. A conta oficial do Notion é explícita:
+
+> "On desktop, Notion can detect that a meeting app is active and show this
+> prompt to start AI Meeting Notes. **It doesn't read your browser content** or
+> listen to audio unless you actively start notes."
+
+### Decisão
+
+**O M/OS observa qual programa está com o microfone aberto.** A fronteira da
+ADR-037 vai de *"nomes de programa, e nada além disso"* para *"nomes de programa,
+e qual programa está com o microfone aberto"*.
+
+O dado vem do `ConsentStore` do Windows, por leitura de registro — sem hook, sem
+injeção, sem captura. Dois campos atravessam: **quem** e **desde quando**.
+
+**O que esta ADR explicitamente NÃO autoriza**, e é isso que mantém a fronteira
+estreita: ler título de janela, ler conteúdo de aba, escutar o áudio. Saber que o
+Chrome abriu o microfone não diz com quem se fala nem sobre o quê.
+
+### Por que microfone, e não título
+
+Título de janela expõe **conteúdo** — "Orçamento Vila Nova — Chrome", "Demissão
+do Fulano.docx — Word". Microfone expõe uma **capacidade**.
+
+E há uma razão melhor que privacidade: o microfone detecta o **fato certo**. Uma
+aba do Meet aberta não é uma reunião; um microfone aberto é. Título exigiria uma
+lista de padrões — Meet, Zoom, Teams, e o que se esquecesse —, e disparia com aba
+aberta sem reunião.
+
+### Consequências, incluindo a que dói
+
+**Ligada de fábrica.** Isso significa que a fronteira é atravessada **com aviso e
+não com pedido**. A ADR-037 desenhou a fronteira justamente para que atravessá-la
+fosse difícil e visível, e ligar por padrão atravessa por decisão do produto e não
+da pessoa. Foi escolha do proprietário, com o trade-off na mesa, e o argumento a
+favor é o mesmo do Notion: uma feature que exige ser descoberta não serve a quem
+não a descobre.
+
+O toggle é a mitigação, e ele mora em **Settings → REUNIÕES**, não em Avançado. O
+texto ao lado dele diz o que a feature não faz, porque é isso que a pessoa precisa
+para decidir.
+
+**A oferta nunca vira gravação sozinha.** Continua valendo o *"observação não vira
+hora sozinha"* da ADR-037: a janela oferece, e alguém clica.
+
+**Três exclusões que o código impõe:** o próprio `mos-desktop.exe` — ele abre o
+microfone quando grava, e sem a exclusão o detector se veria gravando e ofereceria
+gravar; qualquer processo enquanto já há gravação em curso; e processo silenciado
+pelo "não neste app".
+
+**O que esta ADR não consegue prever:** se vinte segundos de espera é cedo, tarde
+ou irritante. O número foi escolhido para separar reunião de teste de som, sem
+evidência de uso. Reveja depois de uma semana; se for irritante, o caminho é subir
+a espera, e não desligar a feature.

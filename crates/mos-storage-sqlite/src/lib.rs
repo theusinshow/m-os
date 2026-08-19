@@ -24,7 +24,7 @@ use serde::Serialize;
 
 pub use cronocad_import::ImportReport;
 
-const SCHEMA_VERSION: u32 = 23;
+const SCHEMA_VERSION: u32 = 24;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -53,6 +53,7 @@ const MIGRATION_020: &str = include_str!("../migrations/0020_meetings.sql");
 const MIGRATION_021: &str = include_str!("../migrations/0021_radial_pins.sql");
 const MIGRATION_022: &str = include_str!("../migrations/0022_meeting_notes.sql");
 const MIGRATION_023: &str = include_str!("../migrations/0023_universal_drop.sql");
+const MIGRATION_024: &str = include_str!("../migrations/0024_meeting_detection.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -296,6 +297,11 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
     if current <= 22 {
         connection
             .execute_batch(MIGRATION_023)
+            .map_err(map_sql_error)?;
+    }
+    if current <= 23 {
+        connection
+            .execute_batch(MIGRATION_024)
             .map_err(map_sql_error)?;
     }
     if current < SCHEMA_VERSION {

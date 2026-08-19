@@ -185,7 +185,7 @@ impl MonitoringRepository for SqliteStorage {
             .query_row(
                 "SELECT process_monitoring_enabled, process_check_interval_seconds, \
                  idle_detection_enabled, idle_threshold_minutes, remind_on_monitored_open, \
-                 remind_on_monitored_close FROM tracking_settings WHERE id = 1",
+                 remind_on_monitored_close, meeting_detection_enabled                  FROM tracking_settings WHERE id = 1",
                 [],
                 |row| {
                     Ok(mos_core::MonitoringSettings {
@@ -195,6 +195,7 @@ impl MonitoringRepository for SqliteStorage {
                         idle_threshold_minutes: row.get(3)?,
                         remind_on_open: row.get::<_, i64>(4)? != 0,
                         remind_on_close: row.get::<_, i64>(5)? != 0,
+                        meeting_detection_enabled: row.get::<_, i64>(6)? != 0,
                     })
                 },
             )
@@ -214,7 +215,7 @@ impl MonitoringRepository for SqliteStorage {
                 "UPDATE tracking_settings SET process_monitoring_enabled = ?1, \
                  process_check_interval_seconds = ?2, idle_detection_enabled = ?3, \
                  idle_threshold_minutes = ?4, remind_on_monitored_open = ?5, \
-                 remind_on_monitored_close = ?6 WHERE id = 1",
+                 remind_on_monitored_close = ?6, meeting_detection_enabled = ?7                  WHERE id = 1",
                 params![
                     i64::from(settings.process_monitoring_enabled),
                     interval,
@@ -222,6 +223,7 @@ impl MonitoringRepository for SqliteStorage {
                     settings.idle_threshold_minutes.max(1),
                     i64::from(settings.remind_on_open),
                     i64::from(settings.remind_on_close),
+                    i64::from(settings.meeting_detection_enabled),
                 ],
             )
             .map_err(map_sql_error)?;

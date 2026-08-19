@@ -32,6 +32,20 @@ pub struct RecordingState {
     active: Mutex<Option<Active>>,
 }
 
+impl RecordingState {
+    /// Se ha gravacao em curso agora.
+    ///
+    /// Metodo, e nao campo publico: quem pergunta — o laco de deteccao — precisa
+    /// saber SE grava, e nao alcancar a sessao. Abrir o campo daria a ele o
+    /// poder de parar a captura, que nao e assunto dele.
+    ///
+    /// Trava envenenada conta como "nao esta gravando": e o lado seguro, porque
+    /// o erro vira uma oferta a mais e nunca uma gravacao perdida.
+    pub fn gravando(&self) -> bool {
+        self.active.lock().map(|guard| guard.is_some()).unwrap_or(false)
+    }
+}
+
 struct Active {
     meeting_id: String,
     recording: Recording,

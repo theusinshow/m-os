@@ -7719,6 +7719,41 @@ input[type="checkbox"]:disabled {
   }
 }
 
+/* --- A oferta de gravar (ADR-047) ----------------------------------------- */
+
+/* Mesma forma do `.reminder-shell`: a margem e onde a sombra em CSS cabe, e cada
+   pixel dela e transparente e engole clique do que estiver embaixo — por isso
+   ela e curta. */
+.oferta-shell {
+  display: grid;
+  gap: var(--space-3);
+  margin: 4px 10px 16px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='light'] .oferta-shell {
+  box-shadow: 0 6px 16px rgba(20, 24, 26, 0.16);
+}
+
+.oferta-head {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.oferta-head .micro-label {
+  color: var(--signal-ink);
+}
+
+.oferta-acoes {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
 /* --- Estreito ------------------------------------------------------------- */
 
 @media (max-width: 960px) {

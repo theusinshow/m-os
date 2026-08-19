@@ -49,6 +49,22 @@
         "decorations": false,
         "focus": false,
         "shadow": false
+      },
+      {
+        "label": "reuniao-detectada",
+        "title": "M/OS",
+        "width": 380,
+        "height": 140,
+        "transparent": true,
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "decorations": false,
+        "focus": false,
+        "shadow": false
       }
     ],
     "security": {

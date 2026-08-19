@@ -59,6 +59,10 @@ tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2.10.1"
 windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_SystemInformation"] }
+# Leitura do ConsentStore do microfone (ADR-046). Ja estava na arvore por
+# caminho transitivo; declarar torna o uso direto explicito, em vez de depender
+# de uma dependencia de terceiro continuar existindo.
+winreg = "0.52"
 # Cliente HTTP e credencial para a Action API do M-Finance. Mesmas versoes e
 # features de crates/mos-hermes/Cargo.toml, sem "cookies" (nao ha sessao aqui,
 # cada chamada manda o secret no header).

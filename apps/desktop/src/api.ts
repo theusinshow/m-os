@@ -142,6 +142,19 @@ export const api = {
   meetingAnalysisConsent() {
     return invoke<AnalysisConsent>("meeting_analysis_consent");
   },
+  // --- A oferta de gravar (ADR-047) ---
+  //
+  // A janelinha some por `hide` e não `close`: ela sobrevive entre ofertas, como
+  // a do lembrete. Recriar custaria justamente o tempo em que ela precisa
+  // aparecer.
+  fecharReuniaoDetectada() {
+    return invoke<void>("fechar_reuniao_detectada");
+  },
+  // Silencia o AVISO para aquele processo, e nunca a observação — mesmo critério
+  // do "não lembrar hoje".
+  silenciarDeteccao(processo: string) {
+    return invoke<void>("silenciar_deteccao", { processo });
+  },
   meetingSetAnalysisConsent(granted: boolean) {
     return invoke<AnalysisConsent>("meeting_set_analysis_consent", { granted });
   },

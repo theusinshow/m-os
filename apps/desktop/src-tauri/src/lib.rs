@@ -31,6 +31,7 @@ mod hermes;
 mod ingest;
 mod jarvis;
 mod meeting;
+mod microfone;
 mod monitor;
 mod pdf;
 mod tracking;
@@ -1729,6 +1730,8 @@ pub fn run() {
             attention::attention_acknowledge,
             attention::attention_cancel,
             attention::attention_archive,
+            monitor::fechar_reuniao_detectada,
+            monitor::silenciar_deteccao,
             monitor::reminder_pending,
             monitor::reminder_dismiss,
             monitor::reminder_suppress,

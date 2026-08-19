@@ -353,6 +353,11 @@ export type MonitoredApp = {
  */
 export type MonitoringSettings = {
   processMonitoringEnabled: boolean;
+  /** Oferecer gravação quando um programa abre o microfone (ADR-047).
+   *
+   *  Ligada de fábrica. O M/OS observa QUAL programa abriu o microfone — nunca o
+   *  título da janela, o conteúdo da tela ou o áudio. */
+  meetingDetectionEnabled: boolean;
   checkIntervalSeconds: number;
   idleDetectionEnabled: boolean;
   idleThresholdMinutes: number;

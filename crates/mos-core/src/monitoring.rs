@@ -72,6 +72,11 @@ pub struct MonitoringSettings {
     pub idle_threshold_minutes: i64,
     pub remind_on_open: bool,
     pub remind_on_close: bool,
+    /// Oferecer gravacao quando um programa abre o microfone (ADR-047).
+    ///
+    /// LIGADA de fabrica. O custo esta admitido na ADR: a fronteira da ADR-037 e
+    /// atravessada com aviso e nao com pedido, e este campo e a mitigacao.
+    pub meeting_detection_enabled: bool,
 }
 
 /// Quais processos abriram e quais fecharam entre dois instantes.
@@ -93,7 +98,7 @@ pub fn diff_transitions(
 ///
 /// So isto atravessa a fronteira: **quem** e **desde quando**. Nao ha titulo de
 /// janela, nao ha conteudo de aba, nao ha audio — e a ausencia deles E a
-/// feature, nao uma limitacao dela (ADR-046).
+/// feature, nao uma limitacao dela (ADR-047).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MicrofoneAberto {
     pub processo: String,

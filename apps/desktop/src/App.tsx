@@ -20,6 +20,7 @@ import { MeetingSettings } from "./MeetingSettings";
 import { MeetingsPage } from "./MeetingsPage";
 import { RecordingBar } from "./RecordingBar";
 import { Reminder } from "./Reminder";
+import { ReuniaoDetectada } from "./ReuniaoDetectada";
 import { AttentionCenter } from "./AttentionCenter";
 import { ReminderComposer } from "./ReminderComposer";
 import { BudgetRing, hoursLabel, TodayHours, useTrackedTime, WeekByProject, weekSummary } from "./TimeWidgets";
@@ -3246,6 +3247,8 @@ export default function App() {
   switch (getCurrentWindow().label) {
     case "quick-capture":
       return <QuickCapture />;
+    case "reuniao-detectada":
+      return <ReuniaoDetectada />;
     case "lembrete":
       return <Reminder />;
     default:

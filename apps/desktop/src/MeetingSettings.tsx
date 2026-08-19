@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
 import { Panel, StateMessage } from "./Surface";
-import type { AnalysisConsent, TranscriberStatus } from "./types";
+import type { AnalysisConsent, MonitoringSettings, TranscriberStatus } from "./types";
 
 /**
  * As duas configurações do Meeting Agent.
@@ -14,6 +14,9 @@ import type { AnalysisConsent, TranscriberStatus } from "./types";
 export function MeetingSettings() {
   const [transcriber, setTranscriber] = useState<TranscriberStatus | null>(null);
   const [consent, setConsent] = useState<AnalysisConsent | null>(null);
+  /* As configurações de observação vivem em `tracking_settings`, junto do
+     monitoramento de processos — a detecção de reunião é a mesma família. */
+  const [observacao, setObservacao] = useState<MonitoringSettings | null>(null);
   const [binary, setBinary] = useState("");
   const [model, setModel] = useState("");
   const [threads, setThreads] = useState("0");
@@ -22,12 +25,14 @@ export function MeetingSettings() {
 
   const load = useCallback(async () => {
     try {
-      const [status, granted] = await Promise.all([
+      const [status, granted, monitoramento] = await Promise.all([
         api.meetingTranscriberStatus(),
         api.meetingAnalysisConsent(),
+        api.monitoringSettings(),
       ]);
       setTranscriber(status);
       setConsent(granted);
+      setObservacao(monitoramento);
       setBinary(status.binary);
       setModel(status.model);
       setThreads(String(status.threads));
@@ -125,6 +130,35 @@ export function MeetingSettings() {
           ensina a clicar sem ler. Desligando aqui, as reuniões param depois da
           transcrição e nada mais sai da máquina.
         </p>
+
+        <div className="setting-row">
+          <div>
+            <strong>Oferecer gravação quando uma reunião começa</strong>
+            {/* Este parágrafo não é decoração: é o que a pessoa precisa para
+                decidir, e ele diz o que a feature NÃO faz. Sem ele o toggle pede
+                confiança em vez de informar. */}
+            <p>
+              O M/OS observa qual programa abriu o microfone — nunca o título da janela,
+              o conteúdo da tela ou o áudio.
+            </p>
+          </div>
+          <label className="switch">
+            <input
+              aria-label="Oferecer gravação quando uma reunião começa"
+              type="checkbox"
+              checked={Boolean(observacao?.meetingDetectionEnabled)}
+              disabled={!observacao}
+              onChange={(event) => {
+                if (!observacao) return;
+                const proxima = { ...observacao, meetingDetectionEnabled: event.currentTarget.checked };
+                void api.monitoringSetSettings(proxima)
+                  .then(setObservacao)
+                  .catch((error) => setNote(String(error)));
+              }}
+            />
+            <span />
+          </label>
+        </div>
 
         <div className="setting-row">
           <div>

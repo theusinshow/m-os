@@ -1104,6 +1104,7 @@ mod tests {
                 idle_threshold_minutes: 7,
                 remind_on_open: false,
                 remind_on_close: true,
+                meeting_detection_enabled: true,
             })
             .unwrap();
 
@@ -1136,6 +1137,7 @@ mod tests {
                 idle_threshold_minutes: 0,
                 remind_on_open: true,
                 remind_on_close: true,
+                meeting_detection_enabled: true,
             })
             .unwrap();
 
