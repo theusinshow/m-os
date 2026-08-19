@@ -1733,37 +1733,6 @@ mod tests {
         assert!(storage.widget_placements().unwrap().is_empty());
     }
 
-    /// O que o domínio faz com o que o banco devolve: a ponta a ponta da
-    /// feature, sem interface.
-    #[test]
-    fn the_stored_order_drives_the_catalog() {
-        let (_guard, storage) = storage();
-        let workspace = storage
-            .create_workspace(NewWorkspace::create("Web", "").unwrap())
-            .unwrap();
-
-        let catalog: Vec<String> = ["timer", "now", "today_hours"]
-            .iter()
-            .map(|id| (*id).to_owned())
-            .collect();
-
-        assert_eq!(
-            mos_core::order_widgets(&catalog, &storage.widget_placements().unwrap()),
-            catalog,
-            "sem arrumacao, a ordem e a do catalogo"
-        );
-
-        storage
-            .set_widget_layout(Some(workspace.id), &ordem(&["today_hours", "timer"]))
-            .unwrap();
-
-        assert_eq!(
-            mos_core::order_widgets(&catalog, &storage.widget_placements().unwrap()),
-            ["today_hours", "timer", "now"],
-            "o nao arrumado cai para o fim"
-        );
-    }
-
     /// A escrita e autoritativa: campo por campo, o que chega e o que fica.
     /// `span: None` e como se desfaz um redimensionamento — se ele significasse
     /// "nao mexi", voltar a largura do desenho seria impossivel sem apagar o

@@ -6,11 +6,18 @@
  * esta: o que da para verificar tem de ser funcao pura, e por isso a regra do
  * arranjo mora aqui em vez de dentro dos callbacks do componente.
  *
- * A METADE DE REGISTRO desta regra e `arrange_widgets`, em
- * `crates/mos-core/src/work.rs`. As duas existem porque resolver o arranjo e
- * trabalho de cada render, e um round-trip por render para ordenar quinze itens
- * custaria muito mais que a duplicacao. Mudar uma sem a outra e o defeito a
- * evitar — as duas tem os mesmos casos nos testes, de proposito.
+ * ESTA E A UNICA COPIA DA REGRA, e ja foi duas.
+ *
+ * Houve um `arrange_widgets` em `crates/mos-core/src/work.rs`, com testes, que
+ * eu justifiquei como "dominio de registro" enquanto quem rodava era este
+ * arquivo. A duplicacao falhou no proprio dia em que nasceu: a escala de larguras
+ * virou tres tamanhos, entrou o `fillBand`, e a copia do Rust ficou para tras em
+ * silencio — com os testes dela passando, que e o pior jeito de ficar para tras.
+ *
+ * O `CORE.md` lista o que aquele crate carrega: Capture, Inbox, Project, Task,
+ * Workspace. Largura de widget nao e conceito de produto, e sim desenho da Home.
+ * O que ficou no core e o que o BANCO precisa para nao aceitar lixo — o tipo
+ * guardado e os validadores de id, faixa e largura.
  */
 import type { WidgetPlacement, WidgetPlacementInput } from "./types";
 
