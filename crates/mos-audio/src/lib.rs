@@ -164,6 +164,12 @@ pub fn delete_session_audio(root: &Path) -> Result<(), AudioError> {
 pub struct Recording {
     root: PathBuf,
     stop: Arc<AtomicBool>,
+    /// Compartilhado com os DOIS canais e com o keep-alive.
+    ///
+    /// Um atomico so, e nao um por canal: pausar apenas o MIC deixaria o SYSTEM
+    /// acumulando frames que o outro nao tem, e a linha do tempo torceria — a
+    /// mesma falha de 4710 ms que o spike mediu, chegando pelo outro lado.
+    paused: Arc<AtomicBool>,
     #[cfg(windows)]
     mic: Option<capture::ChannelThread>,
     #[cfg(windows)]
@@ -175,6 +181,19 @@ pub struct Recording {
 impl Recording {
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Suspende ou retoma a escrita nos dois canais.
+    ///
+    /// Nao fecha o stream do WASAPI: reabrir ao retomar poderia devolver outro
+    /// formato efetivo, que e uma troca silenciosa. Pausado, o pacote e lido e
+    /// descartado.
+    pub fn set_paused(&self, paused: bool) {
+        self.paused.store(paused, Ordering::Relaxed);
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::Relaxed)
     }
 }
 
@@ -190,13 +209,20 @@ impl Recording {
         session.create()?;
 
         let stop = Arc::new(AtomicBool::new(false));
-        let keep_alive = capture::spawn_keep_alive(stop.clone());
+        let paused = Arc::new(AtomicBool::new(false));
+        let keep_alive = capture::spawn_keep_alive(stop.clone(), paused.clone());
 
-        let mic = capture::spawn(Channel::Mic, &session.channel(Channel::Mic), stop.clone());
+        let mic = capture::spawn(
+            Channel::Mic,
+            &session.channel(Channel::Mic),
+            stop.clone(),
+            paused.clone(),
+        );
         let system = capture::spawn(
             Channel::System,
             &session.channel(Channel::System),
             stop.clone(),
+            paused.clone(),
         );
 
         let (mic_device, system_device) = capture::default_devices().unwrap_or((None, None));
@@ -227,6 +253,7 @@ impl Recording {
         Ok(Self {
             root: root.to_path_buf(),
             stop,
+            paused,
             mic: Some(mic),
             system: Some(system),
             keep_alive: Some(keep_alive),
@@ -463,5 +490,41 @@ mod tests {
             Recording::start(dir.path()),
             Err(AudioError::Unsupported)
         ));
+    }
+
+    /// A invariante da pausa, testada onde ela realmente mora.
+    ///
+    /// Nao ha como instanciar `Recording` sem WASAPI, entao testar
+    /// `set_paused`/`is_paused` exigiria hardware — e um teste de
+    /// `if pausado { 0 } else { frames }` seria tautologico, provando so que o
+    /// `if` foi digitado.
+    ///
+    /// O que IMPORTA e outra coisa, e ela e verificavel aqui: a duracao sai dos
+    /// frames em disco. Se a pausa nao escreve, o tempo pausado nao existe para
+    /// quem le depois — sem nenhum campo novo, sem nenhuma subtracao.
+    #[test]
+    fn o_tempo_pausado_nao_entra_na_duracao_porque_nao_vira_frame() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = SessionDir::new(dir.path().join("0199"));
+        session.create().unwrap();
+
+        let um_segundo = vec![0u8; 16_000 * 2];
+
+        for canal in Channel::BOTH {
+            let mut escritor =
+                chunks::ChunkWriter::create(&session.channel(canal), Format::CAPTURE, CHUNK_MS)
+                    .unwrap();
+            // 1 s gravado, "pausa" de qualquer duracao — que aqui e simplesmente
+            // nao escrever nada —, e mais 1 s depois de retomar.
+            escritor.write(&um_segundo).unwrap();
+            escritor.write(&um_segundo).unwrap();
+            escritor.finish().unwrap();
+        }
+
+        let recuperada = recover_session(&dir.path().join("0199")).unwrap();
+        assert_eq!(
+            recuperada.duration_ms, 2_000,
+            "a duracao precisa ser o audio gravado, e nao o relogio de parede"
+        );
     }
 }
