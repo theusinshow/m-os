@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrangeHome, HOME_SECTIONS, HOME_SIZES, HOME_WIDGETS, moveInArrangement, placementsFor, sizeOf, touchedSections } from "./homeLayout";
+import { arrangeHome, fillBand, HOME_SECTIONS, HOME_SIZES, HOME_WIDGETS, moveInArrangement, placementsFor, sizeOf, touchedSections } from "./homeLayout";
 import type { WidgetPlacement } from "./types";
 
 const WORKSPACE = "01J0000000000000000000000A";
@@ -239,6 +239,48 @@ describe("placementsFor", () => {
   it("nao inventa largura para quem nunca escolheu uma", () => {
     const escrita = placementsFor(arrangeHome([], WORKSPACE), ["now"]);
     for (const entry of escrita) expect(entry.span).toBeNull();
+  });
+});
+
+describe("fillBand", () => {
+  const faixa = (...spans: number[]) => spans.map((span, at) => ({
+    id: `w${at}`, label: `W${at}`, role: "overview" as const, section: "overview", span: span as 3 | 6 | 12, savedSpan: null,
+  }));
+  const larguras = (postos: ReturnType<typeof fillBand>) => postos.map((p) => p.renderSpan);
+
+  it("nao mexe em faixa que ja fecha", () => {
+    expect(larguras(fillBand(faixa(6, 6)))).toEqual([6, 6]);
+    expect(larguras(fillBand(faixa(3, 3, 3, 3)))).toEqual([3, 3, 3, 3]);
+    expect(larguras(fillBand(faixa(12)))).toEqual([12]);
+  });
+
+  /* O caso que motivou a funcao: a faixa "Visao" sem a META. */
+  it("fecha a ultima linha dando a sobra ao ultimo", () => {
+    expect(larguras(fillBand(faixa(6, 6, 6, 3)))).toEqual([6, 6, 6, 6]);
+  });
+
+  it("fecha tambem quando a faixa cabe numa linha so", () => {
+    expect(larguras(fillBand(faixa(3, 3)))).toEqual([3, 9]);
+  });
+
+  /* A escolha da pessoa nao e reescrita: o emprestimo vive so no `renderSpan`,
+     e e o `span` que o seletor de tamanho marca. */
+  it("nao toca no tamanho escolhido", () => {
+    const postos = fillBand(faixa(6, 6, 6, 3));
+    expect(postos.map((p) => p.span)).toEqual([6, 6, 6, 3]);
+    expect(postos.every((p) => p.savedSpan === null)).toBe(true);
+  });
+
+  /* Linha curta no MEIO nao e fechada: ali a sobra e consequencia visivel de um
+     arranjo, e esticar transformaria um "Pequeno" em faixa inteira sem pedido. */
+  it("deixa em paz a linha curta do meio", () => {
+    // 3 sozinho na primeira linha porque o 12 nao coube; a ultima linha e o 12,
+    // que ja fecha — entao ninguem cresce.
+    expect(larguras(fillBand(faixa(3, 12)))).toEqual([3, 12]);
+  });
+
+  it("aguenta faixa vazia", () => {
+    expect(fillBand([])).toEqual([]);
   });
 });
 

@@ -181,6 +181,50 @@ export function placementsFor(arrangement: ArrangedWidget[], sections: string[])
   );
 }
 
+/* Um widget pronto para desenhar: o tamanho que a pessoa escolheu, mais o que
+   ele ganhou emprestado para fechar a faixa. Os dois andam separados porque
+   respondem a perguntas diferentes — `span` e a ESCOLHA, e e ele que o seletor
+   de tamanho marca; `renderSpan` e o que a grade desenha. */
+export type PlacedWidget = ArrangedWidget & { renderSpan: number };
+
+/**
+ * Fecha a ultima linha da faixa, dando a sobra ao ultimo widget dela.
+ *
+ * Tamanho fixo e um widget que se esconde sozinho nao convivem sem sobra: a
+ * faixa "Visao" fecha certinho com a META, e abre um buraco de uma unidade
+ * quando nenhum Project tem meta e ela some. Nao existe arranjo que feche nos
+ * dois casos — e a META some por conta do sistema, nao por escolha de ninguem,
+ * entao o buraco tambem nao foi escolhido.
+ *
+ * O PRECO, e ele e real: um widget pode aparecer mais largo do que o tamanho
+ * que a pessoa marcou. O seletor continua mostrando a escolha, e nao o
+ * emprestimo — mudar o que ele marca seria mentir sobre o que foi escolhido.
+ *
+ * So a ULTIMA linha. Uma linha curta no MEIO da faixa so acontece quando um
+ * widget grande nao coube e desceu, e ai a sobra e consequencia visivel de uma
+ * escolha de arranjo: esticar ali transformaria um "Pequeno" em faixa inteira
+ * sem que ninguem tivesse pedido.
+ */
+export function fillBand(slots: ArrangedWidget[], colunas = 12): PlacedWidget[] {
+  const postos: PlacedWidget[] = slots.map((slot) => ({ ...slot, renderSpan: slot.span }));
+  if (!postos.length) return postos;
+
+  // Onde comeca a ultima linha, pela mesma conta que a grade faz.
+  let usado = 0;
+  let inicio = 0;
+  postos.forEach((posto, at) => {
+    if (usado + posto.renderSpan > colunas) { usado = posto.renderSpan; inicio = at; }
+    else { usado += posto.renderSpan; }
+  });
+
+  const sobra = colunas - usado;
+  if (sobra > 0 && inicio < postos.length) {
+    const ultimo = postos[postos.length - 1];
+    ultimo.renderSpan += sobra;
+  }
+  return postos;
+}
+
 /** O tamanho a que uma largura corresponde, ou `null` se ela esta fora da escala. */
 export function sizeOf(span: number): (typeof HOME_SIZES)[number] | null {
   return HOME_SIZES.find((size) => size.span === span) ?? null;

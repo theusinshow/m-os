@@ -7,7 +7,7 @@ import { api, appError } from "./api";
 import { DotField } from "./DotField";
 /* O arranjo da Home mora fora daqui para poder ser testado: sem DOM no runner
    (ver `vitest.config.ts`), o que da para verificar tem de ser funcao pura. */
-import { arrangeHome, HOME_SECTIONS, HOME_SIZES, HOME_WIDGETS, moveInArrangement, placementsFor, touchedSections, type ArrangedWidget, type HomeWidgetRole, type HomeWidgetSpan } from "./homeLayout";
+import { arrangeHome, fillBand, HOME_SECTIONS, HOME_SIZES, HOME_WIDGETS, moveInArrangement, placementsFor, touchedSections, type ArrangedWidget, type HomeWidgetRole, type HomeWidgetSpan, type PlacedWidget } from "./homeLayout";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
 import { hermes, type HermesConnectionState, type HermesFailure, type HermesStatus } from "./hermes";
 import { HermesPage } from "./HermesPage";
@@ -110,7 +110,7 @@ function IconButton({ label, icon, active = false, disabled = false, onClick }: 
 /* Cuida so da moldura e do rodape. O rotulo continua no Panel, e a POSICAO na
    grade agora vem resolvida de fora — o widget nao sabe mais qual e a largura
    dele, porque ela pode ter sido escolhida pela pessoa. */
-function Widget({ id, role, span, footLeft, footRight, children }: { id: string; role: HomeWidgetRole; span: HomeWidgetSpan; footLeft?: string; footRight?: string; children: ReactNode }) {
+function Widget({ id, role, span, footLeft, footRight, children }: { id: string; role: HomeWidgetRole; span: number; footLeft?: string; footRight?: string; children: ReactNode }) {
   return (
     <div className="widget" data-widget={id} data-role={role} data-span={span}>
       {children}
@@ -139,10 +139,13 @@ function HomeBoard({ widgets, arrangement, arranging, hiddenIds, onMove, onResiz
   const nodes = new Map(widgets.map((widget) => [widget.id, widget] as const));
 
   return <>{HOME_SECTIONS.map((section, sectionIndex) => {
-    const slots = arrangement.filter((slot) => {
+    /* `fillBand` fecha a ultima linha da faixa. Um widget que se esconde sozinho
+       — a META, quando nenhum Project tem meta — deixaria uma sobra que ninguem
+       escolheu, e nao existe arranjo de tamanhos fixos que feche com e sem ele. */
+    const slots = fillBand(arrangement.filter((slot) => {
       const node = nodes.get(slot.id);
       return slot.section === section.id && node !== undefined && node.available !== false && !hiddenIds.has(slot.id);
-    });
+    }));
     /* Arrumando, a faixa vazia FICA: ela e o alvo de quem quer mover um widget
        para ca. Em repouso ela some, porque um titulo sobre o nada nao informa. */
     if (!slots.length && !arranging) return null;
@@ -158,7 +161,7 @@ function HomeBoard({ widgets, arrangement, arranging, hiddenIds, onMove, onResiz
         {slots.map((slot, index) => {
           const node = nodes.get(slot.id);
           if (!node) return null;
-          const widget = <Widget id={slot.id} role={slot.role} span={slot.span} footLeft={node.footLeft} footRight={node.footRight}>{node.node}</Widget>;
+          const widget = <Widget id={slot.id} role={slot.role} span={slot.renderSpan} footLeft={node.footLeft} footRight={node.footRight}>{node.node}</Widget>;
           /* Em repouso o widget E o item da grade: nenhum involucro, nenhum
              controle, nenhum listener de arrasto. A ADR-034 pede a Home lida em
              meio segundo, e o jeito mais barato de honrar isso e o modo de
@@ -203,7 +206,7 @@ function HomeBoard({ widgets, arrangement, arranging, hiddenIds, onMove, onResiz
  * o caminho que sempre existe — inclusive para mover entre faixas, que e o que
  * ↑ e ↓ fazem.
  */
-function Arrangeable({ slot, section, first, last, previous, next, afterNext, bandAbove, bandBelow, onMove, onResize, children }: { slot: ArrangedWidget; section: string; first: boolean; last: boolean; previous: string | null; next: string | null; afterNext: string | null; bandAbove: string | null; bandBelow: string | null; onMove: (id: string, section: string, before: string | null) => void; onResize: (id: string, span: HomeWidgetSpan | null) => void; children: ReactNode }) {
+function Arrangeable({ slot, section, first, last, previous, next, afterNext, bandAbove, bandBelow, onMove, onResize, children }: { slot: PlacedWidget; section: string; first: boolean; last: boolean; previous: string | null; next: string | null; afterNext: string | null; bandAbove: string | null; bandBelow: string | null; onMove: (id: string, section: string, before: string | null) => void; onResize: (id: string, span: HomeWidgetSpan | null) => void; children: ReactNode }) {
   const [over, setOver] = useState<"before" | "after" | null>(null);
 
   /* Qual metade do card o cursor esta pedindo. Sem isso o alvo do arrasto e o
@@ -216,7 +219,7 @@ function Arrangeable({ slot, section, first, last, previous, next, afterNext, ba
   return (
     <div
       className="arrangeable"
-      data-span={slot.span}
+      data-span={slot.renderSpan}
       data-over={over ?? undefined}
       onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "move"; setOver(side(event)); }}
       onDragLeave={() => setOver(null)}
