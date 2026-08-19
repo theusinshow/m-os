@@ -585,6 +585,13 @@ pub trait MeetingRepository: Send + Sync {
         title: &str,
     ) -> Result<crate::Meeting, CoreError>;
 
+    /// Grava as anotacoes. Vazio e valido: apagar tudo e uma escolha.
+    fn set_meeting_notes(
+        &self,
+        id: crate::MeetingId,
+        notes: &str,
+    ) -> Result<crate::Meeting, CoreError>;
+
     fn set_meeting_lifecycle(
         &self,
         id: crate::MeetingId,

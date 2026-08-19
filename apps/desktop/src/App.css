@@ -7015,6 +7015,15 @@ input[type="checkbox"]:disabled {
   .recording-dot { animation: none; }
 }
 
+/* Pausado, o ponto PARA e esvazia a cor.
+   Um ponto vermelho pulsando com o microfone fechado e a mentira exata que a
+   §17.2 existe para impedir — e ela e pior que nao ter indicacao nenhuma,
+   porque ensina a confiar num sinal falso. */
+.recording-dot[data-pausada] {
+  animation: none;
+  background: var(--text-disabled);
+}
+
 .recording-clock {
   font: var(--text-meta);
   font-variant-numeric: tabular-nums;
@@ -7629,6 +7638,85 @@ input[type="checkbox"]:disabled {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
   gap: var(--space-2);
+}
+
+/* --- O card de gravacao --------------------------------------------------- */
+
+.card-gravacao {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.card-gravacao-barra {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* A onda: trinta barras, dois segundos de historia. A altura vem do `--h` que o
+   componente calcula, e nao de uma animacao — o movimento E o dado. */
+.onda {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 2px;
+  height: var(--height-control);
+}
+
+.onda i {
+  display: block;
+  flex: 1;
+  min-height: 2px;
+  height: calc(var(--h) * 100%);
+  background: var(--signal-ink);
+  border-radius: 1px;
+  transition: height 80ms linear;
+}
+
+/* Sem movimento, o componente troca de DESENHO e nao so de transicao: sao oito
+   degraus do agora, no lugar de trinta barras de historia. O CSS so acompanha. */
+.onda[data-degraus] i {
+  flex: none;
+  width: 3px;
+  height: 12px;
+  background: var(--border-control);
+  transition: none;
+}
+
+.onda[data-degraus] i[data-on] {
+  background: var(--signal-ink);
+}
+
+/* Pausada, a onda esvazia a cor mas NAO some: sumir diria "acabou", e pausado
+   nao e acabado. */
+.card-gravacao[data-pausada] .onda i {
+  background: var(--border-control);
+}
+
+.card-gravacao-notas {
+  min-height: 8rem;
+  padding: var(--space-3);
+  color: var(--text);
+  font: var(--text-ui);
+  background: var(--surface);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius);
+  resize: vertical;
+}
+
+.card-gravacao-notas:focus-visible {
+  border-color: var(--signal-ink);
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onda i {
+    transition: none;
+  }
 }
 
 /* --- Estreito ------------------------------------------------------------- */

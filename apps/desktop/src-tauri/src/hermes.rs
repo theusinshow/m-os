@@ -758,7 +758,7 @@ mod gate_d {
 
         let prompt = format!(
             "{}\n\n---\n\n{}",
-            mos_core::instructions("NexoDoc — Comercial"),
+            mos_core::instructions("NexoDoc — Comercial", ""),
             windows[0].text
         );
         println!("prompt: {} caracteres", prompt.len());

@@ -1410,6 +1410,16 @@ impl MeetingService {
         self.transition(id, crate::MeetingTransition::Stop)
     }
 
+    /// O usuario clicou em Pausar. Os dois canais param de escrever juntos, e o
+    /// tempo pausado nao vira frame — logo nao vira duracao.
+    pub fn pause(&self, id: &str) -> Result<crate::Meeting, CoreError> {
+        self.transition(id, crate::MeetingTransition::Pause)
+    }
+
+    pub fn resume(&self, id: &str) -> Result<crate::Meeting, CoreError> {
+        self.transition(id, crate::MeetingTransition::Resume)
+    }
+
     /// A captura fechou os arquivos e mediu o que gravou.
     pub fn settle_audio(
         &self,
@@ -1589,6 +1599,12 @@ impl MeetingService {
     pub fn set_title(&self, id: &str, title: &str) -> Result<crate::Meeting, CoreError> {
         self.repository
             .set_meeting_title(crate::MeetingId::parse(id)?, title)
+    }
+
+    /// As anotacoes. Vazio e valido: apagar tudo e uma escolha.
+    pub fn set_notes(&self, id: &str, notes: &str) -> Result<crate::Meeting, CoreError> {
+        self.repository
+            .set_meeting_notes(crate::MeetingId::parse(id)?, notes)
     }
 
     pub fn set_lifecycle(

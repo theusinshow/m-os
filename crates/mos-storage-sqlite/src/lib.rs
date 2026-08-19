@@ -24,7 +24,7 @@ use serde::Serialize;
 
 pub use cronocad_import::ImportReport;
 
-const SCHEMA_VERSION: u32 = 22;
+const SCHEMA_VERSION: u32 = 23;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -51,7 +51,8 @@ const MIGRATION_019: &str = include_str!("../migrations/0019_ocultos_sem_workspa
 // migration de conserto em vez de uma renumeracao.
 const MIGRATION_020: &str = include_str!("../migrations/0020_meetings.sql");
 const MIGRATION_021: &str = include_str!("../migrations/0021_radial_pins.sql");
-const MIGRATION_022: &str = include_str!("../migrations/0022_universal_drop.sql");
+const MIGRATION_022: &str = include_str!("../migrations/0022_meeting_notes.sql");
+const MIGRATION_023: &str = include_str!("../migrations/0023_universal_drop.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -292,6 +293,11 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
             .execute_batch(MIGRATION_022)
             .map_err(map_sql_error)?;
     }
+    if current <= 22 {
+        connection
+            .execute_batch(MIGRATION_023)
+            .map_err(map_sql_error)?;
+    }
     if current < SCHEMA_VERSION {
         verify_foreign_keys(connection)?;
     }
@@ -300,7 +306,7 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
 
 /// Confere que nenhuma migration deixou orfao para tras.
 ///
-/// Existe desde a 0022, que precisa desligar `foreign_keys` para recriar duas
+/// Existe desde a 0023, que precisa desligar `foreign_keys` para recriar duas
 /// tabelas que tem filhas. Desligar a checagem e o procedimento documentado do
 /// SQLite; nao conferir depois seria confiar que o procedimento foi seguido
 /// certo — e um orfao silencioso e exatamente o tipo de dano que so aparece
@@ -861,9 +867,9 @@ mod tests {
         );
     }
 
-    /// Sobe um v21 POVOADO ate a v22 — o teste mais perigoso desta feature.
+    /// Sobe um v22 POVOADO ate a v23 — o teste mais perigoso desta feature.
     ///
-    /// A 0022 recria `captures` e `resources`, e as duas TEM FILHAS: uma Task e
+    /// A 0023 recria `captures` e `resources`, e as duas TEM FILHAS: uma Task e
     /// um Resource derivados apontam para a Capture, e um vinculo de Workspace
     /// aponta para o Resource. Com `foreign_keys` ligado, o DROP da tabela
     /// antiga dispararia RESTRICT (na Task) e CASCADE (no vinculo) — o primeiro
@@ -872,7 +878,7 @@ mod tests {
     ///
     /// O teste prende as duas pontas: nada se perde, e nada fica orfao.
     #[test]
-    fn upgrades_populated_v21_without_breaking_provenance() {
+    fn upgrades_populated_v22_without_breaking_provenance() {
         use mos_core::{
             CaptureSource, IngestionRepository, LifecycleState, NewCapture, NewIngestion,
             NewProject, ResourceKind, WorkRepository,
@@ -906,13 +912,14 @@ mod tests {
             MIGRATION_019,
             MIGRATION_020,
             MIGRATION_021,
+            MIGRATION_022,
         ] {
             connection.execute_batch(migration).unwrap();
         }
         let version: u32 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 21, "o banco de partida precisa estar na v21");
+        assert_eq!(version, 22, "o banco de partida precisa estar na v22");
 
         connection
             .execute_batch(

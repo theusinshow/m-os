@@ -1973,10 +1973,10 @@ consequência:
 
 **1. `captures.source_kind` aceita `'drop'`.** Registrar um arquivo arrastado como
 se tivesse sido digitado na Home apagaria exatamente o fato que a ADR-004 existe
-para guardar. A migration 0022 recria a tabela — e, diferente da 0007, `captures`
+para guardar. A migration 0023 recria a tabela — e, diferente da 0007, `captures`
 **tem filhas**: `tasks` e `resources` apontam para ela. O procedimento é o
 documentado pelo SQLite (`foreign_keys=OFF` + `legacy_alter_table=ON` em volta da
-transação), e o `migrate()` roda `foreign_key_check` depois. Um teste sobe um v21
+transação), e o `migrate()` roda `foreign_key_check` depois. Um teste sobe um v22
 povoado com Task derivada, Resource derivado e vínculo de Workspace, e prende as
 duas pontas: nada se perde, nada fica órfão.
 

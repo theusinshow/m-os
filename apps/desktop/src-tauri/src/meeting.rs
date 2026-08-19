@@ -50,6 +50,13 @@ pub struct MeetingTick {
     pub system: ChannelState,
     pub mic_level: u64,
     pub system_level: u64,
+    /// Lido do atomico da sessao, e nao do banco.
+    ///
+    /// A barra precisa parar de pulsar no MESMO instante em que o audio para, e
+    /// o banco so sabe depois que a transicao gravou. Um ponto pulsando com o
+    /// microfone fechado e a mentira que a §17.2 proibe, e meio segundo dela ja
+    /// e meio segundo.
+    pub paused: bool,
 }
 
 fn audio_error(error: AudioError) -> CoreError {
@@ -190,6 +197,68 @@ pub fn meeting_stop(
     settled
 }
 
+/// Suspende a gravacao em curso.
+///
+/// A ORDEM importa, e ela e diferente nos dois sentidos.
+///
+/// PAUSAR: o audio para PRIMEIRO, o estado muda depois. Se fosse ao contrario, o
+/// intervalo entre as duas linhas gravaria frames numa reuniao que a tela ja
+/// mostra como pausada.
+///
+/// RETOMAR: o estado muda primeiro, o audio volta depois — pelo mesmo motivo
+/// invertido. Frame gravado antes de a tela dizer "gravando" e a mesma mentira,
+/// so que pior, porque ninguem esta olhando.
+#[tauri::command]
+pub fn meeting_pause(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    recorder: tauri::State<'_, RecordingState>,
+) -> Result<Meeting, CoreError> {
+    let active = recorder.active.lock().map_err(lock_error)?;
+    let atual = active.as_ref().ok_or_else(sem_gravacao)?;
+    atual.recording.set_paused(true);
+    let id = atual.meeting_id.clone();
+    let frame = tick(atual);
+    drop(active);
+
+    let pausada = state.meetings.pause(&id)?;
+    // Tick imediato: sem ele a barra levaria ate um segundo para dizer PAUSADO,
+    // e um segundo de ponto vermelho pulsando depois do clique e exatamente a
+    // mentira que a §17.2 proibe.
+    let _ = app.emit("meeting-tick", &frame);
+    Ok(pausada)
+}
+
+#[tauri::command]
+pub fn meeting_resume(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    recorder: tauri::State<'_, RecordingState>,
+) -> Result<Meeting, CoreError> {
+    let id = {
+        let active = recorder.active.lock().map_err(lock_error)?;
+        active.as_ref().ok_or_else(sem_gravacao)?.meeting_id.clone()
+    };
+    let retomada = state.meetings.resume(&id)?;
+
+    let active = recorder.active.lock().map_err(lock_error)?;
+    let atual = active.as_ref().ok_or_else(sem_gravacao)?;
+    atual.recording.set_paused(false);
+    let frame = tick(atual);
+    drop(active);
+
+    let _ = app.emit("meeting-tick", &frame);
+    Ok(retomada)
+}
+
+fn sem_gravacao() -> CoreError {
+    CoreError::new(
+        ErrorCode::InvalidTransition,
+        "Nao ha gravacao em curso.",
+        false,
+    )
+}
+
 /// O estado da gravacao para a interface. Barato: le atomicos.
 #[tauri::command]
 pub fn meeting_recording(
@@ -208,6 +277,7 @@ fn tick(active: &Active) -> MeetingTick {
         system: state.system,
         mic_level: state.mic_level,
         system_level: state.system_level,
+        paused: active.recording.is_paused(),
     }
 }
 
@@ -264,6 +334,18 @@ pub fn meeting_set_title(
     title: &str,
 ) -> Result<Meeting, CoreError> {
     state.meetings.set_title(id, title)
+}
+
+/// Grava as anotacoes. Chamado com debounce pela tela — nao ha botao de salvar,
+/// porque um botao de salvar numa nota de reuniao e uma chance de perder o que
+/// se escreveu.
+#[tauri::command]
+pub fn meeting_set_notes(
+    state: tauri::State<'_, AppState>,
+    id: &str,
+    notes: &str,
+) -> Result<Meeting, CoreError> {
+    state.meetings.set_notes(id, notes)
 }
 
 #[tauri::command]
@@ -345,6 +427,49 @@ pub fn clean_expired_audio(app: &AppHandle) -> Result<usize, CoreError> {
         }
     }
     Ok(cleaned)
+}
+
+/// O nivel, quinze vezes por segundo.
+///
+/// Laco SEPARADO do `run` porque as duas coisas mudam em ritmos diferentes:
+/// estado, duracao e saude dos canais mudam uma vez por segundo, e mandar o
+/// `MeetingTick` inteiro a 15 Hz seria repetir quinze vezes por segundo um
+/// objeto que mudou zero.
+///
+/// Aqui vao DOIS numeros, e nada mais. Nunca PCM: o RMS ja sai reduzido a
+/// `0..1000` dentro da thread de captura, e e so isso que atravessa.
+pub async fn run_levels(app: AppHandle) {
+    loop {
+        // 66 ms: quinze quadros por segundo. Acima disso a onda deixa de mostrar
+        // a cadencia da fala; abaixo, o custo cresce sem o olho ganhar nada.
+        tokio::time::sleep(Duration::from_millis(66)).await;
+
+        let recorder = app.state::<RecordingState>();
+        let Ok(active) = recorder.active.lock() else {
+            continue;
+        };
+        let Some(current) = active.as_ref() else {
+            continue;
+        };
+        let state = current.recording.state();
+        drop(active);
+
+        let _ = app.emit(
+            "meeting-level",
+            MeetingLevel {
+                mic: state.mic_level,
+                system: state.system_level,
+            },
+        );
+    }
+}
+
+/// O nivel cru, a 15 Hz. Dois numeros e nada mais.
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeetingLevel {
+    pub mic: u64,
+    pub system: u64,
 }
 
 /// O laco que alimenta a interface enquanto grava.
@@ -880,7 +1005,9 @@ async fn analyze(app: &AppHandle, id: &str) -> Result<Meeting, String> {
     }
 
     let windows = mos_core::build_windows(&segments, mos_core::WINDOW_BUDGET_CHARS);
-    let instructions = mos_core::instructions(&meeting.title);
+    // As notas sobem JUNTO, como contexto. Elas nao geram item: o prompt
+    // exige `segment` por item, e uma nota nao foi dita, foi escrita.
+    let instructions = mos_core::instructions(&meeting.title, &meeting.notes);
 
     // O REGISTRO do que sai, emitido antes do envio e guardado na reuniao. Ele
     // mede, e nao copia: contagem de segmentos, caracteres, janelas e o

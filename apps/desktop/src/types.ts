@@ -669,7 +669,7 @@ export type RadialPinInput = {
 
 /** A ordem em que o pipeline anda. `failed` carrega o estágio em `failure`. */
 export type MeetingStatus =
-  | "recording" | "stopping" | "interrupted" | "recorded"
+  | "recording" | "paused" | "stopping" | "interrupted" | "recorded"
   | "transcribing" | "transcribed" | "analyzing" | "ready"
   | "failed" | "cancelled";
 
@@ -709,6 +709,12 @@ export type Meeting = {
   createdAt: string;
   updatedAt: string;
   cancelledAt: string | null;
+  /** O que quem gravou escreveu durante a reunião.
+   *
+   *  Vazio significa "ninguém escreveu", e não "falta dado". Sobe ao Hermes como
+   *  contexto e não gera item: o prompt exige `segment` por item, e uma nota não
+   *  foi dita, foi escrita. */
+  notes: string;
 };
 
 /** MIC é quem gravou; SYSTEM são os outros. É a distinção que a V1 protege. */
@@ -779,6 +785,16 @@ export type InsightPreview = {
   blockedReason: string;
 };
 
+/** O nível cru, a 15 Hz — um a cada 66 ms. Dois números e nada mais.
+ *
+ *  Evento separado do `MeetingTick` porque as duas coisas mudam em ritmos
+ *  diferentes: mandar o tick inteiro quinze vezes por segundo seria repetir um
+ *  objeto que mudou zero. */
+export type MeetingLevel = {
+  mic: number;
+  system: number;
+};
+
 /** O que chega uma vez por segundo enquanto grava. Nunca PCM. */
 export type MeetingTick = {
   meetingId: string;
@@ -788,6 +804,9 @@ export type MeetingTick = {
   /** RMS em milésimos, já reduzido no Rust. */
   micLevel: number;
   systemLevel: number;
+  /** Vem do átomo da sessão, e não do banco: a barra precisa parar de pulsar no
+   *  MESMO instante em que o áudio para. */
+  paused: boolean;
 };
 
 export type TranscriberStatus = {

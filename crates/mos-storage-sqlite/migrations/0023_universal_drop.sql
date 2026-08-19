@@ -240,7 +240,7 @@ CREATE TABLE resource_projects (
 CREATE INDEX resource_projects_project_order
     ON resource_projects(project_id, created_at DESC);
 
-PRAGMA user_version = 22;
+PRAGMA user_version = 23;
 
 COMMIT;
 

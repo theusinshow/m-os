@@ -161,7 +161,7 @@ Informação preservada por seu valor de consulta futura.
 Link, imagem, arquivo, site, biblioteca e referência são formas de Resource, não entidades concorrentes por padrão.
 
 Tipos implementados: `site`, `library`, `image`, `note` (migration 0007) e `file`
-(migration 0022).
+(migration 0023).
 
 `file` é um arquivo preservado dentro do M/OS. Ele não tem `url`: o caminho do
 original mora na linha de ingestão que o criou, endereçado pelo hash do conteúdo.
@@ -314,7 +314,7 @@ Datas técnicas devem ser armazenadas em UTC. A interpretação de datas naturai
 | Project | Workspace | muitos para muitos | Não |
 | App | Workspace | muitos para muitos | Não |
 | Project | App | muitos para muitos | Não |
-| Project | Resource | muitos para muitos | Sim, desde a 0022 (`resource_projects`) |
+| Project | Resource | muitos para muitos | Sim, desde a 0023 (`resource_projects`) |
 | Task | Resource | muitos para muitos | Não — o contexto do drop grava o `task_id` para quando existir |
 | Entity | Reminder | um para muitos | Não |
 | Project | Repository | inicialmente zero ou um | Não |

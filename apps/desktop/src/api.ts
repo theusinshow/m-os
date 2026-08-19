@@ -40,6 +40,15 @@ export const api = {
   meetingStop() {
     return invoke<Meeting>("meeting_stop");
   },
+  // Pausar para o áudio ANTES de mudar o estado; retomar faz o inverso. Nos dois
+  // casos o intervalo entre as duas coisas não pode gravar frame numa reunião
+  // que a tela já mostra parada, nem o contrário.
+  meetingPause() {
+    return invoke<Meeting>("meeting_pause");
+  },
+  meetingResume() {
+    return invoke<Meeting>("meeting_resume");
+  },
   /** `null` quando nao ha gravacao em curso. */
   meetingRecording() {
     return invoke<MeetingTick | null>("meeting_recording");
@@ -67,6 +76,11 @@ export const api = {
   },
   meetingSetTitle(id: string, title: string) {
     return invoke<Meeting>("meeting_set_title", { id, title });
+  },
+  // Autosave: a tela chama com debounce. Sem botão de salvar, porque um botão de
+  // salvar numa nota de reunião é uma chance de perder o que se escreveu.
+  meetingSetNotes(id: string, notes: string) {
+    return invoke<Meeting>("meeting_set_notes", { id, notes });
   },
   meetingSetArchived(id: string, archived: boolean) {
     return invoke<Meeting>("meeting_set_archived", { id, archived });

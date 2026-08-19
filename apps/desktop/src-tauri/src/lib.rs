@@ -1630,6 +1630,7 @@ pub fn run() {
             tauri::async_runtime::spawn(monitor::run(handle));
             tauri::async_runtime::spawn(attention::run(app.handle().clone()));
             tauri::async_runtime::spawn(meeting::run(app.handle().clone()));
+            tauri::async_runtime::spawn(meeting::run_levels(app.handle().clone()));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1654,6 +1655,8 @@ pub fn run() {
             hermes::hermes_clarify_cancel,
             meeting::meeting_start,
             meeting::meeting_stop,
+            meeting::meeting_pause,
+            meeting::meeting_resume,
             meeting::meeting_recording,
             meeting::meeting_list,
             meeting::meeting_get,
@@ -1662,6 +1665,7 @@ pub fn run() {
             meeting::meeting_insights,
             meeting::meeting_set_project,
             meeting::meeting_set_title,
+            meeting::meeting_set_notes,
             meeting::meeting_set_archived,
             meeting::meeting_process_recovered,
             meeting::meeting_discard,

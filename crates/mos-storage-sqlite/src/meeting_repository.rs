@@ -29,7 +29,7 @@ use crate::{
 const MEETING_COLUMNS: &str = "id, title, status, failed_stage, failure_message, \
      lifecycle_state, source, started_at, ended_at, duration_ms, project_id, audio_dir, \
      retention, audio_deleted_at, mic_state, mic_lost_at_ms, mic_reason, system_state, \
-     system_lost_at_ms, system_reason, created_at, updated_at, cancelled_at";
+     system_lost_at_ms, system_reason, created_at, updated_at, cancelled_at, notes";
 
 const INSIGHT_COLUMNS: &str = "id, meeting_id, kind, seq, text, owner, due_hint, confidence, \
      status, created_task_id, created_reminder_id";
@@ -66,6 +66,7 @@ fn read_meeting(row: &Row<'_>) -> rusqlite::Result<Result<Meeting, CoreError>> {
     let created_at: String = row.get(20)?;
     let updated_at: String = row.get(21)?;
     let cancelled_at: Option<String> = row.get(22)?;
+    let notes: String = row.get(23)?;
 
     Ok((|| {
         let status = MeetingStatus::from_columns(&status, failed_stage.as_deref())?;
@@ -94,6 +95,7 @@ fn read_meeting(row: &Row<'_>) -> rusqlite::Result<Result<Meeting, CoreError>> {
             created_at: parse_time(&created_at)?,
             updated_at: parse_time(&updated_at)?,
             cancelled_at: cancelled_at.as_deref().map(parse_time).transpose()?,
+            notes,
         })
     })())
 }
@@ -377,6 +379,29 @@ impl MeetingRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
         index_meeting(&connection, id)?;
+        self.meeting_by_id(&connection, id)
+    }
+
+    /// Grava as anotacoes.
+    ///
+    /// Sem `trim` e sem recusar vazio, ao contrario do titulo: apagar tudo o que
+    /// se escreveu e uma escolha legitima, e espaco no fim de uma nota que ainda
+    /// esta sendo digitada nao e erro — o autosave dispara no meio da frase.
+    ///
+    /// NAO indexa para busca. A nota e contexto de analise, e promove-la a
+    /// resultado de busca faria a Inbox competir com ela pelo mesmo papel.
+    fn set_meeting_notes(&self, id: MeetingId, notes: &str) -> Result<Meeting, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        connection
+            .execute(
+                "UPDATE meetings SET notes = ?2, updated_at = ?3 WHERE id = ?1",
+                params![
+                    id.to_string(),
+                    notes,
+                    format_time(OffsetDateTime::now_utc())?
+                ],
+            )
+            .map_err(map_sql_error)?;
         self.meeting_by_id(&connection, id)
     }
 
@@ -891,7 +916,11 @@ impl MeetingRepository for SqliteStorage {
         let rows = statement
             .query_map(params![query, request.limit as i64], |row| {
                 let meeting = read_meeting(row)?;
-                let text: String = row.get(23)?;
+                // O texto do segmento vem DEPOIS das colunas da reuniao, entao o
+                // indice e contado e nao escrito. Ele ja estava errado uma vez:
+                // a coluna `notes` da 0022 empurrou tudo em um, e um `23` fixo
+                // passou a ler `notes` como se fosse o trecho da transcricao.
+                let text: String = row.get(MEETING_COLUMNS.split(", ").count())?;
                 Ok((meeting, text))
             })
             .map_err(map_sql_error)?;
@@ -1123,6 +1152,27 @@ mod tests {
                 started(),
             ))
             .unwrap()
+    }
+
+    #[test]
+    fn notas_gravam_leem_e_nascem_vazias() {
+        let (_dir, storage) = storage();
+        let reuniao = start_meeting(&storage, "NexoDoc");
+        // Nasce vazia, e nao nula: ninguem escreveu ainda, e isso e um fato
+        // completo.
+        assert_eq!(reuniao.notes, "");
+
+        let salva = storage
+            .set_meeting_notes(reuniao.id, "orcamento ate sexta")
+            .unwrap();
+        assert_eq!(salva.notes, "orcamento ate sexta");
+
+        let relida = storage.meeting(reuniao.id).unwrap();
+        assert_eq!(relida.notes, "orcamento ate sexta");
+
+        // Apagar tudo volta ao vazio, e nao vira NULL nem erro.
+        let limpa = storage.set_meeting_notes(reuniao.id, "").unwrap();
+        assert_eq!(limpa.notes, "");
     }
 
     fn transcribe(storage: &SqliteStorage, meeting: &Meeting) -> Vec<TranscriptSegment> {

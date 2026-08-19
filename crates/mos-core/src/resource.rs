@@ -35,7 +35,7 @@ impl std::fmt::Display for ResourceId {
 /// Tipo do Resource.
 ///
 /// A Library filtra por estes cinco. A validacao de URL varia por tipo, e o
-/// banco espelha exatamente estas regras numa CHECK (migrations 0007 e 0022).
+/// banco espelha exatamente estas regras numa CHECK (migrations 0007 e 0023).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceKind {
