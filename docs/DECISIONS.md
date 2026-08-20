@@ -63,6 +63,7 @@ Estados possíveis:
 | ADR-045 | O rail volta a oito, e o recém-chegado nasce no leque | Accepted |
 | ADR-046 | Todo drop vira Capture primeiro, e a entidade vem depois | Accepted |
 | ADR-047 | A detecção de reunião observa o microfone, e nunca o conteúdo | Accepted |
+| ADR-050 | A página de Tempo passa a se chamar CronoCAD, e leva a marca junto | Accepted |
 | ADR-048 | Argos ganha corpo, e o orçamento de movimento abre uma exceção nomeada | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
@@ -2296,3 +2297,64 @@ desenho da referência.
   nova exige um sinal que já exista;
 - o dia em que a bateria incomodar, o primeiro corte é a taxa de quadros em
   `desperto`, que ocupa 90% do tempo — e não desligar o resto.
+
+## ADR-050 — A página de Tempo passa a se chamar CronoCAD, e leva a marca junto
+
+**Data:** 2026-08-20
+**Status:** aceito, por decisão do proprietário do produto
+**Revisa:** ADR-036, no nome do destino. O argumento dela para a página existir
+— "o usuário fatura por hora, então tempo rastreado é o registro de onde sai a
+renda dele" — continua valendo integralmente.
+
+### Contexto
+
+A ADR-032 decidiu que o CronoCAD viraria superfície nativa do M/OS, e ele virou:
+a página de Tempo tem as mesmas seis telas, com os mesmos nomes, e o
+`TempoPage.tsx` diz por quê — *"trocar 'Painel' por 'Visão geral' obrigaria quem
+usou o app por meses a reaprender onde as coisas estão"*.
+
+O mesmo argumento nunca foi aplicado ao **nome do destino no rail**. Ele ficou
+"Tempo", que é como o M/OS chama a matéria, e não como o dono chama a
+ferramenta. Quem usou o CronoCAD por meses procura "CronoCAD".
+
+### Decisão
+
+**O destino passa a se chamar CronoCAD, e ganha a marca dele no rail.**
+
+`Tempo` descrevia a matéria; `CronoCAD` nomeia a ferramenta que a pessoa
+procura. É a mesma doutrina que já tinha preservado os nomes das seis telas,
+aplicada um nível acima.
+
+**O identificador da página segue `"tempo"`.** Ele não aparece em tela nenhuma, e
+renomeá-lo tocaria roteamento, leque, Command e widget da Home para trocar uma
+string que ninguém lê. Nome de código não é nome de produto.
+
+### O ícone é a única exceção a "preenchido = currentColor"
+
+A marca do CronoCAD é um C dentro de um quadrado colorido, e a cor faz parte do
+que o dono reconhece. Duas consequências:
+
+**1. Sai em sódio, e não no vermelho de origem.** Quem manda na cor é este
+design system. Vermelho aqui seria o segundo sinal que a ADR-034 não autoriza.
+
+**2. Só no estado ATIVO.** Sódio fixo faria o destino parecer permanentemente
+selecionado, e o rail perderia o sinal de onde a pessoa está — que é o único
+trabalho que a cor tem no resto daquela fila. Inativo, ele é traço como os
+outros sete.
+
+**O C é buraco, e não recorte.** No estado cheio ele leva a cor do fundo, como o
+olho do Argos — um setor de anel, caminho simples e fechado. É o que a regra de
+construção do `Icon.tsx` manda usar no lugar de furo com `fill-rule`, que é onde
+ícone desenhado sem poder olhar para a tela costuma quebrar.
+
+### Consequências
+
+- o rail ganha o primeiro destino com cor própria; qualquer segundo exige ADR,
+  ou a fila vira uma paleta e o sódio para de significar "você está aqui";
+- a trilha de contexto e a topbar passam a dizer CRONOCAD;
+- o leque e o seletor de pétala acompanham, senão o mesmo destino teria dois
+  nomes dependendo de onde é aberto;
+- o CronoCAD avulso continua existindo em `apps/cronocad`. Enquanto os dois
+  existirem com o mesmo nome, o dono tem duas portas para a mesma atividade e
+  dois bancos que já divergiram — isto está registrado aqui porque é dívida, e
+  não desenho.

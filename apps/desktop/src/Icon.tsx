@@ -28,6 +28,7 @@ export type IconName =
   | "library"
   | "board"
   | "tempo"
+  | "cronocad"
   | "meetings"
   | "calendar"
   | "finance"
@@ -60,6 +61,12 @@ const OUTLINE_20: Record<IconName, ReactNode> = {
   // separa "microfone" de "pilula" a 20px — sem ele a silhueta some.
   meetings: <><rect x="8.5" y="2.5" width="3" height="8" rx="1.5" /><path d="M5.5 9.5a4.5 4.5 0 0 0 9 0M10 14v3.5M7.5 17.5h5" /></>,
   tempo: <><circle cx="10" cy="11.5" r="5.5" /><path d="M8 3.5h4M10 4v2M10 11.5V8M10 11.5h2.5" /></>,
+  // O CronoCAD: quadrado de cantos macios com o C dentro (ADR-050).
+  //
+  // O C e um ARCO ABERTO, e nao uma letra tipografica: a 20px com traco de
+  // 1.25 as junturas de um "C" de fonte viram borrao, e o que sobrevive da
+  // marca e a silhueta — quadrado fechado, anel aberto a direita.
+  cronocad: <><rect x="3.5" y="3.5" width="13" height="13" rx="2" /><path d="M11.95 7.21A3.4 3.4 0 1 0 11.95 12.79" /></>,
   // Folha com a regua do cabecalho e as duas argolas. A regua e o que separa
   // "calendario" de "janela" a 20px.
   calendar: <><rect x="3.5" y="5.5" width="13" height="11" /><path d="M3.5 9.5h13M7 3.5v3M13 3.5v3" /></>,
@@ -109,6 +116,11 @@ const SOLID_20: Partial<Record<IconName, ReactNode>> = {
   // recorte. Corpo, coroa e haste bastam para reconhecer o cronometro.
   meetings: <><rect x="8.2" y="2.2" width="3.6" height="8.8" rx="1.8" /><rect x="9.1" y="13.4" width="1.8" height="4.2" /><rect x="6.9" y="17.6" width="6.2" height="1.6" /><path d="M4.9 8.2h1.9v1.1a3.2 3.2 0 0 0 6.4 0V8.2h1.9v1.1a5.1 5.1 0 0 1-10.2 0z" /></>,
   tempo: <><circle cx="10" cy="11.6" r="5.9" /><rect x="7.8" y="3.2" width="4.4" height="1.9" /><rect x="9.1" y="4.8" width="1.8" height="1.4" /></>,
+  // Ativo: o quadrado enche, e o C vira BURACO — leva a cor do fundo do rail,
+  // como o olho do Argos. Nao e recorte com `fill-rule`: o C e um setor de
+  // anel, caminho simples e fechado, que e o que a regra de construcao acima
+  // manda usar no lugar de furo.
+  cronocad: <><rect x="3" y="3" width="14" height="14" rx="2.5" /><path fill="var(--canvas)" d="M12.7 6.78A4.2 4.2 0 1 0 12.7 13.22L11.41 11.69A2.2 2.2 0 1 1 11.41 8.31Z" /></>,
   calendar: <><rect x="3.2" y="5.2" width="13.6" height="11.6" /><rect x="6.4" y="2.9" width="1.6" height="3.4" /><rect x="12" y="2.9" width="1.6" height="3.4" /></>,
   // Sem o circulo vazado: a silhueta nao recorta, e um furo no meio exigiria
   // caminho composto. O retangulo da nota basta para reconhecer o item ao
@@ -136,6 +148,7 @@ export function Icon({ name, filled = false }: { name: IconName; filled?: boolea
   return (
     <svg
       className="mos-icon"
+      data-icon={name}
       data-filled={solid ? true : undefined}
       width="20"
       height="20"

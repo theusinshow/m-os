@@ -11,7 +11,7 @@ const PAGINAS: { target: string; nome: string }[] = [
   { target: "calendario", nome: "Calendário" },
   { target: "finance", nome: "Finance" },
   { target: "reunioes", nome: "Reuniões" },
-  { target: "tempo", nome: "Tempo" },
+  { target: "tempo", nome: "CronoCAD" },
   { target: "apps", nome: "Apps" },
   { target: "library", nome: "Library" },
 ];

@@ -187,7 +187,7 @@ export function TempoPage({ projects, openProject, receipt }: {
 
   return (
     <div className="page tempo-page">
-      <ContextPath segments={["M", "TEMPO", label.toUpperCase()]} />
+      <ContextPath segments={["M", "CRONOCAD", label.toUpperCase()]} />
 
       {/* `nav` com `aria-current`, e não o padrão de abas do ARIA. Abas de
           verdade exigem `tabpanel`, `aria-controls` e navegação por setas; um

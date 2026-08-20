@@ -52,6 +52,20 @@ button {
   stroke: none;
 }
 
+/* A marca do CronoCAD e a UNICA excecao a "preenchido = currentColor".
+
+   Ela e logotipo, e nao pictograma: o dono usou o produto por meses com o C
+   dentro de um quadrado colorido, e a cor faz parte do que ele procura no rail.
+   Sai em sodio, e nao no vermelho de origem, porque quem manda na cor aqui e
+   este design system.
+
+   So no estado ATIVO. Sodio fixo faria o destino parecer permanentemente
+   selecionado, e o rail perderia o sinal de onde a pessoa esta — que e o unico
+   trabalho que a cor tem no resto desta fila. */
+.mos-icon[data-filled][data-icon="cronocad"] {
+  fill: var(--signal-ink);
+}
+
 /* 13px e nao 14: o rotulo de botao e menor que o texto de interface, para o
    controle nao competir com o conteudo que ele atende. */
 .button {

@@ -143,7 +143,7 @@ function rotuloDaPetala(petala: Petala, apps: RegisteredApp[]) {
     calendario: "Calendário",
     finance: "Finance",
     reunioes: "Reuniões",
-    tempo: "Tempo",
+    tempo: "CronoCAD",
     apps: "Apps",
     library: "Library",
   };

@@ -3202,10 +3202,18 @@ function DesktopApp() {
      widget ACOES da Home —, que e a divida que a ADR-038 registrou ao tirar
      Apps daqui. */
   const nav: { page: Page; label: string; icon: IconName; count?: number }[] = [{ page: "home", label: "Home", icon: "home" }, { page: "hermes", label: "Hermes", icon: "hermes" }, { page: "tasks", label: "Tasks", icon: "board" }, { page: "projects", label: "Projects", icon: "projects" },
-  /* Tempo entrou pela ADR-036, e o argumento nao era frequencia: o usuario
-     fatura por hora, entao tempo rastreado e o registro de onde sai a renda
-     dele. Fica ao lado de Projects porque a hora sempre pertence a um. */
-  { page: "tempo", label: "Tempo", icon: "tempo" },
+  /* Entrou pela ADR-036, e o argumento nao era frequencia: o usuario fatura por
+     hora, entao tempo rastreado e o registro de onde sai a renda dele. Fica ao
+     lado de Projects porque a hora sempre pertence a um.
+
+     Chamava-se "Tempo". Passou a chamar-se "CronoCAD" pela ADR-050: o produto
+     que ele absorveu ja tinha nome, e o dono usou esse nome por meses. "Tempo"
+     descrevia a materia; "CronoCAD" nomeia a ferramenta que a pessoa procura.
+
+     O identificador da pagina segue `"tempo"` de proposito. Ele nao aparece em
+     tela nenhuma, e renomea-lo tocaria roteamento, leque, Command e widget da
+     Home para trocar uma string que ninguem le. */
+  { page: "tempo", label: "CronoCAD", icon: "cronocad" },
   /* Workspaces e a lente sobre tudo (ADR-038). Ele ja foi rebaixado uma vez e
      ficou "invisivel para quem nao conhece o Command, ate ser promovido de
      volta" — a ADR-031 registra isso, e e por isso que ele NAO foi para o
@@ -3228,7 +3236,7 @@ function DesktopApp() {
     { label: "TRABALHO", items: nav.slice(2, 6) },
     { label: "MEMÓRIA", items: nav.slice(6) },
   ];
-  const pageLabels: Record<Page, string> = { home: "Home", hermes: "Hermes", inbox: "Inbox", tasks: "Tasks", projects: "Projects", tempo: "Tempo", calendario: "Calendário", finance: "Finance", reunioes: "Reuniões", library: "Library", apps: "Apps", workspaces: "Workspaces", settings: "Settings" };
+  const pageLabels: Record<Page, string> = { home: "Home", hermes: "Hermes", inbox: "Inbox", tasks: "Tasks", projects: "Projects", tempo: "CronoCAD", calendario: "Calendário", finance: "Finance", reunioes: "Reuniões", library: "Library", apps: "Apps", workspaces: "Workspaces", settings: "Settings" };
   const pageMeta = useMemo(() => {
     if (page !== "home") return pageLabels[page].toUpperCase();
     return new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date()).toUpperCase().replace(",", " ·");
