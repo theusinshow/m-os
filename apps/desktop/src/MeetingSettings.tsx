@@ -20,6 +20,7 @@ export function MeetingSettings() {
   const [binary, setBinary] = useState("");
   const [model, setModel] = useState("");
   const [threads, setThreads] = useState("0");
+  const [vadModel, setVadModel] = useState("");
   const [note, setNote] = useState("");
   const [saved, setSaved] = useState(false);
 
@@ -36,6 +37,7 @@ export function MeetingSettings() {
       setBinary(status.binary);
       setModel(status.model);
       setThreads(String(status.threads));
+      setVadModel(status.vadModel);
     } catch (error) {
       setNote(error instanceof Error ? error.message : String(error));
     }
@@ -47,7 +49,7 @@ export function MeetingSettings() {
     setNote("");
     setSaved(false);
     try {
-      const status = await api.meetingSetTranscriber(binary, model, Number(threads) || 0);
+      const status = await api.meetingSetTranscriber(binary, model, Number(threads) || 0, vadModel);
       setTranscriber(status);
       setSaved(true);
       window.setTimeout(() => setSaved(false), 4000);
@@ -97,6 +99,20 @@ export function MeetingSettings() {
         <p className="support-copy">
           O modelo precisa ser <b>multilíngue</b>: as reuniões são em português, e as
           variantes <code>.en</code> não servem.
+        </p>
+
+        <label className="meeting-field">
+          <span>Modelo de VAD (opcional)</span>
+          <input
+            value={vadModel}
+            onChange={(event) => setVadModel(event.target.value)}
+            placeholder="C:\Dev\whisper\ggml-silero-v5.1.2.bin"
+          />
+        </label>
+        <p className="support-copy">
+          O VAD faz o transcritor <b>não ver o silêncio</b>, que é onde nascem as
+          repetições em laço. Vazio, a transcrição funciona como antes — sem VAD, e
+          não com erro.
         </p>
 
         <label className="meeting-field">

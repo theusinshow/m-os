@@ -252,8 +252,8 @@ export const api = {
   meetingTranscriberStatus() {
     return invoke<TranscriberStatus>("meeting_transcriber_status");
   },
-  meetingSetTranscriber(binary: string, model: string, threads: number) {
-    return invoke<TranscriberStatus>("meeting_set_transcriber", { binary, model, threads });
+  meetingSetTranscriber(binary: string, model: string, threads: number, vadModel: string) {
+    return invoke<TranscriberStatus>("meeting_set_transcriber", { binary, model, threads, vadModel });
   },
   meetingAnalysisConsent() {
     return invoke<AnalysisConsent>("meeting_analysis_consent");

@@ -858,6 +858,8 @@ export type TranscriberStatus = {
   name: string;
   binary: string;
   model: string;
+  /** Caminho do modelo Silero. Vazio é resposta válida: significa VAD desligado. */
+  vadModel: string;
   threads: number;
 };
 
