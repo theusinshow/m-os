@@ -2124,7 +2124,15 @@ pub fn run() {
             ]);
             move |invoke| {
                 if invoke.message.webview_ref().try_state::<AppState>().is_none() {
-                    invoke.resolver.reject("O M/OS ainda esta abrindo.");
+                    // Erro ESTRUTURADO, e nao string crua. Sem o `retryable`, a
+                    // tela nao conseguia separar "cheguei cedo demais" — que
+                    // passa sozinho em menos de um segundo — de "o banco
+                    // quebrou", e tratava as duas como falha definitiva.
+                    invoke.resolver.reject(CoreError::new(
+                        mos_core::ErrorCode::StorageUnavailable,
+                        "O M/OS ainda esta abrindo.",
+                        true,
+                    ));
                     return true;
                 }
                 comandos(invoke)

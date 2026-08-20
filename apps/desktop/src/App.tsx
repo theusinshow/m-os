@@ -15,6 +15,7 @@ import { HermesPage } from "./HermesPage";
 import { AppIcon } from "./AppIcon";
 import { Argos, useArgosPose, useArgosPresenca } from "./Argos";
 import { ProcessingBar } from "./ProcessingBar";
+import { deveEsperarAbertura, esperaDaTentativa } from "./abertura";
 import { cantoPara } from "./argosCorner";
 import { Button } from "./Button";
 import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel, StateMessage } from "./Surface";
@@ -3052,7 +3053,21 @@ function DesktopApp() {
     setShowBootLoading(false);
     const loadingTimer = window.setTimeout(() => setShowBootLoading(true), 150);
     try {
-      await refresh();
+      /* O Tauri abre a janela ANTES de o `setup` terminar, e o primeiro
+         `refresh` chega enquanto o banco ainda esta abrindo. O backend recusa
+         isso — com razao —, e ate hoje a recusa virava a tela de "os dados nao
+         abriram com seguranca", que trava o app e ainda mente: os dados estao
+         intactos. Ver `abertura.ts`. */
+      for (let tentativa = 0; ; tentativa += 1) {
+        try {
+          await refresh();
+          break;
+        } catch (error) {
+          const problema = appError(error);
+          if (!deveEsperarAbertura(problema, tentativa)) throw error;
+          await new Promise((resolve) => window.setTimeout(resolve, esperaDaTentativa(tentativa)));
+        }
+      }
       setBootState("ready");
     } catch (error) {
       setBootMessage(appError(error).message);

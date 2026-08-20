@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { api } from "./api";
+import { api, appError } from "./api";
 import { BODY, type ArgosPose, type ArgosSignals, eyesFor, poseFor, rotuloPara, weightFor } from "./argosPose";
 import type { ArgosCanto } from "./argosCorner";
 import { criarCena, type ArgosScene } from "./argosScene";
 import { hermes, type HermesConnectionState } from "./hermes";
 import { type ArgosPresenca, corDaPresenca, presencaDe, rotuloDaPresenca } from "./argosPresenca";
+import { deveEsperarAbertura, esperaDaTentativa } from "./abertura";
 
 /**
  * Os sinais, vindos de onde eles já vivem.
@@ -69,7 +70,24 @@ export function useArgosPresenca(): ArgosPresenca {
 
   useEffect(() => {
     let vivo = true;
-    void hermes.status().then((status) => { if (vivo) setState(status.state); }).catch(() => undefined);
+
+    /* A primeira pergunta cai na MESMA corrida de abertura que o boot: o portao
+       recusa o comando enquanto o `setup` nao terminou. Engolir essa recusa
+       deixava a presenca presa em `null` — que se le como "conectando" — para
+       sempre, e o bicho ficava eternamente no meio-termo. Ver `abertura.ts`. */
+    void (async () => {
+      for (let tentativa = 0; vivo; tentativa += 1) {
+        try {
+          const status = await hermes.status();
+          if (vivo) setState(status.state);
+          return;
+        } catch (error) {
+          if (!deveEsperarAbertura(appError(error), tentativa)) return;
+          await new Promise((resolve) => window.setTimeout(resolve, esperaDaTentativa(tentativa)));
+        }
+      }
+    })();
+
     const subscription = hermes.onState((status) => setState(status.state));
     return () => { vivo = false; void subscription.then((dispose) => dispose()); };
   }, []);
