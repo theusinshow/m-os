@@ -1251,14 +1251,48 @@ textarea::placeholder {
   margin-top: var(--space-2);
 }
 
+/* A linha da sessao, DENTRO de um card de um terco da pagina.
+
+   Era `flex` sem quebra e sem largura minima, com quatro filhos: nome, selo,
+   duracao e duas acoes. Numa coluna de ~260px isso nao cabe, e o que sobrava
+   saia por baixo da borda do card — a lista continuava desenhada onde o card ja
+   tinha acabado.
+
+   `wrap` deixa as acoes cairem para a linha de baixo quando a coluna aperta, e
+   `flex: 1 1 11rem` no bloco do nome e o que permite ele encolher em vez de
+   empurrar o resto para fora. Sem o `min-width: 0` o encolhimento nao acontece:
+   o padrao de um item flex e nao ficar menor que o proprio conteudo. */
 .tempo-session {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-1) var(--space-3);
   min-height: var(--height-row);
   padding: var(--space-2) 0;
   border-bottom: var(--line) solid var(--border);
+}
+
+/* Base 6rem, e nao 11.
+
+   A conta e do card mais estreito da grade de tres, que da ~300px por dentro:
+   nome + duracao + acao + dois vaos. Com base 11rem a soma passava de 300 e a
+   acao caia para uma terceira linha, o que dobrava a altura da lista inteira
+   por causa de um botao. Com 6rem os tres cabem, e o `grow` devolve ao nome
+   toda a sobra quando a janela e larga. */
+.tempo-session > span:first-child {
+  flex: 1 1 6rem;
+  min-width: 0;
+}
+
+/* Nome e apoio truncam em vez de quebrar em tres linhas: a lista e para ler de
+   relance, e uma linha de altura variavel destroi a varredura vertical. */
+.tempo-session > span:first-child strong,
+.tempo-session > span:first-child small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tempo-session strong {
@@ -1276,17 +1310,20 @@ textarea::placeholder {
 /* As acoes so aparecem no hover ou com foco: uma lista de sessoes com dois
    botoes em cada linha vira uma parede de botoes, e o assunto da linha e a hora
    trabalhada. `:focus-within` mantem o teclado com o mesmo alcance do mouse. */
+/* SEMPRE visivel, nunca so no hover.
+
+   Era `opacity: 0` ate o ponteiro passar. O CronoCAD ja tinha aprendido essa
+   licao e escrito no proprio codigo: "acao escondida aqui foi exatamente o que
+   fez o usuario nao achar como corrigir uma sessao". A versao daqui regrediu
+   para o padrao que aquele comentario condena.
+
+   Alem do achado ser deles, hover nao existe em teclado nem em toque, e
+   `focus-within` so revela a acao DEPOIS de alguem tabular as cegas ate ela. */
 .tempo-session-actions {
   display: flex;
   flex: none;
+  margin-left: auto;
   gap: var(--space-1);
-  opacity: 0;
-  transition: opacity var(--dur-state) var(--ease-state);
-}
-
-.tempo-session:hover .tempo-session-actions,
-.tempo-session:focus-within .tempo-session-actions {
-  opacity: 1;
 }
 
 /* Na Linha do Tempo a acao E o conteudo da linha: cada periodo existe para ser
@@ -1384,6 +1421,12 @@ textarea::placeholder {
   gap: var(--space-3);
   align-items: start;
   margin-bottom: var(--space-3);
+}
+
+/* Item de grade nao encolhe abaixo do proprio conteudo sem isto, e o card volta
+   a ser empurrado por dentro. E o par obrigatorio do truncamento acima. */
+.tempo-cols > * {
+  min-width: 0;
 }
 
 .tempo-cols[data-cols="2"] {
@@ -1752,8 +1795,27 @@ textarea::placeholder {
 
 /* Tabela de duas colunas para coluna estreita: rotulo a esquerda, valor com a
    hora embaixo a direita. E a forma que cabe em 260px sem virar rolagem. */
+/* `table-layout: fixed` + largura declarada, e nao `max-width: 0`.
+
+   O truque do `max-width: 0` trunca TEXTO dentro da celula. Aqui o conteudo e
+   um `<button>` — caixa propria, que nao encolhe junto —, entao a celula ia a
+   zero e o nome do Project desaparecia inteiro, enquanto os numeros ao lado
+   continuavam aparecendo. O card ficava mostrando "R$ 480,00 / 16.1 h" sem
+   dizer de quem.
+
+   Com largura fixa a celula tem tamanho real, e quem trunca e o botao. */
+.tempo-table-compact {
+  table-layout: fixed;
+}
+
 .tempo-table-compact th[scope="row"] {
-  max-width: 0;
+  width: 58%;
+  overflow: hidden;
+}
+
+.tempo-table-compact th[scope="row"] button {
+  display: block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2188,17 +2250,44 @@ tr:focus-within .tempo-row-actions {
 
    E `wrap` para o caso em que nem encolhendo cabe: ai o botao desce inteiro,
    em vez de continuar espremendo o seletor ate ele nao mostrar nome nenhum. */
+/* O formulario de comecar, EMPILHADO.
+
+   Era uma linha unica de `flex` com o seletor esticando: cabia porque so havia
+   um campo. Com atividade e descricao, tres controles lado a lado deixavam cada
+   um com ~120px na janela minima, e o nome do Project — que e a unica coisa que
+   identifica a hora — era o primeiro a truncar.
+
+   Empilhado, cada campo recebe a largura do card, e o par Project+Atividade
+   divide em duas colunas so onde ha espaco para as duas. */
 .timer-idle {
-  display: flex;
+  display: grid;
   min-width: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
+  gap: var(--space-3);
   padding-top: var(--space-3);
 }
 
-.timer-idle select {
-  flex: 1;
+.timer-fields {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-3);
+}
+
+/* `auto-fit` + `minmax`, e nao um breakpoint.
+
+   Quem decide se cabem duas colunas e a largura do CARD, que muda com a coluna
+   da grade e nao com a tela — um `@media` erraria nos dois sentidos. Container
+   query resolveria melhor, mas exigiria `container-type` num ancestral e este
+   repo nao usa o mecanismo em lugar nenhum; introduzi-lo por um formulario nao
+   se paga.
+
+   14rem e a largura em que o nome de Project mais longo do usuario ainda cabe
+   sem reticencia. Abaixo disso as duas viram uma. */
+.timer-fields {
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+
+.timer-idle select,
+.timer-idle input {
   min-width: 0;
 }
 

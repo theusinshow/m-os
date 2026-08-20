@@ -280,6 +280,10 @@ export function TempoPage({ projects, openProject, receipt }: {
                 <Stat label="TRABALHADO HOJE" value={durationOf(todaySeconds)} />
                 <Stat label="ACUMULADO" value={hoursOf(trackedTotal)} hint={moneyOf(billedTotal)} />
                 <Stat label="SESSÕES REGISTRADAS" value={String(entries.length)} />
+                {/* "Projects" e o vocabulario do M/OS, e ele fica: renomear para
+                    "Projetos" so aqui criaria dois nomes para a mesma entidade
+                    dentro da mesma tela — o rail, a pagina vizinha e o resto
+                    desta pagina dizem Project. */}
                 <Stat label="PROJECTS ATIVOS" value={String(active.length)} />
               </div>
             </Card>

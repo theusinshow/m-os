@@ -191,9 +191,14 @@ export function TempoSessions({ entries, projects, onChanged, receipt, onError, 
                 <span className="tempo-flag" title={suspicionText(suspicion)}>Conferir?</span>
               ) : null}
               <span className="tempo-session-duration">{durationOf(entry.durationSeconds)}</span>
+              {/* UMA acao na coluna estreita, e nao duas.
+                  Cabem duas no Historico, que e largo; aqui elas empurravam a
+                  linha para uma terceira altura e a lista deixava de ser
+                  varrivel de relance. Remover continua a um clique, na tela que
+                  existe para mexer em sessao — e e a mesma divisao que o
+                  CronoCAD faz entre o Painel e o Historico dele. */}
               <span className="tempo-session-actions">
                 <Button variant="ghost" size="sm" onClick={() => openEdit(entry)}>Corrigir</Button>
-                <Button variant="ghost" size="sm" onClick={() => void trash(entry)}>Remover</Button>
               </span>
             </div>
           );

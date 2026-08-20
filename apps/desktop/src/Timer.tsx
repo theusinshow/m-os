@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import type { ActiveTimer, Project, TimeEntry } from "./types";
+import { ACTIVITY } from "./TempoShared";
+import type { ActiveTimer, ActivityType, Project, TimeEntry } from "./types";
 
 /** Quantos atalhos de "começar agora" cabem antes de virarem uma lista. */
 const QUICK = 3;
@@ -48,6 +49,13 @@ export function Timer({ projects, entries = [], onChanged }: {
 }) {
   const [timer, setTimer] = useState<ActiveTimer | null>(null);
   const [choice, setChoice] = useState("");
+  /* Atividade e descricao existiam na API desde sempre — `timerStart` recebe as
+     tres coisas — e o formulario mandava `""` e `"other"` fixos. O CronoCAD
+     pergunta as duas antes de comecar, e quem fatura precisa delas: a atividade
+     e o que quebra o relatorio por tipo, e a descricao e o que faz uma sessao
+     de tres horas ser reconhecivel um mes depois. */
+  const [activity, setActivity] = useState<ActivityType>("drawing");
+  const [description, setDescription] = useState("");
   const [note, setNote] = useState("");
   const [working, setWorking] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -118,41 +126,73 @@ export function Timer({ projects, entries = [], onChanged }: {
       return <p className="empty-state">Crie um Project para cronometrar tempo nele.</p>;
     }
     return (
-      <div className="timer-idle">
-        <label className="visually-hidden" htmlFor="timer-project">Project</label>
-        <select id="timer-project" value={choice} onChange={(event) => setChoice(event.currentTarget.value)}>
-          <option value="">Escolha um Project</option>
-          {active.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-        </select>
-        <Button
-          variant="primary"
-          size="sm"
-          disabled={!choice || working}
-          onClick={() => void act(() => api.timerStart(choice, "", "other"))}
-        >
-          Iniciar
-        </Button>
+      <form
+        className="timer-idle"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void act(() => api.timerStart(choice, description.trim(), activity));
+        }}
+      >
+        <p className="support-copy">Escolha o projeto e comece a registrar as horas.</p>
+
         {/* Começar em um clique: o atrito entre "vou trabalhar" e "estou
             contando" é exatamente onde o registro se perde. Só aparece com
-            histórico — antes dele, seriam botões sem resposta para dar. */}
+            histórico — antes dele, seriam botões sem resposta para dar.
+
+            Vem ANTES do formulário porque é o caminho curto. Quem já sabe em que
+            vai trabalhar não deveria atravessar três campos para dizer isso. */}
         {recent.length ? (
           <div className="timer-quick">
-            <span className="micro-label">RETOMAR</span>
+            <span className="micro-label">INICIAR RÁPIDO</span>
             {recent.map((project) => (
               <Button
                 key={project.id}
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 disabled={working}
-                onClick={() => void act(() => api.timerStart(project.id, "", "other"))}
+                onClick={() => void act(() => api.timerStart(project.id, "", activity))}
               >
                 {project.name}
               </Button>
             ))}
           </div>
         ) : null}
+
+        <div className="timer-fields">
+          <div className="tempo-field">
+            <label htmlFor="timer-project">Project <span aria-hidden="true">*</span></label>
+            <select id="timer-project" required value={choice} onChange={(event) => setChoice(event.currentTarget.value)}>
+              <option value="">Escolha um Project</option>
+              {active.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+          </div>
+          <div className="tempo-field">
+            <label htmlFor="timer-activity">Atividade</label>
+            <select
+              id="timer-activity"
+              value={activity}
+              onChange={(event) => setActivity(event.currentTarget.value as ActivityType)}
+            >
+              {ACTIVITY.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className="tempo-field">
+          <label htmlFor="timer-description">Descrição (opcional)</label>
+          <input
+            id="timer-description"
+            value={description}
+            onChange={(event) => setDescription(event.currentTarget.value)}
+            placeholder="O que você vai fazer?"
+          />
+        </div>
+
+        <div className="button-line">
+          <Button variant="primary" size="sm" type="submit" disabled={!choice || working}>Iniciar</Button>
+        </div>
         {note ? <p className="support-copy" aria-live="polite">{note}</p> : null}
-      </div>
+      </form>
     );
   }
 
