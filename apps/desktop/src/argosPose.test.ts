@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type ArgosSignals, eyesFor, poseFor, weightFor } from "./argosPose";
+import { type ArgosPose, type ArgosSignals, eyesFor, poseFor, rotuloPara, sceneParamsFor, weightFor } from "./argosPose";
 
 const CALMO: ArgosSignals = { hermes: "idle", busy: false, boot: "ready", timerRunning: false };
 
@@ -118,5 +118,58 @@ describe("eyesFor", () => {
         expect(right.tilt).toBe(0);
       }
     }
+  });
+});
+
+const TODAS: ArgosPose[] = ["desperto", "trabalhando", "encarando", "concentrado", "fechado", "assustado"];
+
+describe("sceneParamsFor", () => {
+  it("fecha o olho na pose fechado, e so nela", () => {
+    expect(sceneParamsFor("fechado").abertura).toBe(0);
+    for (const pose of TODAS.filter((p) => p !== "fechado")) {
+      expect(sceneParamsFor(pose).abertura).toBeGreaterThan(0);
+    }
+  });
+
+  it("assustado e a pose mais agitada de todas", () => {
+    const assustado = sceneParamsFor("assustado");
+    for (const pose of TODAS.filter((p) => p !== "assustado")) {
+      const outra = sceneParamsFor(pose);
+      expect(assustado.velocidade).toBeGreaterThan(outra.velocidade);
+      expect(assustado.deformacao).toBeGreaterThan(outra.deformacao);
+    }
+  });
+
+  it("encarando e a pose mais parada: quem espera VOCE nao se mexe", () => {
+    const encarando = sceneParamsFor("encarando");
+    for (const pose of TODAS.filter((p) => p !== "encarando")) {
+      expect(encarando.velocidade).toBeLessThan(sceneParamsFor(pose).velocidade);
+    }
+  });
+
+  it("mantem todos os parametros dentro dos limites que o shader aceita", () => {
+    for (const pose of TODAS) {
+      const params = sceneParamsFor(pose);
+      expect(params.deformacao).toBeGreaterThanOrEqual(0);
+      expect(params.deformacao).toBeLessThanOrEqual(0.35);
+      expect(params.velocidade).toBeGreaterThanOrEqual(0);
+      expect(params.abertura).toBeGreaterThanOrEqual(0);
+      expect(params.abertura).toBeLessThanOrEqual(1.25);
+      expect(Math.abs(params.recuo)).toBeLessThanOrEqual(0.3);
+    }
+  });
+});
+
+describe("rotuloPara", () => {
+  it("da a toda pose um rotulo proprio, e nenhum se repete", () => {
+    const rotulos = TODAS.map(rotuloPara);
+    expect(new Set(rotulos).size).toBe(TODAS.length);
+  });
+
+  it("nomeia o estado do sistema, e nao a aparencia do bicho", () => {
+    // Quem ouve o leitor de tela precisa do FATO, nao da cara.
+    expect(rotuloPara("encarando")).toContain("aprovação");
+    expect(rotuloPara("assustado")).toContain("falhou");
+    expect(rotuloPara("concentrado")).toContain("Cronômetro");
   });
 });

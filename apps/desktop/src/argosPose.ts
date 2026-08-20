@@ -103,3 +103,54 @@ export function eyesFor(pose: ArgosPose): { left: Eye; right: Eye } {
       return pair(3.5, 11, 2, 3.4);
   }
 }
+
+/**
+ * O corpo de cada pose, em quatro numeros.
+ *
+ * `deformacao` e `velocidade` alimentam o ruido do vertex shader; `abertura`
+ * escala o olho no eixo Y; `recuo` desloca o corpo no Z — negativo afasta.
+ *
+ * Sao quatro uniforms e nao seis malhas porque assim a troca de pose e uma
+ * INTERPOLACAO, e nao um corte. O bicho vira o que ele passou a ser, em vez de
+ * piscar para outro desenho.
+ */
+export type ArgosSceneParams = {
+  deformacao: number;
+  velocidade: number;
+  abertura: number;
+  recuo: number;
+};
+
+export function sceneParamsFor(pose: ArgosPose): ArgosSceneParams {
+  switch (pose) {
+    // Respiracao, e nada mais: e a pose que ocupa 90% do tempo, e e dela que
+    // sai a conta de bateria da ADR-048.
+    case "desperto":    return { deformacao: 0.06, velocidade: 0.25, abertura: 1,    recuo: 0 };
+    case "concentrado": return { deformacao: 0.10, velocidade: 0.50, abertura: 0.45, recuo: 0 };
+    case "trabalhando": return { deformacao: 0.18, velocidade: 1.20, abertura: 0.90, recuo: 0 };
+    case "fechado":     return { deformacao: 0.04, velocidade: 0.20, abertura: 0,    recuo: -0.15 };
+    // Encarar e ficar PARADO. Movimento aqui diluiria o unico caso em que o
+    // sistema depende de voce agir.
+    case "encarando":   return { deformacao: 0.02, velocidade: 0.10, abertura: 1.25, recuo: 0.20 };
+    case "assustado":   return { deformacao: 0.30, velocidade: 2.40, abertura: 1.25, recuo: -0.30 };
+  }
+}
+
+/**
+ * O nome acessivel do botao.
+ *
+ * Saindo da topbar, Argos perdeu o texto ao lado que a ADR-041 usou para
+ * justificar o `aria-hidden` — e virando controle, esconder deixou de ser
+ * opcao. Entao ele fala por conta propria, e diz o FATO, nunca a expressao:
+ * "aguardando sua aprovacao", e nao "arregalado".
+ */
+export function rotuloPara(pose: ArgosPose): string {
+  switch (pose) {
+    case "desperto":    return "Estado do sistema: em repouso";
+    case "concentrado": return "Estado do sistema: Cronômetro correndo";
+    case "trabalhando": return "Estado do sistema: Hermes trabalhando";
+    case "fechado":     return "Estado do sistema: ocupado";
+    case "encarando":   return "Estado do sistema: aguardando sua aprovação";
+    case "assustado":   return "Estado do sistema: algo falhou";
+  }
+}
