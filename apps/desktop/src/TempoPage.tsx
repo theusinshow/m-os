@@ -353,7 +353,7 @@ export function TempoPage({ projects, openProject, receipt }: {
       ) : null}
 
       {view === "projetos" ? (
-        <TempoProjects projects={projects} totals={totals} openProject={openProject} />
+        <TempoProjects projects={projects} totals={totals} openProject={openProject} openClients={() => setView("config")} />
       ) : null}
 
       {view === "historico" ? (

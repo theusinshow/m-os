@@ -1856,17 +1856,16 @@ textarea::placeholder {
 
 /* As acoes da linha aparecem no hover, como na lista — mas com `focus-within`
    junto, senao quem navega por teclado nunca as alcanca. */
+/* SEMPRE visivel — a mesma correcao da lista do Painel, pelo mesmo motivo.
+
+   Corrigir e remover sessao sao as duas coisas que esta tela existe para fazer,
+   e ambas estavam invisiveis ate o ponteiro passar por cima da linha. E o
+   padrao que o proprio CronoCAD condena no codigo dele: "acao escondida aqui
+   foi exatamente o que fez o usuario nao achar como corrigir uma sessao". */
 .tempo-row-actions {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-1);
-  opacity: 0;
-  transition: opacity var(--dur-state) var(--ease-state);
-}
-
-tr:hover .tempo-row-actions,
-tr:focus-within .tempo-row-actions {
-  opacity: 1;
 }
 
 /* O que o sistema observou, em ordem. Hora em mono e largura fixa para as
@@ -8235,4 +8234,42 @@ input[type="checkbox"]:disabled {
 .voice-actions button[disabled] {
   color: var(--text-placeholder);
   cursor: default;
+}
+
+/* O ponto de cor do Project, na primeira coluna da tabela.
+
+   `inline-block` com `vertical-align` fixo, e nao flex na celula: a celula tem
+   nome e codigo empilhados, e transforma-la em flex quebraria o empilhamento
+   que ja funciona. 0.5em de recuo e o vao que separa sem descolar. */
+.tempo-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 0.5em;
+  border-radius: 50%;
+  vertical-align: 0.08em;
+  background: var(--border-strong);
+}
+
+/* Ativo nao ganha marca: e o estado normal, e marcar o normal gasta atencao com
+   o que nao precisa dela. O ponto fica, vazio, para a coluna nao dancar. */
+.tempo-dot[data-status="active"] {
+  background: transparent;
+}
+
+.tempo-dot[data-status="paused"] {
+  background: var(--signal-ink);
+}
+
+.tempo-dot[data-status="completed"] {
+  background: var(--text-system);
+}
+
+/* A caixa que governa os campos ao lado ocupa a linha inteira.
+
+   Dentro de `.tempo-form`, que e flex com `align-items: flex-end`, ela dividia
+   a faixa com os controles que liga — e o rotulo dela terminava colado no campo
+   vizinho, alinhado pela base, sugerindo que os tres eram do mesmo nivel. */
+.tempo-form > .tempo-check-governa {
+  flex: 1 1 100%;
 }

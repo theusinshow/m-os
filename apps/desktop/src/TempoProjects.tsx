@@ -66,10 +66,15 @@ function Budget({ workedSeconds, budgetMinutes }: { workedSeconds: number; budge
  * Projects — dois lugares editando o mesmo nome viram duas versões dele, e a
  * que aparece na fatura seria a última que alguém salvou por acaso.
  */
-export function TempoProjects({ projects, totals, openProject }: {
+export function TempoProjects({ projects, totals, openProject, openClients }: {
   projects: Project[];
   totals: Record<string, Totals>;
   openProject: (project: Project) => void;
+  /* Clientes moram em Configuracoes, e sao usados AQUI: e nesta tabela que se
+     descobre que um Project esta sem cliente e que a fatura por isso nao sai.
+     O botao e a ponte entre o lugar onde a falta aparece e o lugar onde ela se
+     resolve. */
+  openClients: () => void;
 }) {
   const [tracking, setTracking] = useState<Record<string, ProjectTracking>>({});
   const [clients, setClients] = useState<Client[]>([]);
@@ -142,13 +147,16 @@ export function TempoProjects({ projects, totals, openProject }: {
         title="Projetos"
         subtitle="Projects, valor/hora e estado. Dados guardados localmente."
         actions={
-          <input
-            className="tempo-search"
-            value={query}
-            placeholder="Pesquisar projeto ou código…"
-            aria-label="Pesquisar Project"
-            onChange={(event) => setQuery(event.currentTarget.value)}
-          />
+          <>
+            <input
+              className="tempo-search"
+              value={query}
+              placeholder="Pesquisar projeto ou código…"
+              aria-label="Pesquisar Project"
+              onChange={(event) => setQuery(event.currentTarget.value)}
+            />
+            <Button variant="outline" size="sm" onClick={openClients}>Clientes</Button>
+          </>
         }
       />
 
@@ -169,6 +177,17 @@ export function TempoProjects({ projects, totals, openProject }: {
               {listed.map(({ project, billing, total }) => (
                 <tr key={project.id}>
                   <th scope="row">
+                    {/* O ponto le o ESTADO, e nao a cor do Project.
+
+                        A cor por Project existe no dado, mas nenhum deles tem
+                        uma definida: sairiam cinco pontos cinzas iguais, que e
+                        decoracao — exatamente o que o §16 recusa. Amarrado ao
+                        estado ele carrega dado, e some quando o Project esta
+                        ativo, que e o caso normal e nao precisa de marca.
+
+                        A palavra continua na coluna ao lado: o ponto acelera a
+                        varredura, nao substitui o rotulo. */}
+                    <span className="tempo-dot" data-status={billing.trackingStatus} aria-hidden="true" />
                     <button type="button" onClick={() => openProject(project)}>{project.name}</button>
                     <small>{[billing.code, clientName(billing.clientId)].filter(Boolean).join(" · ") || "sem código"}</small>
                   </th>

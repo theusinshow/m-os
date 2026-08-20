@@ -77,7 +77,11 @@ export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
       <Card label="ARREDONDAMENTO">
         {settings ? (
           <div className="tempo-form">
-            <label className="tempo-check">
+            {/* `tempo-check-governa`: esta caixa LIGA os dois campos ao lado, e
+                dividir a linha com eles punha o rotulo dela encostado no
+                "Intervalo" e os tres alinhados por baixo, como se fossem
+                irmaos. Quem manda vem antes, e sozinho na linha. */}
+            <label className="tempo-check tempo-check-governa">
               <input
                 type="checkbox"
                 checked={settings.rounding.enabled}

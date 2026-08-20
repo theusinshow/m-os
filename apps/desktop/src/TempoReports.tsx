@@ -284,9 +284,14 @@ export function TempoReports({ projects }: { projects: Project[] }) {
         subtitle="Horas reais, faturáveis e valores por período."
         actions={
           <>
-            <Button variant="ghost" size="sm" onClick={() => window.print()}>Imprimir</Button>
-            <Button variant="ghost" size="sm" disabled={busy} onClick={() => void exportCsv()}>Exportar CSV</Button>
-            <Button variant="ghost" size="sm" disabled={busy} onClick={() => void exportPdf()}>Exportar PDF</Button>
+            {/* `outline`, e nao `ghost`: sem contorno os tres liam como link de
+                texto ao lado do botao de fatura, e sair um PDF de um texto que
+                parece rotulo e o tipo de acao que ninguem encontra. Contorno
+                sem preenchimento os poe como controle secundario, que e o que
+                eles sao ao lado de "Gerar fatura". */}
+            <Button variant="outline" size="sm" onClick={() => window.print()}>Imprimir</Button>
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => void exportCsv()}>Exportar CSV</Button>
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => void exportPdf()}>Exportar PDF</Button>
             <Button variant="primary" size="sm" disabled={busy || !clientId} onClick={() => void exportInvoice()}>
               Gerar fatura
             </Button>
