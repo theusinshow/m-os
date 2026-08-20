@@ -125,25 +125,23 @@ pub fn export_channel_normalized(
 
     let mut bytes = fs::read(destination).map_err(|error| storage(destination, error))?;
     let dados = &mut bytes[HEADER_BYTES as usize..];
-    let total = dados.len() / 2;
-    if total == 0 {
+    if dados.len() < 2 {
         return Ok((frames, 1.0));
     }
 
-    let mut soma = 0f64;
-    for par in dados.chunks_exact(2) {
-        let amostra = i16::from_le_bytes([par[0], par[1]]) as f64;
-        soma += amostra * amostra;
-    }
-    let rms = (soma / total as f64).sqrt() as f32;
+    let amostras: Vec<i16> = dados
+        .chunks_exact(2)
+        .map(|par| i16::from_le_bytes([par[0], par[1]]))
+        .collect();
 
-    let ganho = ganho_para(rms);
+    // `calibrar`, e nao `ganho_para`: o segundo e so o chute inicial, e ele erra
+    // para baixo por causa do joelho. Ver a nota na propria funcao.
+    let ganho = calibrar(&amostras);
     if ganho == 1.0 {
         return Ok((frames, 1.0));
     }
 
-    for par in dados.chunks_exact_mut(2) {
-        let amostra = i16::from_le_bytes([par[0], par[1]]);
+    for (par, amostra) in dados.chunks_exact_mut(2).zip(amostras) {
         par.copy_from_slice(&com_ganho(amostra, ganho).to_le_bytes());
     }
     fs::write(destination, &bytes).map_err(|error| storage(destination, error))?;
@@ -184,8 +182,17 @@ const LIMITE: f32 = 32_767.0;
 const PISO_RMS: f32 = 823.2;
 /// Para onde o ganho mira. -25 dBFS.
 const ALVO_RMS: f32 = 1842.6;
-/// Teto de 20 dB. Um canal quase mudo nao vira um canal de chiado amplificado.
-const GANHO_MAXIMO: f32 = 10.0;
+/// Teto de ~24 dB. Um canal quase mudo nao vira um canal de chiado amplificado.
+///
+/// Era 20 dB, e 20 dB nao bastava: o ponto que o dono validou na bancada exigiu
+/// 10,7x, e o teto anterior cortava exatamente ele.
+const GANHO_MAXIMO: f32 = 16.0;
+
+/// Quantas vezes recalibrar o ganho olhando o resultado.
+///
+/// Tres converge com folga: no microfone que originou a regra, a terceira volta
+/// ja chega a menos de 0,1 dB do alvo.
+const CALIBRACOES: usize = 3;
 
 /// Quanto amplificar um canal com este RMS.
 ///
@@ -198,6 +205,46 @@ pub fn ganho_para(rms: f32) -> f32 {
         return 1.0;
     }
     (ALVO_RMS / rms).min(GANHO_MAXIMO)
+}
+
+/// O RMS que sobra depois de aplicar este ganho.
+pub fn rms_com_ganho(amostras: &[i16], ganho: f32) -> f32 {
+    if amostras.is_empty() {
+        return 0.0;
+    }
+    let mut soma = 0f64;
+    for amostra in amostras {
+        let valor = com_ganho(*amostra, ganho) as f64;
+        soma += valor * valor;
+    }
+    (soma / amostras.len() as f64).sqrt() as f32
+}
+
+/// O ganho que de fato leva o canal ao alvo.
+///
+/// **Medir o resultado, e nao confiar na regra de tres.** O `ganho_para` calcula
+/// como se o ganho fosse linear, e ele nao e: o joelho `tanh` comprime os picos e
+/// derruba o RMS que sai — no microfone que originou esta regra, mirar -25 dBFS
+/// pela conta linear aterrissava em -26,5 dBFS.
+///
+/// E esse 1,3 dB nao e detalhe: na bancada, ele foi a diferenca entre 30 frases
+/// reais e 12, e entre acertar "armadura da laje" e perder o trecho inteiro.
+pub fn calibrar(amostras: &[i16]) -> f32 {
+    let mut ganho = ganho_para(rms_com_ganho(amostras, 1.0));
+    if ganho == 1.0 {
+        return 1.0;
+    }
+    for _ in 0..CALIBRACOES {
+        let obtido = rms_com_ganho(amostras, ganho);
+        if obtido <= 0.0 || obtido >= ALVO_RMS {
+            break;
+        }
+        ganho = (ganho * ALVO_RMS / obtido).min(GANHO_MAXIMO);
+        if ganho >= GANHO_MAXIMO {
+            break;
+        }
+    }
+    ganho
 }
 
 /// Aplica o ganho com joelho suave.
@@ -354,8 +401,8 @@ mod tests {
         assert_eq!(ganho_para(2500.0), 1.0);
         // Exatamente no piso nao mexe: o piso e o limite de quem ja esta bom.
         assert_eq!(ganho_para(823.2), 1.0);
-        // Um canal quase mudo nao vira chiado amplificado: o teto e 20 dB.
-        assert_eq!(ganho_para(1.0), 10.0);
+        // Um canal quase mudo nao vira chiado amplificado: o teto corta.
+        assert_eq!(ganho_para(1.0), GANHO_MAXIMO);
         // Silencio absoluto nao divide por zero.
         assert_eq!(ganho_para(0.0), 1.0);
     }
@@ -443,5 +490,43 @@ mod tests {
             export_channel_normalized(session.path(), Channel::Mic, &destino).unwrap();
         assert_eq!(frames, 0);
         assert_eq!(ganho, 1.0);
+    }
+
+    #[test]
+    fn calibrar_leva_o_canal_baixo_ao_alvo_de_verdade() {
+        // Uma senoide baixa, como o microfone da reuniao que originou a regra.
+        let amostras: Vec<i16> = (0..16_000)
+            .map(|i| ((i as f32 * 0.05).sin() * 300.0) as i16)
+            .collect();
+
+        let chute = ganho_para(rms_com_ganho(&amostras, 1.0));
+        let calibrado = calibrar(&amostras);
+
+        // O chute linear fica CURTO, e e por isso que a calibracao existe.
+        assert!(
+            calibrado > chute,
+            "a calibracao deveria corrigir o chute para cima: {chute} -> {calibrado}"
+        );
+
+        // E o que sai chega ao alvo, dentro de 1 dB.
+        let obtido = rms_com_ganho(&amostras, calibrado);
+        let erro_db = 20.0 * (obtido / ALVO_RMS).log10();
+        assert!(erro_db.abs() < 1.0, "ficou a {erro_db:.2} dB do alvo");
+    }
+
+    #[test]
+    fn calibrar_deixa_em_paz_quem_ja_esta_alto() {
+        let amostras: Vec<i16> = (0..16_000)
+            .map(|i| ((i as f32 * 0.05).sin() * 8_000.0) as i16)
+            .collect();
+        assert_eq!(calibrar(&amostras), 1.0);
+    }
+
+    #[test]
+    fn calibrar_respeita_o_teto_num_canal_quase_mudo() {
+        let amostras: Vec<i16> = (0..16_000)
+            .map(|i| ((i as f32 * 0.05).sin() * 3.0) as i16)
+            .collect();
+        assert_eq!(calibrar(&amostras), GANHO_MAXIMO);
     }
 }
