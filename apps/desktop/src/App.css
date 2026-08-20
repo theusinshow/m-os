@@ -579,29 +579,101 @@ button {
    sistema inteiro, e nao da pagina. Abaixo do recibo e do toast de proposito: a
    ordem nao e hierarquia visual, e PRECEDENCIA. O aviso carrega dado; o bicho,
    nao. */
-.argos-botao {
+/* O canto carrega o bicho E o aviso de conexao, empilhados. A posicao subiu do
+   botao para ca quando o balao entrou: dois elementos fixos no mesmo canto se
+   sobreporiam, e um deles tem largura variavel. */
+.argos-canto {
   position: fixed;
   bottom: var(--space-4);
   z-index: calc(var(--z-receipt) - 1);
-  display: grid;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   transition:
     left var(--dur-state) var(--ease-enter),
     right var(--dur-state) var(--ease-enter);
 }
 
-.argos-botao[data-canto="direita"] {
+.argos-canto[data-canto="direita"] {
   right: var(--space-4);
   left: auto;
+  align-items: flex-end;
 }
 
 /* Alinhado com o recibo, que parte da borda do rail e nao da janela. */
-.argos-botao[data-canto="esquerda"] {
+.argos-canto[data-canto="esquerda"] {
   left: calc(var(--rail-width) + var(--space-4));
   right: auto;
+  align-items: flex-start;
+}
+
+.argos-botao {
+  display: grid;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+/* O PESO, que antes era cor.
+   A cor passou a dizer presenca do Hermes, e o "preciso de voce" mudou de canal
+   em vez de sumir: quem chama, respira. Amplitude pequena de proposito — o bicho
+   fica no canto do olho, e no canto do olho movimento grande vira interrupcao. */
+.argos-botao[data-peso="chamando"] {
+  animation: argos-chamando 2.4s var(--ease-enter) infinite;
+}
+
+@keyframes argos-chamando {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+/* O aviso de que o Hermes caiu. */
+.argos-balao {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  max-width: 280px;
+  padding: var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-overlay);
+}
+
+.argos-balao-corpo {
+  display: grid;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.argos-balao-corpo strong {
+  font: var(--text-ui);
+}
+
+.argos-balao-corpo span {
+  font: var(--text-small);
+  color: var(--text-system);
+}
+
+.argos-balao-fechar {
+  flex: none;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--text-system);
+  font: var(--text-ui);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.argos-balao-fechar:hover {
+  color: var(--text);
 }
 
 .argos-botao:focus-visible {

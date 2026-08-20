@@ -13,7 +13,7 @@ import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionInte
 import { hermes, type HermesConnectionState, type HermesFailure, type HermesStatus } from "./hermes";
 import { HermesPage } from "./HermesPage";
 import { AppIcon } from "./AppIcon";
-import { Argos, useArgosPose } from "./Argos";
+import { Argos, useArgosPose, useArgosPresenca } from "./Argos";
 import { cantoPara } from "./argosCorner";
 import { Button } from "./Button";
 import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel, StateMessage } from "./Surface";
@@ -3021,6 +3021,9 @@ function DesktopApp() {
   /* A pose de Argos vive aqui porque `busy` e `bootState` vivem aqui. O
      cronometro e o Hermes ele assina sozinho — ver `useArgosPose`. */
   const argosPose = useArgosPose({ busy, boot: bootState });
+  /* A presenca do Hermes vem separada da pose de proposito: pose e fato do
+     trabalho, presenca e se ele esta la. Ver `argosPresenca.ts`. */
+  const argosPresenca = useArgosPresenca();
   const [dropOcupado, setDropOcupado] = useState(false);
   /* A ocupacao vem do estado que o shell ja tem: `delivered` e o toast, `undo` e
      o recibo, `dropOcupado` e o painel. Nada aqui mede a tela. */
@@ -3380,7 +3383,7 @@ function DesktopApp() {
       onRecibo={(message, run) => showReceipt({ message, run })}
       refresh={refresh}
       onOcupacao={setDropOcupado}
-    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}<Argos pose={argosPose} canto={argosCanto} onAbrir={() => setAttentionOpen(true)} /><LazyMotion features={loadMotionFeatures} strict><AnimatePresence>{undo ? <m.div className="receipt" role="status" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></m.div> : null}</AnimatePresence></LazyMotion></div>;
+    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}<Argos pose={argosPose} presenca={argosPresenca} canto={argosCanto} onAbrir={() => setAttentionOpen(true)} onAbrirHermes={() => navigate("hermes")} /><LazyMotion features={loadMotionFeatures} strict><AnimatePresence>{undo ? <m.div className="receipt" role="status" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></m.div> : null}</AnimatePresence></LazyMotion></div>;
 }
 
 /**

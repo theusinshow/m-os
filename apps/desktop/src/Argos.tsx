@@ -4,7 +4,8 @@ import { api } from "./api";
 import { BODY, type ArgosPose, type ArgosSignals, eyesFor, poseFor, rotuloPara, weightFor } from "./argosPose";
 import type { ArgosCanto } from "./argosCorner";
 import { criarCena, type ArgosScene } from "./argosScene";
-import { hermes } from "./hermes";
+import { hermes, type HermesConnectionState } from "./hermes";
+import { type ArgosPresenca, corDaPresenca, presencaDe, rotuloDaPresenca } from "./argosPresenca";
 
 /**
  * Os sinais, vindos de onde eles já vivem.
@@ -54,6 +55,26 @@ export function useArgosPose({ busy, boot }: { busy: boolean; boot: "loading" | 
   }, []);
 
   return poseFor({ hermes: hermesState, busy, boot, timerRunning });
+}
+
+/**
+ * A presença do Hermes, para quem só precisa saber se ele está lá.
+ *
+ * Assina o `hermes-state` e pergunta uma vez na montagem — sem a pergunta, uma
+ * janela aberta depois da conexão ficaria cinza até o próximo evento, que pode
+ * não vir nunca.
+ */
+export function useArgosPresenca(): ArgosPresenca {
+  const [state, setState] = useState<HermesConnectionState | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    void hermes.status().then((status) => { if (vivo) setState(status.state); }).catch(() => undefined);
+    const subscription = hermes.onState((status) => setState(status.state));
+    return () => { vivo = false; void subscription.then((dispose) => dispose()); };
+  }, []);
+
+  return presencaDe(state);
 }
 
 /**
@@ -114,12 +135,16 @@ const CORPO = 72;
  */
 export function Argos({
   pose,
+  presenca,
   canto,
   onAbrir,
+  onAbrirHermes,
 }: {
   pose: ArgosPose;
+  presenca: ArgosPresenca;
   canto: ArgosCanto;
   onAbrir: () => void;
+  onAbrirHermes: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cenaRef = useRef<ArgosScene | null>(null);
@@ -149,19 +174,21 @@ export function Argos({
   useEffect(() => { cenaRef.current?.setPose(pose); }, [pose]);
 
   /* A cor vem do token, e não de um literal: o design system continua sendo a
-     fonte, e a troca de tema tem de alcançar o bicho. */
+     fonte, e a troca de tema tem de alcançar o bicho.
+
+     E ela diz PRESENÇA, e não peso. O peso mudou de canal — foi para o
+     movimento, no `data-peso` do botão. A razão está em `argosPresenca.ts`. */
   useEffect(() => {
     const aplicar = () => {
       const estilo = getComputedStyle(document.documentElement);
-      const peso = weightFor(pose);
-      const corpo = peso === "chamando" ? "--signal-ink" : peso === "atento" ? "--text" : "--text-system";
+      const corpo = corDaPresenca(presenca);
       cenaRef.current?.setCores(estilo.getPropertyValue(corpo).trim(), estilo.getPropertyValue("--canvas").trim());
     };
     aplicar();
     const observador = new MutationObserver(aplicar);
     observador.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     return () => observador.disconnect();
-  }, [pose]);
+  }, [presenca]);
 
   /* O olhar. Coalescido por rAF porque `mousemove` dispara muito mais que o
      quadro, e empurrar uniform a cada evento seria trabalho jogado fora. */
@@ -200,10 +227,54 @@ export function Argos({
   if (oculto) return null;
 
   return (
-    <button className="argos-botao" data-canto={canto} onClick={onAbrir} aria-label={rotuloPara(pose)}>
-      {semWebGL
-        ? <ArgosSvg pose={pose} />
-        : <canvas ref={canvasRef} className="argos-canvas" width={CORPO} height={CORPO} aria-hidden="true" />}
-    </button>
+    <div className="argos-canto" data-canto={canto}>
+      {presenca === "desconectado" ? <BalaoDesconectado abrir={onAbrirHermes} /> : null}
+      <button
+        className="argos-botao"
+        data-canto={canto}
+        data-peso={weightFor(pose)}
+        data-presenca={presenca}
+        onClick={onAbrir}
+        aria-label={`${rotuloPara(pose)}. ${rotuloDaPresenca(presenca)}.`}
+      >
+        {semWebGL
+          ? <ArgosSvg pose={pose} />
+          : <canvas ref={canvasRef} className="argos-canvas" width={CORPO} height={CORPO} aria-hidden="true" />}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * O aviso de que o Hermes não está lá.
+ *
+ * **Fica enquanto durar a queda**, e não some sozinho: um balão que pisca e some
+ * é indistinguível de um que nunca apareceu, e a queda continua depois dele. Mas
+ * ele tem X, porque quem já sabe não precisa ser lembrado a cada olhada — e o X
+ * vale só para esta queda: a próxima, ou a próxima abertura do app, traz o balão
+ * de volta.
+ *
+ * Clicar leva ao Hermes, que é onde a queda se resolve. Um aviso que não oferece
+ * o caminho é só uma reclamação.
+ */
+function BalaoDesconectado({ abrir }: { abrir: () => void }) {
+  const [dispensado, setDispensado] = useState(false);
+  if (dispensado) return null;
+
+  return (
+    <div className="argos-balao" role="status">
+      <button type="button" className="argos-balao-corpo" onClick={abrir}>
+        <strong>Hermes desconectado</strong>
+        <span>A análise de reuniões e o chat não respondem enquanto isso. Clique para abrir.</span>
+      </button>
+      <button
+        type="button"
+        className="argos-balao-fechar"
+        onClick={() => setDispensado(true)}
+        aria-label="Dispensar o aviso até a próxima queda"
+      >
+        ×
+      </button>
+    </div>
   );
 }
