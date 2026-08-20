@@ -95,6 +95,18 @@ const VAD_LIMIAR: &str = "0.25";
 /// silaba, que e onde mora a diferenca entre "laje" e "aje".
 const VAD_FOLGA_MS: &str = "250";
 
+/// Le `progress = NN%` do stderr do binario.
+///
+/// O formato vem do `whisper_print_progress_callback` do whisper.cpp, que so
+/// aparece com `-pp`. Ele CONVIVE com o `-np` — verificado neste build antes de
+/// a decisao ser tomada.
+pub fn parse_progress(linha: &str) -> Option<f32> {
+    let depois = linha.split("progress =").nth(1)?;
+    let numero = depois.trim().strip_suffix('%')?.trim();
+    let porcento: f32 = numero.parse().ok()?;
+    Some((porcento / 100.0).clamp(0.0, 1.0))
+}
+
 /// A linha de comando inteira, como dado.
 ///
 /// Funcao pura, e nao um `Command` montado no meio do `transcribe`, porque a
@@ -121,6 +133,9 @@ pub fn args(
         // Suprime token de nao-fala. E o freio que nao depende de arquivo
         // nenhum, entao ele vale ate em maquina sem Silero.
         "-sns".into(),
+        // Progresso no stderr. Sem ele o unico progresso possivel seria 0, 0.9 e
+        // 1.0 — uma barra que pula de nada para quase tudo.
+        "-pp".into(),
     ];
 
     if let Some(language) = language {
@@ -209,25 +224,53 @@ impl TranscriptionProvider for WhisperCliProvider {
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
 
-        let output = command
-            .output()
+        use std::io::{BufRead, BufReader};
+
+        let mut filho = command
+            .spawn()
             .map_err(|error| TranscriptionError::MissingRuntime {
                 detail: format!("nao foi possivel executar {}: {error}", self.config.binary),
             })?;
 
-        if !output.status.success() {
-            // O stderr do binario e tecnico, e vai INTEIRO para o erro — mas ele
-            // nunca contem transcricao, entao nao viola a regra de nao registrar
+        // As ultimas linhas ficam guardadas porque a mensagem de erro sai daqui.
+        // Ler o stderr so no FIM — como o `output()` fazia — e o que impedia o
+        // progresso de existir: ele chegava depois de o trabalho ter acabado.
+        let mut ultimas: Vec<String> = Vec::new();
+        if let Some(stderr) = filho.stderr.take() {
+            for linha in BufReader::new(stderr).lines().map_while(Result::ok) {
+                if let Some(fracao) = parse_progress(&linha) {
+                    progress(fracao);
+                    continue;
+                }
+                if !linha.trim().is_empty() {
+                    ultimas.push(linha);
+                    if ultimas.len() > 20 {
+                        ultimas.remove(0);
+                    }
+                }
+            }
+        }
+
+        let status = filho
+            .wait()
+            .map_err(|error| TranscriptionError::MissingRuntime {
+                detail: format!("{} nao terminou: {error}", self.config.binary),
+            })?;
+
+        if !status.success() {
+            // O stderr do binario e tecnico, e vai para o erro — mas ele nunca
+            // contem transcricao, entao nao viola a regra de nao registrar
             // conteudo de reuniao (§16.3).
-            let detail = String::from_utf8_lossy(&output.stderr)
-                .lines()
-                .rfind(|line| !line.trim().is_empty())
-                .unwrap_or("sem detalhe")
-                .to_owned();
+            let detail = ultimas
+                .last()
+                .cloned()
+                .unwrap_or_else(|| "sem detalhe".to_owned());
             return Err(TranscriptionError::Failed { detail });
         }
 
-        progress(0.9);
+        // Sem `progress(0.9)` aqui. Com o numero real chegando do binario, uma
+        // marca fixa no fim faria a barra ir a 100%, VOLTAR para 90% e subir de
+        // novo — e barra que anda para tras e pior que barra que nao existe.
 
         // O `-of` do whisper.cpp acrescenta a extensao ao caminho dado.
         let json_path = with_suffix(&saida, ".json");
@@ -508,6 +551,7 @@ mod tests {
         assert_eq!(lista[l + 1], "pt");
         assert!(lista.iter().any(|a| a == "-oj"));
         assert!(lista.iter().any(|a| a == "-np"));
+        assert!(lista.iter().any(|a| a == "-pp"));
 
         // E o que a medicao REPROVOU nao pode aparecer nunca.
         assert!(!lista.iter().any(|a| a == "--prompt"));
@@ -546,5 +590,22 @@ mod tests {
         let com = args(&config, std::path::Path::new(r"C:\tmp\mic.wav"), &saida, None);
         let t = com.iter().position(|a| a == "-t").unwrap();
         assert_eq!(com[t + 1], "8");
+    }
+
+    #[test]
+    fn progresso_a_linha_do_binario_vira_fracao() {
+        assert_eq!(
+            parse_progress("whisper_print_progress_callback: progress =   7%"),
+            Some(0.07)
+        );
+        assert_eq!(
+            parse_progress("whisper_print_progress_callback: progress = 100%"),
+            Some(1.0)
+        );
+        // Linha de outra natureza nao e progresso.
+        assert_eq!(parse_progress("ggml_cuda_init: found 1 CUDA devices"), None);
+        assert_eq!(parse_progress(""), None);
+        // Numero fora da faixa nao vira fracao maluca.
+        assert_eq!(parse_progress("progress = 900%"), Some(1.0));
     }
 }
