@@ -983,6 +983,32 @@ struct SentRecord {
     last_ms: i64,
 }
 
+/// Onde a analise esta, para quem esta olhando a barra.
+///
+/// **Janela, e nao porcentagem.** Uma chamada de rede nao tem fracao: ela ou
+/// voltou ou nao voltou. Dizer "62%" sobre ela seria inventar. Quantas janelas
+/// ja voltaram, das quantas existem, e um fato.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AnalysisProgress {
+    meeting_id: String,
+    /// 1-based, para ser lido por gente. `0` significa a passada final, a que
+    /// junta os resumos parciais.
+    window: u32,
+    windows: u32,
+}
+
+fn anuncia_janela(app: &AppHandle, meeting_id: &str, window: u32, windows: u32) {
+    let _ = app.emit(
+        "meeting-analyzing",
+        AnalysisProgress {
+            meeting_id: meeting_id.to_owned(),
+            window,
+            windows,
+        },
+    );
+}
+
 #[tauri::command]
 pub fn meeting_analyze(app: AppHandle, id: String) -> Result<Meeting, CoreError> {
     let started = {
@@ -1062,6 +1088,7 @@ async fn analyze(app: &AppHandle, id: &str) -> Result<Meeting, String> {
     );
 
     let outcome = if windows.len() == 1 {
+        anuncia_janela(app, &meeting.id.to_string(), 1, 1);
         ask_with_retry(
             &base_url,
             &format!("{instructions}\n\n---\n\n{}", windows[0].text),
@@ -1070,7 +1097,7 @@ async fn analyze(app: &AppHandle, id: &str) -> Result<Meeting, String> {
         )
         .await?
     } else {
-        consolidate(&base_url, &windows, &instructions, &meeting, &segments).await?
+        consolidate(app, &base_url, &windows, &instructions, &meeting, &segments).await?
     };
 
     let state = app.state::<AppState>();
@@ -1130,6 +1157,7 @@ async fn ask_with_retry(
 /// existe para juntar, e mandar tudo de novo estouraria o mesmo orcamento que
 /// obrigou a dividir.
 async fn consolidate(
+    app: &AppHandle,
     base_url: &str,
     windows: &[mos_core::PromptWindow],
     instructions: &str,
@@ -1141,6 +1169,12 @@ async fn consolidate(
     let mut topics: Vec<String> = Vec::new();
 
     for (index, window) in windows.iter().enumerate() {
+        anuncia_janela(
+            app,
+            &meeting.id.to_string(),
+            index as u32 + 1,
+            windows.len() as u32,
+        );
         let prompt = format!(
             "{instructions}\n\n\
              Esta e a parte {} de {} da transcricao.\n\n---\n\n{}",
@@ -1158,6 +1192,10 @@ async fn consolidate(
 
     topics.sort();
     topics.dedup();
+
+    // Zero e a passada que junta: ela nao e uma janela, e mostra-la como
+    // "janela 6 de 5" seria pior que nao mostrar nada.
+    anuncia_janela(app, &meeting.id.to_string(), 0, windows.len() as u32);
 
     // O resumo final e a unica coisa que o modelo reescreve. Os ITENS vem das
     // janelas e nao passam por aqui — mandar itens ja validados de volta ao

@@ -14,6 +14,7 @@ import { hermes, type HermesConnectionState, type HermesFailure, type HermesStat
 import { HermesPage } from "./HermesPage";
 import { AppIcon } from "./AppIcon";
 import { Argos, useArgosPose, useArgosPresenca } from "./Argos";
+import { ProcessingBar } from "./ProcessingBar";
 import { cantoPara } from "./argosCorner";
 import { Button } from "./Button";
 import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel, StateMessage } from "./Surface";
@@ -3363,7 +3364,10 @@ function DesktopApp() {
 <RecordingBar
       onStopped={(meeting) => { setFocusedMeetingId(meeting.id); navigate("reunioes"); }}
       openMeeting={(id) => { setFocusedMeetingId(id); navigate("reunioes"); }}
-    />{/* A barra vive no shell, e nao numa pagina: navegar para a Home nao pode
+    />{/* A irma da barra de gravacao: uma para gravar, outra para processar. Mesmo
+    lugar, e pelo mesmo motivo — transcrever leva minutos em que a pessoa vai
+    estar noutra pagina. */}
+<ProcessingBar abrirReuniao={(id) => { setFocusedMeetingId(id); navigate("reunioes"); }} />{/* A barra vive no shell, e nao numa pagina: navegar para a Home nao pode
     apagar da vista o fato de que o microfone esta aberto (§17.2). */}
 <div className="system-state" aria-live="polite" data-busy={busy || undefined}>{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main>{/* O leque vive na coluna principal, e nao sobre o rail: ele e o gesto que
     o rail perdeu quando voltou a oito, e competir com a navegacao ao lado

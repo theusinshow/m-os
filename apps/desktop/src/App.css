@@ -8489,3 +8489,97 @@ input[type="checkbox"]:disabled {
   }
 }
 
+
+/* ---------------------------------------------------------------------------
+   A barra de processamento
+
+   Irma da `recording-bar`, e vizinha dela na tela. A diferenca de papel esta na
+   cor: gravar e um estado do MUNDO (o microfone esta aberto), processar e um
+   estado do TRABALHO. Por isso ela nao usa a tinta de sinal, que nesta casa
+   significa "algo espera voce".
+   --------------------------------------------------------------------------- */
+.processing-bar {
+  display: flex;
+  align-items: center;
+  /* `flex: none` pela mesma razao da barra de gravacao (§17.2): entre encolher o
+     Command, o meta da pagina ou a indicacao de que ha trabalho em curso, a
+     indicacao e a que nao cede. O teto de largura existe porque o detalhe do
+     estagio e texto, e texto cresce. */
+  flex: none;
+  max-width: 320px;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.processing-bar[data-erro] {
+  border-color: var(--border-strong);
+}
+
+.processing-corpo {
+  display: grid;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.processing-titulo {
+  font: var(--text-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A trilha tem altura de risco, e nao de barra: ela informa sem competir com o
+   texto que diz o que esta acontecendo. */
+.processing-trilha {
+  display: block;
+  height: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--border);
+  overflow: hidden;
+}
+
+.processing-preenchimento {
+  display: block;
+  height: 100%;
+  background: var(--text-secondary);
+  transition: width var(--dur-state) var(--ease-enter);
+}
+
+/* Indeterminado PULSA e nao anda: uma barra que anda sem medida promete um fim
+   que ninguem sabe calcular. */
+.processing-trilha[data-indeterminado] .processing-preenchimento {
+  width: 100%;
+  animation: processing-pulso 1.6s var(--ease-enter) infinite;
+}
+
+@keyframes processing-pulso {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 0.7; }
+}
+
+.processing-porcento {
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--text-system);
+  font-variant-numeric: tabular-nums;
+}
+
+.processing-fechar {
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--text-system);
+  font: var(--text-ui);
+  line-height: 1;
+  cursor: pointer;
+}
