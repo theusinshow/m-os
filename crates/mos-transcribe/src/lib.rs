@@ -51,6 +51,14 @@ pub struct WhisperConfig {
     /// Quantas threads. Zero deixa o binario decidir.
     #[serde(default)]
     pub threads: u32,
+    /// Caminho do modelo Silero, para o VAD.
+    ///
+    /// **Vazio significa VAD desligado, e nao erro.** Uma maquina que nao baixou
+    /// o Silero continua transcrevendo como antes — a mesma disciplina que o
+    /// `binary` e o `model` seguem, e a razao da D-7 do MEETING-AGENT: a escolha
+    /// de runtime e do usuario.
+    #[serde(default)]
+    pub vad_model: String,
 }
 
 impl WhisperConfig {
@@ -75,6 +83,67 @@ impl WhisperCliProvider {
     fn model(&self) -> PathBuf {
         PathBuf::from(self.config.model.trim())
     }
+}
+
+/// Limiar do VAD. **Medido, e nao herdado.**
+///
+/// No padrao 0.5 o VAD tratou um microfone de -44 dBFS como silencio e apagou
+/// uma conversa tecnica inteira. 0.25 com folga de 250 ms nas bordas recuperou o
+/// mesmo trecho.
+const VAD_LIMIAR: &str = "0.25";
+/// Folga nas bordas do trecho de fala, em ms. Sem ela o VAD corta a primeira
+/// silaba, que e onde mora a diferenca entre "laje" e "aje".
+const VAD_FOLGA_MS: &str = "250";
+
+/// A linha de comando inteira, como dado.
+///
+/// Funcao pura, e nao um `Command` montado no meio do `transcribe`, porque a
+/// escolha dos freios e a parte desta casa que MAIS precisa de teste — e um
+/// `Command` nao se inspeciona.
+pub fn args(
+    config: &WhisperConfig,
+    audio: &Path,
+    saida: &Path,
+    language: Option<&str>,
+) -> Vec<String> {
+    let mut lista: Vec<String> = vec![
+        "-m".into(),
+        config.model.trim().into(),
+        "-f".into(),
+        audio.display().to_string(),
+        // JSON, e nao o texto da tela: o texto perde os offsets, e sem offset
+        // nao existe evidencia clicavel.
+        "-oj".into(),
+        "-of".into(),
+        saida.display().to_string(),
+        // Sem impressao progressiva do TEXTO: ela seria descartada.
+        "-np".into(),
+        // Suprime token de nao-fala. E o freio que nao depende de arquivo
+        // nenhum, entao ele vale ate em maquina sem Silero.
+        "-sns".into(),
+    ];
+
+    if let Some(language) = language {
+        lista.push("-l".into());
+        lista.push(language.into());
+    }
+    if config.threads > 0 {
+        lista.push("-t".into());
+        lista.push(config.threads.to_string());
+    }
+
+    let vad = config.vad_model.trim();
+    if !vad.is_empty() {
+        lista.push("--vad".into());
+        lista.push("-vm".into());
+        lista.push(vad.into());
+        lista.push("-vt".into());
+        lista.push(VAD_LIMIAR.into());
+        lista.push("-vp".into());
+        lista.push(VAD_FOLGA_MS.into());
+    }
+
+    lista
 }
 
 impl TranscriptionProvider for WhisperCliProvider {
@@ -135,28 +204,10 @@ impl TranscriptionProvider for WhisperCliProvider {
         let saida = request.audio.with_extension("whisper");
         let mut command = Command::new(self.binary());
         command
-            .arg("-m")
-            .arg(self.model())
-            .arg("-f")
-            .arg(request.audio)
-            // JSON, e nao o texto da tela: o texto perde os offsets, e sem
-            // offset nao existe evidencia clicavel.
-            .arg("-oj")
-            .arg("-of")
-            .arg(&saida)
-            // Sem impressao progressiva no stdout: ela seria descartada, e o
-            // binario gasta tempo formatando o que ninguem le.
-            .arg("-np")
+            .args(args(&self.config, request.audio, &saida, request.language))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
-
-        if let Some(language) = request.language {
-            command.arg("-l").arg(language);
-        }
-        if self.config.threads > 0 {
-            command.arg("-t").arg(self.config.threads.to_string());
-        }
 
         let output = command
             .output()
@@ -351,6 +402,7 @@ mod tests {
             binary: binario.display().to_string(),
             model: dir.path().join("ggml.bin").display().to_string(),
             threads: 0,
+            ..Default::default()
         });
         let error = provider.ready().unwrap_err();
         assert!(
@@ -363,6 +415,7 @@ mod tests {
             binary: dir.path().join("nao-existe.exe").display().to_string(),
             model: dir.path().join("ggml.bin").display().to_string(),
             threads: 0,
+            ..Default::default()
         });
         let error = provider.ready().unwrap_err();
         assert!(
@@ -377,6 +430,7 @@ mod tests {
             binary: "whisper-cli.exe".into(),
             model: r"C:\modelos\ggml-large-v3-turbo-q5_0.bin".into(),
             threads: 0,
+            ..Default::default()
         });
         assert_eq!(provider.name(), "whisper.cpp · ggml-large-v3-turbo-q5_0");
     }
@@ -404,6 +458,7 @@ mod tests {
             binary: binario.display().to_string(),
             model: modelo.display().to_string(),
             threads: 0,
+            ..Default::default()
         });
         let segments = provider
             .transcribe(
@@ -416,5 +471,80 @@ mod tests {
             )
             .unwrap();
         assert!(segments.is_empty());
+    }
+
+    fn config_de_teste(vad: &str) -> WhisperConfig {
+        WhisperConfig {
+            binary: r"C:\w\whisper-cli.exe".into(),
+            model: r"C:\w\ggml-large-v3.bin".into(),
+            threads: 0,
+            vad_model: vad.into(),
+        }
+    }
+
+    #[test]
+    fn os_freios_entram_e_o_vad_traz_os_limiares_medidos() {
+        let saida = std::path::PathBuf::from(r"C:\tmp\mic.whisper");
+        let lista = args(
+            &config_de_teste(r"C:\w\ggml-silero-v5.1.2.bin"),
+            std::path::Path::new(r"C:\tmp\mic.wav"),
+            &saida,
+            Some("pt"),
+        );
+
+        // Suprimir token de nao-fala e o freio que nao depende de modelo nenhum.
+        assert!(lista.iter().any(|a| a == "-sns"));
+        assert!(lista.iter().any(|a| a == "--vad"));
+        assert!(lista.iter().any(|a| a == r"C:\w\ggml-silero-v5.1.2.bin"));
+
+        // 0.25 e 250 sao MEDIDOS: no padrao 0.5 o VAD apagou fala de verdade.
+        let vt = lista.iter().position(|a| a == "-vt").unwrap();
+        assert_eq!(lista[vt + 1], "0.25");
+        let vp = lista.iter().position(|a| a == "-vp").unwrap();
+        assert_eq!(lista[vp + 1], "250");
+
+        // O que ja existia continua: idioma declarado e JSON de saida.
+        let l = lista.iter().position(|a| a == "-l").unwrap();
+        assert_eq!(lista[l + 1], "pt");
+        assert!(lista.iter().any(|a| a == "-oj"));
+        assert!(lista.iter().any(|a| a == "-np"));
+
+        // E o que a medicao REPROVOU nao pode aparecer nunca.
+        assert!(!lista.iter().any(|a| a == "--prompt"));
+    }
+
+    #[test]
+    fn sem_modelo_de_vad_o_vad_simplesmente_nao_entra() {
+        let saida = std::path::PathBuf::from(r"C:\tmp\mic.whisper");
+        let lista = args(
+            &config_de_teste("   "),
+            std::path::Path::new(r"C:\tmp\mic.wav"),
+            &saida,
+            Some("pt"),
+        );
+        // Degrada, e nao quebra: quem nao baixou o Silero transcreve como antes.
+        assert!(!lista.iter().any(|a| a == "--vad"));
+        assert!(!lista.iter().any(|a| a == "-vm"));
+        // Mas o freio que nao depende de arquivo nenhum continua de pe.
+        assert!(lista.iter().any(|a| a == "-sns"));
+    }
+
+    #[test]
+    fn zero_threads_e_sem_idioma_deixam_o_binario_decidir() {
+        let saida = std::path::PathBuf::from(r"C:\tmp\mic.whisper");
+        let sem = args(
+            &config_de_teste(""),
+            std::path::Path::new(r"C:\tmp\mic.wav"),
+            &saida,
+            None,
+        );
+        assert!(!sem.iter().any(|a| a == "-t"));
+        assert!(!sem.iter().any(|a| a == "-l"));
+
+        let mut config = config_de_teste("");
+        config.threads = 8;
+        let com = args(&config, std::path::Path::new(r"C:\tmp\mic.wav"), &saida, None);
+        let t = com.iter().position(|a| a == "-t").unwrap();
+        assert_eq!(com[t + 1], "8");
     }
 }

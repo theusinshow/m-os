@@ -33,6 +33,9 @@ fn from_env() -> Option<(WhisperConfig, PathBuf)> {
                 .ok()
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(0),
+            // Por variavel, e nao `Default`, para que este teste consiga
+            // exercitar o caminho do VAD numa maquina que tenha o Silero.
+            vad_model: std::env::var("MOS_WHISPER_VAD").unwrap_or_default(),
         },
         PathBuf::from(wav),
     ))

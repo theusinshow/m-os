@@ -679,6 +679,7 @@ pub struct TranscriberStatus {
     pub name: String,
     pub binary: String,
     pub model: String,
+    pub vad_model: String,
     pub threads: u32,
 }
 
@@ -702,6 +703,7 @@ pub fn meeting_transcriber_status(app: AppHandle) -> TranscriberStatus {
         name: provider.name(),
         binary: config.binary,
         model: config.model,
+        vad_model: config.vad_model,
         threads: config.threads,
     }
 }
@@ -712,6 +714,7 @@ pub fn meeting_set_transcriber(
     binary: &str,
     model: &str,
     threads: u32,
+    vad_model: &str,
 ) -> Result<TranscriberStatus, CoreError> {
     {
         let state = app.state::<AppState>();
@@ -721,6 +724,7 @@ pub fn meeting_set_transcriber(
                 binary: binary.trim().to_owned(),
                 model: model.trim().to_owned(),
                 threads,
+                vad_model: vad_model.trim().to_owned(),
             },
         )?;
     }
