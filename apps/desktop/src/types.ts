@@ -311,6 +311,14 @@ export type ProjectTracking = {
   clientId: string | null;
   /** Meta de horas, em minutos. Zero significa "sem meta". */
   budgetMinutes: number;
+  /**
+   * Quando o Project foi pago. Vazio é o estado normal: não pago.
+   *
+   * Eixo próprio, e não um quinto `TrackingStatus`: o estado descreve o
+   * trabalho, isto descreve o dinheiro. "Concluído e não pago" é o estado que
+   * interessa cobrar, e colapsar os dois o tornaria inexprimível.
+   */
+  paidAt: string | null;
 };
 
 /** Quem paga pelo trabalho. Um Project pessoal simplesmente não tem. */

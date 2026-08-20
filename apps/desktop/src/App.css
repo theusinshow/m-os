@@ -8273,3 +8273,20 @@ input[type="checkbox"]:disabled {
 .tempo-form > .tempo-check-governa {
   flex: 1 1 100%;
 }
+
+/* O total ja pago, no rodape da tabela de Projetos.
+
+   Mesma forma do total a receber ao lado — valor forte, apoio embaixo — porem
+   em cor secundaria: dinheiro que ja entrou nao disputa atencao com dinheiro
+   que ainda esta na rua. */
+.tempo-paid-total {
+  display: block;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.tempo-paid-total strong {
+  display: block;
+  font: var(--text-ui);
+  font-variant-numeric: tabular-nums;
+}

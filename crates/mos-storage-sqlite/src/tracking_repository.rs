@@ -275,13 +275,13 @@ impl TimeTrackingRepository for SqliteStorage {
         connection
             .execute(
                 "INSERT INTO project_tracking (project_id, hourly_rate_cents, code, color, \
-                 tracking_status, client_id, budget_minutes, created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8) \
+                 tracking_status, client_id, budget_minutes, paid_at, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9) \
                  ON CONFLICT (project_id) DO UPDATE SET \
                  hourly_rate_cents = excluded.hourly_rate_cents, code = excluded.code, \
                  color = excluded.color, tracking_status = excluded.tracking_status, \
                  client_id = excluded.client_id, budget_minutes = excluded.budget_minutes, \
-                 updated_at = excluded.updated_at",
+                 paid_at = excluded.paid_at, updated_at = excluded.updated_at",
                 params![
                     tracking.project_id.to_string(),
                     tracking.hourly_rate_cents,
@@ -290,6 +290,7 @@ impl TimeTrackingRepository for SqliteStorage {
                     tracking.tracking_status.as_str(),
                     tracking.client_id.map(|id| id.to_string()),
                     tracking.budget_minutes,
+                    tracking.paid_at,
                     now,
                 ],
             )
@@ -302,7 +303,7 @@ impl TimeTrackingRepository for SqliteStorage {
         let mut statement = connection
             .prepare(
                 "SELECT project_id, hourly_rate_cents, code, color, tracking_status, client_id, \
-                 budget_minutes FROM project_tracking",
+                 budget_minutes, paid_at FROM project_tracking",
             )
             .map_err(map_sql_error)?;
         let rows = statement
@@ -315,13 +316,14 @@ impl TimeTrackingRepository for SqliteStorage {
                     row.get::<_, String>(4)?,
                     row.get::<_, Option<String>>(5)?,
                     row.get::<_, i64>(6)?,
+                    row.get::<_, Option<String>>(7)?,
                 ))
             })
             .map_err(map_sql_error)?;
 
         let mut tracking = Vec::new();
         for row in rows {
-            let (project_id, hourly_rate_cents, code, color, status, client, budget) =
+            let (project_id, hourly_rate_cents, code, color, status, client, budget, paid_at) =
                 row.map_err(map_sql_error)?;
             tracking.push(ProjectTracking {
                 project_id: ProjectId::parse(&project_id)?,
@@ -331,6 +333,7 @@ impl TimeTrackingRepository for SqliteStorage {
                 tracking_status: TrackingStatus::parse(&status)?,
                 client_id: client.as_deref().map(ClientId::parse).transpose()?,
                 budget_minutes: budget,
+                paid_at,
             });
         }
         Ok(tracking)
@@ -903,6 +906,7 @@ mod tests {
             tracking_status: TrackingStatus::Active,
             client_id: None,
             budget_minutes: 0,
+            paid_at: None,
         };
         storage.set_project_tracking(first.clone()).unwrap();
         let born: String = {
@@ -1009,6 +1013,7 @@ mod tests {
                 tracking_status: TrackingStatus::Active,
                 client_id: None,
                 budget_minutes: 0,
+                paid_at: None,
             })
             .unwrap();
         storage.start_timer(start(id)).unwrap();

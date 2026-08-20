@@ -25,7 +25,7 @@ use serde::Serialize;
 
 pub use cronocad_import::ImportReport;
 
-const SCHEMA_VERSION: u32 = 25;
+const SCHEMA_VERSION: u32 = 26;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -62,6 +62,7 @@ const MIGRATION_024: &str = include_str!("../migrations/0024_meeting_detection.s
 // distinguido do 22 de notas de reuniao, e a saida seria uma migration de
 // conserto em vez de uma renumeracao.
 const MIGRATION_025: &str = include_str!("../migrations/0025_voice.sql");
+const MIGRATION_026: &str = include_str!("../migrations/0026_project_paid.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -315,6 +316,11 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
     if current <= 24 {
         connection
             .execute_batch(MIGRATION_025)
+            .map_err(map_sql_error)?;
+    }
+    if current <= 25 {
+        connection
+            .execute_batch(MIGRATION_026)
             .map_err(map_sql_error)?;
     }
     if current < SCHEMA_VERSION {

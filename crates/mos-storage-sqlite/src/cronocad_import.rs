@@ -137,6 +137,9 @@ impl SqliteStorage {
                     .map(mos_core::ClientId::parse)
                     .transpose()?,
                 budget_minutes: budget,
+                // O CronoCAD nao tem o conceito: tudo entra como nao pago, e
+                // marcar e trabalho de quem sabe o que ja recebeu.
+                paid_at: None,
             })?;
 
             if lifecycle != LifecycleState::Active {

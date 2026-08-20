@@ -20,7 +20,7 @@ import {
   type Draft,
 } from "./TempoShared";
 import { Timer } from "./Timer";
-import type { Project, TimeEntry, Totals } from "./types";
+import type { Project, ProjectTracking, TimeEntry, Totals } from "./types";
 
 /**
  * As telas do Tempo.
@@ -61,6 +61,7 @@ export function TempoPage({ projects, openProject, receipt }: {
   receipt?: (action: { message: string; run: () => Promise<unknown> }) => void;
 }) {
   const [view, setView] = useState<View>("painel");
+  const [tracking, setTracking] = useState<Record<string, ProjectTracking>>({});
   const [totals, setTotals] = useState<Record<string, Totals>>({});
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [note, setNote] = useState("");
@@ -82,12 +83,17 @@ export function TempoPage({ projects, openProject, receipt }: {
   const [importNote, setImportNote] = useState("");
 
   const load = useCallback(async () => {
-    const [nextTotals, nextEntries] = await Promise.all([
+    /* O tracking entra aqui por causa do `paidAt`: sem ele o Painel nao sabe
+       separar o que ja entrou do que ainda esta na rua, e o numero grande volta
+       a somar as duas coisas. */
+    const [nextTotals, nextEntries, nextTracking] = await Promise.all([
       api.trackingTotals().catch(() => ({}) as Record<string, Totals>),
       api.trackingEntries().catch(() => [] as TimeEntry[]),
+      api.projectTracking().catch(() => [] as ProjectTracking[]),
     ]);
     setTotals(nextTotals);
     setEntries(nextEntries);
+    setTracking(Object.fromEntries(nextTracking.map((item) => [item.projectId, item])));
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -173,8 +179,20 @@ export function TempoPage({ projects, openProject, receipt }: {
     .filter(([, total]) => total.grossSeconds >= 60)
     .sort(([, left], [, right]) => right.grossSeconds - left.grossSeconds);
 
+  /* Duas colunas de dinheiro, e nao uma soma.
+   *
+   * "Acumulado R$ 780,00" somava o que ja foi pago com o que ainda nao — um
+   * numero que nao responde nem "quanto rendeu" nem "quanto me devem". O
+   * segundo e o que se olha num painel. */
   const trackedTotal = ranked.reduce((sum, [, total]) => sum + total.grossSeconds, 0);
-  const billedTotal = ranked.reduce((sum, [, total]) => sum + total.amountCents, 0);
+  const aReceber = ranked.reduce(
+    (sum, [id, total]) => (tracking[id]?.paidAt ? sum : sum + total.amountCents),
+    0,
+  );
+  const jaPago = ranked.reduce(
+    (sum, [id, total]) => (tracking[id]?.paidAt ? sum + total.amountCents : sum),
+    0,
+  );
 
   // Horas de hoje, em dia LOCAL. `toDateString` compara ano, mês e dia sem
   // passar por fuso — que é o que estraga a comparação depois das 21h.
@@ -278,7 +296,10 @@ export function TempoPage({ projects, openProject, receipt }: {
             <Card>
               <div className="tempo-stat-column">
                 <Stat label="TRABALHADO HOJE" value={durationOf(todaySeconds)} />
-                <Stat label="ACUMULADO" value={hoursOf(trackedTotal)} hint={moneyOf(billedTotal)} />
+                <Stat label="A RECEBER" value={moneyOf(aReceber)} hint={`${hoursOf(trackedTotal)} rastreadas`} />
+                {/* So aparece quando ha: um "R$ 0,00 pago" fixo ocuparia a
+                    coluna todo dia para dizer nada. */}
+                {jaPago ? <Stat label="JÁ PAGO" value={moneyOf(jaPago)} /> : null}
                 <Stat label="SESSÕES REGISTRADAS" value={String(entries.length)} />
                 {/* "Projects" e o vocabulario do M/OS, e ele fica: renomear para
                     "Projetos" so aqui criaria dois nomes para a mesma entidade

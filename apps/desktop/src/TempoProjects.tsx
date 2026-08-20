@@ -24,6 +24,7 @@ function emptyTracking(projectId: string): ProjectTracking {
     trackingStatus: "active",
     clientId: null,
     budgetMinutes: 0,
+    paidAt: null,
   };
 }
 
@@ -107,13 +108,25 @@ export function TempoProjects({ projects, totals, openProject, openClients }: {
       project.name.toLowerCase().includes(term) || billing.code.toLowerCase().includes(term));
   }, [projects, tracking, totals, query]);
 
+  /* Duas somas, e nao uma.
+   *
+   * O rodape dizia "R$ 780,00" misturando o que ja entrou com o que ainda nao.
+   * Um numero que soma dinheiro recebido com dinheiro a receber nao responde
+   * nenhuma das duas perguntas — e a que importa e a segunda. */
   const sum = listed.reduce(
     (acc, row) => {
-      acc.billable += row.total?.billableSeconds ?? 0;
-      acc.cents += row.total?.amountCents ?? 0;
+      const cents = row.total?.amountCents ?? 0;
+      const billable = row.total?.billableSeconds ?? 0;
+      if (row.billing.paidAt) {
+        acc.paidCents += cents;
+        acc.paidBillable += billable;
+      } else {
+        acc.cents += cents;
+        acc.billable += billable;
+      }
       return acc;
     },
-    { billable: 0, cents: 0 },
+    { billable: 0, cents: 0, paidBillable: 0, paidCents: 0 },
   );
 
   const clientName = (id: string | null) => clients.find((client) => client.id === id)?.name ?? "";
@@ -198,7 +211,14 @@ export function TempoProjects({ projects, totals, openProject, openClients }: {
                   <td>{billing.hourlyRateCents ? `${moneyOf(billing.hourlyRateCents)}/h` : "—"}</td>
                   <td>
                     <strong>{moneyOf(total?.amountCents ?? 0)}</strong>
-                    <small>{hoursOf(total?.billableSeconds ?? 0)} cobráveis</small>
+                    {/* "pago em 14/07" no lugar de "cobraveis": a linha ja mostra
+                        o valor, e o que muda com o pagamento nao e quanto — e se
+                        ainda esta na rua. */}
+                    <small>
+                      {billing.paidAt
+                        ? `pago em ${new Date(billing.paidAt).toLocaleDateString("pt-BR")}`
+                        : `${hoursOf(total?.billableSeconds ?? 0)} cobráveis`}
+                    </small>
                   </td>
                   <td>
                     <Button variant="ghost" size="sm" onClick={() => openEdit(billing, project.name)}>Cobrança</Button>
@@ -213,9 +233,18 @@ export function TempoProjects({ projects, totals, openProject, openClients }: {
                 </th>
                 <td>
                   <strong>{moneyOf(sum.cents)}</strong>
-                  <small>{hoursOf(sum.billable)} cobráveis</small>
+                  <small>{hoursOf(sum.billable)} a receber</small>
                 </td>
-                <td />
+                <td>
+                  {/* So aparece quando ha o que mostrar: um "R$ 0,00 pago" fixo
+                      ocuparia a coluna todo dia para dizer nada. */}
+                  {sum.paidCents ? (
+                    <span className="tempo-paid-total">
+                      <strong>{moneyOf(sum.paidCents)}</strong>
+                      <small>{hoursOf(sum.paidBillable)} já pagos</small>
+                    </span>
+                  ) : null}
+                </td>
               </tr>
             </tfoot>
           </table>
@@ -289,6 +318,21 @@ export function TempoProjects({ projects, totals, openProject, openClients }: {
                 })}
               />
             </div>
+            {/* Governa a coluna "a receber" da tabela e os dois numeros do
+                Painel, entao vem com a data do dia — quem marca sabe QUE pagou,
+                e a data e o que responde "quando" tres meses depois sem obrigar
+                ninguem a digita-la. */}
+            <label className="tempo-check tempo-check-governa">
+              <input
+                type="checkbox"
+                checked={Boolean(editing.paidAt)}
+                onChange={(event) => setEditing({
+                  ...editing,
+                  paidAt: event.currentTarget.checked ? new Date().toISOString() : null,
+                })}
+              />
+              Já pago{editing.paidAt ? ` · ${new Date(editing.paidAt).toLocaleDateString("pt-BR")}` : ""}
+            </label>
             <div className="tempo-field">
               <label htmlFor="billing-status">Estado</label>
               <select

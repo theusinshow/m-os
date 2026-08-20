@@ -324,6 +324,13 @@ pub struct ProjectTracking {
     /// Meta de horas, em minutos. Zero significa "sem meta".
     #[serde(default)]
     pub budget_minutes: i64,
+    /// Quando o Project foi pago. `None` e o estado normal: nao pago.
+    ///
+    /// Eixo proprio, e nao um quinto `TrackingStatus`: o estado descreve o
+    /// trabalho, isto descreve o dinheiro. Concluido-e-nao-pago e o estado que
+    /// interessa cobrar, e colapsar os dois o tornaria inexprimivel.
+    #[serde(default)]
+    pub paid_at: Option<String>,
 }
 
 /// O cronômetro em curso. No máximo um existe, e o banco garante isso.
