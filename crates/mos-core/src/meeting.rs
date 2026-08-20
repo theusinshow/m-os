@@ -1061,6 +1061,61 @@ pub fn is_speech(text: &str) -> bool {
     trimmed.chars().any(char::is_alphanumeric)
 }
 
+/// A partir de quantas repeticoes seguidas deixa de ser fala.
+///
+/// **Tres, e nao duas.** "Uhum, uhum" numa ligacao e resposta de gente; vinte e
+/// quatro "Tchau" seguidos e o decodificador girando no silencio depois de a
+/// ligacao ja ter acabado. Duas e o limite do que uma pessoa faz sem querer.
+const REPETICOES_ATE_VIRAR_LACO: usize = 3;
+
+/// Duas falas sao a mesma para efeito de laco.
+///
+/// Ignora caixa e espaco em volta porque o decodificador varia os dois no meio
+/// do proprio laco — "Beleza." e " beleza. " sao a mesma volta da roda.
+fn mesma_fala(a: &str, b: &str) -> bool {
+    a.trim().to_lowercase() == b.trim().to_lowercase()
+}
+
+/// Junta laco de repeticao num segmento so.
+///
+/// Existe porque NENHUMA configuracao do whisper matou o laco: as onze rodadas
+/// que originaram esta regra deixaram de 3 a 10 repeticoes, com e sem VAD, com e
+/// sem supressao de nao-fala. Sobrando no provider, a regra tem que estar aqui —
+/// no dominio, junto do `is_speech`, para nao depender de quem escreveu o
+/// adapter.
+///
+/// O segmento que sobra cobre o intervalo INTEIRO do laco: um salto na
+/// transcricao precisa pousar no trecho que a evidencia aponta.
+fn colapsar_lacos(segments: Vec<RawSegment>) -> Vec<RawSegment> {
+    fn descarregar(grupo: &mut Vec<RawSegment>, fora: &mut Vec<RawSegment>) {
+        if grupo.len() >= REPETICOES_ATE_VIRAR_LACO {
+            let fim = grupo.iter().map(|s| s.end_ms).max().unwrap_or_default();
+            let mut primeiro = grupo.remove(0);
+            primeiro.end_ms = fim;
+            fora.push(primeiro);
+            grupo.clear();
+        } else {
+            fora.append(grupo);
+        }
+    }
+
+    let mut fora: Vec<RawSegment> = Vec::with_capacity(segments.len());
+    let mut grupo: Vec<RawSegment> = Vec::new();
+
+    for segmento in segments {
+        let continua = grupo
+            .last()
+            .is_some_and(|anterior| mesma_fala(&anterior.text, &segmento.text));
+        if !continua {
+            descarregar(&mut grupo, &mut fora);
+        }
+        grupo.push(segmento);
+    }
+    descarregar(&mut grupo, &mut fora);
+
+    fora
+}
+
 /// Prepara os segmentos crus de um canal para virarem transcricao.
 ///
 /// Descarta o que nao e fala, junta o que ficou colado e ordena. Roda no
@@ -1078,7 +1133,9 @@ pub fn clean_segments(mut segments: Vec<RawSegment>) -> Vec<RawSegment> {
             segment.end_ms = segment.start_ms;
         }
     }
-    segments
+    // O colapso vem DEPOIS da ordenacao: laco e fenomeno de vizinhanca, e
+    // vizinhanca so existe depois de ordenar.
+    colapsar_lacos(segments)
 }
 
 /// O que o usuario confirmou ao aceitar um item de reuniao.
@@ -1668,5 +1725,63 @@ mod tests {
                 outcome
             );
         }
+    }
+
+    fn seg(inicio: i64, fim: i64, texto: &str) -> RawSegment {
+        RawSegment {
+            start_ms: inicio,
+            end_ms: fim,
+            text: texto.into(),
+            confidence: None,
+        }
+    }
+
+    #[test]
+    fn laco_tres_repeticoes_viram_uma() {
+        // O laco real da reuniao de 20/08: 24 "Tchau" seguidos no rabo mudo.
+        let limpos = clean_segments(vec![
+            seg(0, 1000, "Bom dia"),
+            seg(1000, 2000, "Tchau."),
+            seg(2000, 3000, "Tchau."),
+            seg(3000, 4000, "Tchau."),
+            seg(4000, 5000, "Ate mais"),
+        ]);
+        let textos: Vec<&str> = limpos.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(textos, vec!["Bom dia", "Tchau.", "Ate mais"]);
+
+        // O colapsado cobre o intervalo INTEIRO do laco: do inicio do primeiro
+        // ao fim do ultimo. Um salto na transcricao tem que pousar no trecho.
+        assert_eq!(limpos[1].start_ms, 1000);
+        assert_eq!(limpos[1].end_ms, 4000);
+    }
+
+    #[test]
+    fn laco_duas_repeticoes_sao_fala() {
+        // "Uhum, uhum" numa ligacao acontece. Vinte e quatro "Tchau", nao.
+        let limpos = clean_segments(vec![seg(0, 500, "Uhum."), seg(500, 1000, "Uhum.")]);
+        assert_eq!(limpos.len(), 2);
+    }
+
+    #[test]
+    fn laco_so_junta_o_que_e_consecutivo() {
+        let limpos = clean_segments(vec![
+            seg(0, 100, "Sim."),
+            seg(100, 200, "Sim."),
+            seg(200, 300, "E ai?"),
+            seg(300, 400, "Sim."),
+        ]);
+        assert_eq!(limpos.len(), 4);
+    }
+
+    #[test]
+    fn laco_ignora_caixa_e_espaco_em_volta() {
+        let limpos = clean_segments(vec![
+            seg(0, 100, "Beleza."),
+            seg(100, 200, " beleza. "),
+            seg(200, 300, "BELEZA."),
+        ]);
+        assert_eq!(limpos.len(), 1);
+        assert_eq!(limpos[0].text, "Beleza.");
+        assert_eq!(limpos[0].end_ms, 300);
     }
 }
