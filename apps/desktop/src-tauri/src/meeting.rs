@@ -834,7 +834,10 @@ fn transcribe_channels(app: &AppHandle, id: &str) -> Result<Vec<TranscriptSegmen
     .enumerate()
     {
         let wav = work.join(format!("{}.wav", audio_channel.folder()));
-        let frames = mos_audio::export_channel(&root, audio_channel, &wav)
+        // Normalizado, e nao cru: o microfone desta casa grava a -44 dBFS, e o
+        // whisper responde a audio baixo entrando em laco de repeticao. O ganho
+        // vive so neste WAV temporario; os chunks no disco seguem intocados.
+        let (frames, _ganho) = mos_audio::export_channel_normalized(&root, audio_channel, &wav)
             .map_err(|error| error.to_string())?;
         if frames == 0 {
             // Canal sem audio nao e falha: um dos dois pode ter caido, e o outro

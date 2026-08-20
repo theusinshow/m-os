@@ -579,7 +579,9 @@ fn transcribe(app: &AppHandle, note_id: &str) -> Result<String, String> {
     let work = std::env::temp_dir().join(format!("mos-voice-{}", note.id));
     std::fs::create_dir_all(&work).map_err(|error| error.to_string())?;
     let wav = work.join("mic.wav");
-    let frames = mos_audio::export_channel(&root, mos_audio::Channel::Mic, &wav)
+    // Nota de voz e o MESMO microfone baixo da reuniao, e merece o mesmo ganho.
+    let (frames, _ganho) =
+        mos_audio::export_channel_normalized(&root, mos_audio::Channel::Mic, &wav)
         .map_err(|error| error.to_string())?;
     if frames == 0 {
         let _ = std::fs::remove_dir_all(&work);

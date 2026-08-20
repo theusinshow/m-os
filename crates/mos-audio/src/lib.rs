@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 
 pub use chunks::{recover, Format, Recovered, CHUNK_MS};
 pub use session::{Channel, ChannelInfo, SessionDir, SessionFile, Timing};
-pub use wav::export_channel;
+pub use wav::{export_channel, export_channel_normalized};
 
 /// O que pode dar errado na captura.
 ///

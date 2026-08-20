@@ -103,6 +103,53 @@ pub fn export_channel(
     Ok(data_bytes / frame as u64)
 }
 
+/// O mesmo canal, com o nivel corrigido para o transcritor.
+///
+/// **Duas passadas, e nao uma.** O ganho depende do RMS do canal INTEIRO, e o
+/// RMS so existe depois de ler tudo — comecar a amplificar no primeiro chunk
+/// seria escolher o ganho pelos primeiros dez segundos.
+///
+/// A primeira passada e o `export_channel` que ja existe, com seus testes. A
+/// segunda reescreve as amostras, e so acontece quando ha ganho a aplicar.
+///
+/// Devolve os frames e o ganho aplicado; `1.0` significa arquivo intocado.
+pub fn export_channel_normalized(
+    session_root: &Path,
+    channel: Channel,
+    destination: &Path,
+) -> Result<(u64, f32), AudioError> {
+    let frames = export_channel(session_root, channel, destination)?;
+    if frames == 0 {
+        return Ok((0, 1.0));
+    }
+
+    let mut bytes = fs::read(destination).map_err(|error| storage(destination, error))?;
+    let dados = &mut bytes[HEADER_BYTES as usize..];
+    let total = dados.len() / 2;
+    if total == 0 {
+        return Ok((frames, 1.0));
+    }
+
+    let mut soma = 0f64;
+    for par in dados.chunks_exact(2) {
+        let amostra = i16::from_le_bytes([par[0], par[1]]) as f64;
+        soma += amostra * amostra;
+    }
+    let rms = (soma / total as f64).sqrt() as f32;
+
+    let ganho = ganho_para(rms);
+    if ganho == 1.0 {
+        return Ok((frames, 1.0));
+    }
+
+    for par in dados.chunks_exact_mut(2) {
+        let amostra = i16::from_le_bytes([par[0], par[1]]);
+        par.copy_from_slice(&com_ganho(amostra, ganho).to_le_bytes());
+    }
+    fs::write(destination, &bytes).map_err(|error| storage(destination, error))?;
+    Ok((frames, ganho))
+}
+
 /// O cabecalho RIFF/WAVE de 44 bytes, para PCM inteiro.
 fn header(format: Format, data_bytes: u64) -> [u8; HEADER_BYTES as usize] {
     let channels = format.channels;
@@ -129,6 +176,41 @@ fn header(format: Format, data_bytes: u64) -> [u8; HEADER_BYTES as usize] {
     out[36..40].copy_from_slice(b"data");
     out[40..44].copy_from_slice(&data.to_le_bytes());
     out
+}
+
+/// O maior valor de um i16, como f32. E o teto do joelho suave.
+const LIMITE: f32 = 32_767.0;
+/// Abaixo disto o canal e baixo demais para o transcritor. -32 dBFS.
+const PISO_RMS: f32 = 823.2;
+/// Para onde o ganho mira. -25 dBFS.
+const ALVO_RMS: f32 = 1842.6;
+/// Teto de 20 dB. Um canal quase mudo nao vira um canal de chiado amplificado.
+const GANHO_MAXIMO: f32 = 10.0;
+
+/// Quanto amplificar um canal com este RMS.
+///
+/// **Adaptativo, e nao fixo.** Na reuniao que originou esta regra o microfone
+/// estava em -44 dBFS e o audio do sistema em -22 dBFS. Ganho fixo estragaria o
+/// segundo para salvar o primeiro; o piso existe para que quem ja esta bom passe
+/// intocado.
+pub fn ganho_para(rms: f32) -> f32 {
+    if rms <= 0.0 || rms >= PISO_RMS {
+        return 1.0;
+    }
+    (ALVO_RMS / rms).min(GANHO_MAXIMO)
+}
+
+/// Aplica o ganho com joelho suave.
+///
+/// `tanh` e nao corte: cortar um pico gera harmonico que o mel do whisper le
+/// como consoante que ninguem falou. A curva comprime o pico e deixa a fala
+/// baixa — que e o que interessa — crescer quase linearmente.
+pub fn com_ganho(amostra: i16, ganho: f32) -> i16 {
+    if ganho == 1.0 {
+        return amostra;
+    }
+    let ampliada = amostra as f32 * ganho;
+    (LIMITE * (ampliada / LIMITE).tanh()).round() as i16
 }
 
 fn storage(path: &Path, error: std::io::Error) -> AudioError {
@@ -262,5 +344,104 @@ mod tests {
             8_000,
             "o cabecalho precisa dizer a taxa real, nao a padrao"
         );
+    }
+
+    #[test]
+    fn ganho_o_canal_baixo_sobe_e_o_alto_passa_intocado() {
+        // O mic da reuniao medida: -44 dBFS.
+        assert!((ganho_para(206.0) - 8.94).abs() < 0.05);
+        // O canal do sistema da mesma reuniao: -22 dBFS. Acima do piso.
+        assert_eq!(ganho_para(2500.0), 1.0);
+        // Exatamente no piso nao mexe: o piso e o limite de quem ja esta bom.
+        assert_eq!(ganho_para(823.2), 1.0);
+        // Um canal quase mudo nao vira chiado amplificado: o teto e 20 dB.
+        assert_eq!(ganho_para(1.0), 10.0);
+        // Silencio absoluto nao divide por zero.
+        assert_eq!(ganho_para(0.0), 1.0);
+    }
+
+    #[test]
+    fn ganho_o_joelho_suave_nao_estoura_o_inteiro() {
+        // Sem ganho, a amostra atravessa igual.
+        assert_eq!(com_ganho(1234, 1.0), 1234);
+        // Um pico que multiplicado passaria de i16 e curvado, e nao cortado.
+        let alto = com_ganho(20_000, 8.94);
+        assert!(alto < 32_767, "deveria curvar antes do teto, veio {alto}");
+        assert!(alto > 25_000, "curvou cedo demais, veio {alto}");
+        // A curva preserva o sinal.
+        assert_eq!(com_ganho(-20_000, 8.94), -alto);
+        // Fala baixa cresce quase linearmente: e o ponto do ganho.
+        assert!((com_ganho(500, 8.94) as f32 - 4470.0).abs() < 60.0);
+    }
+
+    /// Um segundo de senoide com a amplitude pedida, em chunks de 100 ms.
+    fn grava_onda(session: &SessionDir, channel: Channel, amplitude: f32) {
+        let mut bytes = Vec::new();
+        for i in 0..16_000i32 {
+            let amostra = ((i as f32 * 0.05).sin() * amplitude) as i16;
+            bytes.extend_from_slice(&amostra.to_le_bytes());
+        }
+        let mut writer =
+            ChunkWriter::create(&session.channel(channel), Format::CAPTURE, 100).unwrap();
+        writer.write(&bytes).unwrap();
+        writer.finish().unwrap();
+    }
+
+    fn pico(bytes: &[u8]) -> u16 {
+        bytes
+            .chunks_exact(2)
+            .map(|par| i16::from_le_bytes([par[0], par[1]]).unsigned_abs())
+            .max()
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn normalizado_levanta_o_canal_baixo_e_nao_toca_nos_chunks() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = sessao(&dir.path().join("0199"));
+        grava_onda(&session, Channel::Mic, 300.0);
+
+        let destino = dir.path().join("saida/mic.wav");
+        let (frames, ganho) =
+            export_channel_normalized(session.path(), Channel::Mic, &destino).unwrap();
+
+        assert_eq!(frames, 16_000);
+        assert!(ganho > 1.0, "canal baixo deveria receber ganho, veio {ganho}");
+
+        let bytes = fs::read(&destino).unwrap();
+        assert_eq!(bytes.len(), 44 + 32_000);
+        assert!(pico(&bytes[44..]) > 1_500, "o ganho nao chegou no arquivo");
+
+        // E os chunks no disco continuam sendo o que o microfone captou.
+        let chunk = fs::read_dir(session.channel(Channel::Mic))
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entrada| entrada.path())
+            .find(|caminho| caminho.extension().is_some_and(|ext| ext == "pcm"))
+            .unwrap();
+        assert!(pico(&fs::read(chunk).unwrap()) <= 301, "o chunk foi alterado");
+    }
+
+    #[test]
+    fn normalizado_nao_mexe_num_canal_que_ja_esta_alto() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = sessao(&dir.path().join("0200"));
+        grava_onda(&session, Channel::System, 8_000.0);
+
+        let destino = dir.path().join("saida/system.wav");
+        let (_, ganho) =
+            export_channel_normalized(session.path(), Channel::System, &destino).unwrap();
+        assert_eq!(ganho, 1.0);
+    }
+
+    #[test]
+    fn normalizado_nao_quebra_com_canal_vazio() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = sessao(&dir.path().join("0201"));
+        let destino = dir.path().join("saida/mic.wav");
+        let (frames, ganho) =
+            export_channel_normalized(session.path(), Channel::Mic, &destino).unwrap();
+        assert_eq!(frames, 0);
+        assert_eq!(ganho, 1.0);
     }
 }
