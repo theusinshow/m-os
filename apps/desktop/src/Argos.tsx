@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
-import { BODY, type ArgosPose, type ArgosSignals, eyesFor, poseFor, weightFor } from "./argosPose";
+import { BODY, type ArgosPose, type ArgosSignals, eyesFor, poseFor, rotuloPara, weightFor } from "./argosPose";
+import type { ArgosCanto } from "./argosCorner";
+import { criarCena, type ArgosScene } from "./argosScene";
 import { hermes } from "./hermes";
 
 /**
@@ -55,17 +57,15 @@ export function useArgosPose({ busy, boot }: { busy: boolean; boot: "loading" | 
 }
 
 /**
- * Argos — a face do estado do M/OS (ADR-041).
+ * O piso.
  *
- * Puramente apresentacional: recebe a pose e desenha. Quem decide a pose é o
- * `useArgosPose`, e quem decide a geometria é o `argosPose.ts`.
+ * Este era o Argos inteiro até a ADR-048. Ele não foi apagado porque o M/OS roda
+ * em WebView2 sobre máquinas que nem sempre têm WebGL — driver velho, VM, sessão
+ * remota. Um retângulo preto no canto seria pior que não ter bicho.
  *
- * `aria-hidden` de propósito: os mesmos fatos já são anunciados em texto pelo
- * estado de sistema ao lado e pela página do Hermes. Argos é redundante por
- * construção, e é isso que o torna seguro de esconder — um leitor de tela não
- * deve ouvir a mesma coisa duas vezes.
+ * `aria-hidden` continua: quem fala agora é o botão que o envolve.
  */
-export function Argos({ pose }: { pose: ArgosPose }) {
+function ArgosSvg({ pose }: { pose: ArgosPose }) {
   const { left, right } = eyesFor(pose);
 
   return (
@@ -99,5 +99,111 @@ export function Argos({ pose }: { pose: ArgosPose }) {
         />
       ))}
     </svg>
+  );
+}
+
+/** Onde o corpo desenha, em px. A ADR-048 fixou 72. */
+const CORPO = 72;
+
+/**
+ * Argos, a face do estado (ADR-041, revisada pela ADR-048).
+ *
+ * A casca não desenha: ela monta o canvas, empurra pose e ponteiro para a cena,
+ * e a pausa quando ninguém está olhando. Quem decide a pose é `useArgosPose`;
+ * quem decide o canto é `argosCorner.ts`; quem desenha é `argosScene.ts`.
+ */
+export function Argos({
+  pose,
+  canto,
+  onAbrir,
+}: {
+  pose: ArgosPose;
+  canto: ArgosCanto;
+  onAbrir: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cenaRef = useRef<ArgosScene | null>(null);
+  const [semWebGL, setSemWebGL] = useState(false);
+  const oculto = canto === "oculto";
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || oculto) return;
+    let vivo = true;
+    const reduzido = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    void criarCena(canvas, reduzido)
+      .then((cena) => {
+        // `vivo` cobre o desmonte durante o `await` do import dinâmico: sem ele,
+        // uma cena órfã continuaria segurando o contexto WebGL.
+        if (!vivo || !cena) { cena?.dispose(); if (!cena) setSemWebGL(true); return; }
+        cenaRef.current = cena;
+        cena.setPose(pose);
+        cena.resume();
+      })
+      .catch(() => setSemWebGL(true));
+
+    return () => { vivo = false; cenaRef.current?.dispose(); cenaRef.current = null; };
+  }, [oculto]);
+
+  useEffect(() => { cenaRef.current?.setPose(pose); }, [pose]);
+
+  /* A cor vem do token, e não de um literal: o design system continua sendo a
+     fonte, e a troca de tema tem de alcançar o bicho. */
+  useEffect(() => {
+    const aplicar = () => {
+      const estilo = getComputedStyle(document.documentElement);
+      const peso = weightFor(pose);
+      const corpo = peso === "chamando" ? "--signal-ink" : peso === "atento" ? "--text" : "--text-system";
+      cenaRef.current?.setCores(estilo.getPropertyValue(corpo).trim(), estilo.getPropertyValue("--canvas").trim());
+    };
+    aplicar();
+    const observador = new MutationObserver(aplicar);
+    observador.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observador.disconnect();
+  }, [pose]);
+
+  /* O olhar. Coalescido por rAF porque `mousemove` dispara muito mais que o
+     quadro, e empurrar uniform a cada evento seria trabalho jogado fora. */
+  useEffect(() => {
+    if (oculto) return;
+    let pendente = 0;
+    const mover = (evento: MouseEvent) => {
+      if (pendente) return;
+      pendente = requestAnimationFrame(() => {
+        pendente = 0;
+        const x = (evento.clientX / window.innerWidth) * 2 - 1;
+        const y = (evento.clientY / window.innerHeight) * 2 - 1;
+        cenaRef.current?.setPointer(x, y);
+      });
+    };
+    window.addEventListener("mousemove", mover);
+    return () => { window.removeEventListener("mousemove", mover); cancelAnimationFrame(pendente); };
+  }, [oculto]);
+
+  /* A conta de bateria da ADR-048: janela escondida não desenha. */
+  useEffect(() => {
+    const acompanhar = () => {
+      if (document.hidden || !document.hasFocus()) cenaRef.current?.pause();
+      else cenaRef.current?.resume();
+    };
+    document.addEventListener("visibilitychange", acompanhar);
+    window.addEventListener("focus", acompanhar);
+    window.addEventListener("blur", acompanhar);
+    return () => {
+      document.removeEventListener("visibilitychange", acompanhar);
+      window.removeEventListener("focus", acompanhar);
+      window.removeEventListener("blur", acompanhar);
+    };
+  }, []);
+
+  if (oculto) return null;
+
+  return (
+    <button className="argos-botao" data-canto={canto} onClick={onAbrir} aria-label={rotuloPara(pose)}>
+      {semWebGL
+        ? <ArgosSvg pose={pose} />
+        : <canvas ref={canvasRef} className="argos-canvas" width={CORPO} height={CORPO} aria-hidden="true" />}
+    </button>
   );
 }
