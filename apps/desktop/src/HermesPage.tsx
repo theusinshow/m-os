@@ -16,6 +16,7 @@ import {
 } from "./hermes";
 import { Icon, SmallIcon } from "./Icon";
 import { Markdown } from "./markdown";
+import { DecryptedText } from "./motion/DecryptedText";
 import type { Capture, Project, SearchItem, Task } from "./types";
 
 /**
@@ -205,7 +206,7 @@ function AnswerGutter({ tools, elapsed, live }: {
           ))}
         </ul>
       ) : null}
-      {live && !tools.length ? <div className="hermes-thinking">pensando</div> : null}
+      {live && !tools.length ? <div className="hermes-thinking"><DecryptedText text="pensando…" duration={240} /></div> : null}
       {settled && open ? (
         <button type="button" className="hermes-receipt" onClick={() => setOpen(false)}>fechar</button>
       ) : null}
@@ -910,7 +911,7 @@ export function HermesPage({ inbox, projects, tasks, receipt }: {
             <article className="hermes-turn" data-role="assistant">
               <AnswerGutter tools={stream.tools} elapsed={elapsed} live />
               <div className="hermes-said">
-                {stream.status.map((text, index) => <p className="hermes-system-line" key={index}>{text}</p>)}
+                {stream.status.map((text, index) => <p className="hermes-system-line" key={index}><DecryptedText text={text} duration={260} /></p>)}
                 {stream.reasoning ? (
                   <details className="hermes-reasoning"><summary>RACIOCÍNIO</summary><p>{stream.reasoning}</p></details>
                 ) : null}

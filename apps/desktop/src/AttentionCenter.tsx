@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { LazyMotion, m } from "framer-motion";
 import { api } from "./api";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
+import { AnimatedList, AnimatedListItem } from "./motion/AnimatedList";
+import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
 import type { Reminder } from "./types";
+
+const loadMotionFeatures = () => import("./motionFeatures").then((module) => module.default);
 
 /**
  * O Attention Center: a memória de atenção do M/OS.
@@ -99,67 +104,71 @@ export function AttentionCenter({ close, compose }: { close: () => void; compose
     try {
       setReminders(await api.reminders());
       setError("");
-    } catch (nextError) {
-      setError(String(nextError));
+    } catch (err) {
+      setError((err as Error).message ?? "Falha ao carregar lembretes");
     }
   }, []);
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
-
-  // O relógio da tela anda a cada minuto para "em 12 min" não mentir. Um
-  // intervalo de segundo redesenharia a lista sessenta vezes para mudar um
-  // número que só muda a cada sessenta.
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 60000);
+    const timer = window.setInterval(() => setNow(Date.now()), 15000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
     panel.current?.focus();
-    function onKey(event: KeyboardEvent) {
+    function onKey(event: globalThis.KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
         close();
       }
     }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [close]);
 
-  async function act(id: string, action: () => Promise<unknown>) {
+  async function act(id: string, fn: () => Promise<unknown>) {
     setBusy(id);
     try {
-      await action();
+      await fn();
       await refresh();
-    } catch (nextError) {
-      setError(String(nextError));
+    } catch (err) {
+      setError((err as Error).message ?? "Ação falhou");
     } finally {
       setBusy(null);
     }
   }
 
   const grouped: Record<Bucket, Reminder[]> = { now: [], action: [], later: [] };
-  for (const reminder of reminders) grouped[bucketOf(reminder, now)].push(reminder);
+  for (const reminder of reminders) {
+    grouped[bucketOf(reminder, now)].push(reminder);
+  }
 
   const empty = reminders.length === 0;
 
   return (
-    <>
-      <button
+    <LazyMotion features={loadMotionFeatures} strict>
+      <m.button
         aria-hidden="true"
         className="attention-scrim"
         onClick={close}
         tabIndex={-1}
         type="button"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: MOTION_DURATIONS.enter }}
       />
-      <div
+      <m.div
         aria-label="Atenção"
         className="attention-center"
         ref={panel}
         role="dialog"
         tabIndex={-1}
+        initial={{ opacity: 0, x: -20, scale: 0.98 }}
+        animate={{ opacity: 1, x: 0, scale: 1 }}
+        exit={{ opacity: 0, x: -16, scale: 0.98 }}
+        transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}
       >
         <header className="attention-header">
           <span className="micro-label">ATENÇÃO</span>
@@ -188,9 +197,9 @@ export function AttentionCenter({ close, compose }: { close: () => void; compose
             grouped[bucket].length ? (
               <section className="attention-group" key={bucket}>
                 <span className="micro-label">{BUCKET_LABEL[bucket]}</span>
-                <ul className="attention-list">
+                <AnimatedList className="attention-list">
                   {grouped[bucket].map((reminder) => (
-                    <li className="attention-item" key={reminder.id}>
+                    <AnimatedListItem className="attention-item" key={reminder.id} itemKey={reminder.id}>
                       <div className="attention-body">
                         <strong>{reminder.title}</strong>
                         <span className="attention-when">{whenLabel(reminder, now)}</span>
@@ -226,9 +235,6 @@ export function AttentionCenter({ close, compose }: { close: () => void; compose
                             ))
                           : null}
                       </div>
-                      {/* A partir do quinto adiamento, oferecer só "adiar" é
-                          cumplicidade: o sistema está falhando em ajudar a
-                          decidir. `ATTENTION-SYSTEM.md` §13. */}
                       {reminder.snoozeCount >= 5 ? (
                         <p className="attention-fatigue">
                           Adiado {reminder.snoozeCount} vezes.{" "}
@@ -241,14 +247,14 @@ export function AttentionCenter({ close, compose }: { close: () => void; compose
                           </Button>
                         </p>
                       ) : null}
-                    </li>
+                    </AnimatedListItem>
                   ))}
-                </ul>
+                </AnimatedList>
               </section>
             ) : null,
           )
         )}
-      </div>
-    </>
+      </m.div>
+    </LazyMotion>
   );
 }

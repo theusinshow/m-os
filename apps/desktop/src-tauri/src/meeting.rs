@@ -208,6 +208,16 @@ pub fn meeting_stop(
         },
     );
     update_tray(&app, None);
+    // Avisar que parou, e nao apenas devolver a reuniao a quem chamou.
+    //
+    // Quem chama e a barra de gravacao, e ela conhece uma tela so: a dela. Uma
+    // pagina de Reunioes ja aberta nao ficava sabendo de nada e continuava
+    // mostrando como "gravando" uma reuniao encerrada — foi assim que seis
+    // minutos de audio intacto viraram "nao gravou nada" para quem olhava.
+    if let Ok(meeting) = &settled {
+        let _ = app.emit("meeting-stopped", meeting);
+    }
+    let _ = app.emit("data-changed", "meeting");
     settled
 }
 
@@ -635,7 +645,7 @@ pub fn stop_from_tray(app: &AppHandle) {
 
         let _ = state.meetings.stop(&active.meeting_id);
         if let Ok(outcome) = active.recording.stop() {
-            let _ = state.meetings.settle_audio(
+            let settled = state.meetings.settle_audio(
                 &active.meeting_id,
                 AudioOutcome {
                     duration_ms: outcome.duration_ms,
@@ -643,6 +653,11 @@ pub fn stop_from_tray(app: &AppHandle) {
                     system: to_domain(outcome.system),
                 },
             );
+            // O mesmo aviso do clique na barra. O comentario acima promete que
+            // este caminho e o MESMO, e ate aqui ele emitia menos que o outro.
+            if let Ok(meeting) = &settled {
+                let _ = handle.emit("meeting-stopped", meeting);
+            }
         }
         update_tray(&handle, None);
         let _ = handle.emit("data-changed", "meeting");

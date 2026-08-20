@@ -5,6 +5,7 @@ import { conversations } from "./hermes";
 import { Button } from "./Button";
 import { CardGravacao } from "./CardGravacao";
 import { formatMeetingClock } from "./RecordingBar";
+import { EVENTOS_DE_REUNIAO, selecaoAoFocar } from "./meetingsSync";
 import { EmptyState, Inspector, PageHeader, PaneHeader, Panel, StateMessage } from "./Surface";
 import type {
   Confidence, InsightKind, Meeting, MeetingAnalysis, MeetingInsight,
@@ -342,6 +343,17 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
 
   useEffect(() => { void loadList(); }, [loadList]);
 
+  /* O foco vem do shell: a barra de gravacao aponta para a reuniao que acabou de
+     parar, e a recuperacao aponta para a que ficou interrompida. Como PROP, ele
+     muda depois da montagem — e `useState(focus)` sozinho so valia na primeira
+     vez, o que deixava a pagina ja aberta surda justamente no momento em que ela
+     precisava obedecer. O efeito depende so de `focus` de proposito: rodar a
+     cada render desfaria, no render seguinte, o clique da pessoa noutra linha. */
+  useEffect(() => {
+    setChosenId((atual) => selecaoAoFocar(focus, atual));
+    if (focus) setNarrowPane("detail");
+  }, [focus]);
+
   // Saber se já há gravação em curso é o que decide entre "Iniciar" e nada:
   // oferecer iniciar durante uma gravação daria um botão que só produz erro.
   useEffect(() => {
@@ -369,8 +381,9 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
   // O backend avisa quando um estágio termina. Sem isto, uma transcrição de
   // vinte minutos só apareceria se a pessoa trocasse de tela e voltasse.
   useEffect(() => {
-    const events = ["meeting-transcribed", "meeting-analyzed", "meeting-failed"];
-    const offs = events.map((name) => listen(name, () => { void loadList(); void loadDetail(); }));
+    const offs = EVENTOS_DE_REUNIAO.map(
+      (name) => listen(name, () => { void loadList(); void loadDetail(); }),
+    );
     return () => { offs.forEach((off) => void off.then((fn) => fn())); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadList, chosenId]);
@@ -648,9 +661,10 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
                        esta escrita porque ela e uma escolha e nao um limite:
                        transcrever pedacos soltos corta palavras na emenda. */
                     <EmptyState>
-                      A transcrição chega quando você parar. Ela é feita de uma vez, com a
-                      reunião inteira — transcrever pedaços soltos corta palavras na emenda
-                      e perde o contexto que desambigua.
+                      A transcrição é feita de uma vez, com a reunião inteira — transcrever
+                      pedaços soltos corta palavras na emenda e perde o contexto que
+                      desambigua. Por isso ela não acompanha a gravação: ao parar, a reunião
+                      aparece aqui e o botão <strong>Transcrever</strong> a produz.
                     </EmptyState>
                   ) : segments.length === 0 ? (
                     <EmptyState>Esta reunião ainda não foi transcrita.</EmptyState>

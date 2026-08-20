@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { LazyMotion, m } from "framer-motion";
 import { api } from "./api";
 import { Button } from "./Button";
+import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
 import type { Reminder } from "./types";
+
+const loadMotionFeatures = () => import("./motionFeatures").then((module) => module.default);
 
 /**
  * Criar lembrete. A operação precisa ser rápida acima de tudo.
@@ -130,19 +134,27 @@ export function ReminderComposer({
   const choices = available();
 
   return (
-    <>
-      <button
+    <LazyMotion features={loadMotionFeatures} strict>
+      <m.button
         aria-hidden="true"
         className="attention-scrim"
         onClick={close}
         tabIndex={-1}
         type="button"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: MOTION_DURATIONS.enter }}
       />
-      <div
+      <m.div
         aria-label="Novo lembrete"
         className="reminder-composer"
         ref={panel}
         role="dialog"
+        initial={{ opacity: 0, scale: 0.98, y: -6 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.98, y: -4 }}
+        transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}
       >
         <form className="stack-form" onSubmit={submit}>
           <label>
@@ -237,7 +249,7 @@ export function ReminderComposer({
             </Button>
           </div>
         </form>
-      </div>
-    </>
+      </m.div>
+    </LazyMotion>
   );
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, LazyMotion, m, useReducedMotion } from "framer-motion";
 import { api, appError } from "./api";
 import { Button } from "./Button";
 import {
@@ -13,18 +14,22 @@ import {
   type ItemDoLote,
 } from "./dropIngest";
 import type { DropContext, IngestionReceipt, Project } from "./types";
+import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
+
+const loadMotionFeatures = () => import("./motionFeatures").then((module) => module.default);
 
 /**
- * A Universal Drop Zone.
+ * A Universal Drop Zone do M/OS com Motion Signature.
  *
  * Não é um `<input type="file">` disfarçado: não há botão, não há formulário e
  * não há tela de upload. O gesto é soltar sobre a janela, e a superfície só
  * existe enquanto o gesto acontece.
  *
- * A janela do M/OS tem `dragDropEnabled: false` (`tauri.conf.json`), o que faz o
- * WebView2 entregar o drag ao HTML em vez de o Tauri interceptá-lo. É o que
- * mantém o arrastar de widget da Home e o do Kanban funcionando — e é por isso
- * que os bytes chegam pelo `File` do navegador, e não por um caminho de disco.
+ * Motion stages:
+ * 1. idle -> hover/dragover (backdrop com blur espacial e mensagem com scaleFade)
+ * 2. drop -> reconhecimento -> ingestão com lote em AnimatePresence
+ * 3. status transitions suaves por item (esperando -> lendo -> entendendo -> guardado)
+ * 4. desfecho com recibo acessível e saída fluida
  */
 export function DropZone({
   contexto,
@@ -44,6 +49,7 @@ export function DropZone({
 }) {
   const [pairando, setPairando] = useState(false);
   const [itens, setItens] = useState<ItemDoLote[]>([]);
+  const reducedMotion = useReducedMotion();
   /* Contador de enter/leave: o `dragleave` dispara ao atravessar CADA elemento
      filho, e sem o contador a superfície piscaria a cada movimento do mouse. */
   const profundidade = useRef(0);
@@ -237,42 +243,81 @@ export function DropZone({
   }
 
   return (
-    <>
-      {pairando ? (
-        <div className="drop-surface" role="presentation">
-          <div className="drop-message">
-            <strong>Solte no M/OS</strong>
-            <span>A gente descobre onde isso mora.</span>
-          </div>
-        </div>
-      ) : null}
-      {itens.length ? (
-        <section className="drop-panel" aria-live="polite" aria-label="Entrada de conteúdo">
-          {itens.map((item) => (
-            <article className="drop-item" key={item.chave} data-status={item.status}>
-              <span className="drop-item-mark" aria-hidden="true">
-                {marca(item)}
-              </span>
-              <div className="drop-item-copy">
-                <strong>{item.nome}</strong>
-                <small>{legenda(item)}</small>
-              </div>
-              {item.sugestao && item.status !== "desfeito" ? (
-                <Button
-                  variant="ghost"
-                  onClick={() => void aceitarSugestao(item)}
-                >{`Relacionar a ${item.sugestao.nome}`}</Button>
-              ) : null}
-            </article>
-          ))}
-          {painelEspera(itens) ? (
-            <Button variant="ghost" onClick={() => setItens([])}>
-              Fechar
-            </Button>
-          ) : null}
-        </section>
-      ) : null}
-    </>
+    <LazyMotion features={loadMotionFeatures} strict>
+      <AnimatePresence>
+        {pairando ? (
+          <m.div
+            className="drop-surface"
+            role="presentation"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: reducedMotion ? 0 : MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}
+          >
+            <m.div
+              className="drop-message"
+              initial={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: 6 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: -4 }}
+              transition={{ duration: reducedMotion ? 0 : MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}
+            >
+              <strong>Solte no M/OS</strong>
+              <span>A gente descobre onde isso mora.</span>
+            </m.div>
+          </m.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {itens.length ? (
+          <m.section
+            className="drop-panel"
+            aria-live="polite"
+            aria-label="Entrada de conteúdo"
+            initial={reducedMotion ? { opacity: 0 } : { opacity: 0, y: 16, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={reducedMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.97 }}
+            transition={{ duration: reducedMotion ? 0 : MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}
+          >
+            <div className="drop-items-list">
+              <AnimatePresence initial={false} mode="popLayout">
+                {itens.map((item) => (
+                  <m.article
+                    className="drop-item"
+                    key={item.chave}
+                    data-status={item.status}
+                    layout={reducedMotion ? false : "position"}
+                    initial={reducedMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.97 }}
+                    transition={{ duration: reducedMotion ? 0 : MOTION_DURATIONS.state, ease: MOTION_EASINGS.enter }}
+                  >
+                    <span className="drop-item-mark" aria-hidden="true">
+                      {marca(item)}
+                    </span>
+                    <div className="drop-item-copy">
+                      <strong>{item.nome}</strong>
+                      <small>{legenda(item)}</small>
+                    </div>
+                    {item.sugestao && item.status !== "desfeito" ? (
+                      <Button
+                        variant="ghost"
+                        onClick={() => void aceitarSugestao(item)}
+                      >{`Relacionar a ${item.sugestao.nome}`}</Button>
+                    ) : null}
+                  </m.article>
+                ))}
+              </AnimatePresence>
+            </div>
+            {painelEspera(itens) ? (
+              <Button variant="ghost" onClick={() => setItens([])}>
+                Fechar
+              </Button>
+            ) : null}
+          </m.section>
+        ) : null}
+      </AnimatePresence>
+    </LazyMotion>
   );
 }
 

@@ -1,6 +1,8 @@
 import { forwardRef, useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { AnimatePresence, LazyMotion, m, useReducedMotion } from "framer-motion";
+import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
+import { AnimatedNumber } from "./motion/AnimatedNumber";
 
 const loadMotionFeatures = () => import("./motionFeatures").then((module) => module.default);
 
@@ -66,8 +68,10 @@ export const Inspector = forwardRef<HTMLElement, {
           className="detail-pane inspector"
           tabIndex={-1}
           aria-label={label}
-          exit={reducedMotion ? { opacity: 0, pointerEvents: "none" } : { opacity: 0, y: -4, pointerEvents: "none" }}
-          transition={{ duration: reducedMotion ? 0 : 0.09, ease: [0.4, 0, 1, 1] }}
+          initial={reducedMotion ? { opacity: 0 } : { opacity: 0, x: 16 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={reducedMotion ? { opacity: 0, pointerEvents: "none" } : { opacity: 0, x: 12, pointerEvents: "none" }}
+          transition={{ duration: reducedMotion ? 0 : MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}
           onKeyDown={(event) => {
             if (event.key !== "Escape" || !onEscape) return;
             event.preventDefault();
@@ -175,8 +179,10 @@ export function ActionMenu({ trigger, items, label = "Mais ações" }: {
             id={menuId}
             role="menu"
             aria-label={label}
-            exit={reducedMotion ? { opacity: 0, pointerEvents: "none" } : { opacity: 0, y: -2, scale: 0.985, pointerEvents: "none" }}
-            transition={{ duration: reducedMotion ? 0 : 0.09, ease: [0.4, 0, 1, 1] }}
+            initial={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.97, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={reducedMotion ? { opacity: 0, pointerEvents: "none" } : { opacity: 0, scale: 0.97, y: -2, pointerEvents: "none" }}
+            transition={{ duration: reducedMotion ? 0 : MOTION_DURATIONS.micro, ease: MOTION_EASINGS.enter }}
           >
             {items.map((item) => <button key={item.label} type="button" role="menuitem" disabled={item.disabled} className={item.danger ? "danger-text" : undefined} onClick={() => { closeMenu(true); item.onSelect(); }}>{item.label}</button>)}
           </m.div> : null}
@@ -279,10 +285,15 @@ export function Card({ label, count, action, children, className = "" }: {
  * só existe para dizer de que ele é.
  */
 export function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  const numericVal = Number(value);
+  const isPureNumber = !Number.isNaN(numericVal) && /^-?\d+(\.\d+)?$/.test(value.trim());
+
   return (
     <div className="tempo-stat">
       <span className="micro-label">{label}</span>
-      <strong>{value}</strong>
+      <strong>
+        {isPureNumber ? <AnimatedNumber value={numericVal} /> : value}
+      </strong>
       {hint ? <small>{hint}</small> : null}
     </div>
   );

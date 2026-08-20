@@ -38,8 +38,14 @@ import { LequeSeletor } from "./LequeSeletor";
 import { Ring, RingLabel } from "./Ring";
 import { monthActivity, MonthDensity, TaskProgressRing, WeekRings } from "./Widgets";
 import { MosSymbol } from "./Symbol";
+import { AnimatePresence, LazyMotion, m } from "framer-motion";
+import { AnimatedList, AnimatedListItem } from "./motion/AnimatedList";
+import { SpotlightCard } from "./motion/SpotlightCard";
+import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
 import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, HiddenWidget, Ingestion, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
 import "./App.css";
+
+const loadMotionFeatures = () => import("./motionFeatures").then((module) => module.default);
 
 /* `apps` continua sendo uma pagina, e so deixou de ser um destino do rail
    (ADR-038). Ela e alcancada pelo Command, pelo widget APPS da Home e pelos
@@ -159,14 +165,14 @@ function IconButton({ label, icon, active = false, disabled = false, onClick }: 
    dele, porque ela pode ter sido escolhida pela pessoa. */
 function Widget({ id, role, span, footLeft, footRight, children }: { id: string; role: HomeWidgetRole; span: number; footLeft?: string; footRight?: string; children: ReactNode }) {
   return (
-    <div className="widget" data-widget={id} data-role={role} data-span={span}>
+    <SpotlightCard className="widget" data-widget={id} data-role={role} data-span={span}>
       {children}
       {/* Escala à esquerda, extremo à direita — o rodapé diz contra o que a forma
           mede. Lista não tem escala, e por isso lista não recebe rodapé. A
           manchete NÃO mora aqui: ela precisa ficar entre o rótulo e o conteúdo,
           que são o mesmo bloco dentro do Panel. */}
       {footLeft || footRight ? <p className="widget-foot"><span>{footLeft}</span><span>{footRight}</span></p> : null}
-    </div>
+    </SpotlightCard>
   );
 }
 
@@ -891,8 +897,7 @@ function InboxPage({ captures, projects, refresh, receipt, openTask, openResourc
         actions={<Button variant="ghost" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button>}
       />
       <PendingVoice />
-      <div className="row-list">{captures.map((capture) => <DataRow
-        key={capture.id}
+      <AnimatedList className="row-list">{captures.map((capture) => <AnimatedListItem key={capture.id} itemKey={capture.id}><DataRow
         primary={capture.content}
         secondary={sourceLabel(capture.source)}
         secondaryKind="system"
@@ -908,7 +913,7 @@ function InboxPage({ captures, projects, refresh, receipt, openTask, openResourc
           setTaskForm(false);
           setResourceForm(false);
         }}
-      />)}</div>
+      /></AnimatedListItem>)}</AnimatedList>
     </section>
     {selected ? <Inspector ref={inspector} label="Detalhe da Capture" open={narrowPane === "detail"} onBack={returnToInboxList} onEscape={returnToInboxList}><header className="detail-header"><div><span className="micro-label">CAPTURE</span><h1>{selected.content}</h1><div className="chip-line"><span className="chip">{sourceLabel(selected.source)}</span><span className="chip">{relativeTime(selected.capturedAt)}</span></div></div><ActionMenu trigger={<Icon name="more" />} items={[{ label: "Arquivar", onSelect: () => void mutate("archive") }, { label: "Mover para a Lixeira", danger: true, onSelect: () => void mutate("trash") }]} /></header>
       {error ? <p className="inline-error" role="alert">! {error}</p> : null}
@@ -2263,7 +2268,7 @@ function BoardPage({ tasks, projects, refresh, openTask, intent }: { tasks: Task
       const visible = column.slice(0, 20);
       return <section key={state} className="kanban-column" data-kanban-state={state} data-drop-target={dragOverState === state || undefined} onDragEnter={(event) => { event.preventDefault(); setDragOverState(state); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverState(state); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverState(null); }} onDrop={(event) => { event.preventDefault(); const task = draggedTask(event); finishDrag(); if (task) void move(task, state); }}>
         <header><h2>{stateLabels[state]}</h2><span>{column.length}</span></header>
-        <div>{visible.map((task) => <DataRow key={task.id} primary={task.title} secondary={projects.find((project) => project.id === task.projectId)?.name} completed={task.state === "done"} dragging={draggingTaskId === task.id} onClick={() => { if (suppressClickTaskId.current === task.id) { suppressClickTaskId.current = null; return; } openTask(task); }} onKeyDown={(event) => keyboardMove(event, task)} onPointerDown={(event) => { if (event.button !== 0) return; pointerDrag.current = { taskId: task.id, x: event.clientX, y: event.clientY, active: false }; }} draggable onDragStart={(event) => { pointerDrag.current = null; setDraggingTaskId(task.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={finishDrag} />)}{!column.length ? <p className="kanban-empty">Vazio</p> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</div>
+        <AnimatedList>{visible.map((task) => <AnimatedListItem key={task.id} itemKey={task.id}><DataRow primary={task.title} secondary={projects.find((project) => project.id === task.projectId)?.name} completed={task.state === "done"} dragging={draggingTaskId === task.id} onClick={() => { if (suppressClickTaskId.current === task.id) { suppressClickTaskId.current = null; return; } openTask(task); }} onKeyDown={(event) => keyboardMove(event, task)} onPointerDown={(event) => { if (event.button !== 0) return; pointerDrag.current = { taskId: task.id, x: event.clientX, y: event.clientY, active: false }; }} draggable onDragStart={(event) => { pointerDrag.current = null; setDraggingTaskId(task.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={finishDrag} /></AnimatedListItem>)}{!column.length ? <p className="kanban-empty">Vazio</p> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</AnimatedList>
       </section>;
     })}</div> : null}
   </div>;
@@ -2308,24 +2313,67 @@ function TaskDrawer({ task, projects, close, refresh, receipt, openCapture }: { 
       setError(appError(nextError).message);
     }
   }
-  return <aside ref={drawer} className="task-drawer" aria-label="Detalhe da Task" aria-busy={pending !== null} tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape" && !pending) close(); }}>
-    <header><span className="micro-label">DETALHE DA TASK</span><IconButton label="Fechar" icon="close" disabled={pending !== null} onClick={close} /></header>
-    <form className="stack-form" onSubmit={submit}>
-      <label><span>TÍTULO</span><input ref={titleInput} value={title} onChange={(event) => setTitle(event.currentTarget.value)} disabled={pending !== null} /></label>
-      <label><span>DESCRIÇÃO</span><textarea value={description} onChange={(event) => setDescription(event.currentTarget.value)} rows={3} disabled={pending !== null} /></label>
-      <label><span>PROJECT</span><select value={projectId} onChange={(event) => setProjectId(event.currentTarget.value)} disabled={pending !== null}><option value="">Sem Project</option>{projects.filter((project) => project.lifecycleState === "active").map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
-      <label><span>ESTADO</span><select value={state} onChange={(event) => setState(event.currentTarget.value as TaskState)} disabled={pending !== null}>{stateOrder.map((value) => <option key={value} value={value}>{stateLabels[value]}</option>)}</select></label>
-      {source ? <div className="provenance"><span className="micro-label">ORIGEM</span><button type="button" onClick={() => openCapture(source)}>{source.content}</button><small>{sourceLabel(source.source)} · {relativeTime(source.capturedAt)}</small></div> : null}
-      {pending === "save" ? <StateMessage state="saving" label="Salvando Task..." /> : pending === "archive" ? <StateMessage state="saving" label="Arquivando Task..." /> : error ? <StateMessage state="error" label={error} /> : null}
-      <div className="form-actions spread"><Button variant="danger" onClick={() => void archive()} disabled={pending !== null}>{pending === "archive" ? "Arquivando" : "Arquivar"}</Button><Button variant="primary" type="submit" disabled={!title.trim() || pending !== null}>{pending === "save" ? "Salvando" : "Salvar"}</Button></div>
-    </form>
-  </aside>;
+  return <LazyMotion features={loadMotionFeatures} strict>
+    <m.aside
+      ref={drawer}
+      className="task-drawer"
+      aria-label="Detalhe da Task"
+      aria-busy={pending !== null}
+      tabIndex={-1}
+      initial={{ opacity: 0, x: 24 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 24 }}
+      transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}
+      onKeyDown={(event) => { if (event.key === "Escape" && !pending) close(); }}
+    >
+      <header><span className="micro-label">DETALHE DA TASK</span><IconButton label="Fechar" icon="close" disabled={pending !== null} onClick={close} /></header>
+      <form className="stack-form" onSubmit={submit}>
+        <label><span>TÍTULO</span><input ref={titleInput} value={title} onChange={(event) => setTitle(event.currentTarget.value)} disabled={pending !== null} /></label>
+        <label><span>DESCRIÇÃO</span><textarea value={description} onChange={(event) => setDescription(event.currentTarget.value)} rows={3} disabled={pending !== null} /></label>
+        <label><span>PROJECT</span><select value={projectId} onChange={(event) => setProjectId(event.currentTarget.value)} disabled={pending !== null}><option value="">Sem Project</option>{projects.filter((project) => project.lifecycleState === "active").map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+        <label><span>ESTADO</span><select value={state} onChange={(event) => setState(event.currentTarget.value as TaskState)} disabled={pending !== null}>{stateOrder.map((value) => <option key={value} value={value}>{stateLabels[value]}</option>)}</select></label>
+        {source ? <div className="provenance"><span className="micro-label">ORIGEM</span><button type="button" onClick={() => openCapture(source)}>{source.content}</button><small>{sourceLabel(source.source)} · {relativeTime(source.capturedAt)}</small></div> : null}
+        {pending === "save" ? <StateMessage state="saving" label="Salvando Task..." /> : pending === "archive" ? <StateMessage state="saving" label="Arquivando Task..." /> : error ? <StateMessage state="error" label={error} /> : null}
+        <div className="form-actions spread"><Button variant="danger" onClick={() => void archive()} disabled={pending !== null}>{pending === "archive" ? "Arquivando" : "Arquivar"}</Button><Button variant="primary" type="submit" disabled={!title.trim() || pending !== null}>{pending === "save" ? "Salvando" : "Salvar"}</Button></div>
+      </form>
+    </m.aside>
+  </LazyMotion>;
 }
 
 function CaptureViewer({ capture, close }: { capture: Capture; close: () => void }) {
   const dialog = useRef<HTMLElement>(null);
   useEffect(() => dialog.current?.focus(), []);
-  return <div className="overlay-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}><article ref={dialog} className="entity-viewer" role="dialog" aria-modal="true" tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") close(); }}><header><span className="micro-label">CAPTURE</span><IconButton label="Fechar" icon="close" onClick={close} /></header><h1>{capture.content}</h1><dl><div><dt>ORIGEM</dt><dd>{sourceLabel(capture.source)}</dd></div><div><dt>ESTADO</dt><dd>{capture.lifecycleState === "archived" ? "Arquivada" : capture.processingState === "processed" ? "Processada" : "Na Inbox"}</dd></div><div><dt>CAPTURADA</dt><dd>{new Date(capture.capturedAt).toLocaleString("pt-BR")}</dd></div></dl></article></div>;
+  return <LazyMotion features={loadMotionFeatures} strict>
+    <m.div
+      className="overlay-backdrop"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: MOTION_DURATIONS.enter }}
+      onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}
+    >
+      <m.article
+        ref={dialog}
+        className="entity-viewer"
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
+        initial={{ opacity: 0, scale: 0.98, y: -4 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.98, y: -2 }}
+        transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}
+        onKeyDown={(event) => { if (event.key === "Escape") close(); }}
+      >
+        <header><span className="micro-label">CAPTURE</span><IconButton label="Fechar" icon="close" onClick={close} /></header>
+        <h1>{capture.content}</h1>
+        <dl>
+          <div><dt>ORIGEM</dt><dd>{sourceLabel(capture.source)}</dd></div>
+          <div><dt>ESTADO</dt><dd>{capture.lifecycleState === "archived" ? "Arquivada" : capture.processingState === "processed" ? "Processada" : "Na Inbox"}</dd></div>
+          <div><dt>CAPTURADA</dt><dd>{new Date(capture.capturedAt).toLocaleString("pt-BR")}</dd></div>
+        </dl>
+      </m.article>
+    </m.div>
+  </LazyMotion>;
 }
 
 /* O Command NAO tem mais modo Hermes.
@@ -2424,27 +2472,47 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
       openItem(results[activeIndex] ?? results[0]);
     }
   }
-  return <div className="overlay-backdrop command-backdrop" data-closing={closing || undefined} onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
-    <section className="command-surface" role="dialog" aria-modal="true" aria-label="Command" onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
-      <div className="command-input"><span className="slash">/</span><input ref={input} role="combobox" aria-autocomplete="list" aria-expanded={results.length > 0} aria-controls="command-results" aria-activedescendant={results.length ? `command-result-${activeIndex}` : undefined} value={query} onChange={(event) => setQuery(event.currentTarget.value)} onKeyDown={handleInputKeyDown} placeholder="Buscar ou executar comando" aria-label="Buscar no M/OS" spellCheck={false} autoCorrect="off" autoCapitalize="off" /><span className="micro-label">COMMAND</span></div>
-      {query ? <div className="command-options"><label className="check-control"><input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.currentTarget.checked)} /><span>Incluir arquivados</span></label><span className="command-status" role="status" aria-live="polite">{searching ? "BUSCANDO" : error ? "FALHA" : `${results.length} ${results.length === 1 ? "RESULTADO" : "RESULTADOS"}`}</span></div> : null}
-      <div ref={resultsPane} id="command-results" className="command-results" role={results.length ? "listbox" : undefined} aria-label="Resultados" aria-busy={searching}>
-        {error ? <div className="command-error"><p>! {error}</p><Button variant="outline" onClick={() => { setSearching(true); void searchCommand(++searchSequence.current); }}>Tentar novamente</Button></div> : null}
-        {!query ? <div className="command-prompt"><span className="micro-label">ENCONTRAR E EXECUTAR</span><p>Busque Tasks, Projects, Captures, Resources, Apps e comandos.</p></div> : null}
-        {query && !searching && !error && !results.length ? <div className="command-prompt"><span className="micro-label">SEM RESULTADOS</span><p>Nada corresponde a “{query}”.</p></div> : null}
-        {results.map((item, index) => {
-          const type = item.kind === "function" ? "FUNCTION" : item.kind === "project" ? "PROJECT" : item.kind === "workspace" ? "WORKSPACE" : item.kind === "task" ? "TASK" : item.kind === "app" ? "APP" : item.kind === "resource" ? "RESOURCE" : item.derivedTask ? "TASK + CAPTURE" : "CAPTURE";
-          const title = item.kind === "function" ? item.function.name : item.kind === "project" ? item.project.name : item.kind === "workspace" ? item.workspace.name : item.kind === "task" ? item.task.title : item.kind === "app" ? item.app.name : item.kind === "resource" ? item.resource.title : item.derivedTask?.title ?? item.capture.content;
-          const context = item.kind === "function" ? `${item.function.id} · risco ${functionRiskLabels[item.function.risk]}` : item.kind === "project" ? item.project.description : item.kind === "workspace" ? item.workspace.description : item.kind === "task" ? item.project?.name : item.kind === "app" ? item.app.description || item.app.launchTarget || "" : item.kind === "resource" ? `${resourceHost(item.resource.url)}${item.resource.note ? ` · ${item.resource.note}` : ""}` : item.project?.name ?? item.capture.content;
-          return <button id={`command-result-${index}`} role="option" aria-selected={index === activeIndex} data-active={index === activeIndex || undefined} key={`${item.kind}-${index}-${title}`} className="command-row" onFocus={() => setActiveIndex(index)} onMouseEnter={() => setActiveIndex(index)} onClick={() => openItem(item)}><span>{type}</span><strong>{title}</strong><small>{context}</small></button>;
-        })}
-      </div>
-      {/* Tres camadas de desfoque crescente, ancoradas acima do rodape. So
-          existem enquanto houver resultado abaixo do corte. */}
-      {hasMoreBelow ? <div className="command-fade" aria-hidden="true"><i /><i /><i /></div> : null}
-      <div className="command-footer">{["↑↓ NAVEGA", "⏎ ABRE", "/ COMANDO", "ESC FECHA"].map((hint) => <span key={hint}>{hint}</span>)}</div>
-    </section>
-  </div>;
+  return <LazyMotion features={loadMotionFeatures} strict>
+    <m.div
+      className="overlay-backdrop command-backdrop"
+      data-closing={closing || undefined}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: MOTION_DURATIONS.enter }}
+      onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}
+    >
+      <m.section
+        className="command-surface"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command"
+        initial={{ opacity: 0, scale: 0.98, y: -6 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.98, y: -4 }}
+        transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}
+        onKeyDown={(event) => { if (event.key === "Escape") close(); }}
+      >
+        <div className="command-input"><span className="slash">/</span><input ref={input} role="combobox" aria-autocomplete="list" aria-expanded={results.length > 0} aria-controls="command-results" aria-activedescendant={results.length ? `command-result-${activeIndex}` : undefined} value={query} onChange={(event) => setQuery(event.currentTarget.value)} onKeyDown={handleInputKeyDown} placeholder="Buscar ou executar comando" aria-label="Buscar no M/OS" spellCheck={false} autoCorrect="off" autoCapitalize="off" /><span className="micro-label">COMMAND</span></div>
+        {query ? <div className="command-options"><label className="check-control"><input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.currentTarget.checked)} /><span>Incluir arquivados</span></label><span className="command-status" role="status" aria-live="polite">{searching ? "BUSCANDO" : error ? "FALHA" : `${results.length} ${results.length === 1 ? "RESULTADO" : "RESULTADOS"}`}</span></div> : null}
+        <div ref={resultsPane} id="command-results" className="command-results" role={results.length ? "listbox" : undefined} aria-label="Resultados" aria-busy={searching}>
+          {error ? <div className="command-error"><p>! {error}</p><Button variant="outline" onClick={() => { setSearching(true); void searchCommand(++searchSequence.current); }}>Tentar novamente</Button></div> : null}
+          {!query ? <div className="command-prompt"><span className="micro-label">ENCONTRAR E EXECUTAR</span><p>Busque Tasks, Projects, Captures, Resources, Apps e comandos.</p></div> : null}
+          {query && !searching && !error && !results.length ? <div className="command-prompt"><span className="micro-label">SEM RESULTADOS</span><p>Nada corresponde a “{query}”.</p></div> : null}
+          {results.map((item, index) => {
+            const type = item.kind === "function" ? "FUNCTION" : item.kind === "project" ? "PROJECT" : item.kind === "workspace" ? "WORKSPACE" : item.kind === "task" ? "TASK" : item.kind === "app" ? "APP" : item.kind === "resource" ? "RESOURCE" : item.derivedTask ? "TASK + CAPTURE" : "CAPTURE";
+            const title = item.kind === "function" ? item.function.name : item.kind === "project" ? item.project.name : item.kind === "workspace" ? item.workspace.name : item.kind === "task" ? item.task.title : item.kind === "app" ? item.app.name : item.kind === "resource" ? item.resource.title : item.derivedTask?.title ?? item.capture.content;
+            const context = item.kind === "function" ? `${item.function.id} · risco ${functionRiskLabels[item.function.risk]}` : item.kind === "project" ? item.project.description : item.kind === "workspace" ? item.workspace.description : item.kind === "task" ? item.project?.name : item.kind === "app" ? item.app.description || item.app.launchTarget || "" : item.kind === "resource" ? `${resourceHost(item.resource.url)}${item.resource.note ? ` · ${item.resource.note}` : ""}` : item.project?.name ?? item.capture.content;
+            return <button id={`command-result-${index}`} role="option" aria-selected={index === activeIndex} data-active={index === activeIndex || undefined} key={`${item.kind}-${index}-${title}`} className="command-row" onFocus={() => setActiveIndex(index)} onMouseEnter={() => setActiveIndex(index)} onClick={() => openItem(item)}><span>{type}</span><strong>{title}</strong><small>{context}</small></button>;
+          })}
+        </div>
+        {/* Tres camadas de desfoque crescente, ancoradas acima do rodape. So
+            existem enquanto houver resultado abaixo do corte. */}
+        {hasMoreBelow ? <div className="command-fade" aria-hidden="true"><i /><i /><i /></div> : null}
+        <div className="command-footer">{["↑↓ NAVEGA", "⏎ ABRE", "/ COMANDO", "ESC FECHA"].map((hint) => <span key={hint}>{hint}</span>)}</div>
+      </m.section>
+    </m.div>
+  </LazyMotion>;
 }
 
 function HermesSettings() {
@@ -3300,7 +3368,7 @@ function DesktopApp() {
       onRecibo={(message, run) => showReceipt({ message, run })}
       refresh={refresh}
       onOcupacao={setDropOcupado}
-    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}<Argos pose={argosPose} canto={argosCanto} onAbrir={() => setAttentionOpen(true)} />{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
+    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}<Argos pose={argosPose} canto={argosCanto} onAbrir={() => setAttentionOpen(true)} /><LazyMotion features={loadMotionFeatures} strict><AnimatePresence>{undo ? <m.div className="receipt" role="status" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></m.div> : null}</AnimatePresence></LazyMotion></div>;
 }
 
 /**
@@ -3320,8 +3388,6 @@ function DesktopApp() {
  */
 function AttentionToast({ event, close, open }: { event: DeliveryEvent; close: () => void; open: () => void }) {
   useEffect(() => {
-    // Perdido nao some sozinho: quem nao estava olhando quando venceu tambem
-    // pode nao estar olhando agora.
     if (event.missed) return;
     const timer = window.setTimeout(close, 12000);
     return () => window.clearTimeout(timer);
@@ -3332,18 +3398,27 @@ function AttentionToast({ event, close, open }: { event: DeliveryEvent; close: (
     : "agora";
 
   return (
-    <div className="attention-toast" role="status">
-      <div>
-        <span className="micro-label">{event.missed ? "PERDIDO" : "LEMBRETE"}</span>
-        <strong>{event.title}</strong>
-        {event.body ? <p>{event.body}</p> : null}
-        <span className="attention-when">{late}</span>
-      </div>
-      <div className="button-line">
-        <Button onClick={open} variant="secondary">Ver</Button>
-        <Button onClick={close} variant="ghost">Dispensar</Button>
-      </div>
-    </div>
+    <LazyMotion features={loadMotionFeatures} strict>
+      <m.div
+        className="attention-toast"
+        role="status"
+        initial={{ opacity: 0, y: 16, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 8, scale: 0.96 }}
+        transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}
+      >
+        <div>
+          <span className="micro-label">{event.missed ? "PERDIDO" : "LEMBRETE"}</span>
+          <strong>{event.title}</strong>
+          {event.body ? <p>{event.body}</p> : null}
+          <span className="attention-when">{late}</span>
+        </div>
+        <div className="button-line">
+          <Button onClick={open} variant="secondary">Ver</Button>
+          <Button onClick={close} variant="ghost">Dispensar</Button>
+        </div>
+      </m.div>
+    </LazyMotion>
   );
 }
 

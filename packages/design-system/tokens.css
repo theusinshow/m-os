@@ -60,8 +60,8 @@
   --stroke-20: 1.25px;
   --stroke-16: 1px;
 
-  --rail-width: 52px;
-  --rail-expanded-width: 208px;
+  --rail-width: 60px;
+  --rail-expanded-width: 224px;
   --sidebar-width: 232px;
   --drawer-width: 400px;
   --overlay-capture: 640px;
@@ -153,12 +153,12 @@
      spacing (rail de 40px, simbolo de 26px, topbar de 44px). Ficam como token
      para nao virarem literal dentro de componente. */
   --topbar-height: 44px;
-  --rail-item: 40px;
+  --rail-item: 44px;
   --icon-size: 20px;
-  --rail-symbol: 26px;
-  --rail-symbol-radius: 5px;
+  --rail-symbol: 28px;
+  --rail-symbol-radius: 6px;
   --rail-symbol-gap: var(--space-loose);
-  --rail-symbol-bar: 16px;
+  --rail-symbol-bar: 18px;
   --symbol-inline: 13px;
 
   /* Capture: a barra e o limiar de entrada, desenhada vertical (e a barra da

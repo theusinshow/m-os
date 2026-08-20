@@ -47,7 +47,8 @@ button {
 
 /* Silhueta e preenchimento puro. Mantendo o traco junto, o icone ativo crescia
    1.25px em relacao ao inativo e a fila do rail perdia o alinhamento optico. */
-.mos-icon[data-filled] {
+.mos-icon[data-filled],
+.mos-icon[data-icon="home"] {
   fill: currentColor;
   stroke: none;
 }
@@ -75,8 +76,14 @@ button {
   border-radius: var(--radius);
   font: var(--text-small);
   font-weight: 500;
+  transform: scale(1);
   transition: background var(--dur-instant) linear, color var(--dur-instant) linear,
-    opacity var(--dur-instant) linear;
+    opacity var(--dur-instant) linear, transform var(--dur-instant) var(--ease-state),
+    border-color var(--dur-instant) linear;
+}
+
+.button:not(:disabled):active {
+  transform: scale(0.982);
 }
 
 .button.primary {
@@ -142,7 +149,16 @@ button {
   background: transparent;
   border: 0;
   border-radius: var(--radius);
-  transition: color var(--dur-instant) linear, background var(--dur-instant) linear;
+  transform: scale(1);
+  transition: color var(--dur-instant) linear, background var(--dur-instant) linear,
+    transform var(--dur-instant) var(--ease-state);
+}
+
+.icon-button:not(:disabled):active,
+.rail-destination:not(:disabled):active,
+.rail-utility:not(:disabled):active,
+.menu-trigger:not(:disabled):active {
+  transform: scale(0.96);
 }
 
 .icon-button:not(:disabled):hover,
@@ -166,6 +182,7 @@ button {
   min-height: 0;
   overflow: hidden;
   background: var(--canvas);
+  transition: grid-template-columns var(--dur-context) var(--ease-enter);
 }
 
 .app-shell[data-rail-expanded] {
@@ -1022,6 +1039,14 @@ textarea::placeholder {
      e o mesmo mecanismo que ja carrega o tema claro — por isso nao ha excecao a
      escrever aqui. */
   background: color-mix(in srgb, var(--surface-raised) 45%, transparent);
+  transition: border-color var(--dur-state) var(--ease-state), background var(--dur-state) var(--ease-state);
+}
+
+.home-grid .widget .spotlight-card-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
 }
 
 /* A superfície onde a forma é desenhada, um degrau abaixo do card.
@@ -3002,7 +3027,12 @@ textarea::placeholder {
   border-bottom: var(--line) solid var(--border);
   border-radius: var(--radius-none);
   text-align: left;
-  transition: background var(--dur-instant) linear, opacity var(--dur-state) var(--ease-state);
+  transition: background var(--dur-instant) linear, opacity var(--dur-state) var(--ease-state),
+    transform var(--dur-instant) var(--ease-state), color var(--dur-instant) linear;
+}
+
+.data-row:active {
+  transform: translateX(1px);
 }
 
 .data-row:has(.row-copy small) {
@@ -3024,10 +3054,12 @@ textarea::placeholder {
 
 .data-row[data-completed] {
   opacity: 0.42;
+  transition: opacity var(--dur-state) var(--ease-state);
 }
 
 .data-row[data-completed] strong {
   text-decoration: line-through;
+  transition: color var(--dur-state) var(--ease-state);
 }
 
 .row-copy {
@@ -8290,3 +8322,98 @@ input[type="checkbox"]:disabled {
   font: var(--text-ui);
   font-variant-numeric: tabular-nums;
 }
+
+/* ===========================================================================
+   M/OS MOTION DESIGN SYSTEM PRIMITIVES (React Bits Adapted)
+   =========================================================================== */
+
+/* 1. Spotlight Card */
+.spotlight-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.spotlight-card-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: var(--spotlight-opacity, 0);
+  background: var(--spotlight-gradient);
+  transition: opacity var(--dur-state) var(--ease-state);
+  z-index: 1;
+}
+
+.spotlight-card-content {
+  position: relative;
+  z-index: 2;
+}
+
+/* 2. Animated List & Item */
+.animated-list {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.animated-list-item {
+  width: 100%;
+}
+
+/* 3. Animated Number (CountUp) */
+.animated-number {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 4. Decrypted Text */
+.decrypted-text {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 5. Border Glow (Active State Only) */
+.border-glow-container {
+  position: relative;
+  border-radius: inherit;
+}
+
+.border-glow-aura {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 1px solid var(--signal-ink);
+  box-shadow: 0 0 10px var(--signal-ring);
+  animation: borderGlowPulse 2.4s ease-in-out infinite;
+  z-index: 0;
+}
+
+@keyframes borderGlowPulse {
+  0%, 100% {
+    opacity: 0.35;
+    box-shadow: 0 0 6px var(--signal-ring);
+  }
+  50% {
+    opacity: 0.85;
+    box-shadow: 0 0 14px var(--signal-ring);
+  }
+}
+
+/* 6. Universal Reduced Motion Overrides */
+@media (prefers-reduced-motion: reduce) {
+  .spotlight-card-overlay,
+  .border-glow-aura {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .button,
+  .icon-button,
+  .rail-destination,
+  .rail-utility,
+  .menu-trigger,
+  .data-row {
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
