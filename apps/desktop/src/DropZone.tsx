@@ -31,12 +31,16 @@ export function DropZone({
   projects,
   onRecibo,
   refresh,
+  onOcupacao,
 }: {
   contexto: DropContext;
   projects: Project[];
   /** Mostra o recibo com desfazer, no mesmo lugar em que o resto do app mostra. */
   onRecibo: (mensagem: string, desfazer: () => Promise<void>) => void;
   refresh: () => Promise<void>;
+  /* Argos precisa saber que o painel tomou o canto. O estado mora aqui dentro, e
+     medir o DOM lá fora leria cache — por isso o aviso sobe em vez de descer. */
+  onOcupacao: (ocupado: boolean) => void;
 }) {
   const [pairando, setPairando] = useState(false);
   const [itens, setItens] = useState<ItemDoLote[]>([]);
@@ -52,6 +56,8 @@ export function DropZone({
   contextoAtual.current = contexto;
   const projectsAtual = useRef(projects);
   projectsAtual.current = projects;
+  /* O painel tomou o canto inferior direito, e Argos precisa ceder. */
+  useEffect(() => { onOcupacao(itens.length > 0); }, [itens.length, onOcupacao]);
   const reciboAtual = useRef(onRecibo);
   reciboAtual.current = onRecibo;
   const refreshAtual = useRef(refresh);

@@ -542,6 +542,55 @@ button {
 
    `--signal-fill` não entra: a ADR-034 o reservou para carga, e Argos não mostra
    carga. */
+/* Argos ancorado (ADR-048).
+
+   `fixed` e nao `absolute`: ele acompanha a janela, e nao a coluna — e a face do
+   sistema inteiro, e nao da pagina. Abaixo do recibo e do toast de proposito: a
+   ordem nao e hierarquia visual, e PRECEDENCIA. O aviso carrega dado; o bicho,
+   nao. */
+.argos-botao {
+  position: fixed;
+  bottom: var(--space-4);
+  z-index: calc(var(--z-receipt) - 1);
+  display: grid;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  transition:
+    left var(--dur-state) var(--ease-enter),
+    right var(--dur-state) var(--ease-enter);
+}
+
+.argos-botao[data-canto="direita"] {
+  right: var(--space-4);
+  left: auto;
+}
+
+/* Alinhado com o recibo, que parte da borda do rail e nao da janela. */
+.argos-botao[data-canto="esquerda"] {
+  left: calc(var(--rail-width) + var(--space-4));
+  right: auto;
+}
+
+.argos-botao:focus-visible {
+  outline-offset: var(--marker);
+}
+
+.argos-canvas {
+  width: 72px;
+  height: 72px;
+  display: block;
+}
+
+/* O deslize entre cantos e movimento que carrega dado — ele diz que outra coisa
+   chegou. Ainda assim, quem pediu menos movimento recebe o corte seco. */
+@media (prefers-reduced-motion: reduce) {
+  .argos-botao {
+    transition: none;
+  }
+}
+
 .argos {
   flex: none;
   color: var(--text-system);

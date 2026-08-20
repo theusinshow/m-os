@@ -14,6 +14,7 @@ import { hermes, type HermesConnectionState, type HermesFailure, type HermesStat
 import { HermesPage } from "./HermesPage";
 import { AppIcon } from "./AppIcon";
 import { Argos, useArgosPose } from "./Argos";
+import { cantoPara } from "./argosCorner";
 import { Button } from "./Button";
 import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel, StateMessage } from "./Surface";
 import { CalendarPage } from "./CalendarPage";
@@ -2951,6 +2952,13 @@ function DesktopApp() {
   /* A pose de Argos vive aqui porque `busy` e `bootState` vivem aqui. O
      cronometro e o Hermes ele assina sozinho — ver `useArgosPose`. */
   const argosPose = useArgosPose({ busy, boot: bootState });
+  const [dropOcupado, setDropOcupado] = useState(false);
+  /* A ocupacao vem do estado que o shell ja tem: `delivered` e o toast, `undo` e
+     o recibo, `dropOcupado` e o painel. Nada aqui mede a tela. */
+  const argosCanto = cantoPara({
+    direitaOcupada: Boolean(delivered) || dropOcupado,
+    esquerdaOcupada: Boolean(undo),
+  });
   const undoTimer = useRef<number | null>(null);
   const functionIntentKey = useRef(0);
 
@@ -3266,7 +3274,7 @@ function DesktopApp() {
       openMeeting={(id) => { setFocusedMeetingId(id); navigate("reunioes"); }}
     />{/* A barra vive no shell, e nao numa pagina: navegar para a Home nao pode
     apagar da vista o fato de que o microfone esta aberto (§17.2). */}
-<div className="system-state" aria-live="polite" data-busy={busy || undefined}>{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span><Argos pose={argosPose} /></div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main>{/* O leque vive na coluna principal, e nao sobre o rail: ele e o gesto que
+<div className="system-state" aria-live="polite" data-busy={busy || undefined}>{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main>{/* O leque vive na coluna principal, e nao sobre o rail: ele e o gesto que
     o rail perdeu quando voltou a oito, e competir com a navegacao ao lado
     seria desfazer a troca. Ver ADR-045. */}
 <Leque pins={radialPins} workspaceId={currentWorkspaceId || null} apps={apps} onNavegar={navigate} onAbrirApp={openRegisteredApp} onAcao={(target) => { if (target === "attention_create") setComposerOpen(true); else void api.showQuickCapture(); }} onFixar={(slot) => setSlotEmEscolha(slot)} /></div>{composerOpen ? <ReminderComposer close={() => setComposerOpen(false)} created={() => { void api.attentionCount().then(setAttentionCount).catch(() => undefined); setAttentionOpen(true); }} /> : null}{attentionOpen ? <AttentionCenter compose={() => { setAttentionOpen(false); setComposerOpen(true); }} close={() => { setAttentionOpen(false); void api.attentionCount().then(setAttentionCount).catch(() => undefined); }} /> : null}{delivered ? <AttentionToast event={delivered} close={() => setDelivered(null)} open={() => { setDelivered(null); setAttentionOpen(true); }} /> : null}{/* A Drop Zone vive no shell, ao lado das outras sobreposicoes: soltar algo
@@ -3283,7 +3291,8 @@ function DesktopApp() {
       projects={projects}
       onRecibo={(message, run) => showReceipt({ message, run })}
       refresh={refresh}
-    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
+      onOcupacao={setDropOcupado}
+    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}<Argos pose={argosPose} canto={argosCanto} onAbrir={() => setAttentionOpen(true)} />{undo ? <div className="receipt" role="status"><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></div> : null}</div>;
 }
 
 /**
