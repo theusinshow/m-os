@@ -63,6 +63,7 @@ Estados possíveis:
 | ADR-045 | O rail volta a oito, e o recém-chegado nasce no leque | Accepted |
 | ADR-046 | Todo drop vira Capture primeiro, e a entidade vem depois | Accepted |
 | ADR-047 | A detecção de reunião observa o microfone, e nunca o conteúdo | Accepted |
+| ADR-048 | Argos ganha corpo, e o orçamento de movimento abre uma exceção nomeada | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -1477,6 +1478,8 @@ número inventado é pior que a ausência".
 **Status:** aceito, por decisão do proprietário do produto
 **Revisa:** nada. Convive com `UX-PRINCIPLES.md` §16 e `HERMES-PREMIUM-CHAT.md` §7.6
 pela distinção fixada abaixo.
+**Revisada por:** ADR-048, nas condições de tamanho e de laço. A condição 2 —
+cada pose é um fato — continua valendo integralmente.
 
 ### Contexto
 
@@ -2214,3 +2217,82 @@ nessa janela na primeira abertura depois desta versão — e a alarga.
 - `mos-audio` ganhou `start_mic`. A ausência do loopback é a decisão: gravar o
   que sai pelos alto-falantes enquanto alguém dita um lembrete capturaria a
   reunião aberta atrás.
+
+## ADR-048 — Argos ganha corpo, e o orçamento de movimento abre uma exceção nomeada
+
+**Data:** 2026-08-19
+**Status:** aceito, por decisão do proprietário do produto
+**Revisa:** ADR-041 (condições 1 e 3) e o orçamento de movimento da ADR-034.
+Abre exceção nomeada contra `UX-PRINCIPLES.md` §16 e `HERMES-PREMIUM-CHAT.md` §7.6.
+
+### Contexto
+
+O proprietário pediu Argos em 3D, grande, ancorado no canto inferior direito.
+
+Quatro documentos proíbem isso na letra: a condição 3 da ADR-041 ("não tem loop
+nem piscada ociosa"), o orçamento da ADR-034 ("um loop por tela", já gasto na
+barra do `Symbol.tsx`), o §7.6 ("avatar, orb, glow permanente, spinner grande") e
+o §16 ("orbes decorativos", "interfaces que parecem demos de IA").
+
+Não há leitura em que o pedido não contradiga os quatro.
+
+### Decisão
+
+**A exceção é concedida, e é nominal: ela vale para Argos e para mais nada.**
+
+**1. O orçamento passa a ser "um loop por tela, mais o Argos".** Não "dois
+loops": qualquer terceiro laço continua precisando de ADR própria.
+
+**2. A exceção é paga com pausas, e elas são parte da decisão.** Sem foco não
+desenha. Minimizado não desenha. Oculto não desenha. E sob
+`prefers-reduced-motion` não há laço nenhum — um quadro por pose, e congela.
+Quem pediu menos movimento continua recebendo exatamente o que a ADR-034
+prometia.
+
+**3. A condição 2 da ADR-041 não é tocada.** Cada pose continua sendo um fato
+ligado a um sinal que já existe, `poseFor` não muda uma linha, e as seis poses
+continuam sendo seis. É este pilar, e não o tamanho, que separava a criatura do
+enfeite — e é ele que sobrevive.
+
+**4. Há piso.** Onde o WebGL não sobe, o SVG de 22px desenha as mesmas seis
+poses. O bicho novo não pode custar a face do estado a ninguém.
+
+### O `aria-hidden` cai
+
+A ADR-041 escondia Argos dos leitores de tela com o argumento de que "os mesmos
+fatos já são anunciados em texto pelo estado de sistema ao lado". Saindo da
+topbar, não há mais nada ao lado — o argumento morre com a mudança de endereço. E
+virando controle que abre o Centro de Atenção, esconder deixa de ser opção.
+
+Argos passa a ser um botão com nome próprio, e o nome diz o **fato**, nunca a
+expressão: "Estado do sistema: aguardando sua aprovação", e não "arregalado".
+
+### A silhueta, e o risco assumido
+
+A ADR-041 recusou o blob da referência porque ele é reimplementação do mascote da
+x.ai. **Aquele problema era de propriedade, não de geometria** — um blob de
+desenho próprio não o herda.
+
+Mas continua perto da silhueta que o §16 alerta. Isso é risco assumido pelo
+proprietário, com o conflito à vista, e está escrito aqui para que ninguém, daqui
+a seis meses, precise adivinhar se foi descuido.
+
+### O ruído é soma de senos, e não simplex de terceiro
+
+O corpo deforma por três senos em frequências primas entre si, escritos no
+próprio vertex shader. Um simplex de biblioteca daria um corpo mais orgânico, e
+a 72px a diferença não se vê — mas traria GLSL de outra licença para dentro do
+repo, que é exatamente o cuidado que fez esta família de decisões recusar o
+desenho da referência.
+
+### Consequências
+
+- a topbar perde o segundo espelho de estado que a ADR-041 lhe deu, e fica com o
+  texto e o spinner;
+- o renderer ganha `three` por import dinâmico, num chunk separado do `index`:
+  quem não monta o bicho não paga o download;
+- o risco que a ADR-041 nomeou — "uma criatura é mais fácil de esticar do que uma
+  barra" — cresce com o tamanho. A defesa continua sendo a mesma: qualquer pose
+  nova exige um sinal que já exista;
+- o dia em que a bateria incomodar, o primeiro corte é a taxa de quadros em
+  `desperto`, que ocupa 90% do tempo — e não desligar o resto.
