@@ -1076,6 +1076,58 @@ fn mesma_fala(a: &str, b: &str) -> bool {
     a.trim().to_lowercase() == b.trim().to_lowercase()
 }
 
+/// A pontuacao que um token carrega no fim.
+fn pontuacao_final(token: &str) -> &str {
+    &token[sem_pontuacao_final(token).len()..]
+}
+
+/// O token sem a pontuacao do fim.
+fn sem_pontuacao_final(token: &str) -> &str {
+    token.trim_end_matches(|c| ",.;:!?".contains(c))
+}
+
+/// Colapsa palavra repetida DENTRO de um segmento.
+///
+/// O colapso de segmentos nao alcanca este caso, e ele existe: o canal do
+/// microfone da reuniao de 20/08 trouxe "Nao, nao, nao..." treze vezes num
+/// segmento so, e "Coi coi coi coi coi vari." noutro. Nenhuma flag do whisper
+/// matou nenhum dos dois.
+///
+/// O limiar e o MESMO do colapso de segmentos, e de proposito: "que que" e
+/// portugues falado, "vai, vai" e pressa, e tres e onde a repeticao deixa de ser
+/// coisa de gente.
+///
+/// A pontuacao que fecha vem do ULTIMO da corrida, porque e ela que encerra a
+/// frase — a virgula do primeiro morre junto com as repeticoes que ela separava.
+fn colapsar_repeticao_interna(texto: &str) -> String {
+    let tokens: Vec<&str> = texto.split_whitespace().collect();
+    let mut fora: Vec<String> = Vec::with_capacity(tokens.len());
+    let mut inicio = 0usize;
+
+    let mesma = |a: &str, b: &str| {
+        sem_pontuacao_final(a).to_lowercase() == sem_pontuacao_final(b).to_lowercase()
+    };
+
+    while inicio < tokens.len() {
+        let mut fim = inicio + 1;
+        while fim < tokens.len() && mesma(tokens[inicio], tokens[fim]) {
+            fim += 1;
+        }
+        if fim - inicio >= REPETICOES_ATE_VIRAR_LACO {
+            fora.push(format!(
+                "{}{}",
+                sem_pontuacao_final(tokens[inicio]),
+                pontuacao_final(tokens[fim - 1])
+            ));
+        } else {
+            fora.extend(tokens[inicio..fim].iter().map(|t| (*t).to_owned()));
+        }
+        inicio = fim;
+    }
+
+    fora.join(" ")
+}
+
 /// Junta laco de repeticao num segmento so.
 ///
 /// Existe porque NENHUMA configuracao do whisper matou o laco: as onze rodadas
@@ -1125,7 +1177,7 @@ pub fn clean_segments(mut segments: Vec<RawSegment>) -> Vec<RawSegment> {
     segments.retain(|segment| is_speech(&segment.text));
     segments.sort_by_key(|segment| segment.start_ms);
     for segment in &mut segments {
-        segment.text = segment.text.trim().to_owned();
+        segment.text = colapsar_repeticao_interna(segment.text.trim());
         // Um segmento com fim antes do inicio quebra a evidencia: o salto na
         // transcricao pousaria antes do trecho. Corrigir aqui e melhor que
         // confiar em todo provider acertar.
@@ -1753,6 +1805,39 @@ mod tests {
         // ao fim do ultimo. Um salto na transcricao tem que pousar no trecho.
         assert_eq!(limpos[1].start_ms, 1000);
         assert_eq!(limpos[1].end_ms, 4000);
+    }
+
+    #[test]
+    fn laco_dentro_de_um_segmento_tambem_colapsa() {
+        // Saiu do canal do mic da reuniao de 20/08, num segmento so.
+        let limpos = clean_segments(vec![seg(0, 2000, "Nao, nao, nao, nao, nao, nao, nao")]);
+        assert_eq!(limpos.len(), 1);
+        assert_eq!(limpos[0].text, "Nao");
+
+        // E o "Coi coi coi coi coi vari." da mesma reuniao.
+        let limpos = clean_segments(vec![seg(0, 2000, "Coi coi coi coi coi vari.")]);
+        assert_eq!(limpos[0].text, "Coi vari.");
+    }
+
+    #[test]
+    fn repeticao_interna_de_duas_e_enfase_e_nao_laco() {
+        // "que que" e portugues falado; "vai, vai" e pressa. Nenhum dos dois e defeito.
+        let limpos = clean_segments(vec![
+            seg(0, 1000, "Que que aconteceu ali?"),
+            seg(1000, 2000, "Vai, vai que da tempo"),
+        ]);
+        assert_eq!(limpos[0].text, "Que que aconteceu ali?");
+        assert_eq!(limpos[1].text, "Vai, vai que da tempo");
+    }
+
+    #[test]
+    fn a_pontuacao_que_fecha_a_frase_sobrevive_ao_colapso() {
+        // A virgula do primeiro sai, mas o ponto do ultimo fica: ele encerra.
+        let limpos = clean_segments(vec![seg(0, 1000, "Entao, entao, entao, entao.")]);
+        assert_eq!(limpos[0].text, "Entao.");
+        // E uma frase normal nao e tocada.
+        let limpos = clean_segments(vec![seg(0, 1000, "A armadura da laje ja esta pronta.")]);
+        assert_eq!(limpos[0].text, "A armadura da laje ja esta pronta.");
     }
 
     #[test]
