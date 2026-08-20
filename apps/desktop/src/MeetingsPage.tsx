@@ -5,11 +5,12 @@ import { conversations } from "./hermes";
 import { Button } from "./Button";
 import { CardGravacao } from "./CardGravacao";
 import { formatMeetingClock } from "./RecordingBar";
+import { proximoPasso, rotuloDoEstado } from "./meetingEstado";
 import { EVENTOS_DE_REUNIAO, selecaoAoFocar } from "./meetingsSync";
 import { EmptyState, Inspector, PageHeader, PaneHeader, Panel, StateMessage } from "./Surface";
 import type {
   Confidence, InsightKind, Meeting, MeetingAnalysis, MeetingInsight,
-  MeetingStatus, Project, TranscriptSegment,
+  Project, TranscriptSegment,
 } from "./types";
 
 /**
@@ -25,19 +26,8 @@ import type {
  * leitura diferente.
  */
 
-const STATUS_LABEL: Record<MeetingStatus, string> = {
-  recording: "gravando",
-  paused: "pausada",
-  stopping: "encerrando",
-  interrupted: "interrompida",
-  recorded: "gravada",
-  transcribing: "transcrevendo",
-  transcribed: "transcrita",
-  analyzing: "analisando",
-  ready: "pronta",
-  failed: "falhou",
-  cancelled: "descartada",
-};
+/* Os rotulos e o "o que falta" vivem no `meetingEstado.ts`, fora do componente,
+   porque nao ha teste de DOM neste repo e essa copy ja enganou uma vez. */
 
 /** O rótulo que a pessoa lê. O nome técnico nunca aparece. */
 const KIND_LABEL: Record<InsightKind, string> = {
@@ -329,15 +319,22 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
   const [flash, setFlash] = useState("");
   const [narrowPane, setNarrowPane] = useState<"list" | "detail">(focus ? "detail" : "list");
   const [recording, setRecording] = useState(false);
+  /* Carregar tem de aparecer. Uma lista vazia enquanto carrega e indistinguivel
+     de uma lista vazia porque nao ha nada — e as duas pedem reacoes opostas. */
+  const [carregandoLista, setCarregandoLista] = useState(true);
+  const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
   const [askConsent, setAskConsent] = useState(false);
   const inspector = useRef<HTMLElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
 
   const loadList = useCallback(async () => {
+    setCarregandoLista(true);
     try {
       setMeetings(await api.meetings(false));
     } catch (error) {
       setNote(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCarregandoLista(false);
     }
   }, []);
 
@@ -404,6 +401,7 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
 
   const loadDetail = useCallback(async () => {
     if (!chosenId) { setSegments([]); setInsights([]); setAnalysis(null); return; }
+    setCarregandoDetalhe(true);
     try {
       const [transcript, items, summary] = await Promise.all([
         api.meetingTranscript(chosenId),
@@ -415,6 +413,8 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
       setAnalysis(summary);
     } catch (error) {
       setNote(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCarregandoDetalhe(false);
     }
   }, [chosenId]);
 
@@ -502,7 +502,14 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
       <div className="split-page inspector-page meetings-split">
         <section className="list-pane">
           <PaneHeader segments={["Reuniões"]} meta={`${meetings.length}`} />
-          {meetings.length === 0 ? (
+          {carregandoLista && meetings.length === 0 ? (
+            <div className="meeting-carregando" role="status">
+              <span className="processing-trilha" data-indeterminado>
+                <span className="processing-preenchimento" />
+              </span>
+              <span className="micro-label">CARREGANDO AS REUNIÕES</span>
+            </div>
+          ) : meetings.length === 0 ? (
             <EmptyState>
               Nenhuma reunião ainda. Comece uma gravação para a primeira aparecer aqui.
             </EmptyState>
@@ -523,7 +530,7 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
                       <span className="meeting-row-time">{hourOf(meeting.startedAt)}</span>
                       <span className="meeting-row-title">{meeting.title}</span>
                       <span className="meeting-row-duration">{durationLabel(meeting.durationMs)}</span>
-                      <span className="meeting-row-meta">{STATUS_LABEL[meeting.status]}</span>
+                      <span className="meeting-row-meta">{rotuloDoEstado(meeting.status)}</span>
                     </button>
                   ))}
                 </div>
@@ -552,6 +559,12 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
                   {chosen.projectId ? ` · ${projects.find((p) => p.id === chosen.projectId)?.name ?? "Project"}` : ""}
                 </p>
                 <ChannelHealth meeting={chosen} />
+                {/* O que FALTA, e nao so onde a coisa esta. Em 20/08 a tela
+                    dizia "gravada" e era verdade — mas quem leu entendeu que
+                    nada tinha sido gravado. Ver `meetingEstado.ts`. */}
+                {proximoPasso(chosen.status) ? (
+                  <p className="meeting-proximo-passo">{proximoPasso(chosen.status)}</p>
+                ) : null}
               </header>
 
               {chosen.status === "recording" || chosen.status === "paused" ? (
@@ -570,12 +583,12 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
                   role="tab"
                   aria-selected={view === "transcript"}
                   onClick={() => setView("transcript")}
-                >Transcrição</button>
+                >Transcrição{segments.length ? ` · ${segments.length}` : ""}</button>
                 <button
                   role="tab"
                   aria-selected={view === "notes"}
                   onClick={() => setView("notes")}
-                >Anotações</button>
+                >Anotações{chosen.notes?.trim() ? " ·" : ""}</button>
               </div>
 
               {view === "notes" ? (
@@ -667,7 +680,19 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
                       aparece aqui e o botão <strong>Transcrever</strong> a produz.
                     </EmptyState>
                   ) : segments.length === 0 ? (
-                    <EmptyState>Esta reunião ainda não foi transcrita.</EmptyState>
+                    carregandoDetalhe ? (
+                      <div className="meeting-carregando" role="status">
+                        <span className="processing-trilha" data-indeterminado>
+                          <span className="processing-preenchimento" />
+                        </span>
+                        <span className="micro-label">CARREGANDO A TRANSCRIÇÃO</span>
+                      </div>
+                    ) : (
+                      <EmptyState>
+                        Esta reunião ainda não foi transcrita. O áudio está salvo — o botão
+                        <b> Transcrever</b> acima produz o texto.
+                      </EmptyState>
+                    )
                   ) : (
                     filteredSegments.map((segment) => (
                       <p
@@ -804,7 +829,7 @@ function MeetingActions({ meeting, act, refresh }: {
     );
   }
   if (meeting.status === "transcribing" || meeting.status === "analyzing") {
-    return <p className="meeting-working">{STATUS_LABEL[meeting.status]}…</p>;
+    return <p className="meeting-working">{rotuloDoEstado(meeting.status)}…</p>;
   }
   if (!buttons.length) return null;
   return <div className="meeting-insight-actions">{buttons}</div>;

@@ -8583,3 +8583,20 @@ input[type="checkbox"]:disabled {
   line-height: 1;
   cursor: pointer;
 }
+
+/* O que falta numa reuniao, dito na propria reuniao. Nao e alerta — e
+   instrucao —, entao nao usa a tinta de sinal nem a borda de perigo. */
+.meeting-proximo-passo {
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border-left: 2px solid var(--border-strong);
+  background: var(--surface);
+  font: var(--text-small);
+  color: var(--text-secondary);
+}
+
+.meeting-carregando {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
