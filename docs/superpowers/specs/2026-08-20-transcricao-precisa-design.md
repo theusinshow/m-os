@@ -142,6 +142,64 @@ de 29 s para ~10 s (o VAD compensa a lentidão do modelo), o canal do sistema sa
 
 ---
 
+## 2.5 A correção de rumo, escrita depois da verificação
+
+Esta seção existe porque a verificação da Task 6 reprovou, e o que ela achou
+derruba parte do que está escrito acima. Fica registrada em vez de silenciosamente
+editada: quem ler a §1 precisa saber o quanto confiar nela.
+
+### O que estava errado no meu próprio cálculo
+
+A D-1 mandava mirar −25 dBFS, e o código mirava por regra de três (`alvo / rms`).
+Mas o joelho `tanh` comprime os picos: mirando −25 dBFS, o áudio aterrissava em
+**−26,5**. Corrigido — o ganho agora **mede o resultado e recalibra**, em até três
+voltas, e o teto subiu de 20 para 24 dB porque o ponto medido exigia 10,7× e o teto
+anterior cortava exatamente ele.
+
+### O que estava errado nos critérios de aceitação
+
+Muito pior, e é meu: **"23 frases e 'laje'" não é reproduzível.** Variando só o
+ganho, com todo o resto idêntico:
+
+| ganho | frases reais no mic | acertou "laje"? |
+|---|---|---|
+| 10,00 | 11 | não |
+| 10,68 | 17 | não |
+| 11,08 | 12 | não |
+| 12,00 | 17 | não |
+| 10,68, com truncamento em vez de arredondamento | **23** | **sim** |
+
+As duas últimas linhas são **o mesmo ganho**, separadas por **1 LSB** de
+arredondamento na amostra. O whisper é determinístico — a mesma entrada devolve a
+mesma saída, verificado rodando duas vezes —, então isto não é sorteio: é
+sensibilidade caótica à forma de onda num canal de baixa relação sinal-ruído.
+
+**Consequência:** a rodada `r7` da §1.3 foi uma amostra de sorte, e não uma
+propriedade da configuração. A escolha do `large-v3` sobre o turbo repousa sobre
+evidência mais fraca do que a §1.3 sugere. Ela **não foi refeita** — fica registrada
+como dívida, e o caminho para pagá-la é comparar distribuição sobre várias
+perturbações, nunca amostra única.
+
+### O que resistiu, e é o que sustenta o trabalho
+
+| | antes | depois |
+|---|---|---|
+| Canal do sistema (a substância da reunião) | 62 frases, 721 palavras | **79 frases, 739 palavras** |
+| Laço entre segmentos (24 "Tchau") | presente | **morto em toda configuração** |
+| Repetição dentro de um segmento | 12× | **2×** |
+| Canal do mic | 17 frases | 11–17 frases |
+
+O canal que carrega o conteúdo melhorou, e o pior sintoma morreu. O canal do
+microfone segue na mesma faixa — ele é seis minutos de muleta com pouca fala.
+
+### A D-3 ganhou uma segunda metade
+
+O colapso de segmentos não alcançava repetição **dentro** de um segmento, e ela
+existia no áudio real. `colapsar_repeticao_interna` cobre isso, com o mesmo limiar
+de três e pela mesma razão.
+
+---
+
 ## 3. O que este desenho NÃO conserta
 
 Precisa estar escrito, porque a próxima pessoa vai achar que consertou:
@@ -167,8 +225,11 @@ critério que decidiu onde cada regra mora.
 | `mos-transcribe` | `args()` com e sem VAD; caminho vazio não gera flag; `-sns` sempre presente; parsing do `progress = NN%` |
 | `mos-core` | 3 idênticos colapsam em 1; 2 sobrevivem; o intervalo do colapsado vai do início do primeiro ao fim do último |
 
-**Verificação final:** reprocessar a mesma reunião pela bancada e conferir contra a rodada que o
-dono validou — 23 frases reais no mic, sem laço, com "laje" no lugar certo.
+**Verificação final:** reprocessar a mesma reunião pela bancada. O critério que se
+sustenta é **ausência de laço** — entre segmentos e dentro deles — e o canal do
+sistema não regredir. Contagem de frases do canal do mic e acerto de um termo
+específico **não servem de critério**: a §2.5 mostra que ambos oscilam com 1 LSB de
+diferença na entrada.
 
 ---
 
