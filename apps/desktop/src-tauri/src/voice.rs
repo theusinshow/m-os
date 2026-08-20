@@ -40,7 +40,7 @@ use mos_core::{
     heard, is_hallucination, understand, CoreError, ErrorCode, Heard, ProjectHint, TaskState,
     TranscriptionProvider, UndoStep, VoiceAction, VoiceContext, VoiceNote,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 
@@ -53,32 +53,25 @@ const RECEIPT_MS: u64 = 6_000;
 ///
 /// `Option` e nao fila: **uma gravacao por vez**. Dois gravadores disputariam o
 /// mesmo microfone, e o dominio ja recusaria a segunda de qualquer jeito.
+/// O que a gravacao em curso precisa, e nada alem disso.
+///
+/// **O contexto da tela e o fuso saem daqui e passam a morar em `surface.rs`.**
+/// Estavam neste registro, e o motivo era bom: o atalho global dispara do lado
+/// do Rust, e naquele caminho nao ha chamada do renderer para carregar contexto
+/// junto — a tela publica o que esta olhando, e o backend guarda.
+///
+/// O motivo nunca foi exclusivo da voz, porem. O Hermes precisa exatamente das
+/// mesmas duas coisas para entender "me lembra disso sexta as 15h": "disso" so
+/// a tela sabe preencher, e "sexta as 15h" so o fuso resolve. Duas copias
+/// dariam dois lugares para a tela publicar, e um dia para elas divergirem.
 #[derive(Default)]
 pub struct VoiceRuntime {
     active: Mutex<Option<Active>>,
-    /// O que a tela estava mostrando quando o atalho tocou.
-    ///
-    /// Vive aqui, e nao vem no comando, porque o atalho global dispara **do
-    /// lado do Rust** — nesse caminho nao ha chamada do renderer para carregar
-    /// contexto junto. A tela publica o que esta olhando; o backend guarda.
-    context: Mutex<StoredContext>,
-    /// O fuso de quem esta na frente do computador, em minutos.
-    ///
-    /// `CORE-FOUNDATION.md` §5 e o `ReminderComposer` sao explicitos: quem
-    /// conhece o fuso e a tela, e o banco guarda UTC. O renderer publica isto
-    /// na montagem, e "amanha as nove" e resolvido contra ele.
-    offset_minutes: Mutex<i32>,
 }
 
 struct Active {
     note_id: String,
     recording: Recording,
-}
-
-#[derive(Clone, Default)]
-struct StoredContext {
-    project_id: Option<String>,
-    task_id: Option<String>,
 }
 
 /// O que o HUD recebe enquanto a fala acontece.
@@ -160,13 +153,6 @@ pub struct VoiceFailed {
     pub retryable: bool,
 }
 
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VoiceContextInput {
-    pub project_id: Option<String>,
-    pub task_id: Option<String>,
-}
-
 // --------------------------------------------------------------- utilitarios
 
 fn audio_error(error: AudioError) -> CoreError {
@@ -224,12 +210,7 @@ fn audio_root(app: &AppHandle, note: &VoiceNote) -> Result<PathBuf, CoreError> {
 
 /// O agora de quem falou, no fuso de quem falou.
 fn now_local(app: &AppHandle) -> time::OffsetDateTime {
-    let minutes = app
-        .try_state::<VoiceRuntime>()
-        .and_then(|runtime| runtime.offset_minutes.lock().ok().map(|guard| *guard))
-        .unwrap_or(0);
-    let offset = time::UtcOffset::from_whole_seconds(minutes * 60).unwrap_or(time::UtcOffset::UTC);
-    time::OffsetDateTime::now_utc().to_offset(offset)
+    crate::surface::now_local(app)
 }
 
 fn provider(app: &AppHandle) -> Result<mos_transcribe::WhisperCliProvider, CoreError> {
@@ -240,33 +221,6 @@ fn provider(app: &AppHandle) -> Result<mos_transcribe::WhisperCliProvider, CoreE
 }
 
 // ------------------------------------------------------------------ comandos
-
-/// O renderer publica o fuso na montagem.
-#[tauri::command]
-pub fn voice_set_locale(app: AppHandle, offset_minutes: i32) -> Result<(), CoreError> {
-    // Uma hora e meia de fuso existe (Índia, +5:30); trinta horas nao. O teto
-    // recusa um valor absurdo em vez de deixa-lo virar um lembrete no dia
-    // errado.
-    if !(-14 * 60..=14 * 60).contains(&offset_minutes) {
-        return Err(CoreError::new(
-            ErrorCode::InvalidInput,
-            "Fuso horario fora do intervalo possivel.",
-            false,
-        ));
-    }
-    *runtime(&app)?.offset_minutes.lock().map_err(lock_error)? = offset_minutes;
-    Ok(())
-}
-
-/// A tela publica o que esta olhando.
-#[tauri::command]
-pub fn voice_set_context(app: AppHandle, context: VoiceContextInput) -> Result<(), CoreError> {
-    *runtime(&app)?.context.lock().map_err(lock_error)? = StoredContext {
-        project_id: context.project_id.filter(|value| !value.trim().is_empty()),
-        task_id: context.task_id.filter(|value| !value.trim().is_empty()),
-    };
-    Ok(())
-}
 
 /// Abre o microfone.
 ///
@@ -294,11 +248,12 @@ pub fn voice_start(app: AppHandle) -> Result<VoiceNote, CoreError> {
         return crate::services(&app)?.voice.note(&id);
     }
 
-    let context = live.context.lock().map_err(lock_error)?.clone();
+    let context = crate::surface::voice_context(&app);
     let state = crate::services(&app)?;
-    let note = state
-        .voice
-        .start(context.project_id.as_deref(), context.task_id.as_deref())?;
+    let note = state.voice.start(
+        context.project_id.map(|id| id.to_string()).as_deref(),
+        context.task_id.map(|id| id.to_string()).as_deref(),
+    )?;
 
     let root = audio_root(&app, &note)?;
     let started_at = note

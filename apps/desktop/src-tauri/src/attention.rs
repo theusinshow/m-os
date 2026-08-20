@@ -212,7 +212,7 @@ fn notify_badge<R: Runtime>(app: &AppHandle<R>) {
 ///
 /// Chamado depois de criar ou adiar: sem isto, um lembrete para daqui a dois
 /// minutos esperaria o laco acordar pelo teto de quinze.
-fn poke<R: Runtime>(app: &AppHandle<R>) {
+pub fn poke<R: Runtime>(app: &AppHandle<R>) {
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         tick(&handle).await;

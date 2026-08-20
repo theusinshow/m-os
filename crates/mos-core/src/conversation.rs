@@ -185,7 +185,17 @@ pub enum ContextEntity {
     Capture,
     Resource,
     Workspace,
+    Meeting,
+    Reminder,
     Screen,
+    /// A busca que o M/OS fez sozinho antes de enviar.
+    ///
+    /// Nao e uma entidade, e por isso nao tem id — e o REGISTRO de um bloco que
+    /// saiu da maquina com varias delas dentro. Um chip por candidato seria
+    /// honesto e ilegivel: doze chips numa mensagem em que o usuario nao anexou
+    /// nada esconderiam o que ele anexou de verdade. Um chip so, com os nomes
+    /// em `fields`, cumpre a ADR-027 sem afogar a evidencia.
+    Search,
 }
 
 /// O corpo de uma parte.
@@ -232,6 +242,12 @@ pub enum PartBody {
         status: ProposalStatus,
         /// Resultado depois de resolvida. Vazio enquanto pendente.
         outcome: String,
+        /// O rastro do que a execucao fez. `None` enquanto pendente, e tambem
+        /// em toda proposta gravada antes deste campo existir — por isso
+        /// `serde(default)`: a parte e persistida como JSON, e uma conversa
+        /// antiga precisa continuar abrindo.
+        #[serde(default)]
+        audit: Option<crate::ActionAudit>,
     },
     /// O que EFETIVAMENTE atravessou a ponte. A pergunta "o que foi para a VPS?"
     /// precisa de resposta depois do envio, nao so antes (ADR-027).

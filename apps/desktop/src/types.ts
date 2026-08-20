@@ -665,6 +665,33 @@ export type Page =
   | "reunioes"
   | "settings";
 
+/**
+ * O nome que cada página tem quando alguém fala dela.
+ *
+ * Existe para o Hermes: o preâmbulo diz "Tela aberta: Kanban", e é isso que
+ * permite a ele entender que "essa coluna" e "esse quadro" são o Kanban do
+ * M/OS. Mandar o valor cru — `tasks` — ensinaria o nome interno, que não é o
+ * nome que o usuário usa.
+ *
+ * Mora aqui, junto de `Page`, pelo mesmo motivo que `Page` mora aqui: quem
+ * acrescentar uma página tem de ver que ela precisa de um nome falado.
+ */
+export const SCREEN_LABEL: Record<Page, string> = {
+  home: "Painel",
+  hermes: "Hermes",
+  inbox: "Inbox",
+  projects: "Projects",
+  workspaces: "Workspaces",
+  apps: "Apps",
+  library: "Library",
+  tasks: "Kanban",
+  tempo: "CronoCAD",
+  calendario: "Calendário",
+  finance: "Finance",
+  reunioes: "Reuniões",
+  settings: "Configurações",
+};
+
 export type RadialPin = {
   workspaceId: string | null;
   slot: number;

@@ -67,6 +67,14 @@ pub struct TurnRecorder {
     tools: Vec<(String, ToolRunState)>,
     status: Vec<String>,
     error: Option<String>,
+    /// Partes que ja existiam antes de o primeiro token chegar.
+    ///
+    /// Existe por causa do salto de busca: o turno que responde a um
+    /// `mos-query` comeca com uma ida ao banco JA FEITA, e o que ela devolveu
+    /// atravessou a ponte antes de o modelo dizer qualquer coisa. A ADR-027
+    /// pede o registro do que foi enviado, e este e o unico lugar onde ele
+    /// cabe — a mensagem anterior ja foi gravada, e a proxima ainda nao existe.
+    seeded: Vec<PartBody>,
 }
 
 impl TurnRecorder {
@@ -76,6 +84,11 @@ impl TurnRecorder {
             message_id,
             ..Default::default()
         }
+    }
+
+    /// Registra uma parte que precede o turno.
+    pub fn seed(&mut self, part: PartBody) {
+        self.seeded.push(part);
     }
 
     /// Acumula. Devolve `true` quando o turno assentou e precisa ser gravado.
@@ -149,11 +162,26 @@ impl TurnRecorder {
         }
     }
 
+    /// A busca que o modelo pediu nesta resposta, se pediu.
+    ///
+    /// Lida ANTES de `into_parts`, que consome o registrador: quem decide se
+    /// vale um segundo salto precisa saber disso enquanto ainda pode agir.
+    pub fn requested_query(&self) -> Option<String> {
+        // A acao ganha da busca quando as duas vem juntas, e a razao e a ordem
+        // do trabalho: se o modelo ja sabe o que propor, procurar mais seria
+        // gastar um turno para confirmar o que ele acabou de afirmar.
+        if mos_core::split_fenced(&self.text, "mos-action").1.is_some() {
+            return None;
+        }
+        mos_core::split_fenced(&self.text, "mos-query").1
+    }
+
     /// As partes na ordem em que devem ser lidas.
-    pub fn into_parts(mut self, status: MessageStatus) -> Vec<PartBody> {
+    pub fn into_parts(mut self, status: MessageStatus, now_local: time::OffsetDateTime) -> Vec<PartBody> {
         self.settle_tools(status == MessageStatus::Interrupted);
 
         let mut parts = Vec::new();
+        parts.append(&mut self.seeded);
         for text in self.status.drain(..) {
             parts.push(PartBody::Status { text });
         }
@@ -172,11 +200,26 @@ impl TurnRecorder {
         // A proposta sai do texto e vira parte propria. O JSON cru na thread e
         // ruido, e a mesma informacao volta logo abaixo desenhada como preview.
         let (text, proposal) = split_proposal(&self.text);
+        // A busca sai pelo mesmo motivo, e vira uma execucao visivel: quem le a
+        // conversa precisa ver que houve uma ida ao banco entre a pergunta e a
+        // resposta, senao a pausa parece travamento.
+        let (text, query) = mos_core::split_fenced(&text, "mos-query");
         if !text.is_empty() {
             parts.push(PartBody::Text { text });
         }
+        if let Some(raw) = &query {
+            let (state, detail) = match mos_core::parse_query(raw) {
+                Ok(request) => (ToolRunState::Success, request.search),
+                Err(error) => (ToolRunState::Error, error.message),
+            };
+            parts.push(PartBody::ToolRun {
+                name: "Busca no M/OS".to_owned(),
+                state,
+                detail,
+            });
+        }
         if let Some(raw) = proposal {
-            parts.push(proposal_part(&raw));
+            parts.push(proposal_part(&raw, now_local));
         }
         if let Some(message) = self.error {
             parts.push(PartBody::Error { message });
@@ -185,7 +228,8 @@ impl TurnRecorder {
     }
 
     pub fn has_content(&self) -> bool {
-        !self.text.is_empty()
+        !self.seeded.is_empty()
+            || !self.text.is_empty()
             || !self.reasoning.is_empty()
             || !self.tools.is_empty()
             || self.error.is_some()
@@ -202,21 +246,10 @@ impl TurnRecorder {
 /// a segunda de uma resposta que veio fora do contrato seria confiar num
 /// formato que ja se provou errado naquela mesma mensagem.
 pub fn split_proposal(text: &str) -> (String, Option<String>) {
-    const FENCE: &str = "```mos-action";
-    let Some(start) = text.find(FENCE) else {
-        return (text.to_owned(), None);
-    };
-    let after = start + FENCE.len();
-    let Some(end_offset) = text[after..].find("```") else {
-        // Cerca aberta: o turno pode ter sido interrompido no meio do bloco.
-        // Sem fechamento nao ha proposta valida, e o texto fica como veio.
-        return (text.to_owned(), None);
-    };
-    let raw = text[after..after + end_offset].trim().to_owned();
-    let mut cleaned = String::with_capacity(text.len());
-    cleaned.push_str(&text[..start]);
-    cleaned.push_str(&text[after + end_offset + 3..]);
-    (cleaned.trim().to_owned(), Some(raw))
+    // A leitura mora no `mos-core` desde que a busca ganhou uma cerca propria:
+    // duas copias da mesma varredura divergiriam na primeira vez que uma delas
+    // ganhasse um caso de borda.
+    mos_core::split_fenced(text, "mos-action")
 }
 
 /// Transforma a proposta crua numa parte pendente, ou numa parte recusada.
@@ -224,13 +257,14 @@ pub fn split_proposal(text: &str) -> (String, Option<String>) {
 /// Recusa tambem vira parte: uma proposta que nao bate com o esquema precisa
 /// aparecer na conversa dizendo o motivo. Descartar em silencio deixaria o
 /// usuario vendo o Hermes prometer uma acao que nunca existiu.
-pub fn proposal_part(raw: &str) -> PartBody {
-    match mos_core::parse_action(raw) {
+pub fn proposal_part(raw: &str, now_local: time::OffsetDateTime) -> PartBody {
+    match mos_core::parse_action_at(raw, now_local) {
         Ok(args) => PartBody::ActionProposal {
             raw: raw.to_owned(),
             preview: mos_core::preview_of(&args),
             status: ProposalStatus::Pending,
             outcome: String::new(),
+            audit: None,
         },
         Err(error) => PartBody::ActionProposal {
             raw: raw.to_owned(),
@@ -243,6 +277,7 @@ pub fn proposal_part(raw: &str) -> PartBody {
             },
             status: ProposalStatus::Refused,
             outcome: error.message,
+            audit: None,
         },
     }
 }
@@ -262,12 +297,146 @@ async fn run_action<R: Runtime>(
                 content: content.clone(),
                 source: mos_core::CaptureSource::Home,
             })?;
-            Ok(mos_core::ActionEffect {
-                message: format!("Capture criada: {}", capture.content),
-                undo: Some(mos_core::UndoStep::ArchiveCapture {
+            Ok(mos_core::ActionEffect::new(
+                format!("Capture criada: {}", capture.content),
+                Some(mos_core::UndoStep::ArchiveCapture {
                     id: capture.id.to_string(),
                 }),
-            })
+            )
+            .touching("capture", capture.id.to_string(), capture.content))
+        }
+        mos_core::ActionArgs::CaptureToTask {
+            capture,
+            title,
+            project,
+        } => {
+            let origem = resolve_capture(&state, capture)?;
+            let project_id = match project {
+                Some(name) => resolve_project(&state, name)?,
+                None => None,
+            };
+            // Titulo vazio significa "use o que esta escrito na Capture". O
+            // dominio recusa Task sem titulo, e inventar um aqui seria pior:
+            // a fala ja esta guardada na Capture, e copia-la e a leitura
+            // honesta de "transforma isso em task".
+            let titulo = if title.trim().is_empty() {
+                origem.content.clone()
+            } else {
+                title.clone()
+            };
+            let task = state.work.create_task(mos_core::CreateTaskInput {
+                title: titulo,
+                description: String::new(),
+                project_id,
+                source_capture_id: Some(origem.id.to_string()),
+            })?;
+            let _ = app.emit("capture-changed", "processed");
+            Ok(mos_core::ActionEffect::new(
+                format!("Capture virou a Task: {}", task.title),
+                Some(mos_core::UndoStep::UndoCaptureToTask {
+                    capture_id: origem.id.to_string(),
+                    task_id: task.id.to_string(),
+                }),
+            )
+            .touching("task", task.id.to_string(), task.title)
+            .touching("capture", origem.id.to_string(), origem.content))
+        }
+        mos_core::ActionArgs::TaskSetProject { task, project } => {
+            let alvo = resolve_task(&state, task)?;
+            let anterior = alvo.project_id.map(|id| id.to_string());
+            let destino = resolve_project(&state, project)?;
+            // Titulo e descricao vao como estao: `update_task` escreve os tres
+            // campos, e mandar vazio aqui apagaria a descricao da Task ao mover
+            // ela de Project.
+            let atualizada = state.work.update_task(mos_core::UpdateTaskInput {
+                id: alvo.id.to_string(),
+                title: alvo.title.clone(),
+                description: alvo.description.clone(),
+                project_id: destino.clone(),
+            })?;
+            let nome = destino
+                .as_deref()
+                .and_then(|id| mos_core::ProjectId::parse(id).ok())
+                .map(|id| project_name(&state, id))
+                .unwrap_or_else(|| "nenhum Project".to_owned());
+            Ok(mos_core::ActionEffect::new(
+                format!("{} agora e de {nome}.", atualizada.title),
+                Some(mos_core::UndoStep::RestoreTaskProject {
+                    id: atualizada.id.to_string(),
+                    project_id: anterior,
+                }),
+            )
+            .touching("task", atualizada.id.to_string(), atualizada.title))
+        }
+        mos_core::ActionArgs::ReminderCreate {
+            title,
+            body,
+            at,
+            target,
+            ..
+        } => {
+            let instant = mos_core::parse_moment(at)?;
+            let alvo = match target {
+                Some(target) => Some(resolve_target(&state, target)?),
+                None => None,
+            };
+            // `ReminderSource::Hermes` existia no dominio desde o P0 e nunca
+            // tinha sido escrito por ninguem. E ele que faz o lembrete saber de
+            // onde veio, e e por ele que o Attention Score e a auditoria
+            // distinguem o que a pessoa agendou do que o agente propos.
+            let reminder = state.attention.create_at(
+                title,
+                body,
+                instant,
+                alvo.as_ref().map(|(target, _)| *target),
+                mos_core::ReminderSource::Hermes,
+            )?;
+            // Sem isto o lembrete existe no banco e o agendador nao sabe: ele
+            // so acordaria no proximo restart, e "me lembra em vinte minutos"
+            // passaria em silencio.
+            crate::attention::poke(app);
+            let quando = mos_core::spoken_moment(instant.to_offset(crate::surface::now_local(app).offset()));
+            let mensagem = match &alvo {
+                Some((_, rotulo)) => {
+                    format!("Lembrete para {quando}, vinculado a \"{rotulo}\".")
+                }
+                None => format!("Lembrete para {quando}."),
+            };
+            let mut effect = mos_core::ActionEffect::new(
+                mensagem,
+                Some(mos_core::UndoStep::CancelReminder {
+                    id: reminder.id.to_string(),
+                }),
+            )
+            .touching("reminder", reminder.id.to_string(), reminder.title.clone());
+            if let Some((target, rotulo)) = alvo {
+                let (kind, id) = target.as_columns();
+                effect = effect.touching(kind, id, rotulo);
+            }
+            Ok(effect)
+        }
+        mos_core::ActionArgs::ReminderResolve { reminder, state: desfecho } => {
+            let alvo = resolve_reminder(&state, reminder)?;
+            let transition = if desfecho == "done" {
+                mos_core::Transition::Complete
+            } else {
+                mos_core::Transition::Cancel
+            };
+            let resolvido = state.attention.transition(alvo.id, transition)?;
+            crate::attention::poke(app);
+            Ok(mos_core::ActionEffect::new(
+                format!(
+                    "Lembrete \"{}\" {}.",
+                    resolvido.title,
+                    if desfecho == "done" { "concluido" } else { "cancelado" }
+                ),
+                // SEM desfazer, e a ausencia e a decisao: concluir e cancelar
+                // sao estados terminais no dominio (`attention.rs`), e nao ha
+                // transicao de volta. Inventar uma aqui daria ao Hermes um
+                // caminho que a tela nao tem.
+                None,
+            )
+            .touching("reminder", resolvido.id.to_string(), resolvido.title))
         }
         mos_core::ActionArgs::TaskCreate {
             title,
@@ -284,12 +453,13 @@ async fn run_action<R: Runtime>(
                 project_id,
                 source_capture_id: None,
             })?;
-            Ok(mos_core::ActionEffect {
-                message: format!("Task criada: {}", task.title),
-                undo: Some(mos_core::UndoStep::ArchiveTask {
+            Ok(mos_core::ActionEffect::new(
+                format!("Task criada: {}", task.title),
+                Some(mos_core::UndoStep::ArchiveTask {
                     id: task.id.to_string(),
                 }),
-            })
+            )
+            .touching("task", task.id.to_string(), task.title))
         }
         mos_core::ActionArgs::TaskSetState { task, state: next } => {
             // O estado anterior e lido ANTES da mudanca: depois nao ha de onde
@@ -299,13 +469,14 @@ async fn run_action<R: Runtime>(
             let updated = state
                 .work
                 .set_task_state(&target.id.to_string(), mos_core::TaskState::parse(next)?)?;
-            Ok(mos_core::ActionEffect {
-                message: format!("{} movida para {}", updated.title, next),
-                undo: Some(mos_core::UndoStep::RestoreTaskState {
+            Ok(mos_core::ActionEffect::new(
+                format!("{} movida para {}", updated.title, next),
+                Some(mos_core::UndoStep::RestoreTaskState {
                     id: updated.id.to_string(),
                     state: previous.as_str().to_owned(),
                 }),
-            })
+            )
+            .touching("task", updated.id.to_string(), updated.title))
         }
         mos_core::ActionArgs::ProjectCreate { name, description } => {
             let project = state.work.create_project(mos_core::CreateProjectInput {
@@ -313,12 +484,13 @@ async fn run_action<R: Runtime>(
                 description: description.clone(),
                 repository: String::new(),
             })?;
-            Ok(mos_core::ActionEffect {
-                message: format!("Project criado: {}", project.name),
-                undo: Some(mos_core::UndoStep::ArchiveProject {
+            Ok(mos_core::ActionEffect::new(
+                format!("Project criado: {}", project.name),
+                Some(mos_core::UndoStep::ArchiveProject {
                     id: project.id.to_string(),
                 }),
-            })
+            )
+            .touching("project", project.id.to_string(), project.name))
         }
         mos_core::ActionArgs::ResourceCreate {
             kind,
@@ -335,12 +507,13 @@ async fn run_action<R: Runtime>(
                     note: note.clone(),
                     source_capture_id: None,
                 })?;
-            Ok(mos_core::ActionEffect {
-                message: format!("Resource salvo: {}", resource.title),
-                undo: Some(mos_core::UndoStep::ArchiveResource {
+            Ok(mos_core::ActionEffect::new(
+                format!("Resource salvo: {}", resource.title),
+                Some(mos_core::UndoStep::ArchiveResource {
                     id: resource.id.to_string(),
                 }),
-            })
+            )
+            .touching("resource", resource.id.to_string(), resource.title))
         }
         mos_core::ActionArgs::TimeStart {
             project,
@@ -354,8 +527,8 @@ async fn run_action<R: Runtime>(
                 activity_type: parse_activity(activity)?,
             })?;
             let _ = app.emit("timer-changed", "started");
-            Ok(mos_core::ActionEffect {
-                message: format!(
+            Ok(mos_core::ActionEffect::new(
+                format!(
                     "Cronometro iniciado em {}.",
                     project_name(&state, started.project_id)
                 ),
@@ -363,22 +536,32 @@ async fn run_action<R: Runtime>(
                 // iniciar e descartar, e descartar joga tempo fora. A ADR-035
                 // diz que desfazer arquiva e nunca destroi, e um cronometro
                 // recem-iniciado se resolve com Pausar ou Encerrar na tela.
-                undo: None,
-            })
+                None,
+            )
+            .touching(
+                "project",
+                started.project_id.to_string(),
+                project_name(&state, started.project_id),
+            ))
         }
         mos_core::ActionArgs::TimeStop => {
             let entry = state.tracking.stop_timer()?;
             let _ = app.emit("timer-changed", "stopped");
-            Ok(mos_core::ActionEffect {
-                message: format!(
+            Ok(mos_core::ActionEffect::new(
+                format!(
                     "Sessao de {} gravada em {}.",
                     spoken_duration(entry.duration_seconds),
                     project_name(&state, entry.project_id)
                 ),
-                undo: Some(mos_core::UndoStep::TrashTimeEntry {
+                Some(mos_core::UndoStep::TrashTimeEntry {
                     id: entry.id.to_string(),
                 }),
-            })
+            )
+            .touching(
+                "timeEntry",
+                entry.id.to_string(),
+                project_name(&state, entry.project_id),
+            ))
         }
         mos_core::ActionArgs::TimeRecord {
             project,
@@ -414,16 +597,21 @@ async fn run_action<R: Runtime>(
                 source: mos_core::EntrySource::Manual,
             })?;
             let _ = app.emit("data-changed", "tracking");
-            Ok(mos_core::ActionEffect {
-                message: format!(
+            Ok(mos_core::ActionEffect::new(
+                format!(
                     "{} lancadas em {}.",
                     spoken_duration(entry.duration_seconds),
                     project_name(&state, entry.project_id)
                 ),
-                undo: Some(mos_core::UndoStep::TrashTimeEntry {
+                Some(mos_core::UndoStep::TrashTimeEntry {
                     id: entry.id.to_string(),
                 }),
-            })
+            )
+            .touching(
+                "timeEntry",
+                entry.id.to_string(),
+                project_name(&state, entry.project_id),
+            ))
         }
         mos_core::ActionArgs::MFinanceCreateBill {
             amount_cents,
@@ -439,15 +627,15 @@ async fn run_action<R: Runtime>(
             )
             .await
             .map_err(|error| CoreError::new(mos_core::ErrorCode::Io, error, true))?;
-            Ok(mos_core::ActionEffect {
+            Ok(mos_core::ActionEffect::new(
                 message,
                 // Sem desfazer: o M/OS nao tem um comando de "apagar conta" no
                 // M-Finance, e inventar um so para o Undo seria dar ao Hermes um
                 // poder que a Action API (Fase 3 da spec) nao expoe. Corrigir uma
                 // conta criada por engano e manual, dentro do proprio M-Finance —
                 // igual e como as outras contas de la sempre foram corrigidas.
-                undo: None,
-            })
+                None,
+            ))
         }
     }
 }
@@ -542,6 +730,32 @@ pub async fn action_undo<R: Runtime>(
                 .work
                 .set_task_state(&id, mos_core::TaskState::parse(&state)?)?;
         }
+        mos_core::UndoStep::RestoreTaskProject { id, project_id } => {
+            let task = services.work.task(&id)?;
+            services.work.update_task(mos_core::UpdateTaskInput {
+                id,
+                title: task.title,
+                description: task.description,
+                project_id,
+            })?;
+        }
+        mos_core::UndoStep::CancelReminder { id } => {
+            services.attention.transition(
+                mos_core::ReminderId::parse(&id)?,
+                mos_core::Transition::Cancel,
+            )?;
+            crate::attention::poke(&app);
+        }
+        mos_core::UndoStep::UndoCaptureToTask {
+            capture_id,
+            task_id,
+        } => {
+            services.work.set_task_archived(&task_id, true)?;
+            // A Capture volta para a Inbox, e nao para o arquivo: o que se
+            // desfez foi a DECISAO sobre ela, e o lugar de uma Capture ainda
+            // nao decidida e a Inbox.
+            services.captures.move_to_inbox(&capture_id)?;
+        }
         mos_core::UndoStep::TrashTimeEntry { id } => {
             services
                 .tracking
@@ -591,57 +805,184 @@ pub async fn action_undo<R: Runtime>(
     Ok(())
 }
 
-/// Acha o Project pelo nome que o usuario falou.
+/// Acha uma entidade a partir do que o modelo escreveu.
 ///
-/// Ambiguidade RECUSA em vez de escolher o primeiro. "Escadas" batendo em dois
-/// projetos e exatamente o caso onde adivinhar cria a Task no lugar errado, e o
-/// erro so aparece dias depois.
+/// # O que mudou aqui, e por que
+///
+/// Antes cada acao tinha a propria comparacao, e todas faziam a mesma coisa:
+/// `to_lowercase().contains()` sobre o nome. Isso resolvia "Minarum" e nao
+/// resolvia mais nada — nem o id que o proprio M/OS acabara de mandar no bloco
+/// de candidatos, nem um titulo escrito com acento diferente.
+///
+/// Agora a comparacao e uma so, em `mos_core::resolve`, e ela le em degraus:
+/// id inteiro, prefixo de id, titulo exato, comeco de titulo, pedaco de titulo.
+/// O primeiro degrau que acerta decide. E a diferenca entre o Hermes citar
+/// `7c3e2b19` — o id que ele leu nos candidatos — e o M/OS responder "nao achei".
+///
+/// Ambiguidade continua RECUSANDO em vez de escolher o primeiro: "Escadas"
+/// batendo em dois Projects e exatamente o caso onde adivinhar cria a Task no
+/// lugar errado, e o erro so aparece dias depois.
 fn resolve_project(state: &AppState, name: &str) -> Result<Option<String>, CoreError> {
-    let needle = name.trim().to_lowercase();
-    let matches: Vec<_> = state
-        .work
-        .projects(false)?
-        .into_iter()
-        .filter(|project| project.name.to_lowercase().contains(&needle))
-        .collect();
-
-    match matches.len() {
-        0 => Err(CoreError::new(
-            mos_core::ErrorCode::NotFound,
-            format!("Nenhum Project chamado \"{name}\"."),
-            false,
-        )),
-        1 => Ok(Some(matches[0].id.to_string())),
-        _ => Err(CoreError::new(
-            mos_core::ErrorCode::InvalidInput,
-            format!("\"{name}\" bate com {} Projects. Diga qual.", matches.len()),
-            false,
-        )),
+    let projects = state.work.projects(false)?;
+    let found = mos_core::resolve(
+        &projects,
+        name,
+        |project| project.id.to_string(),
+        |project| project.name.clone(),
+    );
+    if let Some(error) = mos_core::resolution_error(
+        &found,
+        mos_core::EntityKind::Project,
+        name,
+        |project: &mos_core::Project| project.name.clone(),
+    ) {
+        return Err(error);
     }
+    Ok(found.one().map(|project| project.id.to_string()))
 }
 
 /// Devolve a Task inteira, e nao so o id: quem chama precisa do estado ANTERIOR
 /// para montar o desfazer, e ele ja esta aqui. Buscar de novo depois custaria
 /// uma segunda varredura e leria um estado que a mudanca ja alterou.
 fn resolve_task(state: &AppState, title: &str) -> Result<mos_core::Task, CoreError> {
-    let needle = title.trim().to_lowercase();
-    let matches: Vec<_> = state
-        .work
-        .tasks(false)?
-        .into_iter()
-        .filter(|task| task.title.to_lowercase().contains(&needle))
-        .collect();
+    let tasks = state.work.tasks(false)?;
+    let found = mos_core::resolve(
+        &tasks,
+        title,
+        |task| task.id.to_string(),
+        |task| task.title.clone(),
+    );
+    match mos_core::resolution_error(
+        &found,
+        mos_core::EntityKind::Task,
+        title,
+        |task: &mos_core::Task| task.title.clone(),
+    ) {
+        Some(error) => Err(error),
+        None => Ok(found.one().expect("sem erro ha exatamente um").clone()),
+    }
+}
 
-    match matches.len() {
-        0 => Err(CoreError::new(
-            mos_core::ErrorCode::NotFound,
-            format!("Nenhuma Task chamada \"{title}\"."),
-            false,
-        )),
-        1 => Ok(matches.into_iter().next().expect("um resultado")),
-        _ => Err(CoreError::new(
+/// A Capture, pelo id ou por um pedaco do que esta escrito nela.
+fn resolve_capture(state: &AppState, reference: &str) -> Result<mos_core::Capture, CoreError> {
+    // A Inbox primeiro, e a base inteira depois. Nao e otimizacao: "essa
+    // captura" quase sempre quer dizer uma das que ainda esperam decisao, e
+    // procurar na Inbox primeiro faz o pedaco de texto que tambem bate com
+    // Captures antigas resolver na que importa.
+    let inbox = state.captures.inbox(200)?;
+    let found = mos_core::resolve(
+        &inbox,
+        reference,
+        |capture| capture.id.to_string(),
+        |capture| capture.content.clone(),
+    );
+    if let mos_core::Resolved::One(capture) = found {
+        return Ok(capture.clone());
+    }
+
+    let todas = state.captures.recent(200)?;
+    let found = mos_core::resolve(
+        &todas,
+        reference,
+        |capture| capture.id.to_string(),
+        |capture| capture.content.clone(),
+    );
+    match mos_core::resolution_error(
+        &found,
+        mos_core::EntityKind::Capture,
+        reference,
+        |capture: &mos_core::Capture| capture.content.clone(),
+    ) {
+        Some(error) => Err(error),
+        None => Ok(found.one().expect("sem erro ha exatamente um").clone()),
+    }
+}
+
+/// O lembrete, pelo id ou pelo titulo.
+///
+/// So os abertos. Um lembrete ja concluido nao e o que alguem quer dizer com
+/// "cancela aquele lembrete", e incluir os fechados faria o titulo repetido de
+/// um lembrete recorrente virar ambiguidade toda vez.
+fn resolve_reminder(state: &AppState, reference: &str) -> Result<mos_core::Reminder, CoreError> {
+    let abertos = state.attention.open()?;
+    let found = mos_core::resolve(
+        &abertos,
+        reference,
+        |reminder| reminder.id.to_string(),
+        |reminder| reminder.title.clone(),
+    );
+    match mos_core::resolution_error(
+        &found,
+        mos_core::EntityKind::Reminder,
+        reference,
+        |reminder: &mos_core::Reminder| reminder.title.clone(),
+    ) {
+        Some(error) => Err(error),
+        None => Ok(found.one().expect("sem erro ha exatamente um").clone()),
+    }
+}
+
+/// O alvo de um lembrete, resolvido para o enum do dominio.
+///
+/// Devolve tambem o rotulo, porque o recibo fala como o usuario fala:
+/// "vinculado a Task Enviar bases" e util, "vinculado a 7c3e2b19" nao e.
+fn resolve_target(
+    state: &AppState,
+    target: &mos_core::TargetRef,
+) -> Result<(mos_core::ReminderTarget, String), CoreError> {
+    match target.kind.as_str() {
+        "task" => {
+            let task = resolve_task(state, &target.reference)?;
+            Ok((mos_core::ReminderTarget::Task(task.id), task.title))
+        }
+        "project" => {
+            let id = resolve_project(state, &target.reference)?.ok_or_else(|| {
+                CoreError::new(
+                    mos_core::ErrorCode::NotFound,
+                    format!("Nao achei Project para \"{}\".", target.reference),
+                    false,
+                )
+            })?;
+            let id = mos_core::ProjectId::parse(&id)?;
+            Ok((
+                mos_core::ReminderTarget::Project(id),
+                project_name(state, id),
+            ))
+        }
+        "capture" => {
+            let capture = resolve_capture(state, &target.reference)?;
+            Ok((
+                mos_core::ReminderTarget::Capture(capture.id),
+                capture.content,
+            ))
+        }
+        "resource" => {
+            let resources = state.memory.resources(false)?;
+            let found = mos_core::resolve(
+                &resources,
+                &target.reference,
+                |resource| resource.id.to_string(),
+                |resource| resource.title.clone(),
+            );
+            match mos_core::resolution_error(
+                &found,
+                mos_core::EntityKind::Resource,
+                &target.reference,
+                |resource: &mos_core::Resource| resource.title.clone(),
+            ) {
+                Some(error) => Err(error),
+                None => {
+                    let resource = found.one().expect("sem erro ha exatamente um");
+                    Ok((
+                        mos_core::ReminderTarget::Resource(resource.id),
+                        resource.title.clone(),
+                    ))
+                }
+            }
+        }
+        outro => Err(CoreError::new(
             mos_core::ErrorCode::InvalidInput,
-            format!("\"{title}\" bate com {} Tasks. Diga qual.", matches.len()),
+            format!("`{outro}` nao e um tipo de alvo de lembrete."),
             false,
         )),
     }
@@ -673,20 +1014,44 @@ pub async fn action_resolve<R: Runtime>(
     let service = app.state::<AppState>().conversations.clone();
     let message = service.message(&message_id)?;
 
-    let (status, outcome, undo) = if !approved {
+    let (status, outcome, undo, audit) = if !approved {
         (
             ProposalStatus::Cancelled,
             "Cancelado por você.".to_owned(),
             None,
+            None,
         )
     } else {
-        let resolved = match mos_core::parse_action(&raw) {
+        // O relogio e lido AGORA, e nao no instante da proposta: uma proposta de
+        // "hoje as 20:30" confirmada as 20:31 aponta para o passado, e recusar
+        // ali e o comportamento certo. Congelar o relogio da proposta agendaria
+        // um lembrete que ja venceu.
+        let now_local = crate::surface::now_local(&app);
+        let resolved = match mos_core::parse_action_at(&raw, now_local) {
             Ok(args) => run_action(&app, &args).await,
             Err(error) => Err(error),
         };
         match resolved {
-            Ok(effect) => (ProposalStatus::Executed, effect.message, effect.undo),
-            Err(error) => (ProposalStatus::Failed, error.message, None),
+            Ok(effect) => {
+                // O rastro e gravado JUNTO com o desfecho, na mesma escrita.
+                // Duas escritas dariam um instante em que a acao consta como
+                // executada e ninguem sabe sobre o que — e seria justamente o
+                // instante de uma queda deixar a auditoria incompleta.
+                let audit = mos_core::ActionAudit {
+                    executed_at: now_local
+                        .format(&time::format_description::well_known::Rfc3339)
+                        .unwrap_or_default(),
+                    entities: effect.entities.clone(),
+                    undo: effect.undo.clone(),
+                };
+                (
+                    ProposalStatus::Executed,
+                    effect.message,
+                    effect.undo,
+                    Some(audit),
+                )
+            }
+            Err(error) => (ProposalStatus::Failed, error.message, None, None),
         }
     };
 
@@ -703,6 +1068,7 @@ pub async fn action_resolve<R: Runtime>(
                 preview: preview.clone(),
                 status,
                 outcome: outcome.clone(),
+                audit: audit.clone(),
             },
             body => body,
         })
@@ -782,6 +1148,231 @@ pub fn project_history(
     }
 
     projected
+}
+
+// ------------------------------------------------------------------- busca
+
+/// Teto de resultados por termo.
+///
+/// Baixo de proposito. Um termo comum — "projeto", quando escapa do filtro de
+/// ruido — casaria com metade da base, e trazer cem linhas dele empurraria para
+/// fora os poucos acertos do termo que realmente identifica a entidade.
+const HITS_POR_TERMO: usize = 8;
+
+/// Um candidato e quantos termos da frase bateram nele.
+struct Pontuado {
+    candidate: mos_core::Candidate,
+    /// Quantos termos distintos acertaram esta entidade.
+    termos: usize,
+    /// Ordem em que apareceu. Desempata sem sortear.
+    ordem: usize,
+}
+
+/// Encurta um texto para caber numa linha do prompt.
+///
+/// O corte e por caractere e nao por byte: cortar no meio de um `ç` produziria
+/// um bloco de contexto invalido, e o erro apareceria como uma resposta
+/// estranha em vez de como um erro.
+fn resumo(texto: &str, teto: usize) -> String {
+    let limpo = texto.split_whitespace().collect::<Vec<_>>().join(" ");
+    if limpo.chars().count() <= teto {
+        return limpo;
+    }
+    let cortado: String = limpo.chars().take(teto).collect();
+    format!("{cortado}…")
+}
+
+/// Le o M/OS procurando o que a frase do usuario cita.
+///
+/// # Por que uma varredura por termo, e nao uma so
+///
+/// O FTS do M/OS junta os termos com `AND` (`to_fts_query`), o que e certo para
+/// a caixa de busca — quem digita tres palavras quer as tres. Aqui seria errado:
+/// a frase e uma frase inteira, e exigir que uma Task contenha "enviar", "tipos",
+/// "bases", "faltantes" E "victor" ao mesmo tempo nao acharia a Task chamada
+/// "Enviar tipos de bases faltantes p/ Victor" — falta um "para", sobra um "p/".
+///
+/// Uma varredura por termo da a semantica de OU, e a contagem de termos que
+/// bateram vira o ranking. A entidade que aparece em quatro buscas diferentes e
+/// mais provavelmente a citada do que a que apareceu em uma.
+pub fn candidates_for<R: Runtime>(app: &AppHandle<R>, text: &str) -> Vec<mos_core::Candidate> {
+    let termos = mos_core::search_terms(text);
+    if termos.is_empty() {
+        return Vec::new();
+    }
+    let state = app.state::<AppState>();
+    let mut encontrados: Vec<Pontuado> = Vec::new();
+
+    let registrar = |candidate: mos_core::Candidate, encontrados: &mut Vec<Pontuado>| {
+        match encontrados
+            .iter_mut()
+            .find(|existente| existente.candidate.id == candidate.id)
+        {
+            Some(existente) => existente.termos += 1,
+            None => {
+                let ordem = encontrados.len();
+                encontrados.push(Pontuado {
+                    candidate,
+                    termos: 1,
+                    ordem,
+                });
+            }
+        }
+    };
+
+    for termo in &termos {
+        // Arquivados ficam de fora: agir sobre o que ja saiu de vista e
+        // exatamente o tipo de surpresa que a confirmacao existe para evitar.
+        if let Ok(items) = state.work.search(termo, false) {
+            for item in items.into_iter().take(HITS_POR_TERMO) {
+                if let Some(candidate) = candidate_of(&item) {
+                    registrar(candidate, &mut encontrados);
+                }
+            }
+        }
+        if let Ok(resources) = state.memory.search(termo, false, HITS_POR_TERMO) {
+            for resource in resources {
+                registrar(
+                    mos_core::Candidate {
+                        kind: mos_core::EntityKind::Resource,
+                        id: resource.id.to_string(),
+                        label: resumo(&resource.title, 70),
+                        detail: resource.kind.as_str().to_owned(),
+                    },
+                    &mut encontrados,
+                );
+            }
+        }
+        if let Ok(meetings) = state.meetings.search(termo, HITS_POR_TERMO) {
+            for meeting in meetings {
+                registrar(
+                    mos_core::Candidate {
+                        kind: mos_core::EntityKind::Meeting,
+                        id: meeting.id.to_string(),
+                        label: resumo(&meeting.title, 70),
+                        detail: mos_core::spoken_moment(meeting.started_at),
+                    },
+                    &mut encontrados,
+                );
+            }
+        }
+    }
+
+    // Os lembretes abertos entram por comparacao direta, e nao por FTS: eles
+    // nao tem indice de busca, e sao poucos por definicao — um usuario com
+    // duzentos lembretes abertos tem um problema que nao e de indice.
+    if let Ok(abertos) = state.attention.open() {
+        for reminder in abertos {
+            let alvo = mos_core::normalize(&reminder.title);
+            for termo in &termos {
+                if alvo.contains(termo.as_str()) {
+                    registrar(
+                        mos_core::Candidate {
+                            kind: mos_core::EntityKind::Reminder,
+                            id: reminder.id.to_string(),
+                            label: resumo(&reminder.title, 70),
+                            detail: reminder
+                                .next_due_at
+                                .map(mos_core::spoken_moment)
+                                .unwrap_or_else(|| reminder.status.as_str().to_owned()),
+                        },
+                        &mut encontrados,
+                    );
+                }
+            }
+        }
+    }
+
+    encontrados.sort_by(|esquerda, direita| {
+        direita
+            .termos
+            .cmp(&esquerda.termos)
+            .then(esquerda.ordem.cmp(&direita.ordem))
+    });
+    encontrados
+        .into_iter()
+        .take(mos_core::MAX_CANDIDATES)
+        .map(|pontuado| pontuado.candidate)
+        .collect()
+}
+
+/// Projeta um resultado de busca em candidato.
+///
+/// `App` fica de fora: ele nao e uma entidade sobre a qual o catalogo de acoes
+/// saiba agir, e um candidato que nao pode virar acao so ocupa linha no prompt.
+fn candidate_of(item: &mos_core::SearchItem) -> Option<mos_core::Candidate> {
+    Some(match item {
+        mos_core::SearchItem::Task { task, project } => mos_core::Candidate {
+            kind: mos_core::EntityKind::Task,
+            id: task.id.to_string(),
+            label: resumo(&task.title, 70),
+            detail: match project {
+                Some(project) => format!("{} · {}", task.state.as_str(), project.name),
+                None => task.state.as_str().to_owned(),
+            },
+        },
+        // A Capture que ja virou Task aparece como a TASK: e nela que se age, e
+        // oferecer as duas convidaria o modelo a criar uma segunda Task a
+        // partir da Capture que ja tem uma.
+        mos_core::SearchItem::Capture {
+            capture,
+            derived_task,
+            project,
+        } => match derived_task {
+            Some(task) => mos_core::Candidate {
+                kind: mos_core::EntityKind::Task,
+                id: task.id.to_string(),
+                label: resumo(&task.title, 70),
+                detail: match project {
+                    Some(project) => format!("{} · {}", task.state.as_str(), project.name),
+                    None => task.state.as_str().to_owned(),
+                },
+            },
+            None => mos_core::Candidate {
+                kind: mos_core::EntityKind::Capture,
+                id: capture.id.to_string(),
+                label: resumo(&capture.content, 70),
+                detail: capture.processing_state.as_str().to_owned(),
+            },
+        },
+        mos_core::SearchItem::Project { project } => mos_core::Candidate {
+            kind: mos_core::EntityKind::Project,
+            id: project.id.to_string(),
+            label: resumo(&project.name, 70),
+            detail: resumo(&project.description, 50),
+        },
+        mos_core::SearchItem::Workspace { workspace } => mos_core::Candidate {
+            kind: mos_core::EntityKind::Workspace,
+            id: workspace.id.to_string(),
+            label: resumo(&workspace.name, 70),
+            detail: String::new(),
+        },
+        mos_core::SearchItem::Meeting { meeting, .. } => mos_core::Candidate {
+            kind: mos_core::EntityKind::Meeting,
+            id: meeting.id.to_string(),
+            label: resumo(&meeting.title, 70),
+            detail: mos_core::spoken_moment(meeting.started_at),
+        },
+        mos_core::SearchItem::App { .. } => return None,
+    })
+}
+
+/// Executa a busca que o modelo pediu pelo bloco `mos-query`.
+///
+/// Respeita o filtro de tipo quando ele veio: um pedido por `task` que devolve
+/// Projects gastaria o unico salto disponivel com o que nao foi perguntado.
+pub fn run_query<R: Runtime>(
+    app: &AppHandle<R>,
+    request: &mos_core::QueryRequest,
+) -> Vec<mos_core::Candidate> {
+    let achados = candidates_for(app, &request.search);
+    if request.kinds.is_empty() {
+        return achados;
+    }
+    achados
+        .into_iter()
+        .filter(|candidate| request.kinds.contains(&candidate.kind))
+        .collect()
 }
 
 /// O bloco de contexto e o registro do que ele contem.
@@ -930,6 +1521,36 @@ pub fn assemble_context<R: Runtime>(
                     }
                 );
                 (ContextEntity::Workspace, vec!["name", "projects"], body)
+            }
+            // A reuniao podia ser mencionada com `@` desde que a busca passou a
+            // devolve-la, e caia no ramo da tela — o Hermes recebia "Tela atual
+            // do M/OS: Reuniao com o Victor" e concluia que aquilo era uma
+            // pagina. O resumo e o que a pessoa quer dizer ao anexar uma
+            // reuniao; a transcricao inteira nao caberia no orcamento.
+            "meeting" => {
+                let meeting = state.meetings.meeting(&context.id)?;
+                let resumo = state
+                    .meetings
+                    .analysis(&context.id)
+                    .ok()
+                    .flatten()
+                    .map(|analysis| analysis.summary)
+                    .unwrap_or_default();
+                let body = format!(
+                    "Reuniao: {}\nQuando: {}\nResumo: {}",
+                    meeting.title,
+                    mos_core::spoken_moment(meeting.started_at),
+                    if resumo.is_empty() {
+                        "(ainda sem resumo)"
+                    } else {
+                        &resumo
+                    }
+                );
+                (
+                    ContextEntity::Meeting,
+                    vec!["title", "startedAt", "summary"],
+                    body,
+                )
             }
             // Tela atual: nao e entidade, e o label ja e a informacao.
             _ => (
@@ -1102,6 +1723,13 @@ pub fn absorb_title<R: Runtime>(app: &AppHandle<R>, conversation_id: &str, title
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// O relogio dos testes. Fixo, porque a leitura de uma proposta com data
+    /// depende de quando ela e lida — e um teste que depende do relogio de
+    /// parede falha sozinho as vinte e tres e cinquenta e nove.
+    fn agora() -> time::OffsetDateTime {
+        time::macros::datetime!(2026-08-20 14:32:00 -03:00)
+    }
     use mos_core::ConversationId;
 
     #[test]
@@ -1135,7 +1763,7 @@ mod tests {
     /// existiu.
     #[test]
     fn an_invalid_proposal_becomes_a_refused_part() {
-        match proposal_part("{\"action\":\"mos.task.create\",\"args\":{}}") {
+        match proposal_part("{\"action\":\"mos.task.create\",\"args\":{}}", agora()) {
             PartBody::ActionProposal {
                 status, outcome, ..
             } => {
@@ -1150,6 +1778,7 @@ mod tests {
     fn a_valid_proposal_starts_pending() {
         match proposal_part(
             "{\"action\":\"mos.capture.create\",\"args\":{\"content\":\"uma ideia\"}}",
+            agora(),
         ) {
             PartBody::ActionProposal {
                 status, preview, ..
@@ -1194,7 +1823,7 @@ mod tests {
             name: "web".into(),
             running: true,
         });
-        let parts = recorder.into_parts(MessageStatus::Interrupted);
+        let parts = recorder.into_parts(MessageStatus::Interrupted, agora());
         match parts.iter().find(|part| part.kind() == "tool_run") {
             Some(PartBody::ToolRun { state, .. }) => {
                 assert_eq!(*state, ToolRunState::Cancelled)
@@ -1214,7 +1843,7 @@ mod tests {
             name: "web".into(),
             running: false,
         });
-        let parts = recorder.into_parts(MessageStatus::Complete);
+        let parts = recorder.into_parts(MessageStatus::Complete, agora());
         match parts.iter().find(|part| part.kind() == "tool_run") {
             Some(PartBody::ToolRun { state, .. }) => assert_eq!(*state, ToolRunState::Success),
             other => panic!("esperava ToolRun, veio {other:?}"),
@@ -1227,7 +1856,7 @@ mod tests {
     fn a_refused_sudo_leaves_an_explanation_in_the_thread() {
         let mut recorder = TurnRecorder::start("c".into(), "m".into());
         recorder.absorb(&Outcome::SudoRefused);
-        let parts = recorder.into_parts(MessageStatus::Complete);
+        let parts = recorder.into_parts(MessageStatus::Complete, agora());
         match parts.first() {
             Some(PartBody::Status { text }) => assert!(text.contains("senha de root")),
             other => panic!("esperava Status, veio {other:?}"),
@@ -1246,7 +1875,7 @@ mod tests {
             text: "resposta".into(),
         });
         let kinds: Vec<&str> = recorder
-            .into_parts(MessageStatus::Complete)
+            .into_parts(MessageStatus::Complete, agora())
             .iter()
             .map(|part| part.kind())
             .collect();
@@ -1306,5 +1935,117 @@ mod tests {
         assert_eq!(projected.len(), 1);
         assert_eq!(projected[0].role, mos_core::MessageRole::Assistant);
         assert_eq!(projected[0].parts.len(), 1);
+    }
+
+    // -------------------------------------------------------------- a busca
+
+    /// Cortar por byte partiria um `ç` no meio e produziria um bloco de
+    /// contexto invalido — que apareceria como resposta estranha, e nao como
+    /// erro.
+    #[test]
+    fn the_summary_cuts_by_character_and_never_mid_letter() {
+        let cortado = resumo("çãõáé çãõáé çãõáé", 5);
+        assert_eq!(cortado.chars().count(), 6, "cinco letras mais a reticencia");
+        assert!(cortado.ends_with('…'));
+        // O que cabe inteiro volta inteiro, sem reticencia.
+        assert_eq!(resumo("  duas   palavras  ", 40), "duas palavras");
+    }
+
+    /// O modelo pede a busca por escrito, e o M/OS le o pedido depois que o
+    /// turno assenta.
+    #[test]
+    fn the_recorder_sees_the_query_the_model_asked_for() {
+        let mut recorder = TurnRecorder::start("c".into(), "m".into());
+        recorder.absorb(&Outcome::Delta {
+            text: "Vou procurar.\n```mos-query\n{\"search\":\"victor bases\"}\n```".into(),
+        });
+        let raw = recorder.requested_query().expect("o pedido de busca");
+        assert_eq!(mos_core::parse_query(&raw).unwrap().search, "victor bases");
+    }
+
+    /// A acao ganha da busca quando as duas vem juntas: se o modelo ja sabe o
+    /// que propor, procurar mais seria gastar um turno para confirmar o que ele
+    /// acabou de afirmar.
+    #[test]
+    fn a_proposal_cancels_the_search_request() {
+        let mut recorder = TurnRecorder::start("c".into(), "m".into());
+        recorder.absorb(&Outcome::Delta {
+            text: "```mos-query\n{\"search\":\"x\"}\n```\n\
+                   ```mos-action\n{\"action\":\"mos.time.stop\"}\n```"
+                .into(),
+        });
+        assert!(recorder.requested_query().is_none());
+    }
+
+    /// A busca vira uma execucao visivel na thread. Sem ela, a pausa entre a
+    /// pergunta e a resposta parece travamento.
+    #[test]
+    fn the_search_shows_up_as_a_step_in_the_thread() {
+        let mut recorder = TurnRecorder::start("c".into(), "m".into());
+        recorder.absorb(&Outcome::Delta {
+            text: "Procurando.\n```mos-query\n{\"search\":\"victor\"}\n```".into(),
+        });
+        recorder.absorb(&Outcome::Complete);
+        let parts = recorder.into_parts(MessageStatus::Complete, agora());
+        let passo = parts
+            .iter()
+            .find_map(|part| match part {
+                PartBody::ToolRun { name, state, detail } if name == "Busca no M/OS" => {
+                    Some((*state, detail.clone()))
+                }
+                _ => None,
+            })
+            .expect("a busca precisa aparecer como passo");
+        assert_eq!(passo.0, ToolRunState::Success);
+        assert_eq!(passo.1, "victor");
+        // E o JSON cru sai do texto, como acontece com a proposta.
+        assert!(!parts.iter().any(|part| matches!(
+            part,
+            PartBody::Text { text } if text.contains("mos-query")
+        )));
+    }
+
+    /// Um pedido de busca ilegivel nao pode sumir em silencio: ele vira um
+    /// passo com erro, e a conversa mostra que o M/OS tentou.
+    #[test]
+    fn an_unreadable_search_becomes_a_failed_step() {
+        let mut recorder = TurnRecorder::start("c".into(), "m".into());
+        recorder.absorb(&Outcome::Delta {
+            text: "```mos-query\n{isso nao e json}\n```".into(),
+        });
+        recorder.absorb(&Outcome::Complete);
+        let parts = recorder.into_parts(MessageStatus::Complete, agora());
+        assert!(parts.iter().any(|part| matches!(
+            part,
+            PartBody::ToolRun { state, .. } if *state == ToolRunState::Error
+        )));
+    }
+
+    /// A proposta de lembrete e lida contra o relogio de quem esta na tela, e o
+    /// cartao mostra a hora resolvida. Sem o relogio, "hoje as 20:30" viraria um
+    /// cartao dizendo o que o usuario acabou de escrever.
+    #[test]
+    fn a_reminder_proposal_becomes_a_card_with_the_resolved_hour() {
+        match proposal_part(
+            "{\"action\":\"mos.reminder.create\",\"args\":{\"title\":\"Enviar bases\",\"when\":\"hoje às 20:30\"}}",
+            agora(),
+        ) {
+            PartBody::ActionProposal {
+                status,
+                preview,
+                audit,
+                ..
+            } => {
+                assert_eq!(status, ProposalStatus::Pending);
+                assert_eq!(preview.title, "CRIAR LEMBRETE");
+                // Pendente nao tem rastro: nada aconteceu ainda.
+                assert!(audit.is_none());
+                assert!(preview
+                    .lines
+                    .iter()
+                    .any(|linha| linha.label == "Quando" && linha.value.contains("20:30")));
+            }
+            other => panic!("esperava ActionProposal, veio {other:?}"),
+        }
     }
 }

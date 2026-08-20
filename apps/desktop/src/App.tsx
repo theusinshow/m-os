@@ -43,6 +43,7 @@ import { AnimatedList, AnimatedListItem } from "./motion/AnimatedList";
 import { SpotlightCard } from "./motion/SpotlightCard";
 import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
 import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, HiddenWidget, Ingestion, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
+import { SCREEN_LABEL } from "./types";
 import "./App.css";
 
 const loadMotionFeatures = () => import("./motionFeatures").then((module) => module.default);
@@ -2883,7 +2884,7 @@ function QuickCapture() {
        "amanha as nove" seria resolvido contra UTC — e cairia no dia errado a
        cada virada de noite. Esta janela publica porque ela e a que sempre
        existe quando alguem fala: o atalho global a revela antes de gravar. */
-    void api.voiceSetLocale().catch(() => undefined);
+    void api.surfaceSetLocale().catch(() => undefined);
     const unlisten = listen("window-revealed", () => input.current?.focus());
     return () => { void unlisten.then((dispose) => dispose()); };
   }, []);
@@ -3157,7 +3158,7 @@ function DesktopApp() {
     }
     localStorage.setItem("m-os-current-workspace", currentWorkspace.id);
   }, [currentWorkspace]);
-  /* O contexto que a voz usa quando a fala nao cita Project nenhum.
+  /* O contexto que a voz E o Hermes usam quando a frase nao cita nada.
    *
    * Publicado daqui, e nao carregado no comando, porque o atalho GLOBAL dispara
    * do lado do Rust — naquele caminho nao ha chamada do renderer para levar
@@ -3169,12 +3170,23 @@ function DesktopApp() {
    * `selectedProjectId` sobrevive a navegacao, e usa-lo em qualquer pagina
    * carimbaria um Project em falas que nao tem nada a ver com ele. */
   useEffect(() => {
-    void api.voiceSetLocale().catch(() => undefined);
+    void api.surfaceSetLocale().catch(() => undefined);
   }, []);
   useEffect(() => {
     const projectId = drawerTask?.projectId ?? (page === "projects" ? selectedProjectId || null : null);
-    void api.voiceSetContext(projectId || null, drawerTask?.id ?? null).catch(() => undefined);
-  }, [drawerTask, page, selectedProjectId]);
+    const project = projects.find((candidate) => candidate.id === projectId) ?? null;
+    void api
+      .surfaceSetContext({
+        screen: SCREEN_LABEL[page],
+        projectId,
+        projectLabel: project?.name ?? null,
+        taskId: drawerTask?.id ?? null,
+        taskLabel: drawerTask?.title ?? null,
+        workspaceId: currentWorkspace?.id ?? null,
+        workspaceLabel: currentWorkspace?.name ?? null,
+      })
+      .catch(() => undefined);
+  }, [currentWorkspace, drawerTask, page, projects, selectedProjectId]);
   useEffect(() => { const handler = (event: globalThis.KeyboardEvent) => { if (event.ctrlKey && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); } if (event.ctrlKey && event.key.toLowerCase() === "z" && undo) { event.preventDefault(); void undo.run().then(() => { setUndo(null); return refresh(); }); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, [refresh, undo]);
 
   // ~5s: tempo de ler e decidir desfazer, sem virar mobilia na tela.

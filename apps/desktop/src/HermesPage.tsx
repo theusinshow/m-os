@@ -7,6 +7,7 @@ import {
   messageText,
   type ActionResolution,
   type ContextInput,
+  type ContextOrigin,
   type Conversation,
   type ConversationSummary,
   type HermesStatus,
@@ -112,10 +113,18 @@ function groupOf(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { day: "numeric", month: "short" }).format(date).toUpperCase();
 }
 
-/** Os contextos que uma mensagem registrou. E o que a edicao restaura. */
+/**
+ * Os contextos que uma mensagem registrou. E o que a edicao restaura.
+ *
+ * So os EXPLICITOS. O contexto automatico — a tela aberta e a busca que o M/OS
+ * fez sozinho — e recalculado a cada envio contra o estado de agora; restaurar
+ * o de ontem anexaria a mao um resultado velho, e o chip passaria a dizer
+ * "voce anexou isto" sobre algo que o usuario nunca anexou.
+ */
 function contextsOf(message: Message): ContextInput[] {
   return message.parts
     .filter((part) => part.body.kind === "context_ref")
+    .filter((part) => (part.body as { origin: ContextOrigin }).origin === "explicit")
     .map((part) => {
       const body = part.body as Extract<MessagePart["body"], { kind: "context_ref" }>;
       return { origin: body.origin, entity: body.entity, id: body.id, label: body.label };
@@ -128,7 +137,10 @@ const ENTITY_TAG: Record<ContextInput["entity"], string> = {
   capture: "CAP",
   resource: "RES",
   workspace: "WS",
+  meeting: "REUN",
+  reminder: "LEMB",
   screen: "TELA",
+  search: "BUSCA",
 };
 
 /**

@@ -37,7 +37,18 @@ export type HermesFailure = {
 
 export type ToolRunState = "queued" | "running" | "success" | "error" | "cancelled" | "waiting_permission";
 export type ContextOrigin = "explicit" | "automatic";
-export type ContextEntity = "project" | "task" | "capture" | "resource" | "workspace" | "screen";
+export type ContextEntity =
+  | "project"
+  | "task"
+  | "capture"
+  | "resource"
+  | "workspace"
+  | "meeting"
+  | "reminder"
+  | "screen"
+  /** A busca que o M/OS fez sozinho antes de enviar. Não é entidade: é o
+   *  registro de um bloco que saiu com várias delas dentro (ADR-027). */
+  | "search";
 
 /** Corpo de uma parte. Espelha `PartBody` do dominio. */
 export type PartBody =
@@ -53,6 +64,9 @@ export type PartBody =
       preview: ActionPreview;
       status: ProposalStatus;
       outcome: string;
+      /** O rastro do que a execução tocou. `null` enquanto pendente, e também
+       *  em toda proposta gravada antes deste campo existir. */
+      audit?: ActionAudit | null;
     }
   | {
       kind: "context_ref";
@@ -67,6 +81,22 @@ export type PartBody =
     };
 
 export type ProposalStatus = "pending" | "executed" | "cancelled" | "refused" | "failed";
+
+/** Uma entidade que a ação alcançou, já resolvida em id. */
+export type TouchedEntity = { kind: string; id: string; label: string };
+
+/**
+ * O rastro de uma proposta executada.
+ *
+ * Vive dentro da parte, e não numa tabela nova: a conversa já guardava a ação
+ * crua, o instante e a conversa. Faltavam a entidade resolvida e o estado
+ * anterior, e são esses dois que estão aqui.
+ */
+export type ActionAudit = {
+  executedAt: string;
+  entities: TouchedEntity[];
+  undo?: UndoStep | null;
+};
 export type ActionRisk = "low" | "medium" | "high";
 
 /** O que o Hermes propôs, e que só vira efeito depois que você confirma. */
@@ -264,6 +294,14 @@ export type UndoStep =
   | { step: "archiveProject"; id: string }
   | { step: "archiveResource"; id: string }
   | { step: "restoreTaskState"; id: string; state: string }
+  /** O Project que a Task tinha antes. `null` significa nenhum — tirar uma Task
+   *  de um Project é uma mudança tão real quanto movê-la para outro. */
+  | { step: "restoreTaskProject"; id: string; projectId: string | null }
+  /** Cancela — não apaga (ADR-035). O lembrete cancelado continua no histórico. */
+  | { step: "cancelReminder"; id: string }
+  /** Arquiva a Task e devolve a Capture à Inbox: o que se desfez foi a decisão
+   *  sobre ela, e o lugar de uma Capture ainda não decidida é a Inbox. */
+  | { step: "undoCaptureToTask"; captureId: string; taskId: string }
   /** Sessão para a lixeira. Soft delete: volta pela lixeira do Histórico. */
   | { step: "trashTimeEntry"; id: string }
   /**

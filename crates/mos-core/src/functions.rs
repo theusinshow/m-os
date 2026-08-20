@@ -61,6 +61,14 @@ pub fn function_registry() -> Vec<FunctionDefinition> {
             FunctionConfirmation::None,
         ),
         function(
+            "attention.resolve_reminder",
+            "Resolver lembrete",
+            "Conclui ou cancela um lembrete que ja existe.",
+            FunctionCategory::Attention,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
             "capture.create",
             "Criar Capture",
             "Registra uma nota local na Inbox.",
@@ -107,6 +115,19 @@ pub fn function_registry() -> Vec<FunctionDefinition> {
             FunctionCategory::Work,
             FunctionRisk::Low,
             FunctionConfirmation::None,
+        ),
+        // Trocar o Project de uma Task NAO herda o risco de move-la de coluna,
+        // e a diferenca aparece no Tempo: as horas lancadas seguem o Project, e
+        // um lancamento no Project errado vira uma linha na fatura errada. Nao
+        // e risco alto — a hora ja lancada guarda a taxa em snapshot —, mas
+        // tambem nao e a mesma coisa que arrastar um cartao entre colunas.
+        function(
+            "task.set_project",
+            "Mover Task de Project",
+            "Passa uma Task para outro Project, ou tira ela de todos.",
+            FunctionCategory::Work,
+            FunctionRisk::Medium,
+            FunctionConfirmation::Explicit,
         ),
         function(
             "project.create",

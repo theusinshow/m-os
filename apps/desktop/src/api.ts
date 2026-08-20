@@ -71,7 +71,7 @@ export const api = {
   //
   // `voiceStart` e `voiceStop` sao chamados TAMBEM pelo atalho global, do lado
   // do Rust. Por isso o contexto e o fuso nao viajam nestes comandos: eles sao
-  // publicados antes, por `voiceSetContext` e `voiceSetLocale` — do outro
+  // publicados antes, por `surfaceSetContext` e `surfaceSetLocale` — do outro
   // caminho nao ha renderer para carrega-los junto.
   voiceStart() {
     return invoke<VoiceNote>("voice_start");
@@ -101,15 +101,37 @@ export const api = {
   voiceAct(noteId: string) {
     return invoke<VoiceResult>("voice_act", { noteId });
   },
+
+  // ===========================================================================
+  // Contexto ambiente
+  // ===========================================================================
+  //
+  // O que a tela esta mostrando, e em que fuso. Lido pela voz E pelo Hermes:
+  // "me lembra disso sexta as 15h" tem dois buracos, e a tela preenche os dois
+  // — "disso" e o que esta aberto, e "sexta as 15h" so resolve contra o fuso.
+  //
+  // O backend guarda em vez de receber no comando porque nem todo caminho vem
+  // do renderer: o atalho global da voz dispara do lado do Rust.
+
   /**
-   * O que a tela esta olhando agora.
+   * O que a tela esta mostrando agora.
    *
-   * O contexto e SINAL e nao verdade: ele so entra quando a fala nao citou
-   * Project nenhum.
+   * Para a voz, o Project e a Task sao SINAL e nao verdade: eles so entram
+   * quando a fala nao citou Project nenhum. Para o Hermes valem o mesmo — sao
+   * o que faz "me lembra disso" ter um "disso".
    */
-  voiceSetContext(projectId: string | null, taskId: string | null) {
-    return invoke<void>("voice_set_context", { context: { projectId, taskId } });
+  surfaceSetContext(input: {
+    screen: string;
+    projectId?: string | null;
+    projectLabel?: string | null;
+    taskId?: string | null;
+    taskLabel?: string | null;
+    workspaceId?: string | null;
+    workspaceLabel?: string | null;
+  }) {
+    return invoke<void>("surface_set_context", { input });
   },
+
   /**
    * O fuso de quem esta na frente do computador.
    *
@@ -117,8 +139,8 @@ export const api = {
    * §5, e o mesmo padrao do `ReminderComposer`. Sem isto, "amanha as nove"
    * seria resolvido contra UTC e cairia no dia errado a cada virada de noite.
    */
-  voiceSetLocale() {
-    return invoke<void>("voice_set_locale", { offsetMinutes: -new Date().getTimezoneOffset() });
+  surfaceSetLocale() {
+    return invoke<void>("surface_set_locale", { offsetMinutes: -new Date().getTimezoneOffset() });
   },
 
   // ===========================================================================

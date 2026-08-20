@@ -67,6 +67,13 @@ pub struct HermesState {
     conversation_id: Arc<Mutex<String>>,
     /// Turno em curso. `None` quando nao ha resposta chegando.
     recorder: Arc<Mutex<Option<TurnRecorder>>>,
+    /// Quantas buscas extras ainda cabem na pergunta em curso.
+    ///
+    /// Zera a cada `hermes_send` e nao entre turnos: o orcamento e da PERGUNTA,
+    /// e nao da sessao. Sem isso, uma conversa longa acumularia saltos e uma
+    /// pergunta trivial poderia disparar uma cadeia de buscas herdada das
+    /// anteriores.
+    query_hops: Arc<Mutex<u8>>,
     base_url: Mutex<String>,
 }
 
@@ -79,6 +86,7 @@ impl Default for HermesState {
             session_id: Arc::new(Mutex::new(None)),
             conversation_id: Arc::new(Mutex::new(String::new())),
             recorder: Arc::new(Mutex::new(None)),
+            query_hops: Arc::new(Mutex::new(0)),
             base_url: Mutex::new(DEFAULT_BASE_URL.to_owned()),
         }
     }
@@ -165,20 +173,26 @@ impl From<mos_hermes::HermesError> for HermesFailure {
     }
 }
 
-/// Fecha o turno em curso gravando o que chegou ate aqui.
+/// Fecha o turno em curso gravando o que chegou ate aqui, e devolve a busca que
+/// o modelo pediu, se pediu.
 ///
 /// Chamado quando o turno assenta, quando o socket cai e quando o app fecha. Um
 /// texto recebido e nao gravado seria exatamente a promessa que a UX-PRINCIPLES
 /// §52 proibe: "minha resposta sumiu?".
-fn settle_turn<R: Runtime>(app: &AppHandle<R>, state: &HermesState, status: MessageStatus) {
-    let Some(recorder) = state
+///
+/// O retorno existe por causa do salto de busca: quem chama precisa saber que o
+/// modelo pediu uma, e so pode saber depois de o turno assentar — mandar outro
+/// `prompt.submit` antes disso levaria um `4009 session busy`.
+fn settle_turn<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &HermesState,
+    status: MessageStatus,
+) -> Option<String> {
+    let recorder = state
         .recorder
         .lock()
         .ok()
-        .and_then(|mut guard| guard.take())
-    else {
-        return;
-    };
+        .and_then(|mut guard| guard.take())?;
     if !recorder.has_content() && status == MessageStatus::Interrupted {
         // Nada chegou e o turno morreu: a mensagem vazia ainda precisa deixar de
         // dizer "pensando", mas nao ha parte para gravar.
@@ -186,14 +200,103 @@ fn settle_turn<R: Runtime>(app: &AppHandle<R>, state: &HermesState, status: Mess
         if let Ok(message) = service.finish_answer(&recorder.message_id, status, Vec::new()) {
             jarvis::announce_message(app, &message);
         }
-        return;
+        return None;
     }
 
     let message_id = recorder.message_id.clone();
-    let parts = recorder.into_parts(status);
+    // A busca so vale se o turno chegou inteiro. Uma cerca aberta por
+    // interrupcao produziria um pedido pela metade, e responde-lo seria
+    // continuar uma frase que o usuario mandou parar.
+    let query = (status == MessageStatus::Complete)
+        .then(|| recorder.requested_query())
+        .flatten();
+    let parts = recorder.into_parts(status, crate::surface::now_local(app));
     let service = app.state::<AppState>().conversations.clone();
     if let Ok(message) = service.finish_answer(&message_id, status, parts) {
         jarvis::announce_message(app, &message);
+    }
+    query
+}
+
+/// Executa a busca que o modelo pediu e devolve o resultado a ele.
+///
+/// # Por que isto nao viola a ADR-028
+///
+/// A ADR escolheu injecao de contexto e adiou o MCP local, porque expor um
+/// servidor da maquina a VPS muda a superficie de ataque. Nada disso acontece
+/// aqui: **o M/OS continua sendo quem fala primeiro.** O agente pediu por
+/// escrito, num bloco de texto que ja atravessou o canal existente; o M/OS leu,
+/// pesquisou na propria base e mandou outro prompt pelo mesmo socket. Nenhuma
+/// porta nova, nenhuma inversao de tunel, nenhum dado saindo sem o M/OS
+/// escolher o que sai.
+///
+/// O que muda e o numero de idas, e so isso e o custo: o turno inteiro roda
+/// duas vezes.
+async fn answer_query<R: Runtime>(app: &AppHandle<R>, raw: &str) {
+    // O pedido e lido ANTES de gastar o salto. Um bloco ilegivel ja virou uma
+    // execucao com erro na thread, dentro de `into_parts`; consumir o orcamento
+    // por causa dele tiraria a busca boa que viesse depois.
+    let Ok(request) = mos_core::parse_query(raw) else {
+        return;
+    };
+
+    let state = app.state::<HermesState>();
+    {
+        let Ok(mut guard) = state.query_hops.lock() else {
+            return;
+        };
+        if *guard == 0 {
+            return;
+        }
+        *guard -= 1;
+    }
+
+    let candidatos = jarvis::run_query(app, &request);
+    let conversation_id = get(&state.conversation_id);
+    let service = app.state::<AppState>().conversations.clone();
+
+    // A resposta abre uma mensagem NOVA do assistente, e nao continua a
+    // anterior: aquela ja foi gravada com o pedido de busca dentro. Duas
+    // mensagens tambem sao a leitura honesta do que aconteceu — houve dois
+    // turnos, e a thread mostra os dois.
+    let Ok(answer) = service.start_answer(&conversation_id) else {
+        return;
+    };
+    jarvis::announce_message(app, &answer);
+
+    // O que a busca devolveu atravessa a ponte AGORA, antes de o modelo falar.
+    // A ADR-027 pede o registro do que foi enviado, e a mensagem anterior ja
+    // foi gravada — entao ele nasce com este turno, como o passo que ele e.
+    let mut recorder = TurnRecorder::start(conversation_id.clone(), answer.id.to_string());
+    recorder.seed(mos_core::PartBody::ToolRun {
+        name: "Busca no M/OS".to_owned(),
+        state: mos_core::ToolRunState::Success,
+        detail: if candidatos.is_empty() {
+            format!("\"{}\" — nada encontrado", request.search)
+        } else {
+            format!(
+                "\"{}\" — enviados: {}",
+                request.search,
+                candidatos
+                    .iter()
+                    .map(|candidate| candidate.label.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        },
+    });
+    set(&state.recorder, Some(recorder));
+
+    // O preambulo NAO desce de novo. A sessao do gateway guarda o historico do
+    // turno anterior, e ele ja carrega a identidade, o relogio e o catalogo —
+    // repetir tudo dobraria o custo do salto para reafirmar o que o modelo
+    // acabou de ler.
+    let prompt = mos_core::query_answer(&request, &candidatos);
+    if order(app, Order::Submit(prompt)).await.is_err() {
+        // A resposta aberta precisa parar de dizer "pensando": o pedido de
+        // busca ja foi gravado, e a mensagem que ia responde-lo ficaria
+        // pendurada para sempre.
+        let _ = settle_turn(app, &state, MessageStatus::Failed);
     }
 }
 
@@ -333,7 +436,7 @@ pub async fn hermes_connect<R: Runtime>(app: AppHandle<R>) -> Result<(), HermesF
                                             } else {
                                                 MessageStatus::Complete
                                             };
-                                            settle_turn(&pump, &state, status);
+                                            let query = settle_turn(&pump, &state, status);
                                             // O titulo so existe depois do
                                             // primeiro turno. Perguntar antes
                                             // devolveria vazio.
@@ -341,6 +444,17 @@ pub async fn hermes_connect<R: Runtime>(app: AppHandle<R>) -> Result<(), HermesF
                                                 if let Some(sender) = guard.clone() {
                                                     let _ = sender.try_send(Order::AskTitle);
                                                 }
+                                            }
+                                            // O segundo salto sai numa task
+                                            // propria: esperar por ele aqui
+                                            // travaria o laco que le o socket,
+                                            // e a resposta que ele mesmo espera
+                                            // chega por este laco.
+                                            if let Some(raw) = query {
+                                                let outra = pump.clone();
+                                                tauri::async_runtime::spawn(async move {
+                                                    answer_query(&outra, &raw).await;
+                                                });
                                             }
                                         }
                                     } else {
@@ -392,7 +506,7 @@ pub async fn hermes_connect<R: Runtime>(app: AppHandle<R>) -> Result<(), HermesF
 
         // O socket caiu ou o app fechou. O texto que ja chegou nao pode sumir.
         let state = pump.state::<HermesState>();
-        settle_turn(&pump, &state, MessageStatus::Interrupted);
+        let _ = settle_turn(&pump, &state, MessageStatus::Interrupted);
         set(&connection, ConnectionState::Offline);
         announce(&pump, &state);
     });
@@ -457,8 +571,67 @@ pub async fn hermes_send<R: Runtime>(
     let assembled =
         jarvis::assemble_context(&app, &contexts).map_err(|error| error.message.clone())?;
 
-    if !assembled.parts.is_empty() {
+    // O que o M/OS descobre sozinho, antes de enviar.
+    //
+    // Isto e o coracao da mudanca. Ate aqui, o unico contexto que atravessava a
+    // ponte era o que o usuario anexava a mao com `@` — e quem escreve "a task
+    // do Victor" nao anexa nada. O agente recebia a frase e nao tinha como
+    // saber se aquela Task existe, entao ou perguntava ou criava uma segunda.
+    //
+    // Agora o M/OS le a propria frase, procura no FTS local e manda os
+    // candidatos junto. E a mesma ADR-028 (injecao de contexto), com o M/OS
+    // deixando de esperar que o usuario faca a busca por ele.
+    let here = crate::surface::here(&app);
+    let candidates = jarvis::candidates_for(&app, &text);
+    let now_local = crate::surface::now_local(&app);
+    let hops = mos_core::MAX_QUERY_HOPS;
+    set(&app.state::<HermesState>().query_hops, hops);
+
+    // O registro do que saiu (ADR-027). Um chip por candidato seria honesto e
+    // ilegivel — doze chips numa mensagem sem anexo nenhum esconderiam os
+    // anexos de verdade —, entao a busca inteira vira UMA parte, com os nomes
+    // do que foi dentro de `fields`.
+    let mut automatic = Vec::new();
+    let here_block = mos_core::here_block(&here);
+    if !here_block.is_empty() {
+        automatic.push(mos_core::PartBody::ContextRef {
+            origin: mos_core::ContextOrigin::Automatic,
+            entity: mos_core::ContextEntity::Screen,
+            id: String::new(),
+            label: if here.screen.is_empty() {
+                "tela atual".to_owned()
+            } else {
+                here.screen.clone()
+            },
+            fields: [
+                here.project.as_ref().map(|named| named.label.clone()),
+                here.task.as_ref().map(|named| named.label.clone()),
+                here.workspace.as_ref().map(|named| named.label.clone()),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            bytes: here_block.len(),
+        });
+    }
+    let candidates_block = mos_core::candidates_block(&candidates);
+    if !candidates_block.is_empty() {
+        automatic.push(mos_core::PartBody::ContextRef {
+            origin: mos_core::ContextOrigin::Automatic,
+            entity: mos_core::ContextEntity::Search,
+            id: String::new(),
+            label: format!("{} encontradas no M/OS", candidates.len()),
+            fields: candidates
+                .iter()
+                .map(|candidate| candidate.label.clone())
+                .collect(),
+            bytes: candidates_block.len(),
+        });
+    }
+
+    if !assembled.parts.is_empty() || !automatic.is_empty() {
         let mut parts = vec![mos_core::PartBody::Text { text: text.clone() }];
+        parts.extend(automatic);
         parts.extend(assembled.parts);
         let question = service
             .attach_parts(&question.id.to_string(), MessageStatus::Complete, parts)
@@ -484,10 +657,11 @@ pub async fn hermes_send<R: Runtime>(
         );
     }
 
-    // O contrato de acoes desce em toda mensagem, antes do contexto. Ele diz o
-    // que existe e como propor — e diz explicitamente que o modelo nao executa
-    // nada. Sem essa ultima frase, um modelo prestativo tende a preencher campo
-    // que o usuario nao disse.
+    // O preambulo desce em toda mensagem, antes do contexto: quem ele e, que
+    // horas sao, onde o usuario esta, o que ele pode propor e o que o M/OS ja
+    // encontrou. O contrato de acoes continua dizendo explicitamente que o
+    // modelo nao executa nada — sem essa frase, um modelo prestativo tende a
+    // preencher campo que o usuario nao disse.
     //
     // Ele sai da maquina junto com o resto do prompt: nomes de acao e forma de
     // argumento vao para a VPS. Nao sao dados pessoais, mas sao um mapa do que o
@@ -510,9 +684,18 @@ pub async fn hermes_send<R: Runtime>(
                 .map(|entry| entry.can_write)
         })
         .unwrap_or(false);
+    // A ordem do preambulo esta em `mos_core::preamble`, e o contexto ANEXADO
+    // vem depois dele: o que o usuario escolheu mandar fica colado na pergunta,
+    // que e onde ele espera que esteja.
     let prompt = format!(
         "{}{}{}",
-        mos_core::action_contract(finance_enabled),
+        mos_core::preamble(mos_core::PreambleInput {
+            now_local,
+            here: &here,
+            candidates: &candidates,
+            finance_enabled,
+            hops_left: hops,
+        }),
         assembled.block,
         text
     );
@@ -521,7 +704,7 @@ pub async fn hermes_send<R: Runtime>(
         // Falhou antes de sair: a resposta aberta precisa parar de dizer
         // "pensando" em vez de ficar pendurada para sempre.
         let state = app.state::<HermesState>();
-        settle_turn(&app, &state, MessageStatus::Failed);
+        let _ = settle_turn(&app, &state, MessageStatus::Failed);
     }
     sent
 }
@@ -532,7 +715,7 @@ pub async fn hermes_interrupt<R: Runtime>(app: AppHandle<R>) -> Result<(), Strin
     // Cancelar grava o que chegou. O contrario seria perder a resposta parcial
     // exatamente no momento em que o usuario decidiu ficar com ela.
     let state = app.state::<HermesState>();
-    settle_turn(&app, &state, MessageStatus::Interrupted);
+    let _ = settle_turn(&app, &state, MessageStatus::Interrupted);
     result
 }
 
@@ -575,7 +758,7 @@ pub async fn hermes_clarify_cancel<R: Runtime>(
     // Assenta mesmo se o gateway caiu no meio: e exatamente quando a resposta
     // nao chega que a tela nao pode continuar dizendo "pensando".
     let state = app.state::<HermesState>();
-    settle_turn(&app, &state, MessageStatus::Interrupted);
+    let _ = settle_turn(&app, &state, MessageStatus::Interrupted);
     answered.and(interrupted)
 }
 
@@ -593,7 +776,7 @@ pub async fn hermes_select_conversation<R: Runtime>(
     {
         let state = app.state::<HermesState>();
         // Um turno da conversa anterior nao pode continuar gravando na nova.
-        settle_turn(&app, &state, MessageStatus::Interrupted);
+        let _ = settle_turn(&app, &state, MessageStatus::Interrupted);
         set(&state.conversation_id, conversation_id.clone());
         set(&state.session_id, None);
         announce(&app, &state);

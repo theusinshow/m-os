@@ -65,6 +65,7 @@ Estados possíveis:
 | ADR-047 | A detecção de reunião observa o microfone, e nunca o conteúdo | Accepted |
 | ADR-050 | A página de Tempo passa a se chamar CronoCAD, e leva a marca junto | Accepted |
 | ADR-048 | Argos ganha corpo, e o orçamento de movimento abre uma exceção nomeada | Accepted |
+| ADR-051 | O Hermes opera o M/OS, e a busca acontece antes do envio | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -2358,3 +2359,104 @@ construção do `Icon.tsx` manda usar no lugar de furo com `fill-rule`, que é o
   existirem com o mesmo nome, o dono tem duas portas para a mesma atividade e
   dois bancos que já divergiram — isto está registrado aqui porque é dívida, e
   não desenho.
+
+---
+
+## ADR-051 — O Hermes opera o M/OS, e a busca acontece antes do envio
+
+**Aceita em:** 2026-08-20.
+
+### Contexto
+
+A ADR-024 estabeleceu que o Hermes é superfície e não segundo agente. A ADR-028
+escolheu injeção de contexto como caminho de leitura, e registrou a consequência
+com todas as letras: *"o agente não consegue pedir mais dados no meio do turno:
+o contexto é fixo no envio"*. A SPEC-ACOES-ENTRE-APPS deu a ele um catálogo de
+ações. Cada peça estava certa; juntas, elas ainda produziam um chatbot.
+
+O caso que expôs o buraco:
+
+> *"Criar lembrete para hoje de noite às 20:30 para enviar tipos de bases
+> faltantes para o Victor, task já cadastrada no kanban."*
+
+O que chegava à VPS era essa frase e mais nada. Quatro ausências, e nenhuma
+delas era do modelo:
+
+1. **Ninguém dizia onde ele estava.** "Kanban" era, para um agente que também
+   atende WhatsApp, um conceito de metodologia — não a coluna de Tasks aberta na
+   tela naquele segundo.
+2. **Ninguém dizia que horas eram.** "Hoje às 20:30" não é uma data até alguém
+   dizer que dia é hoje, e em que fuso.
+3. **Ninguém dizia que a Task existia.** O contexto só carregava o que o usuário
+   anexasse à mão com `@`, e quem escreve "a task do Victor" não anexa nada.
+4. **Não havia ação de lembrete.** O catálogo tinha nove ações e nenhuma
+   agendava. A única coisa que o modelo podia propor sobre aquela frase era
+   `mos.task.create` — a duplicata exata que o usuário disse para não criar.
+
+### Decisão
+
+**O M/OS pesquisa a própria base antes de enviar, e manda o resultado junto.**
+
+Ao submeter, o M/OS extrai os termos da frase — descartando conectivos, verbos
+de comando e o vocabulário do próprio produto —, roda uma varredura por termo no
+FTS local e prefixa ao prompt um bloco de candidatos com `kind`, id curto,
+rótulo e um distintivo. Junto descem a identidade operacional, a data e hora com
+fuso, e a tela aberta com o Project e a Task que estão nela.
+
+A varredura é **por termo**, e não uma consulta só. O FTS do M/OS junta termos
+com `AND`, o que é certo para a caixa de busca e errado aqui: exigir que uma
+Task contenha "enviar", "tipos", "bases", "faltantes" e "victor" ao mesmo tempo
+não acharia a Task que existe. Uma busca por termo dá semântica de OU, e a
+contagem de termos que bateram vira o ranking.
+
+**Referências passam a resolver em degraus.** Id inteiro, prefixo de id, título
+exato, começo de título, pedaço de título — o primeiro degrau que acerta decide,
+e só a ambiguidade dentro do degrau que acertou vira pergunta.
+
+**Um segundo salto, e só um.** Quando a busca automática não basta, o modelo
+pode pedir uma busca escrevendo um bloco ```mos-query```; o M/OS executa
+localmente e reenvia o resultado pelo mesmo socket.
+
+### Por que isto não reabre a ADR-028
+
+A ADR-028 adiou o MCP local porque expor um servidor da máquina à VPS muda a
+superfície de ataque que `ARCHITECTURE.md` §15.2 não cobre. Nada disso acontece
+aqui: **o M/OS continua sendo quem fala primeiro em todo salto.** Não há porta
+nova, não há inversão de túnel, e nenhum dado sai sem o M/OS escolher o que sai.
+O que a ADR-028 chamou de limitação — "o agente não consegue pedir mais dados" —
+deixa de doer não porque o agente ganhou um canal, mas porque **o M/OS parou de
+esperar que o usuário fizesse a busca por ele**.
+
+O custo é honesto e é um só: o turno inteiro roda duas vezes quando há salto.
+Por isso o teto é um. Cada salto é um `prompt.submit` sobre um túnel SSH até uma
+VPS, e o custo aparece como silêncio na tela.
+
+### Consequências
+
+- o preâmbulo desce em toda mensagem e é o maior custo fixo de token do chat;
+  cada palavra dele é paga em toda conversa, e o catálogo de ações precisa
+  continuar cabendo numa linha por ação;
+- o bloco de candidatos **sai da máquina**. Não são dados pessoais em bloco, mas
+  são títulos de Task e nomes de Project. Isso entra no registro da ADR-027 como
+  o resto: a busca vira UMA parte `context_ref` com origem automática, e os
+  nomes do que foi ficam em `fields`. Um chip por candidato seria honesto e
+  ilegível — doze chips numa mensagem sem anexo esconderiam os anexos de verdade;
+- o catálogo ganha quatro ações — lembrete com vínculo, resolução de lembrete,
+  Capture em Task e troca de Project —, e `ReminderSource::Hermes`, que existia
+  desde o P0 e nunca tinha sido escrito, passa a ser;
+- o contexto ambiente da tela sai do `VoiceRuntime` e vira `surface.rs`, fonte
+  única para a voz e para o Hermes. Duas cópias dariam dois lugares para a tela
+  publicar e um dia para elas divergirem;
+- o rastro do que cada ação tocou é gravado dentro da própria proposta
+  (`ActionAudit`), e não numa tabela nova: a conversa já guardava a ação crua, o
+  instante e a conversa — faltavam a entidade resolvida e o estado anterior;
+- **ambiguidade continua sendo pergunta.** O trabalho aqui foi tirar a pergunta
+  do caminho comum, não tirá-la do sistema. Agir sobre a Task errada é pior que
+  perguntar qual delas.
+
+### Revisar quando
+
+O salto único não bastar para trabalho composto de verdade — "arquiva essas
+captures e me mostra o que sobrou" —, ou quando o preâmbulo passar a competir
+por espaço com a conversa. Os dois casos apontam para a ADR de MCP local que a
+ADR-028 já previu, e aí ela terá o caso concreto que faltava.

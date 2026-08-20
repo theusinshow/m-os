@@ -11,6 +11,7 @@
 //! o sistema sabe fazer, e isso entra no registro da ADR-027 como o resto.
 
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 
 use crate::{CoreError, ErrorCode, FunctionConfirmation, FunctionRisk};
 
@@ -23,10 +24,21 @@ use crate::{CoreError, ErrorCode, FunctionConfirmation, FunctionRisk};
 #[serde(rename_all = "snake_case")]
 pub enum ActionKind {
     CaptureCreate,
+    /// Converte uma Capture que ja existe. E o inverso da tentacao do modelo
+    /// prestativo: sem esta acao, "transforma isso em task" so podia virar
+    /// `TaskCreate` — uma Task NOVA, com o texto copiado, e a Capture original
+    /// continuando na Inbox como se nada tivesse acontecido.
+    CaptureToTask,
     TaskCreate,
     TaskSetState,
+    TaskSetProject,
     ProjectCreate,
     ResourceCreate,
+    /// O lembrete, que e o que faltava para o M/OS ter ancora de tempo futuro
+    /// pela conversa. Ate aqui o Hermes sabia criar Task e nao sabia agendar
+    /// nada — e "me lembra hoje as 20:30" nao tinha para onde ir.
+    ReminderCreate,
+    ReminderResolve,
     TimeStart,
     TimeStop,
     TimeRecord,
@@ -45,10 +57,14 @@ impl ActionKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::CaptureCreate => "mos.capture.create",
+            Self::CaptureToTask => "mos.capture.to_task",
             Self::TaskCreate => "mos.task.create",
             Self::TaskSetState => "mos.task.set_state",
+            Self::TaskSetProject => "mos.task.set_project",
             Self::ProjectCreate => "mos.project.create",
             Self::ResourceCreate => "mos.resource.create",
+            Self::ReminderCreate => "mos.reminder.create",
+            Self::ReminderResolve => "mos.reminder.resolve",
             Self::TimeStart => "mos.time.start",
             Self::TimeStop => "mos.time.stop",
             Self::TimeRecord => "mos.time.record",
@@ -59,10 +75,14 @@ impl ActionKind {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "mos.capture.create" => Some(Self::CaptureCreate),
+            "mos.capture.to_task" => Some(Self::CaptureToTask),
             "mos.task.create" => Some(Self::TaskCreate),
             "mos.task.set_state" => Some(Self::TaskSetState),
+            "mos.task.set_project" => Some(Self::TaskSetProject),
             "mos.project.create" => Some(Self::ProjectCreate),
             "mos.resource.create" => Some(Self::ResourceCreate),
+            "mos.reminder.create" => Some(Self::ReminderCreate),
+            "mos.reminder.resolve" => Some(Self::ReminderResolve),
             "mos.time.start" => Some(Self::TimeStart),
             "mos.time.stop" => Some(Self::TimeStop),
             "mos.time.record" => Some(Self::TimeRecord),
@@ -76,10 +96,14 @@ impl ActionKind {
     pub fn function_id(self) -> &'static str {
         match self {
             Self::CaptureCreate => "capture.create",
+            Self::CaptureToTask => "task.create_from_capture",
             Self::TaskCreate => "task.create",
             Self::TaskSetState => "task.set_state",
+            Self::TaskSetProject => "task.set_project",
             Self::ProjectCreate => "project.create",
             Self::ResourceCreate => "resource.create",
+            Self::ReminderCreate => "attention.create_reminder",
+            Self::ReminderResolve => "attention.resolve_reminder",
             Self::TimeStart => "time.start",
             Self::TimeStop => "time.stop",
             Self::TimeRecord => "time.record",
@@ -87,13 +111,17 @@ impl ActionKind {
         }
     }
 
-    pub fn all() -> [ActionKind; 9] {
+    pub fn all() -> [ActionKind; 13] {
         [
             Self::CaptureCreate,
+            Self::CaptureToTask,
             Self::TaskCreate,
             Self::TaskSetState,
+            Self::TaskSetProject,
             Self::ProjectCreate,
             Self::ResourceCreate,
+            Self::ReminderCreate,
+            Self::ReminderResolve,
             Self::TimeStart,
             Self::TimeStop,
             Self::TimeRecord,
@@ -107,10 +135,22 @@ impl ActionKind {
     pub fn signature(self) -> &'static str {
         match self {
             Self::CaptureCreate => "{ content }",
+            Self::CaptureToTask => "{ capture, title?, project? }",
             Self::TaskCreate => "{ title, description?, project? }",
             Self::TaskSetState => "{ task, state: inbox|backlog|planned|doing|review|done }",
+            Self::TaskSetProject => "{ task, project }",
             Self::ProjectCreate => "{ name, description? }",
             Self::ResourceCreate => "{ kind: site|library|image|note, title, url?, note? }",
+            // `at` e `when` sao alternativos, e os dois existem por motivos
+            // diferentes. `at` e para quando o modelo consegue fazer a conta
+            // sozinho; `when` e para quando ele nao consegue — e nesse caso
+            // quem resolve a frase e o M/OS, com o mesmo leitor de datas
+            // faladas que a voz usa. Sem `when`, "sexta que vem" viraria uma
+            // data inventada com cara de certa.
+            Self::ReminderCreate => {
+                "{ title, at?: AAAA-MM-DDTHH:MM, when?: \"hoje 20:30\", body?, taskRef?, projectRef?, captureRef? }"
+            }
+            Self::ReminderResolve => "{ reminder, state: done|cancelled }",
             Self::TimeStart => "{ project, activity?, description? }",
             Self::TimeStop => "{ }",
             // Em MINUTOS, e nao "1h30": tres jeitos de escrever a mesma duracao
@@ -124,6 +164,28 @@ impl ActionKind {
 /// As atividades que uma sessao pode ter. Espelha `ActivityType` do dominio.
 const ACTIVITIES: &str = "drawing|detailing|revision|meeting|study|other";
 
+/// A entidade a que um Reminder se prende, como o modelo a citou.
+///
+/// # Por que um alvo so, e por que ele nao e uma lista
+///
+/// `ReminderTarget` e um enum de um braco so por decisao registrada: a ADR-012
+/// recusou tabela generica de arestas, e o preco aceito foi este. A proposta,
+/// porem, chega quase sempre com dois — "lembrete da task X, do projeto Y" — e
+/// recusar por isso devolveria erro para uma frase perfeitamente normal.
+///
+/// A saida e a especificidade: entre Task e Project, o vinculo util e a Task,
+/// porque e nela que o trabalho esta e e por ela que se chega ao Project.
+/// Escolher em silencio seria adivinhar; por isso o preview NOMEIA o alvo
+/// escolhido, e quem le o cartao ve a decisao antes de autorizar.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetRef {
+    /// `task`, `project`, `capture`, `resource` ou `meeting`.
+    pub kind: String,
+    /// Id ou titulo, como o modelo escreveu.
+    pub reference: String,
+}
+
 /// Argumentos ja validados. Sair do JSON solto o quanto antes e o que impede um
 /// campo inventado pelo modelo de viajar ate a camada de servico.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -132,6 +194,13 @@ pub enum ActionArgs {
     CaptureCreate {
         content: String,
     },
+    CaptureToTask {
+        /// Id ou trecho do conteudo. Resolvido na execucao.
+        capture: String,
+        /// Vazio significa "use o conteudo da Capture".
+        title: String,
+        project: Option<String>,
+    },
     TaskCreate {
         title: String,
         description: String,
@@ -139,9 +208,13 @@ pub enum ActionArgs {
         project: Option<String>,
     },
     TaskSetState {
-        /// Titulo da Task, como o usuario fala.
+        /// Id ou titulo da Task, como o usuario fala. Resolvido na execucao.
         task: String,
         state: String,
+    },
+    TaskSetProject {
+        task: String,
+        project: String,
     },
     ProjectCreate {
         name: String,
@@ -152,6 +225,28 @@ pub enum ActionArgs {
         title: String,
         url: String,
         note: String,
+    },
+    ReminderCreate {
+        title: String,
+        body: String,
+        /// O instante JA RESOLVIDO, em RFC3339 com o offset de quem falou.
+        ///
+        /// Resolvido na leitura da proposta, e nao na execucao, por causa do
+        /// preview: o cartao precisa dizer "hoje às 20:30" para o usuário
+        /// conferir ANTES de autorizar. Guardar a frase crua e resolver depois
+        /// mostraria no cartao exatamente o texto que se quer verificar.
+        at: String,
+        /// A frase como foi dita, quando o instante veio de `when`. Vazia
+        /// quando o modelo mandou `at` pronto.
+        when_raw: String,
+        /// A que entidade o lembrete se prende. Resolvido na execucao.
+        target: Option<TargetRef>,
+    },
+    ReminderResolve {
+        /// Id ou titulo do lembrete.
+        reminder: String,
+        /// `done` ou `cancelled`.
+        state: String,
     },
     TimeStart {
         /// Nome do Project, como o usuario fala. Resolvido na execucao.
@@ -183,10 +278,14 @@ impl ActionArgs {
     pub fn kind(&self) -> ActionKind {
         match self {
             Self::CaptureCreate { .. } => ActionKind::CaptureCreate,
+            Self::CaptureToTask { .. } => ActionKind::CaptureToTask,
             Self::TaskCreate { .. } => ActionKind::TaskCreate,
             Self::TaskSetState { .. } => ActionKind::TaskSetState,
+            Self::TaskSetProject { .. } => ActionKind::TaskSetProject,
             Self::ProjectCreate { .. } => ActionKind::ProjectCreate,
             Self::ResourceCreate { .. } => ActionKind::ResourceCreate,
+            Self::ReminderCreate { .. } => ActionKind::ReminderCreate,
+            Self::ReminderResolve { .. } => ActionKind::ReminderResolve,
             Self::TimeStart { .. } => ActionKind::TimeStart,
             Self::TimeStop => ActionKind::TimeStop,
             Self::TimeRecord { .. } => ActionKind::TimeRecord,
@@ -216,12 +315,22 @@ fn required(value: &serde_json::Value, key: &str, action: ActionKind) -> Result<
     Ok(found)
 }
 
+/// Le uma proposta contra o relogio de quem esta na frente da tela.
+///
+/// O `now_local` existe por uma acao so — `mos.reminder.create` —, e nao ha
+/// como evitar: "hoje às 20:30" nao e uma data ate alguem dizer que dia e hoje
+/// e em que fuso. A mesma lei que o `voice_when` obedece (`CORE-FOUNDATION.md`
+/// §5): o fuso entra como parametro, e o banco continua guardando UTC.
+pub fn parse_action(raw: &str) -> Result<ActionArgs, CoreError> {
+    parse_action_at(raw, OffsetDateTime::now_utc())
+}
+
 /// Le uma proposta e devolve argumentos validados.
 ///
 /// Argumento fora do esquema faz a proposta ser RECUSADA, e nao corrigida.
 /// Corrigir seria o M/OS adivinhando o que o modelo quis dizer — e adivinhar e
 /// exatamente o que o preview existe para evitar.
-pub fn parse_action(raw: &str) -> Result<ActionArgs, CoreError> {
+pub fn parse_action_at(raw: &str, now_local: OffsetDateTime) -> Result<ActionArgs, CoreError> {
     let value: serde_json::Value = serde_json::from_str(raw).map_err(|error| {
         CoreError::new(
             ErrorCode::InvalidInput,
@@ -252,6 +361,42 @@ pub fn parse_action(raw: &str) -> Result<ActionArgs, CoreError> {
         ActionKind::CaptureCreate => ActionArgs::CaptureCreate {
             content: required(&args, "content", kind)?,
         },
+        ActionKind::CaptureToTask => ActionArgs::CaptureToTask {
+            capture: required(&args, "capture", kind)?,
+            title: text(&args, "title"),
+            project: {
+                let project = text(&args, "project");
+                (!project.is_empty()).then_some(project)
+            },
+        },
+        ActionKind::TaskSetProject => ActionArgs::TaskSetProject {
+            task: required(&args, "task", kind)?,
+            project: required(&args, "project", kind)?,
+        },
+        ActionKind::ReminderCreate => {
+            let (at, when_raw) = reminder_instant(&args, now_local)?;
+            ActionArgs::ReminderCreate {
+                title: required(&args, "title", kind)?,
+                body: text(&args, "body"),
+                at,
+                when_raw,
+                target: target_of(&args),
+            }
+        }
+        ActionKind::ReminderResolve => {
+            let state = required(&args, "state", kind)?;
+            if !matches!(state.as_str(), "done" | "cancelled") {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidInput,
+                    format!("`{state}` nao e um desfecho de lembrete. Use `done` ou `cancelled`."),
+                    false,
+                ));
+            }
+            ActionArgs::ReminderResolve {
+                reminder: required(&args, "reminder", kind)?,
+                state,
+            }
+        }
         ActionKind::TaskCreate => ActionArgs::TaskCreate {
             title: required(&args, "title", kind)?,
             description: text(&args, "description"),
@@ -343,6 +488,114 @@ pub fn parse_action(raw: &str) -> Result<ActionArgs, CoreError> {
                     .unwrap_or(false),
             }
         }
+    })
+}
+
+/// Quanto no passado uma proposta de lembrete ainda vale.
+///
+/// Espelha o `CREATION_GRACE` do dominio, e existe aqui pelo mesmo motivo que o
+/// teto de 24h existe no `minutes_of`: recusar na LEITURA devolve o erro para o
+/// cartao, onde ele e uma frase; recusar so na execucao devolveria o erro para
+/// o recibo, depois de o usuario ja ter autorizado.
+const REMINDER_GRACE: time::Duration = time::Duration::minutes(1);
+
+/// O instante do lembrete, e a frase que o produziu.
+///
+/// Dois caminhos, e a ordem entre eles importa: `at` ganha de `when` porque um
+/// modelo que conseguiu fazer a conta ja aplicou o que sabe: mandar os dois e
+/// dizer a mesma coisa duas vezes, e reinterpretar a frase por cima da data
+/// pronta poderia trocar uma pela outra.
+fn reminder_instant(
+    args: &serde_json::Value,
+    now_local: OffsetDateTime,
+) -> Result<(String, String), CoreError> {
+    let recusa = |detalhe: &str| {
+        CoreError::new(
+            ErrorCode::InvalidInput,
+            format!("A proposta de `mos.reminder.create` {detalhe}"),
+            false,
+        )
+    };
+
+    let at = text(args, "at");
+    let when = text(args, "when");
+
+    let (instant, when_raw) = if !at.is_empty() {
+        (
+            parse_local_moment(&at, now_local)
+                .ok_or_else(|| recusa(&format!("veio com `at` ilegivel: \"{at}\".")))?,
+            String::new(),
+        )
+    } else if !when.is_empty() {
+        // O mesmo leitor de datas faladas que a voz usa. Duas gramaticas de
+        // "sexta que vem" no mesmo app dariam duas sextas diferentes.
+        let resolved = crate::resolve_when(&when, now_local)
+            .ok_or_else(|| recusa(&format!("nao consegui entender \"{when}\" como data.")))?;
+        (resolved.instant, resolved.raw)
+    } else {
+        return Err(recusa("veio sem `at` nem `when`. Um lembrete precisa de hora."));
+    };
+
+    if instant < now_local - REMINDER_GRACE {
+        return Err(recusa(
+            "aponta para um instante que ja passou. Nao da para ser lembrado de algo no passado.",
+        ));
+    }
+
+    let formatted = instant
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|error| recusa(&format!("produziu uma data que nao sei escrever: {error}.")))?;
+    Ok((formatted, when_raw))
+}
+
+/// Le uma data que pode ou nao trazer fuso.
+///
+/// Sem fuso, o instante herda o de quem falou. E a diferenca entre um lembrete
+/// as oito e meia da noite e um lembrete as cinco e meia da tarde — que e o que
+/// aconteceria lendo `2026-08-20T20:30` como UTC no Brasil.
+fn parse_local_moment(value: &str, now_local: OffsetDateTime) -> Option<OffsetDateTime> {
+    // "2026-08-20 20:30" e uma escrita natural, e recusa-la seria recusar por
+    // causa de um espaco.
+    let normalizado = value.trim().replacen(' ', "T", 1);
+
+    if let Ok(instant) =
+        OffsetDateTime::parse(&normalizado, &time::format_description::well_known::Rfc3339)
+    {
+        return Some(instant.to_offset(now_local.offset()));
+    }
+
+    const COM_SEGUNDOS: &[time::format_description::FormatItem<'_>] =
+        time::macros::format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]");
+    const SEM_SEGUNDOS: &[time::format_description::FormatItem<'_>] =
+        time::macros::format_description!("[year]-[month]-[day]T[hour]:[minute]");
+
+    for formato in [COM_SEGUNDOS, SEM_SEGUNDOS] {
+        if let Ok(naive) = time::PrimitiveDateTime::parse(&normalizado, formato) {
+            return Some(naive.assume_offset(now_local.offset()));
+        }
+    }
+    None
+}
+
+/// O alvo do lembrete, do mais especifico para o mais geral.
+///
+/// A ordem e a decisao: entre a Task e o Project, o vinculo util e a Task —
+/// dela se chega ao Project, e do Project nao se chega a Task. Ver [`TargetRef`].
+fn target_of(args: &serde_json::Value) -> Option<TargetRef> {
+    [
+        ("taskRef", "task"),
+        ("captureRef", "capture"),
+        ("resourceRef", "resource"),
+        ("meetingRef", "meeting"),
+        ("projectRef", "project"),
+    ]
+    .into_iter()
+    .find_map(|(campo, kind)| {
+        let reference = text(args, campo);
+        (!reference.is_empty()).then(|| TargetRef {
+            kind: kind.to_owned(),
+            reference,
+        })
     })
 }
 
@@ -487,6 +740,75 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
 
     let (title, lines) = match args {
         ActionArgs::CaptureCreate { content } => ("CRIAR CAPTURE", vec![line("Conteúdo", content)]),
+        ActionArgs::CaptureToTask {
+            capture,
+            title,
+            project,
+        } => {
+            let mut lines = vec![line("Capture", capture)];
+            if !title.is_empty() {
+                lines.push(line("Título da Task", title));
+            }
+            if let Some(project) = project {
+                lines.push(line("Project", project));
+            }
+            ("CONVERTER CAPTURE EM TASK", lines)
+        }
+        ActionArgs::TaskSetProject { task, project } => (
+            "MOVER TASK DE PROJECT",
+            vec![line("Task", task), line("Para o Project", project)],
+        ),
+        ActionArgs::ReminderCreate {
+            title,
+            body,
+            at,
+            when_raw,
+            target,
+        } => {
+            let quando = crate::parse_moment(at)
+                .map(crate::spoken_moment)
+                // O `at` foi escrito por `reminder_instant`, entao chegar aqui
+                // ilegivel seria bug nosso. Mostrar o cru e melhor que esconder:
+                // um cartao sem hora nao pode ser autorizado com consciencia.
+                .unwrap_or_else(|_| at.clone());
+            let mut lines = vec![line("Lembrar", title), line("Quando", &quando)];
+            if !when_raw.is_empty() {
+                // A frase original entra no cartao porque o instante e uma
+                // INTERPRETACAO dela. Ver as duas lado a lado e o que permite
+                // pegar "sexta" entendida como a sexta errada.
+                lines.push(line("Você disse", when_raw));
+            }
+            if let Some(target) = target {
+                lines.push(line(
+                    match target.kind.as_str() {
+                        "task" => "Vinculado à Task",
+                        "project" => "Vinculado ao Project",
+                        "capture" => "Vinculado à Capture",
+                        "resource" => "Vinculado ao Resource",
+                        _ => "Vinculado a",
+                    },
+                    &target.reference,
+                ));
+            }
+            if !body.is_empty() {
+                lines.push(line("Detalhe", body));
+            }
+            ("CRIAR LEMBRETE", lines)
+        }
+        ActionArgs::ReminderResolve { reminder, state } => (
+            "RESOLVER LEMBRETE",
+            vec![
+                line("Lembrete", reminder),
+                line(
+                    "Desfecho",
+                    if state == "done" {
+                        "concluído"
+                    } else {
+                        "cancelado"
+                    },
+                ),
+            ],
+        ),
         ActionArgs::TaskCreate {
             title,
             description,
@@ -618,6 +940,78 @@ pub struct ActionEffect {
     pub message: String,
     /// Ausente quando nao ha inverso honesto.
     pub undo: Option<UndoStep>,
+    /// O que a acao tocou, ja resolvido em id.
+    ///
+    /// A proposta guarda o que o modelo ESCREVEU — "a task do Victor" — e isso
+    /// nao identifica nada depois que o titulo muda. Sem esta lista, o registro
+    /// da conversa diz que algo foi feito e nao diz sobre o que, que e
+    /// exatamente a pergunta que uma auditoria faz.
+    #[serde(default)]
+    pub entities: Vec<TouchedEntity>,
+}
+
+impl ActionEffect {
+    /// Um efeito sem rastro de entidade. Existe para as acoes que nao tocam
+    /// entidade nenhuma — encerrar cronometro, por exemplo, so mexe no que ja
+    /// estava correndo.
+    pub fn new(message: impl Into<String>, undo: Option<UndoStep>) -> Self {
+        Self {
+            message: message.into(),
+            undo,
+            entities: Vec::new(),
+        }
+    }
+
+    pub fn touching(
+        mut self,
+        kind: impl Into<String>,
+        id: impl Into<String>,
+        label: impl Into<String>,
+    ) -> Self {
+        self.entities.push(TouchedEntity {
+            kind: kind.into(),
+            id: id.into(),
+            label: label.into(),
+        });
+        self
+    }
+}
+
+/// Uma entidade que uma acao do Hermes alcancou.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TouchedEntity {
+    pub kind: String,
+    pub id: String,
+    pub label: String,
+}
+
+/// O rastro de uma proposta executada.
+///
+/// # Por que dentro da parte, e nao numa tabela nova
+///
+/// O §11 do pedido lista o que uma auditoria precisa: acao, instante, origem,
+/// conversa, entidade alvo, antes e depois. Seis desses sete ja existiam na
+/// conversa — a proposta guarda a acao crua, a mensagem guarda o instante e o
+/// id da conversa, e `source = hermes` e o proprio fato de a parte ser uma
+/// proposta. Faltavam **a entidade resolvida e o estado anterior**, e os dois
+/// cabem aqui.
+///
+/// Uma tabela propria custaria migration e uma segunda fonte de verdade sobre o
+/// que o Hermes fez. As partes ja sao persistidas como JSON (ADR-025), entao
+/// este campo entra sem tocar no esquema — e `Option` com `serde(default)`
+/// porque toda proposta gravada antes de hoje continua legivel sem ele.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionAudit {
+    /// RFC3339, no instante em que a execucao terminou.
+    pub executed_at: String,
+    pub entities: Vec<TouchedEntity>,
+    /// O estado anterior, quando havia um. E o "antes" da auditoria, e e o
+    /// mesmo dado que o desfazer usa — guardar duas versoes dele seria deixar
+    /// que divergissem.
+    #[serde(default)]
+    pub undo: Option<UndoStep>,
 }
 
 /// O inverso de uma acao executada.
@@ -648,6 +1042,32 @@ pub enum UndoStep {
     RestoreTaskState {
         id: String,
         state: String,
+    },
+    /// O Project que a Task tinha antes. `None` significa "nenhum", e por isso
+    /// e um passo com campo opcional em vez de dois passos diferentes: tirar a
+    /// Task de um Project e uma mudanca tao real quanto move-la para outro, e
+    /// desfazer precisa saber devolver ao vazio.
+    RestoreTaskProject {
+        id: String,
+        project_id: Option<String>,
+    },
+    /// O inverso de cancelar um lembrete que o Hermes criou.
+    ///
+    /// Cancela — nao apaga (ADR-035). O lembrete cancelado continua no
+    /// historico, que e o mesmo destino de um lembrete que a pessoa descartou
+    /// na tela.
+    CancelReminder {
+        id: String,
+    },
+    /// O inverso de converter uma Capture em Task.
+    ///
+    /// Dois passos num so, pela mesma razao do `UndoVoiceAction`: a conversao
+    /// foi UMA acao. **A Capture volta para a Inbox** em vez de ser arquivada,
+    /// porque o que se desfez foi a decisao sobre ela, e o lugar de uma Capture
+    /// ainda nao decidida e a Inbox.
+    UndoCaptureToTask {
+        capture_id: String,
+        task_id: String,
     },
     /// Manda a sessao para a lixeira. Soft delete, entao ela continua no banco e
     /// volta pela lixeira do Historico — o desfazer aqui obedece a mesma regra
@@ -712,6 +1132,10 @@ pub fn action_contract(finance_enabled: bool) -> String {
          {{ \"action\": \"...\", \"args\": {{ ... }} }}\n\
          ```\n\n\
          {catalog}\n\n\
+         Campos que apontam para uma entidade que já existe — `task`, \
+         `project`, `capture`, `reminder`, `taskRef` — aceitam o id mostrado \
+         nos candidatos ou o título. **Prefira o id:** título ambíguo faz o \
+         M/OS parar e perguntar em vez de agir.\n\n\
          Você não executa nada: o M/OS mostra o que você propôs e o usuário \
          confirma. Não invente valor que o usuário não disse — deixe o campo \
          fora e pergunte, se for essencial. Uma proposta por mensagem.\n\
@@ -953,11 +1377,42 @@ mod tests {
     /// inverso, que seja por decisao registrada, e nao por esquecimento.
     #[test]
     fn an_effect_can_declare_no_way_back() {
-        let effect = ActionEffect {
-            message: "feito".into(),
-            undo: None,
-        };
+        let effect = ActionEffect::new("feito", None);
         assert!(effect.undo.is_none());
+        assert!(effect.entities.is_empty());
+    }
+
+    /// O rastro e o que transforma "algo foi feito" em "isto foi feito nisto".
+    #[test]
+    fn an_effect_records_what_it_touched() {
+        let effect = ActionEffect::new("Lembrete criado", None)
+            .touching("reminder", "r1", "Enviar bases")
+            .touching("task", "t1", "Enviar tipos de bases faltantes");
+        assert_eq!(effect.entities.len(), 2);
+        assert_eq!(effect.entities[1].kind, "task");
+    }
+
+    /// A auditoria e persistida como JSON dentro da parte, e por isso precisa
+    /// sobreviver a ida e volta com o desfazer junto.
+    #[test]
+    fn the_audit_round_trips_with_the_previous_state() {
+        let audit = ActionAudit {
+            executed_at: "2026-08-20T20:30:00-03:00".into(),
+            entities: vec![TouchedEntity {
+                kind: "task".into(),
+                id: "t1".into(),
+                label: "Enviar bases".into(),
+            }],
+            undo: Some(UndoStep::RestoreTaskState {
+                id: "t1".into(),
+                state: "backlog".into(),
+            }),
+        };
+        let json = serde_json::to_string(&audit).unwrap();
+        assert_eq!(serde_json::from_str::<ActionAudit>(&json).unwrap(), audit);
+        // Proposta gravada antes de hoje continua legivel: o campo e opcional.
+        let antigo = r#"{"executedAt":"2026-08-20T20:30:00-03:00","entities":[]}"#;
+        assert!(serde_json::from_str::<ActionAudit>(antigo).unwrap().undo.is_none());
     }
 
     #[test]
@@ -1160,6 +1615,208 @@ mod tests {
     fn zero_is_not_a_special_case() {
         assert_eq!(format_cents(0), "R$ 0,00");
     }
+    // ------------------------------------------------------------- lembrete
+
+    /// O relogio dos testes de lembrete. Fixo, porque "hoje" so quer dizer
+    /// alguma coisa contra um dia.
+    fn agora() -> OffsetDateTime {
+        time::macros::datetime!(2026-08-20 14:32:00 -03:00)
+    }
+
+    fn lembrete(args: &str) -> Result<ActionArgs, CoreError> {
+        parse_action_at(
+            &format!(r#"{{"action":"mos.reminder.create","args":{args}}}"#),
+            agora(),
+        )
+    }
+
+    /// O caso do pedido, inteiro: hora dita em portugues, alvo apontado por id
+    /// curto, e nada de Task nova.
+    #[test]
+    fn the_motivating_reminder_parses_with_its_task_link() {
+        let args = lembrete(
+            r#"{"title":"Enviar tipos de bases faltantes para o Victor","when":"hoje às 20:30","taskRef":"7c3e2b19"}"#,
+        )
+        .unwrap();
+        match args {
+            ActionArgs::ReminderCreate {
+                ref title,
+                ref at,
+                ref when_raw,
+                ref target,
+                ..
+            } => {
+                assert!(title.contains("Victor"));
+                assert!(at.starts_with("2026-08-20T20:30:00"), "{at}");
+                // O offset de quem falou atravessa: sem ele, 20:30 no Brasil
+                // viraria 17:30 na tela.
+                assert!(at.ends_with("-03:00"), "{at}");
+                assert!(when_raw.contains("20:30"), "{when_raw}");
+                let target = target.as_ref().expect("o vinculo com a Task");
+                assert_eq!(target.kind, "task");
+                assert_eq!(target.reference, "7c3e2b19");
+            }
+            outro => panic!("virou outra acao: {outro:?}"),
+        }
+    }
+
+    /// `at` sem fuso herda o de quem falou. Lido como UTC, o lembrete tocaria
+    /// tres horas depois — no dia seguinte, se fosse de noite.
+    #[test]
+    fn an_instant_without_a_timezone_inherits_the_speakers() {
+        match lembrete(r#"{"title":"X","at":"2026-08-20T20:30"}"#).unwrap() {
+            ActionArgs::ReminderCreate { at, .. } => {
+                assert_eq!(at, "2026-08-20T20:30:00-03:00")
+            }
+            outro => panic!("virou outra acao: {outro:?}"),
+        }
+    }
+
+    /// Um espaco no lugar do T e escrita natural, e recusar por causa dele
+    /// seria recusar por causa de um caractere.
+    #[test]
+    fn a_space_instead_of_the_t_still_parses() {
+        assert!(lembrete(r#"{"title":"X","at":"2026-08-21 09:00"}"#).is_ok());
+    }
+
+    /// `at` ganha de `when`: um modelo que fez a conta ja aplicou o que sabe, e
+    /// reinterpretar a frase por cima trocaria uma pela outra.
+    #[test]
+    fn an_explicit_instant_wins_over_the_spoken_phrase() {
+        match lembrete(r#"{"title":"X","at":"2026-08-25T10:00","when":"amanhã"}"#).unwrap() {
+            ActionArgs::ReminderCreate { at, when_raw, .. } => {
+                assert!(at.starts_with("2026-08-25"), "{at}");
+                assert!(when_raw.is_empty());
+            }
+            outro => panic!("virou outra acao: {outro:?}"),
+        }
+    }
+
+    /// Sem hora nao ha lembrete, e inventar uma seria agendar o que ninguem
+    /// pediu.
+    #[test]
+    fn a_reminder_without_an_instant_is_refused() {
+        let error = lembrete(r#"{"title":"X"}"#).unwrap_err();
+        assert!(error.message.contains("precisa de hora"), "{}", error.message);
+    }
+
+    /// Recusar na LEITURA devolve o erro para o cartao. Recusar so na execucao
+    /// devolveria depois de o usuario ja ter autorizado.
+    #[test]
+    fn a_reminder_in_the_past_is_refused_before_the_card() {
+        let error = lembrete(r#"{"title":"X","at":"2026-08-20T09:00"}"#).unwrap_err();
+        assert!(error.message.contains("passado"), "{}", error.message);
+        // "Hoje as nove", dito as duas da tarde, e o mesmo caso — e ele chega
+        // por `when`, que e como a pessoa fala.
+        assert!(lembrete(r#"{"title":"X","when":"hoje às 9h"}"#).is_err());
+    }
+
+    #[test]
+    fn an_unreadable_instant_is_refused_naming_it() {
+        let error = lembrete(r#"{"title":"X","at":"20/08/2026 20:30"}"#).unwrap_err();
+        assert!(error.message.contains("20/08/2026"), "{}", error.message);
+    }
+
+    /// Entre Task e Project, o vinculo util e a Task: dela se chega ao Project,
+    /// e do Project nao se chega a Task.
+    #[test]
+    fn the_most_specific_target_wins() {
+        match lembrete(r#"{"title":"X","when":"amanhã","taskRef":"t1","projectRef":"p1"}"#).unwrap()
+        {
+            ActionArgs::ReminderCreate { target, .. } => {
+                assert_eq!(target.unwrap().kind, "task")
+            }
+            outro => panic!("virou outra acao: {outro:?}"),
+        }
+    }
+
+    /// O cartao e onde o engano de data e pego. Ele mostra o instante por
+    /// extenso E a frase que o produziu, lado a lado.
+    #[test]
+    fn the_reminder_card_shows_the_instant_and_the_phrase_that_made_it() {
+        let args = lembrete(r#"{"title":"Enviar bases","when":"hoje às 20:30","taskRef":"7c3e2b19"}"#)
+            .unwrap();
+        let preview = preview_of(&args);
+        assert_eq!(preview.title, "CRIAR LEMBRETE");
+        let quando = preview
+            .lines
+            .iter()
+            .find(|linha| linha.label == "Quando")
+            .expect("o cartao sempre diz quando");
+        assert!(quando.value.contains("quinta-feira"), "{}", quando.value);
+        assert!(quando.value.contains("20 de agosto"), "{}", quando.value);
+        assert!(quando.value.contains("20:30"), "{}", quando.value);
+        assert!(preview.lines.iter().any(|linha| linha.label == "Você disse"));
+        assert!(preview
+            .lines
+            .iter()
+            .any(|linha| linha.label == "Vinculado à Task"));
+    }
+
+    #[test]
+    fn a_reminder_outcome_outside_the_vocabulary_is_refused() {
+        assert!(parse_action(r#"{"action":"mos.reminder.resolve","args":{"reminder":"r1","state":"talvez"}}"#).is_err());
+        assert!(parse_action(r#"{"action":"mos.reminder.resolve","args":{"reminder":"r1","state":"done"}}"#).is_ok());
+    }
+
+    // -------------------------------------------------------- capture e task
+
+    #[test]
+    fn converting_a_capture_needs_the_capture_and_nothing_else() {
+        match parse_action(r#"{"action":"mos.capture.to_task","args":{"capture":"1f4c9a2b"}}"#)
+            .unwrap()
+        {
+            ActionArgs::CaptureToTask {
+                capture,
+                title,
+                project,
+            } => {
+                assert_eq!(capture, "1f4c9a2b");
+                assert!(title.is_empty());
+                assert!(project.is_none());
+            }
+            outro => panic!("virou outra acao: {outro:?}"),
+        }
+        assert!(parse_action(r#"{"action":"mos.capture.to_task","args":{}}"#).is_err());
+    }
+
+    /// Mover de Project pede os dois lados. Sem o Project, a acao seria "tirar
+    /// de todos" — que e uma intencao diferente e precisa ser dita.
+    #[test]
+    fn moving_a_task_between_projects_needs_both_sides() {
+        assert!(parse_action(r#"{"action":"mos.task.set_project","args":{"task":"t1"}}"#).is_err());
+        assert!(parse_action(
+            r#"{"action":"mos.task.set_project","args":{"task":"t1","project":"063-26"}}"#
+        )
+        .is_ok());
+    }
+
+    /// Trocar o Project de uma Task mexe em onde as horas serao contadas, e por
+    /// isso nao herda o risco de arrastar um cartao entre colunas.
+    #[test]
+    fn changing_the_project_is_heavier_than_changing_the_column() {
+        let coluna = preview_of(&ActionArgs::TaskSetState {
+            task: "t1".into(),
+            state: "doing".into(),
+        });
+        let projeto = preview_of(&ActionArgs::TaskSetProject {
+            task: "t1".into(),
+            project: "063-26".into(),
+        });
+        assert_eq!(coluna.risk, FunctionRisk::Low);
+        assert_eq!(projeto.risk, FunctionRisk::Medium);
+        assert_eq!(projeto.confirmation, FunctionConfirmation::Explicit);
+    }
+
+    /// O contrato precisa ensinar que id vence titulo. Sem esta frase o modelo
+    /// manda o titulo por padrao, e titulo ambiguo faz o M/OS parar e perguntar
+    /// — que e exatamente o fluxo que este trabalho existe para evitar.
+    #[test]
+    fn the_contract_teaches_that_the_id_beats_the_title() {
+        let contract = action_contract(false);
+        assert!(contract.contains("Prefira o id"), "{contract}");
+    }
+
     #[test]
     fn the_m_finance_action_id_round_trips() {
         let kind = ActionKind::MFinanceCreateBill;

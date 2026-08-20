@@ -1,4 +1,5 @@
 mod action;
+mod agent;
 mod attention;
 mod app;
 mod calendar;
@@ -20,8 +21,14 @@ mod voice_when;
 mod work;
 
 pub use action::{
-    action_contract, parse_action, preview_of, ActionArgs, ActionEffect, ActionKind, ActionLine,
-    ActionPreview, UndoStep,
+    action_contract, parse_action, parse_action_at, preview_of, ActionArgs, ActionAudit,
+    ActionEffect, ActionKind, ActionLine, ActionPreview, TargetRef, TouchedEntity, UndoStep,
+};
+pub use agent::{
+    candidates_block, here_block, normalize, now_block, parse_query, preamble, query_answer,
+    query_contract, resolution_error, resolve, search_terms, short_id, spoken_moment, split_fenced,
+    system_context, Candidate, EntityKind, Here, Named, PreambleInput, QueryRequest, Resolved,
+    MAX_CANDIDATES, MAX_QUERY_HOPS,
 };
 pub use attention::{
     apply, next_wake, reconcile, Channel, ContentPrivacy, DeliveryPolicy, NewNotification,

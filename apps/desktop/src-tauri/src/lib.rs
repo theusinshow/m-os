@@ -34,6 +34,7 @@ mod meeting;
 mod microfone;
 mod monitor;
 mod pdf;
+mod surface;
 mod tracking;
 mod voice;
 
@@ -1782,6 +1783,9 @@ pub fn run() {
 
             app.manage(meeting::RecordingState::default());
             app.manage(voice::VoiceRuntime::default());
+            // O contexto ambiente do M/OS: a tela aberta e o fuso de quem esta
+            // nela. Lido pela voz e pelo Hermes, publicado pelo renderer.
+            app.manage(surface::SurfaceRuntime::default());
             // O que o processo anterior deixou pelo caminho. Uma nota em
             // `recording` num processo recem-nascido significa que o anterior
             // morreu sem terminar — e o audio dela pode estar inteiro em disco.
@@ -2115,8 +2119,8 @@ pub fn run() {
             voice::voice_retry,
             voice::voice_discard,
             voice::voice_act,
-            voice::voice_set_context,
-            voice::voice_set_locale,
+            surface::surface_set_context,
+            surface::surface_set_locale,
             ]);
             move |invoke| {
                 if invoke.message.webview_ref().try_state::<AppState>().is_none() {

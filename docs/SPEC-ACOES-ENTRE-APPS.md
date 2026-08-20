@@ -213,3 +213,31 @@ que você quer ter testado antes de a primeira frase virar uma conta a pagar.
 >
 > A fase 3 herda isso pronto. É o que ela precisava: quando a primeira ação mexer em
 > dinheiro, a cerimônia não estará sendo inventada junto com o risco.
+
+---
+
+## 7. O que esta spec não previu, e apareceu no uso
+
+> **Acrescentado em 2026-08-20, e virou a ADR-051.** Ver
+> `HERMES-ACTION-LAYER.md`.
+
+A spec resolveu **como executar** uma proposta com segurança, e essa metade
+continua de pé inteira. A metade que faltava só aparece quando alguém usa:
+
+**o agente não sabia sobre o que propor.**
+
+O catálogo desce no prompt desde a fase 1, mas o *estado* não descia. O Hermes
+recebia "adicione uma conta de água" e sabia propor `m-finance.create_bill`;
+recebia "cria lembrete para a task que já está no kanban" e não tinha como saber
+que aquela Task existe — nem, até então, uma ação capaz de agendar. O resultado
+era o pior possível: ele propunha `mos.task.create`, e o preview mostrava uma
+Task duplicada com cara de acerto.
+
+A correção não mexe na cerimônia. Ela acrescenta um passo **antes** dela: o M/OS
+pesquisa a própria base com os termos da frase e desce os candidatos junto do
+catálogo, com id. A partir daí a proposta cita o id, a resolução acha a entidade
+e o preview mostra o vínculo — pelo mesmo caminho de confirmação, recibo e undo
+que as fases 1 e 2 construíram.
+
+O §1 desta spec continua sendo a regra que sustenta tudo: **o modelo propõe, o
+M/OS executa.** O que mudou é que agora ele propõe sabendo o que existe.
