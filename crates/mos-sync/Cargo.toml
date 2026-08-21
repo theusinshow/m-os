@@ -1,0 +1,17 @@
+[package]
+name = "mos-sync"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# Sem dependencia de plataforma, e isso e requisito e nao coincidencia: este
+# crate precisa compilar identico no Windows e no iOS. Nada de rusqlite, nada de
+# reqwest, nada de tauri — quem persiste e quem transporta sao adaptadores.
+[dependencies]
+serde.workspace = true
+serde_json = "1"
+thiserror.workspace = true
+time.workspace = true
+uuid.workspace = true

@@ -8,6 +8,9 @@ rust-version.workspace = true
 
 [dependencies]
 mos-core = { path = "../mos-core" }
+# O motor de sincronizacao. Este crate implementa as portas dele — quem guarda
+# e o adaptador, e a regra fica no dominio.
+mos-sync = { path = "../mos-sync" }
 hex = "0.4"
 rusqlite = { version = "0.40", features = ["backup", "bundled-full"] }
 serde.workspace = true

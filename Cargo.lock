@@ -2486,6 +2486,7 @@ version = "0.3.0"
 dependencies = [
  "hex",
  "mos-core",
+ "mos-sync",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2494,6 +2495,17 @@ dependencies = [
  "time",
  "uuid",
  "zip",
+]
+
+[[package]]
+name = "mos-sync"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "time",
+ "uuid",
 ]
 
 [[package]]

@@ -66,6 +66,8 @@ Estados possíveis:
 | ADR-050 | A página de Tempo passa a se chamar CronoCAD, e leva a marca junto | Accepted |
 | ADR-048 | Argos ganha corpo, e o orçamento de movimento abre uma exceção nomeada | Accepted |
 | ADR-051 | O Hermes opera o M/OS, e a busca acontece antes do envio | Accepted |
+| ADR-052 | O M/OS vira multi-device, e o iOS entra pelo Tauri 2 | Accepted |
+| ADR-053 | A sincronizacao reconcilia por CAMPO, e conflito nunca some em silencio | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -85,6 +87,16 @@ Arquitetura, design foundations e primeira implementação terão Windows como �
 - mobile não condiciona escolhas da primeira entrega;
 - código compartilhado com iOS não é critério de sucesso;
 - outras plataformas desktop não são suportadas inicialmente.
+
+> **Revisada pela ADR-052 (2026-08-21) nos dois primeiros pontos.** O M/OS
+> passou a ser multi-device por definição, e compartilhamento de código com iOS
+> passou a ser critério. O terceiro ponto continua de pé.
+>
+> O que esta decisão acertou e continua valendo: focar o Windows primeiro não
+> criou dívida de portabilidade, porque a disciplina hexagonal foi mantida mesmo
+> sem alvo mobile. `mos-core` chegou a 2026 com cinco dependências e nenhuma de
+> plataforma — foi isso que fez a virada custar uma fundação nova em vez de uma
+> reescrita.
 
 ### Revisar quando
 
@@ -2488,3 +2500,126 @@ O salto único não bastar para trabalho composto de verdade — "arquiva essas
 captures e me mostra o que sobrou" —, ou quando o preâmbulo passar a competir
 por espaço com a conversa. Os dois casos apontam para a ADR de MCP local que a
 ADR-028 já previu, e aí ela terá o caso concreto que faltava.
+
+## ADR-052 — O M/OS vira multi-device, e o iOS entra pelo Tauri 2
+
+**Estado:** Accepted · 2026-08-21
+
+### Contexto
+
+O M/OS foi construído como aplicativo de Windows (ADR-001). O proprietário
+decidiu que ele passa a ser um sistema pessoal multi-device, com iPhone 14 Pro
+como primeiro alvo móvel, e que desktop e celular devem ser duas interfaces do
+**mesmo** M/OS — não dois produtos.
+
+A auditoria do repositório mudou o tamanho do problema. Media, e não impressão:
+
+- `mos-core` tem cinco dependências — `serde`, `serde_json`, `thiserror`,
+  `time`, `uuid`. Nenhuma de plataforma. O domínio inteiro e as 12 traits de
+  repositório compilam em qualquer alvo.
+- `mos-storage-sqlite` depende só de `mos-core` e `rusqlite` com `bundled-full`,
+  que compila o SQLite junto e funciona no iOS.
+- `mos-hermes` usa `reqwest` com `rustls` — portátil.
+- O acoplamento ao Windows está inteiro em três lugares, todos no shell:
+  `mos-audio` (WASAPI), `monitor.rs` e `microfone.rs` (registro do Windows).
+- O front-end é fino: 184 `invoke` em 844 linhas de `api.ts`. A lógica de
+  negócio está em Rust. **Não existe `taskService.ts` para duplicar.**
+
+Ou seja: o cérebro já era portátil, e ninguém tinha reparado porque ninguém
+tinha tentado.
+
+### Decisão
+
+**Tauri 2 para iOS**, com o mesmo domínio Rust e o mesmo React.
+
+Verificado na documentação oficial (v2.tauri.app, agosto de 2026): os alvos
+`aarch64-apple-ios`, `x86_64-apple-ios` e `aarch64-apple-ios-sim` são
+suportados, e há plugins oficiais com iOS para biometria, deep link, haptics,
+câmera e notificações locais.
+
+A alternativa séria era SwiftUI nativo com o core em Rust via FFI. Foi recusada
+por um motivo que não é preguiça: ela duplicaria **a camada de apresentação
+inteira** — estados de tela, formatação, tratamento de erro, textos — e é
+exatamente aí que o M/OS guarda a maior parte das decisões de produto. Um botão
+que diz a coisa certa no desktop e a coisa errada no celular é divergência de
+produto, não de plataforma. Com Tauri, o que diverge é o componente; com FFI,
+diverge tudo acima do domínio.
+
+O que a decisão **não** promete: interface responsiva chamada de mobile. A
+arquitetura admite `TaskDesktopView` e `TaskMobileView` sobre o mesmo domínio, e
+é assim que deve ser usada.
+
+### Consequências
+
+- **Compilar para iOS exige macOS com Xcode.** Restrição da Apple, não do Tauri.
+  A máquina atual é Windows: da Fase 3 em diante o trabalho está bloqueado por
+  hardware, e nenhuma arquitetura contorna isso. Registrado para não virar
+  surpresa.
+- **Não há plugin oficial de push remoto (APNs) nem de Share Sheet.** Os dois
+  são requisitos, e vão precisar de plugin próprio ou de comunidade.
+- `mos-audio` não vai para o iOS. Gravação de reunião com áudio do sistema é
+  capacidade de desktop; a manifestação móvel dela é outra coisa, e não uma
+  porta.
+- Todo código novo em `mos-core` e `mos-sync` passa a ter uma regra dura: um
+  `#[cfg(windows)]` ali dentro significa que o desenho quebrou.
+
+### Revisar quando
+
+O primeiro build para iPhone rodar, ou se a ausência de push/share provar que o
+Tauri não sustenta o produto que se quer.
+
+## ADR-053 — A sincronização reconcilia por CAMPO, e conflito nunca some em silêncio
+
+**Estado:** Accepted · 2026-08-21
+
+### Contexto
+
+Multi-device exige reconciliar duas histórias. A escolha fácil é "última
+gravação vence" por entidade — e ela perde dado de um jeito que ninguém percebe:
+editar o título no PC e a data no celular faz uma das duas edições desaparecer
+sem aviso.
+
+Havia também a escolha do relógio. Ordenar por horário de parede parece óbvio e
+está errado: relógios de dispositivos diferentes não concordam, e um relógio
+atrasado apagaria o trabalho de quem estava certo.
+
+### Decisão
+
+Três regras.
+
+**1. O que viaja é a mudança de campo**, não a entidade. Campos diferentes
+convivem; o mesmo campo escrito duas vezes é conflito de verdade.
+
+**2. A ordem vem de um HLC** — parede + contador + dispositivo. Ordem total,
+determinística, sem servidor árbitro, imune a relógio que volta. Ao receber um
+evento do futuro, o relógio local sobe junto.
+
+**3. Quando o LWW por campo decide, o perdedor é guardado.** Vai para
+`sync_conflicts` com os dois lados e os dois dispositivos. É isso que separa
+*resolver o conflito* de *escolher um e apagar o outro*.
+
+Apagamento lógico ganha de edição concorrente. Assimetria deliberada: restaurar
+o que sumiu por engano custa um clique; descobrir semanas depois que algo voltou
+sozinho custa a confiança no sistema.
+
+Operação carrega id de idempotência que nasce na origem. Reaplicar não muda nada
+— um retry não duplica Task, Reminder, Capture nem Resource.
+
+### Consequências
+
+- `crates/mos-sync` existe e não depende de plataforma nem de `mos-core`. Ele
+  precisa compilar idêntico nos dois lados, e a única garantia real disso é não
+  haver como escrever código de plataforma lá dentro.
+- A migration 0027 **não altera nenhuma tabela existente**. Se o desenho mudar,
+  as quatro tabelas novas se apagam sem tocar no que existe.
+- `EntityKind` é texto e `Platform` tem variante aberta: um cliente antigo
+  precisa guardar e reenviar operações sobre tipos que ainda não conhece, senão
+  a atualização de um lado mata dado do outro.
+- Conflito guardado é dívida de interface: alguém vai ter que mostrar isso.
+  Enquanto ninguém mostrar, o dado está preservado — que é o requisito.
+
+### Revisar quando
+
+Aparecer um tipo de dado em que merge por campo não baste — texto longo editado
+nos dois lados ao mesmo tempo é o candidato óbvio, e a resposta ali provavelmente
+é CRDT de texto, não outra regra de conflito.
