@@ -8463,7 +8463,12 @@ input[type="checkbox"]:disabled {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: var(--spotlight-opacity, 0);
+  /* A forca do facho mora AQUI, e nao no componente: o `--spotlight-opacity` que
+     o React escreve continua sendo so o liga/desliga (0 ou 1), e quem decide o
+     quanto isso aparece e o design. Assim da para calibrar o brilho sem tocar
+     em TypeScript, e um tema pode baixar ainda mais so redefinindo a variavel.
+     0.45 porque a 1 o facho competia com o conteudo do card. */
+  opacity: calc(var(--spotlight-opacity, 0) * var(--spotlight-forca, 0.45));
   background: var(--spotlight-gradient);
   transition: opacity var(--dur-state) var(--ease-state);
   z-index: 1;

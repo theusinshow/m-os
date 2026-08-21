@@ -20,7 +20,9 @@ export const SpotlightCard = forwardRef<HTMLDivElement, SpotlightCardProps>(func
     children,
     className = "",
     spotlightColor,
-    size = 360,
+    // Raio menor que o do React Bits original: num card de widget do M/OS, 360px
+    // acendia a superficie inteira e o facho deixava de ler como cursor.
+    size = 240,
     disabled = false,
     onPointerMove,
     onPointerEnter,
@@ -82,7 +84,7 @@ export const SpotlightCard = forwardRef<HTMLDivElement, SpotlightCardProps>(func
 
   const defaultSpotlight =
     spotlightColor ||
-    "radial-gradient(var(--spotlight-size, 360px) circle at var(--spotlight-x, 0px) var(--spotlight-y, 0px), var(--signal-wash) 0%, transparent 70%)";
+    "radial-gradient(var(--spotlight-size, 240px) circle at var(--spotlight-x, 0px) var(--spotlight-y, 0px), var(--signal-wash) 0%, transparent 70%)";
 
   return (
     <div
