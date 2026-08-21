@@ -13,6 +13,22 @@ describe("presencaDe", () => {
     // antes de o Hermes ter tido chance de responder.
     expect(presencaDe(null)).toBe("conectando");
   });
+
+  it("na carencia de abertura, offline ainda e conectando", () => {
+    // O tunel nao sobe junto com a janela: o primeiro `offline` e "ainda nao
+    // subiu". Um balao que acende na abertura e se desdiz tres segundos depois
+    // e o "pisca e some" que o proprio balao existe para nao ser.
+    expect(presencaDe("offline", true)).toBe("conectando");
+  });
+
+  it("passada a carencia, offline e queda de verdade", () => {
+    expect(presencaDe("offline", false)).toBe("desconectado");
+  });
+
+  it("a carencia nunca segura um online", () => {
+    // Ela adia MA noticia, e nao boa: quem ja respondeu esta la.
+    expect(presencaDe("online", true)).toBe("conectado");
+  });
 });
 
 describe("corDaPresenca", () => {

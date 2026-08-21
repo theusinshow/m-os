@@ -5,7 +5,7 @@ import { BODY, type ArgosPose, type ArgosSignals, eyesFor, poseFor, rotuloPara, 
 import type { ArgosCanto } from "./argosCorner";
 import { criarCena, type ArgosScene } from "./argosScene";
 import { hermes, type HermesConnectionState } from "./hermes";
-import { type ArgosPresenca, corDaPresenca, presencaDe, rotuloDaPresenca } from "./argosPresenca";
+import { type ArgosPresenca, CARENCIA_DE_ABERTURA_MS, corDaPresenca, presencaDe, rotuloDaPresenca } from "./argosPresenca";
 import { deveEsperarAbertura, esperaDaTentativa } from "./abertura";
 
 /**
@@ -67,6 +67,16 @@ export function useArgosPose({ busy, boot }: { busy: boolean; boot: "loading" | 
  */
 export function useArgosPresenca(): ArgosPresenca {
   const [state, setState] = useState<HermesConnectionState | null>(null);
+  /* A carencia de abertura. O tunel nao sobe junto com a janela, e o primeiro
+     `offline` quase sempre e "ainda nao subiu" — nao "caiu". Ver
+     `CARENCIA_DE_ABERTURA_MS`. Conta do MONTE, e nao da resposta: passada ela,
+     uma queda real acende o balao na hora. */
+  const [emAbertura, setEmAbertura] = useState(true);
+
+  useEffect(() => {
+    const fim = window.setTimeout(() => setEmAbertura(false), CARENCIA_DE_ABERTURA_MS);
+    return () => window.clearTimeout(fim);
+  }, []);
 
   useEffect(() => {
     let vivo = true;
@@ -92,7 +102,7 @@ export function useArgosPresenca(): ArgosPresenca {
     return () => { vivo = false; void subscription.then((dispose) => dispose()); };
   }, []);
 
-  return presencaDe(state);
+  return presencaDe(state, emAbertura);
 }
 
 /**

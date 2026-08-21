@@ -24,18 +24,40 @@ import type { HermesConnectionState } from "./hermes";
 export type ArgosPresenca = "conectado" | "conectando" | "desconectado";
 
 /**
+ * Quanto tempo depois de abrir o app um `offline` ainda conta como "conectando".
+ *
+ * O túnel não sobe junto com a janela. Nos primeiros segundos o gateway responde
+ * `offline` porque ele AINDA não subiu, e não porque caiu — e um balão de queda
+ * que aparece na abertura e some sozinho três segundos depois é exatamente o
+ * "pisca e some" que o próprio balão foi desenhado para não ser.
+ *
+ * Quatro segundos porque é mais do que a subida costuma levar e menos do que
+ * alguém leva para reparar na ausência do aviso. Passado isso, `offline` é
+ * queda de verdade e o balão acende.
+ */
+export const CARENCIA_DE_ABERTURA_MS = 4000;
+
+/**
  * O que o estado da conexão significa para o bicho.
  *
  * `null` é "ainda não perguntamos", e ele vira `conectando` de propósito:
  * nascer `desconectado` acenderia o balão de queda em toda abertura do app,
  * antes de o Hermes ter tido a chance de responder.
+ *
+ * `emAbertura` estende essa mesma cortesia para a PRIMEIRA RESPOSTA: um
+ * `offline` dentro da carência ainda se lê como `conectando`. Sem isso o balão
+ * subia em toda abertura, dizia que o chat não responde, e se desdizia sozinho
+ * quando o túnel terminava de subir.
  */
-export function presencaDe(state: HermesConnectionState | null): ArgosPresenca {
+export function presencaDe(
+  state: HermesConnectionState | null,
+  emAbertura = false,
+): ArgosPresenca {
   switch (state) {
     case "online":
       return "conectado";
     case "offline":
-      return "desconectado";
+      return emAbertura ? "conectando" : "desconectado";
     default:
       return "conectando";
   }
