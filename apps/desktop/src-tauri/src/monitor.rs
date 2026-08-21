@@ -476,8 +476,64 @@ fn oferecer<R: Runtime>(app: &AppHandle<R>, processo: &str) {
 /// Sem lista de reunioes conhecidas: o que se observou foi o nome do
 /// executavel, e inventar "Google Meet" a partir de `chrome.exe` seria afirmar o
 /// que nao se observou — exatamente o que a ADR-047 recusa ao nao ler titulo.
+///
+/// App da Store nao tem executavel: o `ConsentStore` guarda o nome da familia
+/// do pacote, e ele chegava CRU na tela — "5319275A.WhatsAppDesktop_cv1g1gvanyjgm
+/// abriu o microfone". Aqui a familia perde as duas metades que sao encanamento
+/// de identificador, e nao nome: o `_<publisherId>` no fim e o prefixo do
+/// publicador antes do ultimo ponto. Sobra `WhatsAppDesktop`.
+///
+/// Isso NAO e a lista de nomes bonitos que a ADR-047 recusa: nada e inventado
+/// nem consultado — o que sobra ja estava escrito no identificador que o Windows
+/// entregou. Continua sem inserir espaco no meio de `WhatsAppDesktop`, porque
+/// dai em diante seria palpite sobre onde a palavra acaba.
 fn nome_amigavel(processo: &str) -> String {
-    processo.strip_suffix(".exe").unwrap_or(processo).to_string()
+    if let Some(sem_exe) = processo.strip_suffix(".exe") {
+        return sem_exe.to_string();
+    }
+    let sem_publisher_id = processo.rsplit_once('_').map_or(processo, |(nome, _)| nome);
+    let sem_prefixo = sem_publisher_id
+        .rsplit_once('.')
+        .map_or(sem_publisher_id, |(_, nome)| nome);
+    if sem_prefixo.is_empty() {
+        processo.to_string()
+    } else {
+        sem_prefixo.to_string()
+    }
+}
+
+#[cfg(test)]
+mod nome_amigavel_tests {
+    use super::nome_amigavel;
+
+    #[test]
+    fn executavel_perde_so_a_extensao() {
+        assert_eq!(nome_amigavel("acad.exe"), "acad");
+        assert_eq!(nome_amigavel("chrome.exe"), "chrome");
+    }
+
+    #[test]
+    fn familia_de_pacote_perde_o_encanamento() {
+        assert_eq!(
+            nome_amigavel("5319275A.WhatsAppDesktop_cv1g1gvanyjgm"),
+            "WhatsAppDesktop"
+        );
+        assert_eq!(nome_amigavel("Microsoft.Teams_8wekyb3d8bbwe"), "Teams");
+    }
+
+    #[test]
+    fn o_que_nao_tem_encanamento_fica_intacto() {
+        // Sem sublinhado e sem ponto nao ha o que descascar, e inventar corte
+        // aqui seria mutilar o unico nome observado.
+        assert_eq!(nome_amigavel("Zoom"), "Zoom");
+    }
+
+    #[test]
+    fn nunca_devolve_vazio() {
+        // `_x` e `.x` degenerados existiriam so por chave corrompida, mas um
+        // titulo vazio na janelinha seria pior que o identificador cru.
+        assert_eq!(nome_amigavel("Publisher._id"), "Publisher._id");
+    }
 }
 
 /// True quando o cooldown venceu — e ja marca o novo instante.

@@ -53,8 +53,8 @@
       {
         "label": "reuniao-detectada",
         "title": "M/OS",
-        "width": 380,
-        "height": 140,
+        "width": 420,
+        "height": 164,
         "transparent": true,
         "visible": false,
         "alwaysOnTop": true,

@@ -6,6 +6,22 @@ body,
   overflow: hidden;
 }
 
+/* As janelinhas que aparecem SOBRE o CAD.
+   O `tauri.conf.json` ja pedia `transparent: true` para elas, e o comentario do
+   `.reminder-shell` ja afirmava que cada pixel da margem era transparente — mas
+   `tokens.css` pinta `body { background: var(--canvas) }`, e o canvas cobria a
+   janela inteira. O resultado era uma TARJA PRETA em volta do cartao, no lugar
+   da sombra: exatamente o contorno que a margem existia para evitar.
+   Aqui a promessa passa a ser verdade. Vale so para estes dois rotulos porque
+   `main` e `quick-capture` sao janelas opacas de verdade, e apagar o fundo
+   delas deixaria o app sem chao. */
+:root[data-janela="lembrete"],
+:root[data-janela="lembrete"] body,
+:root[data-janela="reuniao-detectada"],
+:root[data-janela="reuniao-detectada"] body {
+  background: transparent;
+}
+
 button,
 input,
 textarea,
@@ -8003,10 +8019,21 @@ input[type="checkbox"]:disabled {
   color: var(--signal-ink);
 }
 
+/* Tres rotulos numa janelinha de 420px.
+   Antes eles quebravam POR DENTRO — "Gravar reuniao" virava duas linhas dentro
+   do proprio botao, e a fileira ficava alta e desalinhada. Um rotulo de botao
+   nao quebra: se nao couber, e o BOTAO que desce de linha. O `wrap` e o par
+   obrigatorio do `nowrap` — sem ele, um nome de app comprido empurraria o
+   ultimo botao para fora da janela em vez de para a linha de baixo. */
 .oferta-acoes {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
   align-items: center;
+}
+
+.oferta-acoes .button {
+  white-space: nowrap;
 }
 
 /* --- Estreito ------------------------------------------------------------- */
