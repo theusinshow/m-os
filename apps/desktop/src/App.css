@@ -3867,9 +3867,19 @@ select {
 /* Seis colunas. A grade rola horizontalmente antes de espremer a coluna: um
    card ilegivel nao e uma coluna. */
 .kanban {
+  --kanban-coluna-min: 164px;
   display: grid;
-  min-width: calc(var(--column-min) * 6);
-  grid-template-columns: repeat(6, minmax(var(--column-min), 1fr));
+  /* As seis colunas cabem na janela PADRAO, e nao so numa maximizada.
+     Com `--column-min` (260px) o board pedia 1560px de largura minima, e a
+     janela que o proprio M/OS abre da 1072px de area util: Review e Done
+     nasciam fora da tela, atras de uma barra de rolagem horizontal no rodape.
+     Quem tinha task so em Review via as quatro colunas visiveis dizendo
+     "Vazio" enquanto o cabecalho contava "2 TASKS ATIVAS" — o board mentia.
+     Agora as colunas dividem o que existe (`minmax(0, 1fr)`) e so param de
+     encolher em 164px, que ainda cabe um titulo de Task em duas linhas. Abaixo
+     disso a rolagem volta, porque ai a janela e que ficou pequena demais. */
+  min-width: calc(var(--kanban-coluna-min) * 6);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: var(--space-3);
   padding-top: var(--space-5);
 }
