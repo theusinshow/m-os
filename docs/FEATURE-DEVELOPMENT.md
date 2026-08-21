@@ -154,6 +154,7 @@ Linguagem visual igual. Interação de acordo com a plataforma.
 | Documento | Assunto |
 | --- | --- |
 | `PLATFORMS.md` | auditoria, matriz de features, capabilities |
+| `DAILY-SESSION.md` | um checklist preenchido de ponta a ponta, com os "não se aplica" escritos |
 | `SYNC.md` | relógio, operações, reconciliação, contrato |
 | `DECISIONS.md` | ADR-052 (estratégia mobile), ADR-053 (sync) |
 | `ARCHITECTURE.md` | a arquitetura do desktop |

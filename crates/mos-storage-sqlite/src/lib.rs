@@ -2,6 +2,7 @@ mod app_repository;
 mod attention_repository;
 mod backup;
 mod conversation_repository;
+mod daily_repository;
 mod device_repository;
 mod cronocad_import;
 mod ingestion_repository;
@@ -28,7 +29,7 @@ use serde::Serialize;
 
 pub use cronocad_import::ImportReport;
 
-const SCHEMA_VERSION: u32 = 27;
+const SCHEMA_VERSION: u32 = 28;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -67,6 +68,7 @@ const MIGRATION_024: &str = include_str!("../migrations/0024_meeting_detection.s
 const MIGRATION_025: &str = include_str!("../migrations/0025_voice.sql");
 const MIGRATION_026: &str = include_str!("../migrations/0026_project_paid.sql");
 const MIGRATION_027: &str = include_str!("../migrations/0027_sync_foundation.sql");
+const MIGRATION_028: &str = include_str!("../migrations/0028_daily_session.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -337,6 +339,11 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
     if current <= 26 {
         connection
             .execute_batch(MIGRATION_027)
+            .map_err(map_sql_error)?;
+    }
+    if current <= 27 {
+        connection
+            .execute_batch(MIGRATION_028)
             .map_err(map_sql_error)?;
     }
     if current < SCHEMA_VERSION {

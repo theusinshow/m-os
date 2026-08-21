@@ -1914,3 +1914,354 @@ impl VoiceService {
         self.notes.save_note(&next)
     }
 }
+
+/// A Daily Session, do lado da aplicacao.
+///
+/// **Toda regra de dia vive aqui ou no `daily.rs`, e nunca num componente
+/// React.** E o que faz a interface e o Hermes chegarem ao mesmo resultado: os
+/// dois chamam este servico, e nao ha um segundo caminho que pudesse divergir.
+///
+/// O servico NAO monta o contexto do dia (`DailyContext`). Aquilo le Tasks,
+/// Projects, Reminders, Captures e Meetings, e um servico que dependesse dos
+/// cinco repositorios so para desenhar uma tela seria um servico que nao da
+/// para instanciar sem o sistema inteiro. Quem le e o comando do desktop, que
+/// chama a funcao pura `daily::compose_context` — o mesmo desenho do
+/// `calendar::compose`.
+pub struct DailyService {
+    repository: Arc<dyn crate::DailyRepository>,
+    clock: Arc<dyn crate::Clock>,
+}
+
+impl DailyService {
+    pub fn new(
+        repository: Arc<dyn crate::DailyRepository>,
+        clock: Arc<dyn crate::Clock>,
+    ) -> Self {
+        Self { repository, clock }
+    }
+
+    /// O dia inteiro, do jeito que a Home le.
+    pub fn today(&self, day: &crate::Day) -> Result<crate::DailyToday, CoreError> {
+        let session = self.repository.session_on(day)?;
+        let (status, objectives, reflection) = match &session {
+            Some(session) => (
+                session.status,
+                self.repository.objectives(session.id)?,
+                self.repository.reflection(session.id)?,
+            ),
+            None => (crate::SessionStatus::NotStarted, Vec::new(), None),
+        };
+
+        // A sessao velha so e procurada quando a de hoje AINDA nao existe.
+        // Depois de o dia comecar ela ja foi fechada pelo `start_day`, e
+        // continuar perguntando seria uma consulta por render sem resposta
+        // possivel.
+        let stale = match &session {
+            Some(_) => None,
+            None => self.repository.stale_session(day)?,
+        };
+        let stale_objectives = match &stale {
+            Some(stale) => self.repository.objectives(stale.id)?,
+            None => Vec::new(),
+        };
+
+        Ok(crate::DailyToday {
+            day: day.clone(),
+            status,
+            session,
+            objectives,
+            reflection,
+            stale,
+            stale_objectives,
+        })
+    }
+
+    /// A ultima sessao antes desta data, com os objetivos dela. Alimenta o
+    /// carry-over do contexto.
+    pub fn previous(
+        &self,
+        day: &crate::Day,
+    ) -> Result<Option<(crate::DailySession, Vec<crate::DailyObjective>)>, CoreError> {
+        let Some(session) = self.repository.session_before(day)? else {
+            return Ok(None);
+        };
+        let objectives = self.repository.objectives(session.id)?;
+        Ok(Some((session, objectives)))
+    }
+
+    pub fn carry_depth(&self, id: crate::DailyObjectiveId) -> usize {
+        // Falha aqui vira zero, e nao erro: este numero e um adorno ao lado de
+        // um titulo ("adiado 3 vezes"). Deixar o Start My Day inteiro cair
+        // porque um contador nao pode ser lido seria trocar a feature por um
+        // detalhe dela.
+        self.repository.carry_depth(id).unwrap_or(0)
+    }
+
+    /// Comeca o dia.
+    ///
+    /// Os rascunhos ja chegam com titulo: quem resolve "o titulo da Task
+    /// vinculada" e quem conhece o banco, e nao este servico.
+    pub fn start(
+        &self,
+        day: crate::Day,
+        input: &crate::StartDayInput,
+    ) -> Result<crate::DailyToday, CoreError> {
+        let now = self.clock.now();
+        let session = crate::NewDailySession::create(day.clone(), &input.note, now)?;
+
+        let mut objectives = Vec::new();
+        if let Some(main) = &input.main {
+            objectives.push(main.build(session.id, crate::ObjectivePriority::Main, 0, now)?);
+        }
+        for draft in &input.secondaries {
+            let position = objectives.len() as i64;
+            objectives.push(draft.build(
+                session.id,
+                crate::ObjectivePriority::Secondary,
+                position,
+                now,
+            )?);
+        }
+
+        self.repository.start_day(session, objectives, now)?;
+        self.today(&day)
+    }
+
+    /// Acrescenta um objetivo ao dia que ja comecou.
+    pub fn add_objective(
+        &self,
+        day: &crate::Day,
+        draft: &crate::ObjectiveDraft,
+        priority: crate::ObjectivePriority,
+    ) -> Result<crate::DailyToday, CoreError> {
+        let session = self.open_session(day)?;
+        let now = self.clock.now();
+        let position = self
+            .repository
+            .objectives(session.id)?
+            .iter()
+            .map(|objective| objective.position)
+            .max()
+            .map_or(0, |last| last + 1);
+        let objective = draft.build(session.id, priority, position, now)?;
+        self.repository.add_objective(objective)?;
+        self.today(day)
+    }
+
+    /// Muda titulo e descricao. Nao mexe em status nem em vinculo: sao gestos
+    /// diferentes, com botoes diferentes, e junta-los aqui faria um salvar de
+    /// formulario apagar um vinculo em silencio.
+    pub fn update_objective(
+        &self,
+        id: crate::DailyObjectiveId,
+        title: &str,
+        description: &str,
+    ) -> Result<crate::DailyObjective, CoreError> {
+        let current = self.repository.objective(id)?;
+        let draft = crate::NewDailyObjective::create(
+            current.session_id,
+            title,
+            description,
+            current.link.clone(),
+            current.priority,
+            current.position,
+            current.created_at,
+        )?;
+        let next = crate::DailyObjective {
+            title: draft.title,
+            description: draft.description,
+            updated_at: self.clock.now(),
+            ..current
+        };
+        self.repository.save_objective(&next)
+    }
+
+    /// Concluir, carregar, largar ou devolver a pendente.
+    ///
+    /// `completed_at` e exclusivo de `completed`: entrar carimba, sair limpa.
+    /// E a mesma regra que `tasks.completed_at` e `reminders.completed_at` ja
+    /// seguem — e o que impede um objetivo devolvido a pendente de continuar
+    /// dizendo a que horas foi concluido.
+    pub fn set_objective_status(
+        &self,
+        id: crate::DailyObjectiveId,
+        status: crate::ObjectiveStatus,
+    ) -> Result<crate::DailyObjective, CoreError> {
+        let current = self.repository.objective(id)?;
+        let now = self.clock.now();
+        let next = crate::DailyObjective {
+            status,
+            completed_at: (status == crate::ObjectiveStatus::Completed).then_some(now),
+            updated_at: now,
+            ..current
+        };
+        self.repository.save_objective(&next)
+    }
+
+    pub fn set_main(
+        &self,
+        id: crate::DailyObjectiveId,
+    ) -> Result<Vec<crate::DailyObjective>, CoreError> {
+        self.repository.set_main_objective(id, self.clock.now())
+    }
+
+    /// Rebaixa um objetivo a secundario.
+    ///
+    /// Existe para o desfazer de uma promocao num dia que NAO tinha principal:
+    /// ali nao ha quem promover de volta, e a unica reversao honesta e tirar o
+    /// peso de quem ganhou. Sem isto, desfazer daria ao dia um principal que ele
+    /// nunca teve.
+    pub fn set_secondary(
+        &self,
+        id: crate::DailyObjectiveId,
+    ) -> Result<crate::DailyObjective, CoreError> {
+        let current = self.repository.objective(id)?;
+        let next = crate::DailyObjective {
+            priority: crate::ObjectivePriority::Secondary,
+            updated_at: self.clock.now(),
+            ..current
+        };
+        self.repository.save_objective(&next)
+    }
+
+    pub fn remove_objective(&self, id: crate::DailyObjectiveId) -> Result<(), CoreError> {
+        self.repository.remove_objective(id)
+    }
+
+    pub fn reorder(
+        &self,
+        session: crate::DailySessionId,
+        order: &[crate::DailyObjectiveId],
+    ) -> Result<Vec<crate::DailyObjective>, CoreError> {
+        self.repository
+            .reorder_objectives(session, order, self.clock.now())
+    }
+
+    /// Encerra o dia de hoje.
+    pub fn end(
+        &self,
+        day: &crate::Day,
+        input: &crate::EndDayInput,
+    ) -> Result<crate::DailyToday, CoreError> {
+        let session = self.open_session(day)?;
+        self.end_session(session.id, input)?;
+        self.today(day)
+    }
+
+    /// Encerra UMA sessao pelo id. E o caminho do "encerrar ontem", que nao
+    /// pode passar por `day` — a sessao velha e de outra data, por definicao.
+    pub fn end_session(
+        &self,
+        session: crate::DailySessionId,
+        input: &crate::EndDayInput,
+    ) -> Result<crate::DailySession, CoreError> {
+        let resolutions = input.parsed_resolutions()?;
+        let reflection = input
+            .reflection()?
+            .map(|reflection| reflection.for_session(session));
+        self.repository
+            .end_day(session, &resolutions, reflection, self.clock.now())
+    }
+
+    pub fn reopen(
+        &self,
+        session: crate::DailySessionId,
+    ) -> Result<crate::DailySession, CoreError> {
+        self.repository.reopen_day(session, self.clock.now())
+    }
+
+    /// O historico, com o placar de cada dia ja calculado.
+    ///
+    /// As sessoes numa consulta e os objetivos de todas elas noutra, em vez de
+    /// uma consulta por dia listado. E a diferenca entre a tela abrir e a tela
+    /// pensar.
+    pub fn history(&self, limit: usize) -> Result<Vec<crate::DailySessionSummary>, CoreError> {
+        let sessions = self.repository.sessions(limit)?;
+        let ids: Vec<_> = sessions.iter().map(|session| session.id).collect();
+        let objectives = self.repository.objectives_of(&ids)?;
+        sessions
+            .into_iter()
+            .map(|session| {
+                let mine: Vec<_> = objectives
+                    .iter()
+                    .filter(|objective| objective.session_id == session.id)
+                    .cloned()
+                    .collect();
+                let mood = self
+                    .repository
+                    .reflection(session.id)?
+                    .and_then(|reflection| reflection.mood);
+                Ok(crate::summarize(session, &mine, mood))
+            })
+            .collect()
+    }
+
+    /// Uma sessao passada, inteira. E o que a tela de historico abre.
+    pub fn detail(&self, session: crate::DailySessionId) -> Result<crate::DailyToday, CoreError> {
+        let session = self.repository.session(session)?;
+        Ok(crate::DailyToday {
+            day: session.day.clone(),
+            status: session.status,
+            objectives: self.repository.objectives(session.id)?,
+            reflection: self.repository.reflection(session.id)?,
+            stale: None,
+            stale_objectives: Vec::new(),
+            session: Some(session),
+        })
+    }
+
+    /// As sessoes cruas, sem placar e sem reflexao.
+    ///
+    /// Separada de [`Self::history`] de proposito: aquela le a reflexao de cada
+    /// dia para saber o humor, o que e uma consulta por sessao. A Linha do Tempo
+    /// so precisa das bordas, e trezentas e sessenta e cinco consultas de humor
+    /// para desenhar um mes de calendario seriam N+1 pago por nada.
+    pub fn sessions(&self, limit: usize) -> Result<Vec<crate::DailySession>, CoreError> {
+        self.repository.sessions(limit)
+    }
+
+    /// Os objetivos de varias sessoes, numa consulta. E o que a Linha do Tempo
+    /// usa para nao fazer uma ida ao banco por dia desenhado.
+    pub fn objectives_of(
+        &self,
+        sessions: &[crate::DailySessionId],
+    ) -> Result<Vec<crate::DailyObjective>, CoreError> {
+        self.repository.objectives_of(sessions)
+    }
+
+    pub fn search(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<(crate::DailyObjective, crate::Day)>, CoreError> {
+        if query.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        self.repository.search_objectives(crate::SearchRequest {
+            query: query.to_owned(),
+            include_archived: false,
+            limit,
+        })
+    }
+
+    /// A sessao de hoje, exigindo que ela exista e esteja aberta.
+    ///
+    /// Mensagem propria em vez de `NotFound` cru: "o dia ainda nao comecou" e
+    /// uma instrucao, e "sessao nao encontrada" e um erro de banco vazando para
+    /// a tela.
+    fn open_session(&self, day: &crate::Day) -> Result<crate::DailySession, CoreError> {
+        match self.repository.session_on(day)? {
+            Some(session) if session.status == crate::SessionStatus::Active => Ok(session),
+            Some(_) => Err(CoreError::new(
+                crate::ErrorCode::InvalidInput,
+                "O dia ja foi encerrado. Reabra antes de mudar os objetivos.",
+                false,
+            )),
+            None => Err(CoreError::new(
+                crate::ErrorCode::InvalidInput,
+                "O dia ainda nao comecou.",
+                false,
+            )),
+        }
+    }
+}

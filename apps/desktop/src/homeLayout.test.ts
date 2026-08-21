@@ -12,6 +12,18 @@ function guardado(widgetId: string, position: number, extra: Partial<WidgetPlace
 const idsDa = (arranjo: ReturnType<typeof arrangeHome>, section: string) =>
   arranjo.filter((slot) => slot.section === section).map((slot) => slot.id);
 
+/* As faixas SAIEM do catalogo, e nao de uma lista escrita a mao aqui.
+   Estes testes falam sobre o comportamento do ARRANJO — o que a ordem guardada
+   faz, para onde vai quem nao tem posicao, o que acontece ao mudar de faixa — e
+   nenhum deles fala sobre quais widgets existem. Enquanto as listas eram
+   literais, acrescentar um widget ao catalogo quebrava quinze testes que nao
+   tinham nada a ver com ele, e a saida era reescrever os quinze. */
+const daFaixa = (section: string) => HOME_WIDGETS.filter((widget) => widget.section === section).map((widget) => widget.id);
+const NOW = daFaixa("now");
+const UTILIDADES = daFaixa("utilities");
+/** A faixa com estes ids na frente, e o resto na ordem do catalogo. */
+const comeca = (faixa: string[], ...primeiros: string[]) => [...primeiros, ...faixa.filter((id) => !primeiros.includes(id))];
+
 describe("o catalogo", () => {
   it("nao repete id, porque id repetido some com um widget na resolucao", () => {
     const ids = HOME_WIDGETS.map((widget) => widget.id);
@@ -53,19 +65,19 @@ describe("arrangeHome", () => {
   it("sem nada guardado, entrega o desenho", () => {
     const arranjo = arrangeHome([], WORKSPACE);
     expect(arranjo.map((slot) => slot.id)).toEqual(HOME_WIDGETS.map((widget) => widget.id));
-    expect(idsDa(arranjo, "now")).toEqual(["now", "timer", "today_hours"]);
+    expect(idsDa(arranjo, "now")).toEqual(NOW);
   });
 
   /* "Todos" nao tem onde gravar, entao nao aplica arranjo de ninguem — a mesma
      regra que faz "Todos" nao ocultar widget nenhum. */
   it("ignora o arranjo de outro Workspace", () => {
     const arranjo = arrangeHome([guardado("today_hours", 0)], OUTRO);
-    expect(idsDa(arranjo, "now")).toEqual(["now", "timer", "today_hours"]);
+    expect(idsDa(arranjo, "now")).toEqual(NOW);
   });
 
   it("aplica a ordem guardada dentro da faixa", () => {
     const arranjo = arrangeHome([guardado("today_hours", 0), guardado("now", 1)], WORKSPACE);
-    expect(idsDa(arranjo, "now")).toEqual(["today_hours", "now", "timer"]);
+    expect(idsDa(arranjo, "now")).toEqual(comeca(NOW, "today_hours", "now"));
   });
 
   /* O caso que decide se a feature envelhece bem: alguem arrumou a Home, e
@@ -73,7 +85,7 @@ describe("arrangeHome", () => {
      meio do arranjo — isso seria o sistema desfazendo a escolha da pessoa. */
   it("poe quem nao tem posicao guardada no fim da faixa", () => {
     const arranjo = arrangeHome([guardado("today_hours", 0)], WORKSPACE);
-    expect(idsDa(arranjo, "now")).toEqual(["today_hours", "now", "timer"]);
+    expect(idsDa(arranjo, "now")).toEqual(comeca(NOW, "today_hours"));
   });
 
   it("deixa a largura no que o desenho escolheu ate alguem mudar", () => {
@@ -93,8 +105,8 @@ describe("arrangeHome", () => {
 
   it("move de faixa quando a faixa guardada e outra", () => {
     const arranjo = arrangeHome([guardado("timer", 0, { section: "utilities" })], WORKSPACE);
-    expect(idsDa(arranjo, "now")).toEqual(["now", "today_hours"]);
-    expect(idsDa(arranjo, "utilities")).toEqual(["timer", "quick_actions", "system_health"]);
+    expect(idsDa(arranjo, "now")).toEqual(NOW.filter((id) => id !== "timer"));
+    expect(idsDa(arranjo, "utilities")).toEqual(["timer", ...UTILIDADES]);
   });
 
   /* Banco escrito por uma versao com outras faixas nao pode custar um widget:
@@ -109,7 +121,7 @@ describe("arrangeHome", () => {
   it("nao perde ninguem com posicao repetida ou salteada", () => {
     const arranjo = arrangeHome([guardado("now", 5), guardado("timer", 5), guardado("today_hours", 900)], WORKSPACE);
     expect(arranjo).toHaveLength(HOME_WIDGETS.length);
-    expect(idsDa(arranjo, "now")).toEqual(["now", "timer", "today_hours"]);
+    expect(idsDa(arranjo, "now")).toEqual(comeca(NOW, "now", "timer", "today_hours"));
   });
 
   /* A visao "Todos" arruma a propria Home desde a migration 0018. O banco a
@@ -119,17 +131,17 @@ describe("arrangeHome", () => {
      Workspace nenhum. */
   it("aplica o arranjo de Todos, que o banco guarda como nulo", () => {
     const arranjo = arrangeHome([{ workspaceId: null, widgetId: "today_hours", position: 0, section: null, span: 12 }], "");
-    expect(idsDa(arranjo, "now")).toEqual(["today_hours", "now", "timer"]);
+    expect(idsDa(arranjo, "now")).toEqual(comeca(NOW, "today_hours"));
     expect(arranjo.find((slot) => slot.id === "today_hours")?.span).toBe(12);
   });
 
   it("nao deixa o arranjo de Todos vazar para um Workspace", () => {
     const deTodos = [{ workspaceId: null, widgetId: "today_hours", position: 0, section: null, span: null }];
-    expect(idsDa(arrangeHome(deTodos, WORKSPACE), "now")).toEqual(["now", "timer", "today_hours"]);
+    expect(idsDa(arrangeHome(deTodos, WORKSPACE), "now")).toEqual(NOW);
   });
 
   it("nem o de um Workspace para Todos", () => {
-    expect(idsDa(arrangeHome([guardado("today_hours", 0)], ""), "now")).toEqual(["now", "timer", "today_hours"]);
+    expect(idsDa(arrangeHome([guardado("today_hours", 0)], ""), "now")).toEqual(NOW);
   });
 
   /* Linha de widget que nao existe mais e inofensiva, do mesmo jeito que a
@@ -146,19 +158,19 @@ describe("moveInArrangement", () => {
 
   it("poe antes da mira", () => {
     const next = moveInArrangement(base(), "today_hours", "now", "now");
-    expect(idsDa(next, "now")).toEqual(["today_hours", "now", "timer"]);
+    expect(idsDa(next, "now")).toEqual(comeca(NOW, ...NOW.slice(0, NOW.indexOf("now")), "today_hours", "now"));
   });
 
   /* O caso onde o indice erra por um: o widget sai de ANTES da mira, entao a
      lista encolhe atras dela. Com indice cru, ele cairia uma casa adiante. */
   it("nao erra por um quando o widget vem de tras da mira", () => {
     const next = moveInArrangement(base(), "now", "now", "today_hours");
-    expect(idsDa(next, "now")).toEqual(["timer", "now", "today_hours"]);
+    expect(idsDa(next, "now")).toEqual(comeca(NOW, ...NOW.filter((id) => id !== "now" && id !== "today_hours"), "now", "today_hours"));
   });
 
   it("sem mira, vai para o fim da faixa e nao para o fim da Home", () => {
     const next = moveInArrangement(base(), "now", "now", null);
-    expect(idsDa(next, "now")).toEqual(["timer", "today_hours", "now"]);
+    expect(idsDa(next, "now")).toEqual([...NOW.filter((id) => id !== "now"), "now"]);
     // e a Home inteira continua com as faixas na ordem delas
     expect(next.map((slot) => slot.section)).toEqual([...next.map((slot) => slot.section)].sort((left, right) =>
       HOME_SECTIONS.findIndex((s) => s.id === left) - HOME_SECTIONS.findIndex((s) => s.id === right)));
@@ -166,13 +178,13 @@ describe("moveInArrangement", () => {
 
   it("move entre faixas, e o widget para de contar na de origem", () => {
     const next = moveInArrangement(base(), "timer", "utilities", null);
-    expect(idsDa(next, "now")).toEqual(["now", "today_hours"]);
-    expect(idsDa(next, "utilities")).toEqual(["quick_actions", "system_health", "timer"]);
+    expect(idsDa(next, "now")).toEqual(NOW.filter((id) => id !== "timer"));
+    expect(idsDa(next, "utilities")).toEqual([...UTILIDADES, "timer"]);
   });
 
   it("aceita mira na faixa de destino ao mudar de faixa", () => {
     const next = moveInArrangement(base(), "timer", "utilities", "system_health");
-    expect(idsDa(next, "utilities")).toEqual(["quick_actions", "timer", "system_health"]);
+    expect(idsDa(next, "utilities")).toEqual(comeca(UTILIDADES, "quick_actions", "timer"));
   });
 
   /* Faixa que ficou sem ninguem continua existindo no modo de arrumar, e
@@ -217,11 +229,8 @@ describe("placementsFor", () => {
   it("renumera cada faixa a partir de zero", () => {
     const escrita = placementsFor(arrangeHome([], WORKSPACE), ["now", "utilities"]);
     expect(escrita).toEqual([
-      { widgetId: "now", position: 0, section: "now", span: null },
-      { widgetId: "timer", position: 1, section: "now", span: null },
-      { widgetId: "today_hours", position: 2, section: "now", span: null },
-      { widgetId: "quick_actions", position: 0, section: "utilities", span: null },
-      { widgetId: "system_health", position: 1, section: "utilities", span: null },
+      ...NOW.map((widgetId, position) => ({ widgetId, position, section: "now", span: null })),
+      ...UTILIDADES.map((widgetId, position) => ({ widgetId, position, section: "utilities", span: null })),
     ]);
   });
 
@@ -231,7 +240,7 @@ describe("placementsFor", () => {
   it("repassa a largura guardada ao reordenar, em vez de apaga-la", () => {
     const arranjo = arrangeHome([guardado("timer", 0, { span: 12 })], WORKSPACE);
     const escrita = placementsFor(moveInArrangement(arranjo, "timer", "now", null), ["now"]);
-    expect(escrita.find((entry) => entry.widgetId === "timer")).toEqual({ widgetId: "timer", position: 2, section: "now", span: 12 });
+    expect(escrita.find((entry) => entry.widgetId === "timer")).toEqual({ widgetId: "timer", position: NOW.length - 1, section: "now", span: 12 });
   });
 
   /* E nao pode mandar o span RESOLVIDO de quem nunca escolheu largura: isso

@@ -202,9 +202,14 @@ export type SearchItem =
   | { kind: "project"; project: Project }
   | { kind: "workspace"; workspace: Workspace }
   | { kind: "app"; app: RegisteredApp }
-  | { kind: "resource"; resource: Resource };
+  | { kind: "resource"; resource: Resource }
+  /* O `day` viaja junto porque um objetivo sem data não se distingue de outro:
+     dois dias podem ter escrito a mesma frase, e a data é o que faz o resultado
+     significar alguma coisa. Ver `SearchItem::DailyObjective` no core. */
+  | { kind: "daily_objective"; objective: DailyObjective; day: Day };
 
-export type FunctionCategory = "capture" | "work" | "time" | "attention" | "memory" | "app" | "data" | "system";
+/** Espelha `FunctionCategory` em `crates/mos-core/src/functions.rs`. */
+export type FunctionCategory = "capture" | "daily" | "work" | "time" | "attention" | "meeting" | "memory" | "app" | "data" | "system";
 export type FunctionRisk = "low" | "medium" | "high";
 export type FunctionConfirmation = "none" | "explicit";
 
@@ -521,7 +526,7 @@ export type InvoiceData = {
   totalValue: string;
 };
 
-export type CalendarKind = "session" | "task_done" | "task_created" | "capture" | "app_opened";
+export type CalendarKind = "session" | "task_done" | "task_created" | "capture" | "app_opened" | "day_started" | "day_ended" | "objective_done" | "meeting";
 
 /**
  * Um item de calendário: algo que o M/OS registrou, com hora.
@@ -926,4 +931,172 @@ export type VoiceFailed = {
   message: string;
   /** Ha audio em disco esperando um retry. */
   retryable: boolean;
+};
+
+// ===========================================================================
+// Daily Session — a camada de intenção sobre o dia
+// ===========================================================================
+//
+// Espelha `crates/mos-core/src/daily.rs`. Os nomes de estado atravessam a
+// ponte: renomear um deles de um lado só faz a tela deixar de reconhecer o
+// dado, sem erro de compilação de nenhum dos dois.
+
+/** `AAAA-MM-DD`, na data civil de quem estava na frente da tela. */
+export type Day = string;
+
+/**
+ * `not_started` **nunca vem do banco** — ele é o nome que a interface dá à
+ * ausência de sessão. Ver o comentário de `SessionStatus` no domínio.
+ */
+export type SessionStatus = "not_started" | "active" | "completed";
+
+export type ObjectivePriority = "main" | "secondary";
+
+export type ObjectiveStatus = "pending" | "completed" | "carried_over" | "dropped";
+
+export type DayMood = "productive" | "normal" | "blocked";
+
+export type LinkKind = "task" | "project" | "capture" | "resource" | "meeting";
+
+/** O par (tipo, id) que liga um objetivo a algo que já existe. */
+export type ObjectiveLink = {
+  kind: LinkKind;
+  id: string;
+};
+
+export type DailySession = {
+  id: string;
+  day: Day;
+  status: Exclude<SessionStatus, "not_started">;
+  /** Vazio significa nenhuma. Hoje só o Hermes escreve. */
+  note: string;
+  startedAt: string;
+  endedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DailyObjective = {
+  id: string;
+  sessionId: string;
+  title: string;
+  description: string;
+  /** `null` é intenção livre. O TIPO do objetivo é isto — não há campo `type`. */
+  link: ObjectiveLink | null;
+  priority: ObjectivePriority;
+  status: ObjectiveStatus;
+  position: number;
+  /** O objetivo de que este veio, quando veio de um carry-over. */
+  carriedFrom: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+};
+
+export type DailyReflection = {
+  sessionId: string;
+  mood: DayMood | null;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** O dia inteiro numa chamada: a Home precisa dos três na primeira pintura. */
+export type DailyToday = {
+  day: Day;
+  status: SessionStatus;
+  session: DailySession | null;
+  objectives: DailyObjective[];
+  reflection: DailyReflection | null;
+  /** A sessão de um dia ANTERIOR que ficou aberta. */
+  stale: DailySession | null;
+  staleObjectives: DailyObjective[];
+};
+
+export type DailySessionSummary = {
+  session: DailySession;
+  done: number;
+  total: number;
+  /** Vazio quando o dia não teve principal. */
+  mainTitle: string;
+  mood: DayMood | null;
+};
+
+export type TaskSuggestion = {
+  id: string;
+  title: string;
+  state: TaskState;
+  /** Vazio quando a Task não tem Project. */
+  project: string;
+};
+
+export type ProjectSuggestion = {
+  id: string;
+  name: string;
+  openTasks: number;
+};
+
+export type CarryOver = {
+  objectiveId: string;
+  title: string;
+  link: ObjectiveLink | null;
+  /** Quantas vezes esta corrente já foi carregada. */
+  timesCarried: number;
+};
+
+/**
+ * O que o M/OS já sabe sobre hoje, antes de a pessoa escolher qualquer coisa.
+ *
+ * Três coisas que o pedido listou **não estão aqui, e não é esquecimento**:
+ * Task não tem prazo no M/OS (decisão D-1), não existe entidade Event (D-4) e
+ * não existe Waiting For. O que faz as vezes de prazo é o Reminder apontado
+ * para a Task — e é ele que `dueToday` e `overdue` contam.
+ */
+export type DailyContext = {
+  dueToday: number;
+  overdue: number;
+  highPriority: number;
+  meetingsToday: number;
+  inbox: number;
+  freshCaptures: number;
+  projects: number;
+  doing: number;
+  openTasks: number;
+  suggestedTasks: TaskSuggestion[];
+  suggestedProjects: ProjectSuggestion[];
+  carryOver: CarryOver[];
+  /** Vazia quando não há carry-over. */
+  carryOverDay: string;
+};
+
+/** Um objetivo como a interface o descreve, antes de ele existir. */
+export type ObjectiveDraft = {
+  title: string;
+  description?: string;
+  /** Vazio nos dois é intenção livre. Metade preenchida é recusada. */
+  linkKind?: LinkKind | "";
+  linkId?: string;
+  /** O objetivo de ontem de que este veio. */
+  carriedFrom?: string;
+};
+
+export type StartDayInput = {
+  main: ObjectiveDraft | null;
+  secondaries: ObjectiveDraft[];
+  note?: string;
+};
+
+export type ObjectiveResolution = {
+  objectiveId: string;
+  status: ObjectiveStatus;
+};
+
+export type EndDayInput = {
+  /**
+   * Objetivo pendente que NÃO aparecer aqui fica pendente — e reaparece no
+   * carry-over do próximo Start My Day. Não decidir é uma resposta válida.
+   */
+  resolutions: ObjectiveResolution[];
+  mood?: DayMood | "";
+  summary?: string;
 };

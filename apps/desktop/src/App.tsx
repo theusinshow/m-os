@@ -20,6 +20,9 @@ import { cantoPara } from "./argosCorner";
 import { Button } from "./Button";
 import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel, StateMessage } from "./Surface";
 import { CalendarPage } from "./CalendarPage";
+import { DailyFocusWidget, DailySessionView, useDaily } from "./DailySession";
+import { dataPorExtenso } from "./daily";
+import { EndMyDayFlow, StartMyDayFlow } from "./DailyFlows";
 import { MeetingSettings } from "./MeetingSettings";
 import { MeetingsPage } from "./MeetingsPage";
 import { RecordingBar } from "./RecordingBar";
@@ -44,7 +47,7 @@ import { AnimatePresence, LazyMotion, m } from "framer-motion";
 import { AnimatedList, AnimatedListItem } from "./motion/AnimatedList";
 import { SpotlightCard } from "./motion/SpotlightCard";
 import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
-import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, FunctionDefinition, HiddenWidget, Ingestion, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
+import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, DailyContext, DailyToday, FunctionDefinition, HiddenWidget, Ingestion, ObjectiveLink, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
 import { SCREEN_LABEL } from "./types";
 import "./App.css";
 
@@ -54,6 +57,25 @@ const loadMotionFeatures = () => import("./motionFeatures").then((module) => mod
    (ADR-038). Ela e alcancada pelo Command, pelo widget APPS da Home e pelos
    Workspaces — a pagina existe, o icone no rail e que saiu. */
 type UndoAction = { message: string; run: () => Promise<unknown> };
+
+/**
+ * O que a Home precisa saber sobre o dia.
+ *
+ * Um objeto so, e nao dez props soltas: a lista de props da `HomePage` ja tem
+ * trinta e duas, e acrescentar dez trocaria a legibilidade do que sobrou por
+ * nada — a Home nao usa nenhuma delas, ela so repassa para o widget.
+ */
+type DailyProps = {
+  dia: DailyToday | null;
+  contexto: DailyContext | null;
+  carregando: boolean;
+  erro: string;
+  iniciar: () => void;
+  abrirSessao: () => void;
+  encerrarAntigo: () => void;
+  concluirObjetivo: (id: string) => void;
+  abrirVinculo: (link: ObjectiveLink) => void;
+};
 
 /**
  * Os atalhos que existem de verdade.
@@ -93,8 +115,8 @@ const INBOX_PAGE = 200;
 
 const stateOrder: TaskState[] = ["inbox", "backlog", "planned", "doing", "review", "done"];
 const stateLabels: Record<TaskState, string> = { inbox: "Inbox", backlog: "Backlog", planned: "Planned", doing: "Doing", review: "Review", done: "Done" };
-const functionCategories: FunctionDefinition["category"][] = ["capture", "work", "time", "memory", "app", "data", "system"];
-const functionCategoryLabels: Record<FunctionDefinition["category"], string> = { capture: "CAPTURE", work: "WORK", time: "TEMPO", attention: "ATENÇÃO", memory: "MEMORY", app: "APP", data: "DATA", system: "SYSTEM" };
+const functionCategories: FunctionDefinition["category"][] = ["capture", "daily", "work", "time", "memory", "app", "data", "system"];
+const functionCategoryLabels: Record<FunctionDefinition["category"], string> = { capture: "CAPTURE", daily: "DIA", work: "WORK", time: "TEMPO", attention: "ATENÇÃO", memory: "MEMORY", meeting: "REUNIÕES", app: "APP", data: "DATA", system: "SYSTEM" };
 const functionRiskLabels: Record<FunctionDefinition["risk"], string> = { low: "baixo", medium: "medio", high: "alto" };
 const functionConfirmationLabels: Record<FunctionDefinition["confirmation"], string> = { none: "sem confirmacao", explicit: "confirmacao explicita" };
 const relativeFormatter = new Intl.RelativeTimeFormat("pt-BR", { numeric: "auto" });
@@ -474,7 +496,7 @@ function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
   return nextIndex;
 }
 
-function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, setHiddenWidgets, widgetPlacements, setWidgetPlacements, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, openFinancePage, openCalendarPage, openMeetingsPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; setHiddenWidgets: (next: HiddenWidget[]) => void; widgetPlacements: WidgetPlacement[]; setWidgetPlacements: (next: WidgetPlacement[]) => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; openFinancePage: () => void; openCalendarPage: () => void; openMeetingsPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent }) {
+function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, setHiddenWidgets, widgetPlacements, setWidgetPlacements, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, openFinancePage, openCalendarPage, openMeetingsPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent, daily }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; setHiddenWidgets: (next: HiddenWidget[]) => void; widgetPlacements: WidgetPlacement[]; setWidgetPlacements: (next: WidgetPlacement[]) => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; openFinancePage: () => void; openCalendarPage: () => void; openMeetingsPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent; daily: DailyProps }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
   const [workspaceApps, setWorkspaceApps] = useState<RegisteredApp[]>([]);
@@ -736,6 +758,10 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
       onResize={resizeWidget}
       onHide={setWidgetHidden}
       widgets={[
+        /* O dia abre a Home. Ele NAO e um card fixo acima do quadro: tudo que
+           mora na Home do M/OS e um widget arrumavel, e uma excecao seria a
+           unica coisa da tela que nao se pode mover nem esconder. */
+        { id: "daily_session", node: <Panel label="HOJE"><DailyFocusWidget dia={daily.dia} contexto={daily.contexto} carregando={daily.carregando} erro={daily.erro} iniciar={daily.iniciar} abrirSessao={daily.abrirSessao} encerrarAntigo={daily.encerrarAntigo} concluirObjetivo={daily.concluirObjetivo} abrirVinculo={daily.abrirVinculo} /></Panel> },
         { id: "now", node: <Panel label="EM ANDAMENTO" value={String(doing.length)} unit="em andamento" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel> },
         { id: "timer", node: <Panel label="CRONÔMETRO"><Timer projects={projects} onChanged={() => void refresh()} /></Panel> },
         { id: "today_hours", footLeft: "7 DIAS · CONTRA O PICO", footRight: `PICO ${hoursLabel(weekTime.peakSeconds)}`, node: <Panel label="HORAS HOJE"><TodayHours time={trackedTime} /></Panel> },
@@ -2389,8 +2415,8 @@ function CaptureViewer({ capture, close }: { capture: Capture; close: () => void
  * A divisao agora segue `UX-PRINCIPLES.md` §13: o Command encontra e executa, a
  * pagina Hermes conversa. Quem quer perguntar vai para a pagina — que e onde a
  * conversa fica guardada. */
-function CommandSurface({ close, closing = false, openCapture, openTask, openProject, openWorkspace, openApp, openResource, routeFunction }: {
-  closing?: boolean; close: () => void; openCapture: (capture: Capture) => void; openTask: (task: Task) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; routeFunction: (definition: FunctionDefinition) => void }) {
+function CommandSurface({ close, closing = false, openCapture, openTask, openProject, openWorkspace, openApp, openResource, openDailySession, routeFunction }: {
+  closing?: boolean; close: () => void; openCapture: (capture: Capture) => void; openTask: (task: Task) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openDailySession: (sessionId: string) => void; routeFunction: (definition: FunctionDefinition) => void }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CommandResult[]>([]);
   const [includeArchived, setIncludeArchived] = useState(false);
@@ -2453,6 +2479,10 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
     else if (item.kind === "task") openTask(item.task);
     else if (item.kind === "app") openApp(item.app);
     else if (item.kind === "resource") openResource(item.resource);
+    // Um objetivo abre O DIA dele, e nao ele sozinho: "o que eu estava fazendo
+    // terca?" tem como resposta o dia inteiro, e um objetivo fora do dia dele
+    // nao responde nada.
+    else if (item.kind === "daily_objective") openDailySession(item.objective.sessionId);
     else if (item.derivedTask) openTask(item.derivedTask);
     else openCapture(item.capture);
   }
@@ -2503,9 +2533,9 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
           {!query ? <div className="command-prompt"><span className="micro-label">ENCONTRAR E EXECUTAR</span><p>Busque Tasks, Projects, Captures, Resources, Apps e comandos.</p></div> : null}
           {query && !searching && !error && !results.length ? <div className="command-prompt"><span className="micro-label">SEM RESULTADOS</span><p>Nada corresponde a “{query}”.</p></div> : null}
           {results.map((item, index) => {
-            const type = item.kind === "function" ? "FUNCTION" : item.kind === "project" ? "PROJECT" : item.kind === "workspace" ? "WORKSPACE" : item.kind === "task" ? "TASK" : item.kind === "app" ? "APP" : item.kind === "resource" ? "RESOURCE" : item.derivedTask ? "TASK + CAPTURE" : "CAPTURE";
-            const title = item.kind === "function" ? item.function.name : item.kind === "project" ? item.project.name : item.kind === "workspace" ? item.workspace.name : item.kind === "task" ? item.task.title : item.kind === "app" ? item.app.name : item.kind === "resource" ? item.resource.title : item.derivedTask?.title ?? item.capture.content;
-            const context = item.kind === "function" ? `${item.function.id} · risco ${functionRiskLabels[item.function.risk]}` : item.kind === "project" ? item.project.description : item.kind === "workspace" ? item.workspace.description : item.kind === "task" ? item.project?.name : item.kind === "app" ? item.app.description || item.app.launchTarget || "" : item.kind === "resource" ? `${resourceHost(item.resource.url)}${item.resource.note ? ` · ${item.resource.note}` : ""}` : item.project?.name ?? item.capture.content;
+            const type = item.kind === "function" ? "FUNCTION" : item.kind === "project" ? "PROJECT" : item.kind === "workspace" ? "WORKSPACE" : item.kind === "task" ? "TASK" : item.kind === "app" ? "APP" : item.kind === "resource" ? "RESOURCE" : item.kind === "daily_objective" ? "OBJETIVO" : item.derivedTask ? "TASK + CAPTURE" : "CAPTURE";
+            const title = item.kind === "function" ? item.function.name : item.kind === "project" ? item.project.name : item.kind === "workspace" ? item.workspace.name : item.kind === "task" ? item.task.title : item.kind === "app" ? item.app.name : item.kind === "resource" ? item.resource.title : item.kind === "daily_objective" ? item.objective.title : item.derivedTask?.title ?? item.capture.content;
+            const context = item.kind === "function" ? `${item.function.id} · risco ${functionRiskLabels[item.function.risk]}` : item.kind === "project" ? item.project.description : item.kind === "workspace" ? item.workspace.description : item.kind === "task" ? item.project?.name : item.kind === "app" ? item.app.description || item.app.launchTarget || "" : item.kind === "resource" ? `${resourceHost(item.resource.url)}${item.resource.note ? ` · ${item.resource.note}` : ""}` : item.kind === "daily_objective" ? dataPorExtenso(item.day) : item.project?.name ?? item.capture.content;
             return <button id={`command-result-${index}`} role="option" aria-selected={index === activeIndex} data-active={index === activeIndex || undefined} key={`${item.kind}-${index}-${title}`} className="command-row" onFocus={() => setActiveIndex(index)} onMouseEnter={() => setActiveIndex(index)} onClick={() => openItem(item)}><span>{type}</span><strong>{title}</strong><small>{context}</small></button>;
           })}
         </div>
@@ -2984,6 +3014,16 @@ function DesktopApp() {
   // aprende a ignorar. Quem decide o que conta e o backend (§21.1).
   const [attentionCount, setAttentionCount] = useState(0);
   const [delivered, setDelivered] = useState<DeliveryEvent | null>(null);
+  /* O dia carrega FORA do `refresh()`, e a separacao e deliberada: aquele e o
+     caminho de boot do app inteiro, e uma falha ao ler a sessao do dia nao pode
+     ser motivo para a Home nao abrir. Mesma decisao do `useTrackedTime`, e e
+     tambem o que o §39 pede — a Home nao fica lenta por causa desta camada. */
+  const daily = useDaily();
+  /* Qual sobreposicao do dia esta aberta. Uma so por vez, e por isso um estado
+     e nao tres booleanos: dois fluxos abertos ao mesmo tempo escreveriam no
+     mesmo dia por dois caminhos. `encerrar` carrega a sessao alvo, que e o que
+     distingue "encerrar hoje" de "encerrar o dia que ficou aberto". */
+  const [fluxoDoDia, setFluxoDoDia] = useState<{ tipo: "iniciar" } | { tipo: "sessao"; carregada?: DailyToday } | { tipo: "encerrar"; dia: DailyToday; sessao: string | null } | null>(null);
 
   // O agendador vive no backend e avisa quando algo vence. A tela nunca
   // agenda nada: um `setTimeout` morreria no primeiro reload, e o lembrete
@@ -3086,13 +3126,20 @@ function DesktopApp() {
     // renderer porque nao e segredo, e sem isto voltava ao padrao a cada boot.
     void hermes.restoreBaseUrl();
     void initialize();
-    const refreshFromEvent = () => void refresh().catch((error) => {
-      setBootMessage(appError(error).message);
-      setBootState("error");
-    });
+    const refreshFromEvent = () => {
+      void refresh().catch((error) => {
+        setBootMessage(appError(error).message);
+        setBootState("error");
+      });
+      /* O dia acompanha, e a razao e concreta: mover uma Task para Done conclui
+         o objetivo vinculado a ela dentro da MESMA transacao (§11), e sem esta
+         releitura o widget continuaria mostrando o objetivo pendente ate a
+         proxima abertura. */
+      void daily.recarregar();
+    };
     const events = [listen("capture-changed", refreshFromEvent), listen("data-changed", refreshFromEvent), listen("ingestion-extracted", refreshFromEvent), listen("dataset-restored", refreshFromEvent), listen("snapshot-status-changed", refreshFromEvent)];
     return () => { events.forEach((event) => void event.then((dispose) => dispose())); };
-  }, [initialize, refresh]);
+  }, [initialize, refresh, daily.recarregar]);
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("m-os-theme", theme); }, [theme]);
   /* Supervisor da ponte do Hermes.
    *
@@ -3258,6 +3305,45 @@ function DesktopApp() {
     });
   }
   function openProject(project: Project) { setFunctionIntent(null); setSelectedProjectId(project.id); setPage("projects"); }
+  /* Abrir o que um objetivo aponta. E a ponte que o §41 pede: o dia nao guarda
+     copia de nada, entao clicar num objetivo tem de levar a entidade de
+     verdade. Vinculo que aponta para algo apagado nao faz nada — e melhor que
+     abrir uma tela vazia dizendo que o item nao existe. */
+  function abrirVinculoDoDia(link: ObjectiveLink) {
+    if (link.kind === "task") { const task = tasks.find((candidate) => candidate.id === link.id); if (task) setDrawerTask(task); return; }
+    if (link.kind === "project") { const project = projects.find((candidate) => candidate.id === link.id); if (project) openProject(project); return; }
+    if (link.kind === "capture") { const capture = [...recent, ...inbox, ...archived].find((candidate) => candidate.id === link.id); if (capture) setViewedCapture(capture); return; }
+    if (link.kind === "resource") { const resource = resources.find((candidate) => candidate.id === link.id); if (resource) openResource(resource); return; }
+    if (link.kind === "meeting") { setFocusedMeetingId(link.id); setPage("reunioes"); }
+  }
+  /* Concluir pelo widget da Home. A escrita e do backend, e a tela so releh o
+     que ele devolveu — o progresso nunca e recalculado aqui. */
+  function concluirObjetivoDoDia(id: string) {
+    void api.dailySetObjectiveStatus(id, "completed").then(daily.setDia).catch(() => void daily.recarregar());
+  }
+  const dailyProps: DailyProps = {
+    dia: daily.dia,
+    contexto: daily.contexto,
+    carregando: daily.carregando,
+    erro: daily.erro,
+    iniciar: () => setFluxoDoDia({ tipo: "iniciar" }),
+    abrirSessao: () => setFluxoDoDia({ tipo: "sessao" }),
+    /* Encerrar o dia que ficou aberto resolve os objetivos DAQUELE dia, e o dia
+       alvo e montado aqui — onde os dados estao — em vez de o fluxo tentar
+       deduzi-lo. Deduzir dava certo hoje por acidente: dependia de `stale`
+       continuar preenchido, e ele so existe enquanto hoje nao comecou. */
+    encerrarAntigo: () => {
+      const velha = daily.dia?.stale;
+      if (!daily.dia || !velha) return;
+      setFluxoDoDia({
+        tipo: "encerrar",
+        dia: { ...daily.dia, day: velha.day, session: velha, objectives: daily.dia.staleObjectives, reflection: null },
+        sessao: velha.id,
+      });
+    },
+    concluirObjetivo: concluirObjetivoDoDia,
+    abrirVinculo: abrirVinculoDoDia,
+  };
   function openWorkspace(workspace: Workspace) { setFunctionIntent(null); setSelectedWorkspaceId(workspace.id); setPage("workspaces"); }
   function openRegisteredApp(app: RegisteredApp) { setFunctionIntent(null); setSelectedAppId(app.id); setPage("apps"); }
   function openResource(resource: Resource) { setFunctionIntent(null); setSelectedResourceId(resource.id); setResourceOpenKey((key) => key + 1); setPage("library"); }
@@ -3274,6 +3360,17 @@ function DesktopApp() {
       setComposerOpen(true);
       return;
     }
+    /* Os do dia sao sobreposicao pelo mesmo motivo do compositor de lembrete:
+       comecar, ver e encerrar o dia sao gestos curtos, e tirar a pessoa da tela
+       em que ela estava para fazer isso e a interrupcao que o §85 do
+       UX-PRINCIPLES manda reduzir.
+
+       `daily_add_objective` abre a SESSAO, e nao um formulario avulso: o botao
+       de acrescentar vive la, ao lado do que ja existe — e escolher o proximo
+       objetivo sem ver os outros e escolher no escuro. */
+    if (target === "daily_start") { setFluxoDoDia({ tipo: "iniciar" }); return; }
+    if (target === "daily_view" || target === "daily_add_objective") { setFluxoDoDia({ tipo: "sessao" }); return; }
+    if (target === "daily_end") { if (daily.dia) setFluxoDoDia({ tipo: "encerrar", dia: daily.dia, sessao: null }); return; }
     functionIntentKey.current += 1;
     setFunctionIntent({ target, key: functionIntentKey.current });
     if (target === "home_capture" || target === "home_arrange") setPage("home");
@@ -3346,7 +3443,7 @@ function DesktopApp() {
   }, [page]);
   const pageContent = useMemo(() => {
     if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} openTask={(id) => { const task = tasks.find((candidate) => candidate.id === id); if (task) setDrawerTask(task); }} />;
-    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} setHiddenWidgets={setHiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} openFinancePage={() => setPage("finance")} openCalendarPage={() => setPage("calendario")} openMeetingsPage={() => setPage("reunioes")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} />;
+    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} setHiddenWidgets={setHiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} openFinancePage={() => setPage("finance")} openCalendarPage={() => setPage("calendario")} openMeetingsPage={() => setPage("reunioes")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} daily={dailyProps} />;
     if (page === "tempo") return <TempoPage projects={projects} openProject={openProject} receipt={showReceipt} />;
     if (page === "finance") return <FinancePage />;
     if (page === "calendario") return <CalendarPage />;
@@ -3367,7 +3464,7 @@ function DesktopApp() {
   // se salvavam por acidente, porque suas acoes chamam refresh() e o refresh
   // troca a identidade de workspaces/apps/resources, forcando o recalculo.
   // Contexto nao chama refresh, entao travava sozinho e para sempre.
-  }, [page, recent, projects, workspaces, apps, resources, trashedResources, tasks, refresh, inbox, selectedProjectId, selectedWorkspaceId, selectedAppId, selectedResourceId, resourceOpenKey, theme, status, archived, trashed, functionIntent, currentWorkspaceId, currentWorkspace, hiddenWidgets, resourceWorkspaces, ingestions, focusedMeetingId]);
+  }, [page, recent, projects, workspaces, apps, resources, trashedResources, tasks, refresh, inbox, selectedProjectId, selectedWorkspaceId, selectedAppId, selectedResourceId, resourceOpenKey, theme, status, archived, trashed, functionIntent, currentWorkspaceId, currentWorkspace, hiddenWidgets, resourceWorkspaces, ingestions, focusedMeetingId, dailyProps]);
   const content = bootState === "ready"
     ? pageContent
     : bootState === "error"
@@ -3391,7 +3488,26 @@ function DesktopApp() {
 <div className="system-state" aria-live="polite" data-busy={busy || undefined}>{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main>{/* O leque vive na coluna principal, e nao sobre o rail: ele e o gesto que
     o rail perdeu quando voltou a oito, e competir com a navegacao ao lado
     seria desfazer a troca. Ver ADR-045. */}
-<Leque pins={radialPins} workspaceId={currentWorkspaceId || null} apps={apps} onNavegar={navigate} onAbrirApp={openRegisteredApp} onAcao={(target) => { if (target === "attention_create") setComposerOpen(true); else void api.showQuickCapture(); }} onFixar={(slot) => setSlotEmEscolha(slot)} /></div>{composerOpen ? <ReminderComposer close={() => setComposerOpen(false)} created={() => { void api.attentionCount().then(setAttentionCount).catch(() => undefined); setAttentionOpen(true); }} /> : null}{attentionOpen ? <AttentionCenter compose={() => { setAttentionOpen(false); setComposerOpen(true); }} close={() => { setAttentionOpen(false); void api.attentionCount().then(setAttentionCount).catch(() => undefined); }} /> : null}{delivered ? <AttentionToast event={delivered} close={() => setDelivered(null)} open={() => { setDelivered(null); setAttentionOpen(true); }} /> : null}{/* A Drop Zone vive no shell, ao lado das outras sobreposicoes: soltar algo
+<Leque pins={radialPins} workspaceId={currentWorkspaceId || null} apps={apps} onNavegar={navigate} onAbrirApp={openRegisteredApp} onAcao={(target) => { if (target === "attention_create") setComposerOpen(true); else void api.showQuickCapture(); }} onFixar={(slot) => setSlotEmEscolha(slot)} /></div>{/* Os tres estados do ciclo do dia, um por vez. A `AnimatePresence` de saida
+    fica dentro de cada fluxo — eles ja se desmontam com a propria animacao. */}
+{fluxoDoDia?.tipo === "iniciar" ? <StartMyDayFlow close={() => setFluxoDoDia(null)} concluido={(proximo) => { daily.setDia(proximo); void daily.recarregar(); }} /> : null}{fluxoDoDia?.tipo === "sessao" && (fluxoDoDia.carregada ?? daily.dia) ? <DailySessionView
+      /* A sessao CARREGADA vem da busca ou do historico e pode ser de outro
+         dia; sem ela, o que abre e o dia de hoje. As duas passam pelo mesmo
+         componente porque sao a mesma tela — o que muda e a data. */
+      dia={(fluxoDoDia.carregada ?? daily.dia)!}
+      close={() => setFluxoDoDia(null)}
+      atualizado={(proximo) => { if (fluxoDoDia.carregada) setFluxoDoDia({ tipo: "sessao", carregada: proximo }); else daily.setDia(proximo); void daily.recarregar(); }}
+      /* O dia que a gaveta mostra e o dia que vai ser encerrado. `sessao` so
+         viaja quando ele NAO e o de hoje: o backend resolve hoje pela data, e
+         mandar o id junto seria dizer a mesma coisa duas vezes. */
+      encerrar={() => { const alvo = fluxoDoDia.carregada ?? daily.dia; if (alvo) setFluxoDoDia({ tipo: "encerrar", dia: alvo, sessao: fluxoDoDia.carregada ? (alvo.session?.id ?? null) : null }); }}
+      abrirVinculo={abrirVinculoDoDia}
+    /> : null}{fluxoDoDia?.tipo === "encerrar" ? <EndMyDayFlow
+      dia={fluxoDoDia.dia}
+      sessaoAntiga={fluxoDoDia.sessao}
+      close={() => setFluxoDoDia(null)}
+      concluido={(proximo) => { daily.setDia(proximo); void daily.recarregar(); }}
+    /> : null}{composerOpen ? <ReminderComposer close={() => setComposerOpen(false)} created={() => { void api.attentionCount().then(setAttentionCount).catch(() => undefined); setAttentionOpen(true); }} /> : null}{attentionOpen ? <AttentionCenter compose={() => { setAttentionOpen(false); setComposerOpen(true); }} close={() => { setAttentionOpen(false); void api.attentionCount().then(setAttentionCount).catch(() => undefined); }} /> : null}{delivered ? <AttentionToast event={delivered} close={() => setDelivered(null)} open={() => { setDelivered(null); setAttentionOpen(true); }} /> : null}{/* A Drop Zone vive no shell, ao lado das outras sobreposicoes: soltar algo
     em QUALQUER lugar do M/OS tem que funcionar — inclusive sobre o rail —, e e
     o shell quem sabe onde a pessoa estava quando soltou. */}
 {<DropZone
@@ -3406,7 +3522,7 @@ function DesktopApp() {
       onRecibo={(message, run) => showReceipt({ message, run })}
       refresh={refresh}
       onOcupacao={setDropOcupado}
-    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}<Argos pose={argosPose} presenca={argosPresenca} canto={argosCanto} onAbrir={() => setAttentionOpen(true)} onAbrirHermes={() => navigate("hermes")} /><LazyMotion features={loadMotionFeatures} strict><AnimatePresence>{undo ? <m.div className="receipt" role="status" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></m.div> : null}</AnimatePresence></LazyMotion></div>;
+    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} openDailySession={(sessionId) => { void api.dailySession(sessionId).then((carregada) => setFluxoDoDia({ tipo: "sessao", carregada })).catch(() => undefined); }} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}<Argos pose={argosPose} presenca={argosPresenca} canto={argosCanto} onAbrir={() => setAttentionOpen(true)} onAbrirHermes={() => navigate("hermes")} /><LazyMotion features={loadMotionFeatures} strict><AnimatePresence>{undo ? <m.div className="receipt" role="status" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></m.div> : null}</AnimatePresence></LazyMotion></div>;
 }
 
 /**

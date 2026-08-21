@@ -6,6 +6,7 @@ mod calendar;
 mod capture;
 mod clock;
 mod conversation;
+mod daily;
 mod error;
 mod functions;
 mod ingestion;
@@ -49,6 +50,14 @@ pub use conversation::{
     ConversationSummary, Message, MessageId, MessagePart, MessagePartId, MessageRole,
     MessageStatus, NewConversation, NewMessage, PartBody, ProposalStatus, ToolRunState,
 };
+pub use daily::{
+    compose_context, completes_with_task, summarize, CarryOver, ContextInput, DailyContext,
+    DailyObjective, DailyObjectiveId, DailyReflection, DailySession, DailySessionId,
+    DailySessionSummary, DailyToday, Day, DayMood, EndDayInput, LinkKind, NewDailyObjective,
+    NewDailyReflection, NewDailySession, ObjectiveDraft, ObjectiveLink, ObjectivePriority,
+    ObjectiveResolution, ObjectiveStatus, ProjectSuggestion, SessionStatus, StartDayInput,
+    TaskSuggestion, SUGGESTED_SECONDARIES,
+};
 pub use error::{CoreError, ErrorCode};
 pub use functions::{
     function_registry, search_functions, FunctionCategory, FunctionConfirmation,
@@ -81,7 +90,8 @@ pub use monitoring::{
 };
 pub use ports::{
     AppRepository, AttentionRepository, BackupInspection, BackupReceipt, CaptureRepository,
-    ConversationRepository, DataMaintenance, IngestionRepository, MeetingRepository,
+    ConversationRepository, DailyRepository, DataMaintenance, IngestionRepository,
+    MeetingRepository,
     MonitoringRepository, ResourceRepository, SearchRequest, TimeTrackingRepository,
     VoiceRepository,
     WorkRepository,
@@ -92,6 +102,7 @@ pub use resource::{
 };
 pub use service::{
     AppService, AttentionService, AudioOutcome, CaptureService, ConversationService, CreateAppInput,
+    DailyService,
     CreateCaptureInput, CreateProjectInput, CreateResourceInput, CreateTaskInput,
     CreateWorkspaceInput, DataService, MeetingService, MemoryService, MonitoringService,
     TrackingService, UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput,

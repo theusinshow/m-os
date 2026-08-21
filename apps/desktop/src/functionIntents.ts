@@ -16,6 +16,10 @@ export type FunctionIntentTarget =
   | "home_arrange"
   | "apps_register"
   | "attention_create"
+  | "daily_start"
+  | "daily_view"
+  | "daily_add_objective"
+  | "daily_end"
   | "updates_check"
   | "function_registry";
 
@@ -35,6 +39,21 @@ const lowRiskTargets: Readonly<Record<string, FunctionIntentTarget>> = {
   "home.set_widget": "home_arrange",
   "app.register": "apps_register",
   "attention.create_reminder": "attention_create",
+  /* As cinco do dia. Elas ROTEIAM para sobreposições, e nao para uma pagina:
+     comecar e encerrar o dia sao gestos de trinta segundos, e tirar a pessoa de
+     onde ela estava para fazer isso e exatamente a interrupcao que o §85 do
+     UX-PRINCIPLES manda medir e reduzir — o mesmo motivo pelo qual o compositor
+     de lembrete e sobreposicao. */
+  "daily.start_day": "daily_start",
+  "daily.view_today": "daily_view",
+  "daily.add_objective": "daily_add_objective",
+  /* Concluir, promover e resolver acontecem DENTRO da sessao: sao gestos sobre
+     um objetivo que a pessoa precisa ver para escolher, e um comando que
+     perguntasse "qual objetivo?" numa caixa de texto seria pior que abrir a
+     lista onde ele esta. */
+  "daily.set_objective_status": "daily_view",
+  "daily.set_main": "daily_view",
+  "daily.end_day": "daily_end",
   "system.update_check": "updates_check",
 };
 

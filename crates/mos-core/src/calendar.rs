@@ -27,6 +27,16 @@ pub enum CalendarKind {
     /// e a informacao. Fechar dobraria as marcas do dia sem responder nada que
     /// a abertura ja nao tenha respondido.
     AppOpened,
+    /// O dia comecou. Junto com [`Self::DayEnded`] e [`Self::ObjectiveDone`],
+    /// e a Daily Session entrando na Linha do Tempo — que e o §27 do pedido
+    /// sem infraestrutura nova: o calendario retrospectivo JA e a linha do
+    /// tempo do M/OS, e o dia e um fato tao registravel quanto uma sessao de
+    /// trabalho.
+    DayStarted,
+    DayEnded,
+    /// Um objetivo do dia foi concluido. E a marca que faz a linha do tempo
+    /// contar a historia do dia, e nao so as bordas dele.
+    ObjectiveDone,
     /// Uma reuniao que aconteceu. Este calendario e retrospectivo por
     /// construcao, e uma reuniao gravada e exatamente o material dele.
     ///
@@ -44,6 +54,9 @@ impl CalendarKind {
             Self::TaskCreated => "task_created",
             Self::Capture => "capture",
             Self::AppOpened => "app_opened",
+            Self::DayStarted => "day_started",
+            Self::DayEnded => "day_ended",
+            Self::ObjectiveDone => "objective_done",
             Self::Meeting => "meeting",
         }
     }
@@ -78,6 +91,12 @@ pub struct ComposeInput<'a> {
     pub tasks: &'a [crate::Task],
     pub captures: &'a [crate::Capture],
     pub events: &'a [crate::ActivityEvent],
+    /// As sessoes do dia da janela, e os objetivos de todas elas juntos. Duas
+    /// listas e nao um par por sessao porque quem le do banco ja pega os
+    /// objetivos numa consulta so (`objectives_of`) — remonta-los em pares aqui
+    /// so criaria trabalho para desfazer.
+    pub sessions: &'a [crate::DailySession],
+    pub objectives: &'a [crate::DailyObjective],
     /// Como achar o nome de um Project. Fechamento e nao mapa pronto porque
     /// quem chama ja tem a lista e nao deveria precisar montar um indice.
     pub project_name: &'a dyn Fn(ProjectId) -> String,
@@ -156,6 +175,61 @@ pub fn compose(input: ComposeInput<'_>) -> Vec<CalendarItem> {
             ends_at: None,
             title: capture.content.clone(),
             project_id: None,
+            seconds: 0,
+            amount_cents: 0,
+        });
+    }
+
+    // O dia entra pelas BORDAS e pelos objetivos concluidos, e nao por cada
+    // mudanca de estado: a linha do tempo conta o que aconteceu, e "mudei o
+    // objetivo de pendente para pendente" nao aconteceu.
+    for session in input.sessions {
+        if within(session.started_at) {
+            items.push(CalendarItem {
+                kind: CalendarKind::DayStarted,
+                at: session.started_at,
+                ends_at: session.ended_at,
+                title: "Dia iniciado".to_owned(),
+                project_id: None,
+                seconds: 0,
+                amount_cents: 0,
+            });
+        }
+        if let Some(ended) = session.ended_at {
+            if within(ended) {
+                items.push(CalendarItem {
+                    kind: CalendarKind::DayEnded,
+                    at: ended,
+                    ends_at: None,
+                    title: "Dia encerrado".to_owned(),
+                    project_id: None,
+                    seconds: 0,
+                    amount_cents: 0,
+                });
+            }
+        }
+    }
+
+    for objective in input.objectives {
+        let Some(done) = objective.completed_at else {
+            continue;
+        };
+        if !within(done) {
+            continue;
+        }
+        items.push(CalendarItem {
+            kind: CalendarKind::ObjectiveDone,
+            at: done,
+            ends_at: None,
+            title: objective.title.clone(),
+            // O Project do objetivo vem do VINCULO, e so quando ele aponta para
+            // um Project direto: seguir a Task ate o Project dela exigiria a
+            // lista de Tasks aqui dentro, e esta funcao ja recebe seis colecoes.
+            project_id: objective
+                .link
+                .as_ref()
+                .filter(|link| link.kind == crate::LinkKind::Project)
+                .and_then(|link| ProjectId::parse(&link.id).ok()),
             seconds: 0,
             amount_cents: 0,
         });
@@ -259,6 +333,8 @@ mod tests {
             tasks,
             captures,
             events,
+            sessions: &[],
+            objectives: &[],
             project_name: name,
         }
     }
@@ -274,6 +350,9 @@ mod tests {
             CalendarKind::TaskCreated,
             CalendarKind::Capture,
             CalendarKind::AppOpened,
+            CalendarKind::DayStarted,
+            CalendarKind::DayEnded,
+            CalendarKind::ObjectiveDone,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             assert_eq!(json, format!("\"{}\"", kind.as_str()));

@@ -20,6 +20,11 @@ pub enum FunctionCategory {
     /// outra a `Attention`: e um substantivo central do produto, e nao uma
     /// faceta de outro. `ATTENTION-SYSTEM.md` §0.2 ja dependia dela existir.
     Meeting,
+    /// A Daily Session. Categoria propria pelo mesmo criterio que deu uma a
+    /// `Time`, outra a `Attention` e outra a `Meeting`: e um substantivo
+    /// central do produto, e nao uma faceta de outro. Ela nao e `Work` porque
+    /// o dia nao e trabalho — e a decisao sobre qual trabalho importa hoje.
+    Daily,
     Data,
     System,
 }
@@ -52,6 +57,62 @@ pub struct FunctionDefinition {
 
 pub fn function_registry() -> Vec<FunctionDefinition> {
     vec![
+        // -------------------------------------------------------- Daily Session
+        //
+        // Nenhuma delas e de risco alto, e todas sao reversiveis: comecar o dia
+        // se desfaz encerrando, encerrar se desfaz reabrindo, e concluir um
+        // objetivo se desfaz devolvendo ele a pendente. O que separa `end_day`
+        // das outras nao e o risco e sim o PESO — ele resolve varios objetivos
+        // de uma vez —, e por isso ele pede confirmacao explicita mantendo o
+        // risco baixo. Risco e confirmacao sao campos diferentes de proposito.
+        function(
+            "daily.start_day",
+            "Iniciar meu dia",
+            "Monta a sessao do dia com um objetivo principal e ate tres secundarios.",
+            FunctionCategory::Daily,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "daily.view_today",
+            "Ver a sessao do dia",
+            "Abre os objetivos de hoje, o progresso e o que esta vinculado a eles.",
+            FunctionCategory::Daily,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "daily.add_objective",
+            "Adicionar objetivo do dia",
+            "Acrescenta um objetivo ao dia que ja comecou.",
+            FunctionCategory::Daily,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "daily.set_objective_status",
+            "Resolver objetivo do dia",
+            "Conclui, leva para amanha, abandona ou devolve um objetivo a pendente.",
+            FunctionCategory::Daily,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "daily.set_main",
+            "Definir o objetivo principal",
+            "Promove um objetivo a principal, rebaixando o anterior.",
+            FunctionCategory::Daily,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "daily.end_day",
+            "Encerrar meu dia",
+            "Fecha a sessao do dia, resolve os pendentes e guarda a reflexao.",
+            FunctionCategory::Daily,
+            FunctionRisk::Low,
+            FunctionConfirmation::Explicit,
+        ),
         function(
             "attention.create_reminder",
             "Criar lembrete",

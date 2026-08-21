@@ -613,6 +613,201 @@ async fn run_action<R: Runtime>(
                 project_name(&state, entry.project_id),
             ))
         }
+        // ------------------------------------------------------ Daily Session
+        //
+        // As cinco passam pelos MESMOS servicos que a interface usa
+        // (`crate::daily`), e nao por SQL proprio. E a invariante da ADR-024: a
+        // acao do Hermes obedece as mesmas regras que a acao do usuario, e nao
+        // ha um segundo caminho que pudesse divergir.
+        mos_core::ActionArgs::DayStart {
+            main,
+            main_ref,
+            secondaries,
+            note,
+        } => {
+            // O vinculo do principal e resolvido AQUI, e nao no dominio: so
+            // este lado conhece o banco. Sem ele, um dia montado pelo Hermes
+            // teria objetivos de texto solto e a conclusao automatica nunca
+            // dispararia.
+            let (link_kind, link_id) = match main_ref.trim() {
+                "" => (String::new(), String::new()),
+                referencia => match resolve_task(&state, referencia) {
+                    Ok(task) => ("task".to_owned(), task.id.to_string()),
+                    // Task nao achada NAO e erro: a referencia pode ser um
+                    // Project. So depois de os dois falharem e que a proposta
+                    // cai — e ai a mensagem vem do Project, que e o tipo mais
+                    // amplo e o palpite mais provavel de quem escreveu.
+                    Err(_) => {
+                        let id = resolve_project(&state, referencia)?.ok_or_else(|| {
+                            CoreError::new(
+                                mos_core::ErrorCode::NotFound,
+                                format!("Nao achei Task nem Project para \"{referencia}\"."),
+                                false,
+                            )
+                        })?;
+                        ("project".to_owned(), id)
+                    }
+                },
+            };
+
+            let input = mos_core::StartDayInput {
+                main: Some(mos_core::ObjectiveDraft {
+                    title: main.clone(),
+                    link_kind,
+                    link_id,
+                    ..Default::default()
+                }),
+                secondaries: secondaries
+                    .iter()
+                    .map(|titulo| mos_core::ObjectiveDraft {
+                        title: titulo.clone(),
+                        ..Default::default()
+                    })
+                    .collect(),
+                note: note.clone(),
+            };
+            let hoje = crate::daily::iniciar(app, &input)?;
+            let (feitos, total) = hoje.progress();
+            let _ = feitos;
+            let sessao = hoje
+                .session
+                .as_ref()
+                .map(|sessao| sessao.id.to_string())
+                .unwrap_or_default();
+            Ok(mos_core::ActionEffect::new(
+                format!(
+                    "Dia iniciado com {total} {}. Principal: {main}.",
+                    if total == 1 { "objetivo" } else { "objetivos" }
+                ),
+                // SEM desfazer, e a ausencia e a decisao. O inverso de comecar o
+                // dia nao e apagar o dia: seria destruir o unico registro de que
+                // ele existiu, e todo Undo que o M/OS oferece e restauracao de
+                // estado (ADR-035). Quem comecou por engano encerra — que e uma
+                // decisao, e nao um desfazer.
+                None,
+            )
+            .touching("daily_session", sessao, hoje.day.to_string()))
+        }
+        mos_core::ActionArgs::DayAddObjective {
+            title,
+            priority,
+            link,
+        } => {
+            let draft = match link {
+                Some(alvo) => {
+                    let (kind, id) = resolve_objective_link(&state, alvo)?;
+                    mos_core::ObjectiveDraft {
+                        title: title.clone(),
+                        link_kind: kind,
+                        link_id: id,
+                        ..Default::default()
+                    }
+                }
+                None => mos_core::ObjectiveDraft {
+                    title: title.clone(),
+                    ..Default::default()
+                },
+            };
+            let prioridade = mos_core::ObjectivePriority::parse(priority)?;
+            let hoje = state
+                .daily
+                .add_objective(&crate::daily::hoje(app), &draft, prioridade)?;
+            let criado = hoje
+                .objectives
+                .iter()
+                .find(|objetivo| objetivo.title == draft.title)
+                .map(|objetivo| objetivo.id.to_string())
+                .unwrap_or_default();
+            let _ = app.emit("data-changed", "daily");
+            Ok(mos_core::ActionEffect::new(
+                format!(
+                    "\"{title}\" entrou no dia como {}.",
+                    if prioridade == mos_core::ObjectivePriority::Main {
+                        "principal"
+                    } else {
+                        "secundário"
+                    }
+                ),
+                (!criado.is_empty())
+                    .then(|| mos_core::UndoStep::RemoveDailyObjective { id: criado.clone() }),
+            )
+            .touching("daily_objective", criado, title.clone()))
+        }
+        mos_core::ActionArgs::DaySetObjective { objective, status } => {
+            // O estado anterior e lido ANTES da mudanca: depois nao ha de onde
+            // tirar, e sem ele resolver seria a unica acao do dia sem volta.
+            let alvo = crate::daily::resolver_objetivo(app, objective)?;
+            let anterior = alvo.status;
+            let destino = mos_core::ObjectiveStatus::parse(status)?;
+            state.daily.set_objective_status(alvo.id, destino)?;
+            let _ = app.emit("data-changed", "daily");
+            Ok(mos_core::ActionEffect::new(
+                format!(
+                    "\"{}\" {}.",
+                    alvo.title,
+                    match destino {
+                        mos_core::ObjectiveStatus::Completed => "concluído",
+                        mos_core::ObjectiveStatus::CarriedOver => "vai para amanhã",
+                        mos_core::ObjectiveStatus::Dropped => "abandonado",
+                        mos_core::ObjectiveStatus::Pending => "voltou a pendente",
+                    }
+                ),
+                Some(mos_core::UndoStep::RestoreObjectiveStatus {
+                    id: alvo.id.to_string(),
+                    status: anterior.as_str().to_owned(),
+                }),
+            )
+            .touching("daily_objective", alvo.id.to_string(), alvo.title))
+        }
+        mos_core::ActionArgs::DaySetMain { objective } => {
+            let alvo = crate::daily::resolver_objetivo(app, objective)?;
+            let anterior = state
+                .daily
+                .today(&crate::daily::hoje(app))?
+                .main()
+                .map(|principal| principal.id.to_string());
+            state.daily.set_main(alvo.id)?;
+            let _ = app.emit("data-changed", "daily");
+            Ok(mos_core::ActionEffect::new(
+                format!("\"{}\" agora é o objetivo principal de hoje.", alvo.title),
+                Some(mos_core::UndoStep::RestoreDailyMain {
+                    // O anterior so entra quando NAO e o proprio: promover quem
+                    // ja era principal e um no-op, e guardar ele como "anterior"
+                    // faria o desfazer se promover de volta e parecer que fez
+                    // algo.
+                    previous_id: anterior.filter(|id| *id != alvo.id.to_string()),
+                    demote_id: alvo.id.to_string(),
+                }),
+            )
+            .touching("daily_objective", alvo.id.to_string(), alvo.title))
+        }
+        mos_core::ActionArgs::DayEnd { mood, summary } => {
+            let hoje = state.daily.today(&crate::daily::hoje(app))?;
+            let sessao = hoje.session.as_ref().map(|sessao| sessao.id).ok_or_else(|| {
+                CoreError::new(
+                    mos_core::ErrorCode::InvalidInput,
+                    "O dia ainda nao comecou, entao nao ha o que encerrar.",
+                    false,
+                )
+            })?;
+            let (feitos, total) = hoje.progress();
+            // Os pendentes ficam PENDENTES: o Hermes nao decide destino de
+            // objetivo por ninguem. Eles reaparecem no carry-over de amanha, que
+            // e onde a pessoa escolhe.
+            let input = mos_core::EndDayInput {
+                resolutions: Vec::new(),
+                mood: mood.clone(),
+                summary: summary.clone(),
+            };
+            crate::daily::encerrar(app, Some(sessao), &input)?;
+            Ok(mos_core::ActionEffect::new(
+                format!("Dia encerrado. {feitos} de {total} objetivos concluídos."),
+                Some(mos_core::UndoStep::ReopenDay {
+                    session_id: sessao.to_string(),
+                }),
+            )
+            .touching("daily_session", sessao.to_string(), hoje.day.to_string()))
+        }
         mos_core::ActionArgs::MFinanceCreateBill {
             amount_cents,
             description,
@@ -780,6 +975,41 @@ pub async fn action_undo<R: Runtime>(
             // desfez provavelmente quer refazer diferente.
             services.meetings.reopen_insight(&insight_id)?;
         }
+        mos_core::UndoStep::RemoveDailyObjective { id } => {
+            services
+                .daily
+                .remove_objective(mos_core::DailyObjectiveId::parse(&id)?)?;
+        }
+        mos_core::UndoStep::RestoreObjectiveStatus { id, status } => {
+            services.daily.set_objective_status(
+                mos_core::DailyObjectiveId::parse(&id)?,
+                mos_core::ObjectiveStatus::parse(&status)?,
+            )?;
+        }
+        mos_core::UndoStep::RestoreDailyMain {
+            previous_id,
+            demote_id,
+        } => match previous_id {
+            // Promover o anterior REBAIXA o novo na mesma transacao — e o que
+            // `set_main_objective` garante —, entao um passo basta.
+            Some(previous_id) => {
+                services
+                    .daily
+                    .set_main(mos_core::DailyObjectiveId::parse(&previous_id)?)?;
+            }
+            // Nao havia principal antes: desfazer e REBAIXAR, e nao promover
+            // ninguem. Sem este braco, um dia que nao tinha principal ganharia
+            // um pelo desfazer.
+            None => {
+                let alvo = mos_core::DailyObjectiveId::parse(&demote_id)?;
+                services.daily.set_secondary(alvo)?;
+            }
+        },
+        mos_core::UndoStep::ReopenDay { session_id } => {
+            services
+                .daily
+                .reopen(mos_core::DailySessionId::parse(&session_id)?)?;
+        }
         mos_core::UndoStep::UndoVoiceAction {
             capture_id,
             task_id,
@@ -919,6 +1149,42 @@ fn resolve_reminder(state: &AppState, reference: &str) -> Result<mos_core::Remin
     ) {
         Some(error) => Err(error),
         None => Ok(found.one().expect("sem erro ha exatamente um").clone()),
+    }
+}
+
+/// O vinculo de um objetivo, resolvido para as duas colunas que o banco guarda.
+///
+/// Reaproveita os mesmos resolvedores do `resolve_target`, mas com o conjunto
+/// mais estreito de `LinkKind`: um objetivo do dia ligado a uma Conversa ou a um
+/// App nao quer dizer nada, e recusar aqui e mais barato que descobrir na tela.
+fn resolve_objective_link(
+    state: &AppState,
+    target: &mos_core::TargetRef,
+) -> Result<(String, String), CoreError> {
+    match target.kind.as_str() {
+        "task" => Ok((
+            "task".to_owned(),
+            resolve_task(state, &target.reference)?.id.to_string(),
+        )),
+        "project" => {
+            let id = resolve_project(state, &target.reference)?.ok_or_else(|| {
+                CoreError::new(
+                    mos_core::ErrorCode::NotFound,
+                    format!("Nao achei Project para \"{}\".", target.reference),
+                    false,
+                )
+            })?;
+            Ok(("project".to_owned(), id))
+        }
+        "capture" => Ok((
+            "capture".to_owned(),
+            resolve_capture(state, &target.reference)?.id.to_string(),
+        )),
+        outro => Err(CoreError::new(
+            mos_core::ErrorCode::InvalidInput,
+            format!("`{outro}` nao e um tipo de vinculo de objetivo do dia."),
+            false,
+        )),
     }
 }
 
@@ -1352,6 +1618,15 @@ fn candidate_of(item: &mos_core::SearchItem) -> Option<mos_core::Candidate> {
             id: meeting.id.to_string(),
             label: resumo(&meeting.title, 70),
             detail: mos_core::spoken_moment(meeting.started_at),
+        },
+        // O objetivo do dia entra como candidato PORQUE existe acao sobre ele:
+        // concluir, promover a principal, levar para amanha. O `detail` leva a
+        // data, e ela e o que distingue dois dias que escreveram a mesma frase.
+        mos_core::SearchItem::DailyObjective { objective, day } => mos_core::Candidate {
+            kind: mos_core::EntityKind::DailyObjective,
+            id: objective.id.to_string(),
+            label: resumo(&objective.title, 70),
+            detail: format!("{} · {}", day, objective.status.as_str()),
         },
         mos_core::SearchItem::App { .. } => return None,
     })

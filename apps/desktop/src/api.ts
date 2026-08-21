@@ -5,7 +5,7 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
   VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
-  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DropContext, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -59,6 +59,64 @@ export type VoiceResult = {
 export const api = {
   widgetPlacements() {
     return invoke<WidgetPlacement[]>("widget_placements");
+  },
+
+  // ===========================================================================
+  // Daily Session
+  // ===========================================================================
+  //
+  // Nenhum destes carrega a data: quem decide que dia e hoje e o backend, que
+  // le o fuso publicado por `surfaceSetLocale`. Mandar a data daqui daria dois
+  // lugares para a mesma pergunta ser respondida — e o atalho global e o Hermes
+  // disparam do lado do Rust, onde nao ha renderer para carrega-la junto.
+  //
+  // As mutacoes devolvem o dia INTEIRO, e nao so o que mudou: a tela precisa do
+  // progresso e da ordem depois de cada gesto, e devolver so o objetivo mexido
+  // obrigaria o front a recalcular os dois — que e a regra saindo do dominio.
+
+  /** O dia de hoje: sessao, objetivos, reflexao e a sessao velha em aberto. */
+  dailyToday() {
+    return invoke<DailyToday>("daily_today");
+  },
+  /** O que o M/OS ja sabe sobre hoje, antes de a pessoa escolher. */
+  dailyContext() {
+    return invoke<DailyContext>("daily_context");
+  },
+  dailyHistory() {
+    return invoke<DailySessionSummary[]>("daily_history");
+  },
+  /** Uma sessao passada, inteira. */
+  dailySession(id: string) {
+    return invoke<DailyToday>("daily_session", { id });
+  },
+  dailyStart(input: StartDayInput) {
+    return invoke<DailyToday>("daily_start", { input });
+  },
+  dailyAddObjective(draft: ObjectiveDraft, priority: ObjectivePriority) {
+    return invoke<DailyToday>("daily_add_objective", { draft, priority });
+  },
+  dailyUpdateObjective(id: string, title: string, description: string) {
+    return invoke<DailyToday>("daily_update_objective", { id, title, description });
+  },
+  dailySetObjectiveStatus(id: string, status: ObjectiveStatus) {
+    return invoke<DailyToday>("daily_set_objective_status", { id, status });
+  },
+  dailySetMain(id: string) {
+    return invoke<DailyToday>("daily_set_main", { id });
+  },
+  dailyRemoveObjective(id: string) {
+    return invoke<DailyToday>("daily_remove_objective", { id });
+  },
+  /** A lista INTEIRA, e nao um movimento: quem conhece a ordem e a tela. */
+  dailyReorder(sessionId: string, order: string[]) {
+    return invoke<DailyToday>("daily_reorder", { sessionId, order });
+  },
+  /** `sessionId` nulo encerra o dia de hoje; com id, encerra o que ficou aberto. */
+  dailyEnd(input: EndDayInput, sessionId: string | null = null) {
+    return invoke<DailyToday>("daily_end", { sessionId, input });
+  },
+  dailyReopen(sessionId: string) {
+    return invoke<DailyToday>("daily_reopen", { sessionId });
   },
 
   // ===========================================================================

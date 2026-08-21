@@ -311,8 +311,9 @@ trava o valor.
   implementação de rede existe.
 - **Auth.** Não existe.
 - **Emitir operações nas outras sete entidades.** Já emitem: Captures, Tasks,
-  Projects, Reminders e Resources. Faltam Calendar, Meetings, Conversations,
-  Tracking, Workspaces, Apps e Voice.
+  Projects, Reminders, Resources e a Daily Session (`daily_session`,
+  `daily_objective`, `daily_reflection` — ver `DAILY-SESSION.md`). Faltam
+  Calendar, Meetings, Conversations, Tracking, Workspaces, Apps e Voice.
 - **O arquivo dos Resources.** Só o metadado viaja. PDF, imagem e áudio são
   outra camada (§44), com upload, download, cache e checksum. Não existe.
 - **Arquivos binários.** Resources com PDF, imagem e áudio não sincronizam como

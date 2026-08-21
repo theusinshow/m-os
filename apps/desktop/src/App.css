@@ -9255,3 +9255,638 @@ input[type="checkbox"]:disabled {
   gap: var(--space-2);
   padding: var(--space-3);
 }
+
+/* ===========================================================================
+   DAILY SESSION — a camada de intencao sobre o dia
+   ===========================================================================
+
+   Tres superficies, e a hierarquia entre elas e deliberada:
+
+   - o WIDGET da Home e ancora, e nao painel. Ele diz o que importa hoje em
+     tres linhas e sai da frente. Se ele dominasse a Home, a Home viraria uma
+     lista de tarefas — que e exatamente o que esta camada nao e;
+   - os FLUXOS (iniciar e encerrar) sao sobreposicao centrada, como o compositor
+     de lembrete: gestos de trinta segundos nao tiram a pessoa de onde ela
+     estava;
+   - a SESSAO e gaveta lateral, como o TaskDrawer: ela e um lugar onde se fica,
+     e nao um gesto.
+
+   Sodio SO no objetivo principal pendente. A ADR-034 reserva a cor para CARGA,
+   e a unica carga desta camada e "isto ainda falta, e e o que mais importa".
+   Nada de confete, nada de streak, nada de barra de progresso pintada. */
+
+.daily-widget {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.daily-greeting {
+  margin: 0;
+  color: var(--text);
+  font: var(--text-body);
+  letter-spacing: var(--tracking-body);
+}
+
+.daily-widget-score {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-ui);
+}
+
+.daily-widget-score strong {
+  color: var(--text);
+  font: var(--text-title);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-title);
+}
+
+/* O resumo do dia em numeros. Zero nunca chega aqui: `resumoDoDia` filtra, e um
+   painel de zeros e ansiedade com cara de informacao. */
+.daily-widget-context,
+.daily-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.daily-widget-context li,
+.daily-context li {
+  display: flex;
+  gap: var(--space-1);
+  align-items: baseline;
+}
+
+.daily-widget-context strong,
+.daily-context strong {
+  color: var(--text);
+  font: var(--text-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-widget-context span,
+.daily-context span {
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.daily-widget-quiet,
+.daily-context-empty {
+  margin: 0;
+  color: var(--text-system);
+  font: var(--text-small);
+}
+
+/* A porta de ontem. Discreta de proposito: ela informa e oferece, e nao trava
+   nada — comecar hoje fecha a de ontem sozinho. */
+.daily-stale {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-secondary);
+  font: var(--text-small);
+  background: var(--surface);
+  border-left: var(--marker) solid var(--border-strong);
+}
+
+/* ------------------------------------------------------------- os objetivos */
+
+.daily-objectives {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.daily-objective {
+  display: flex;
+  min-width: 0;
+  gap: var(--space-3);
+  align-items: center;
+  min-height: var(--height-row);
+  padding: var(--space-1) 0;
+}
+
+.daily-objectives[data-editable] .daily-objective {
+  cursor: grab;
+}
+
+/* O marcador. Largura fixa para os titulos alinharem entre estados diferentes —
+   sem ela, o tique e a bolinha deslocariam a coluna de texto a cada conclusao. */
+.daily-mark {
+  display: grid;
+  width: var(--target-min);
+  height: var(--target-min);
+  flex: none;
+  place-items: center;
+  padding: 0;
+  color: var(--text-system);
+  font: var(--text-meta);
+  background: none;
+  border: 0;
+}
+
+button.daily-mark {
+  cursor: pointer;
+}
+
+button.daily-mark:hover,
+button.daily-mark:focus-visible {
+  color: var(--text);
+}
+
+/* O principal PENDENTE e a unica carga desta camada, e a unica coisa aqui que
+   recebe sodio. Concluido volta ao cinza: o desfecho ja aconteceu. */
+.daily-objective[data-main][data-status="pending"] .daily-mark {
+  color: var(--signal-ink);
+}
+
+.daily-objective-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  padding: 0;
+  color: var(--text);
+  font: var(--text-ui);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: 0;
+}
+
+button.daily-objective-title {
+  cursor: pointer;
+}
+
+button.daily-objective-title:hover,
+button.daily-objective-title:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.daily-objective[data-main] .daily-objective-title {
+  font-weight: 600;
+}
+
+/* Concluido, levado e abandonado saem do primeiro plano — mas continuam
+   legiveis. Riscar o texto seria a tentacao obvia e a escolha errada: o dia e
+   registro, e registro se le. */
+.daily-objective[data-status="completed"] .daily-objective-title,
+.daily-objective[data-status="carried_over"] .daily-objective-title,
+.daily-objective[data-status="dropped"] .daily-objective-title {
+  color: var(--text-secondary);
+}
+
+.daily-objective-state {
+  flex: none;
+  color: var(--text-system);
+}
+
+/* --------------------------------------------------------------- os fluxos */
+
+/* Centralizado por `inset: 0` + `margin: auto`, e NAO por
+   `translate(-50%, -50%)`.
+   
+   A versao com translate parecia certa e nasceu torta na tela: este painel e um
+   `m.div`, e o framer-motion escreve `transform` inline para animar `scale` e
+   `y` — o inline ganha da folha de estilo, e a centralizacao ia junto. Foi
+   visivel na primeira foto da janela, e nao em teste nenhum.
+
+   `margin: auto` deixa o `transform` inteiramente para quem anima, que e o
+   unico arranjo em que as duas coisas convivem. */
+.daily-flow {
+  position: fixed;
+  z-index: calc(var(--z-rail) + 3);
+  inset: 0;
+  display: flex;
+  width: min(34rem, calc(100vw - var(--space-6)));
+  height: fit-content;
+  max-height: min(40rem, calc(100vh - var(--space-6)));
+  margin: auto;
+  flex-direction: column;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-overlay);
+}
+
+.daily-flow-head,
+.daily-session-head {
+  display: flex;
+  flex: none;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.daily-flow-body,
+.daily-session-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+.daily-flow-body[data-busy],
+.daily-session-body[data-busy] {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* O que sobrou de ontem. Nao e imposto: marcar so preenche uma vaga da etapa
+   seguinte, e ela continua editavel la. */
+.daily-carry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.daily-carry-item {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  min-height: var(--height-row);
+  padding: var(--space-1) var(--space-2);
+  color: var(--text);
+  font: var(--text-ui);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.daily-carry-item:hover {
+  background: var(--surface-hover);
+}
+
+.daily-carry-item[data-selected] {
+  background: var(--signal-wash);
+}
+
+.daily-carry-item strong {
+  flex: 1;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.daily-slot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.daily-slot-hint {
+  margin: 0;
+  color: var(--text-system);
+  font: var(--text-small);
+}
+
+/* ------------------------------------------------------------- o seletor */
+
+.daily-picker {
+  position: relative;
+}
+
+.daily-picker input {
+  width: 100%;
+}
+
+.daily-picker-list {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  left: 0;
+  display: flex;
+  max-height: 15rem;
+  flex-direction: column;
+  overflow-y: auto;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-overlay);
+}
+
+.daily-picker-list button {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  justify-content: space-between;
+  min-height: var(--height-menu-item);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.daily-picker-list button:hover,
+.daily-picker-list button:focus-visible {
+  background: var(--surface-hover);
+}
+
+.daily-picker-list strong {
+  min-width: 0;
+  overflow: hidden;
+  font: var(--text-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A intencao livre fica separada do resto por uma regua: escrever algo que nao
+   existe no M/OS e uma escolha DIFERENTE de apontar para o que existe, e nao
+   uma sugestao a mais na lista. */
+.daily-picker-list .daily-picker-free {
+  border-bottom: var(--line) solid var(--border);
+}
+
+.daily-picked {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  min-height: var(--height-input);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+/* Tracejado para a intencao livre: ela nao aponta para nada que exista, e a
+   borda diz isso sem precisar de rotulo colorido. */
+.daily-picked[data-kind="free"] {
+  border-style: dashed;
+}
+
+.daily-picked-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--text);
+  font: var(--text-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ encerrar */
+
+.daily-close-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.daily-close-title {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  min-width: 0;
+}
+
+.daily-close-title strong {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--text);
+  font: var(--text-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.daily-close-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding-left: var(--target-min);
+}
+
+.daily-close-state {
+  display: block;
+  padding-left: var(--target-min);
+  color: var(--text-system);
+}
+
+/* Uma frase, e nao uma celebracao. Sem confete, sem streak, sem medalha — o
+   pedido recusa a gamificacao por nome, e o dia inteiro concluido nao muda o
+   que vem depois no fluxo. */
+.daily-close-all,
+.daily-close-note {
+  margin: 0;
+  color: var(--text-system);
+  font: var(--text-small);
+}
+
+.daily-reflection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.daily-moods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.daily-reflection textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.daily-reflection-read {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  background: var(--surface);
+  border-left: var(--marker) solid var(--border-strong);
+}
+
+.daily-reflection-read p {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.daily-reflection-read .daily-mood {
+  color: var(--text);
+}
+
+/* --------------------------------------------------------------- a sessao */
+
+/* Gaveta lateral, e nao caixa centrada: a sessao e um lugar onde se fica, e ela
+   segue a mesma geometria do TaskDrawer para o M/OS ter um vocabulario so. */
+.daily-session {
+  position: fixed;
+  z-index: calc(var(--z-rail) + 3);
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  width: min(30rem, 100vw);
+  flex-direction: column;
+  background: var(--surface-raised);
+  border-left: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-overlay);
+}
+
+.daily-session-when {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.daily-session-when strong {
+  color: var(--text);
+  font: var(--text-ui);
+  font-weight: 600;
+}
+
+.daily-tabs {
+  display: flex;
+  flex: none;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.daily-tabs button {
+  padding: var(--space-2) 0;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: uppercase;
+  background: none;
+  border: 0;
+  border-bottom: var(--marker) solid transparent;
+  cursor: pointer;
+}
+
+.daily-tabs button[aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+
+/* A justificativa que o Hermes deu ao montar o dia. So aparece quando existe —
+   um rotulo permanente vazio ensinaria que falta algo. */
+.daily-note {
+  margin: 0;
+  padding: var(--space-3);
+  color: var(--text-secondary);
+  font: var(--text-small);
+  background: var(--surface);
+  border-left: var(--marker) solid var(--border-strong);
+}
+
+.daily-add {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.daily-add input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------ o historico */
+
+.daily-history {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.daily-history button {
+  display: grid;
+  width: 100%;
+  gap: var(--space-1) var(--space-3);
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  min-height: var(--height-row-two-line);
+  padding: var(--space-2);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-bottom: var(--line) solid var(--border);
+  cursor: pointer;
+}
+
+.daily-history button:hover,
+.daily-history button:focus-visible {
+  background: var(--surface-hover);
+}
+
+.daily-history strong {
+  color: var(--text);
+  font: var(--text-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-history-score {
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  grid-column: 3;
+}
+
+.daily-history-main {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--text-system);
+  font: var(--text-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.daily-back {
+  align-self: flex-start;
+  padding: 0;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.daily-back:hover {
+  color: var(--text);
+}
+
+/* Estreito: a gaveta vira tela inteira, e a sobreposicao encosta nas bordas. */
+@media (max-width: 720px) {
+  .daily-session {
+    width: 100vw;
+    border-left: 0;
+  }
+
+  .daily-flow {
+    width: calc(100vw - var(--space-4));
+    max-height: calc(100vh - var(--space-4));
+  }
+}

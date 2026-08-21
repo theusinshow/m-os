@@ -870,3 +870,153 @@ pub trait VoiceRepository: Send + Sync {
     /// banco deixaria a proveniencia apontando para o vazio.
     fn delete_note(&self, id: VoiceNoteId) -> Result<(), CoreError>;
 }
+
+/// Persistencia da Daily Session.
+///
+/// Duas regras que a assinatura impoe, e nao a documentacao:
+///
+/// 1. **`start_day` recebe a sessao E os objetivos, e fecha a sessao velha na
+///    mesma chamada.** Nao ha `create_session` sozinho. Comecar o dia e um
+///    gesto so, e um instante entre "a sessao existe" e "ela tem objetivos"
+///    deixaria a Home mostrando um dia vazio que a pessoa acabou de montar.
+///    Fechar a anterior entra junto pelo mesmo motivo: se ela ficasse aberta, o
+///    banco teria dois dias `active` e a pergunta "qual e o dia de hoje?"
+///    passaria a ter duas respostas.
+/// 2. **`end_day` recebe os destinos E a reflexao juntos.** Mesma razao: o
+///    encerramento e uma decisao unica, e metade dela gravada e um dia que
+///    mente sobre o proprio placar.
+pub trait DailyRepository: Send + Sync {
+    /// A sessao de uma data, se houver. `None` e "o dia nao comecou".
+    fn session_on(&self, day: &crate::Day) -> Result<Option<crate::DailySession>, CoreError>;
+
+    fn session(&self, id: crate::DailySessionId) -> Result<crate::DailySession, CoreError>;
+
+    /// A sessao mais recente ANTERIOR a uma data. E de onde vem o carry-over.
+    fn session_before(&self, day: &crate::Day)
+        -> Result<Option<crate::DailySession>, CoreError>;
+
+    /// A sessao de um dia anterior que ficou `active`.
+    ///
+    /// Existe separada de `session_before` porque as duas perguntas sao
+    /// diferentes: uma e "o que sobrou de ontem?", a outra e "ficou alguma
+    /// porta aberta?". Um dia encerrado responde a primeira e nao a segunda.
+    fn stale_session(&self, day: &crate::Day)
+        -> Result<Option<crate::DailySession>, CoreError>;
+
+    fn objectives(
+        &self,
+        session: crate::DailySessionId,
+    ) -> Result<Vec<crate::DailyObjective>, CoreError>;
+
+    /// Os objetivos de VARIAS sessoes, numa consulta.
+    ///
+    /// E o que impede a tela de historico de fazer uma consulta por dia listado
+    /// — trinta dias virariam trinta idas ao banco para desenhar trinta linhas.
+    fn objectives_of(
+        &self,
+        sessions: &[crate::DailySessionId],
+    ) -> Result<Vec<crate::DailyObjective>, CoreError>;
+
+    fn objective(
+        &self,
+        id: crate::DailyObjectiveId,
+    ) -> Result<crate::DailyObjective, CoreError>;
+
+    /// Comeca o dia: fecha o que ficou aberto de dias anteriores, cria a sessao
+    /// e grava os objetivos — **numa transacao so**.
+    ///
+    /// Recusa se ja existir sessao para aquela data: uma segunda sessao no mesmo
+    /// dia partiria o dia em dois placares.
+    fn start_day(
+        &self,
+        session: crate::NewDailySession,
+        objectives: Vec<crate::NewDailyObjective>,
+        now: time::OffsetDateTime,
+    ) -> Result<crate::DailySession, CoreError>;
+
+    /// Acrescenta um objetivo a uma sessao que ja existe.
+    ///
+    /// Quando ele nasce `main`, o principal anterior e rebaixado na MESMA
+    /// transacao: dois principais e um dia sem principal nenhum.
+    fn add_objective(
+        &self,
+        objective: crate::NewDailyObjective,
+    ) -> Result<crate::DailyObjective, CoreError>;
+
+    /// Grava o que mudou num objetivo. Devolve o que FICOU gravado, e nao o que
+    /// foi mandado — mesma regra do `save_reminder` e do `save_meeting`.
+    fn save_objective(
+        &self,
+        objective: &crate::DailyObjective,
+    ) -> Result<crate::DailyObjective, CoreError>;
+
+    /// Promove um objetivo a principal, rebaixando o anterior na mesma
+    /// transacao.
+    fn set_main_objective(
+        &self,
+        id: crate::DailyObjectiveId,
+        now: time::OffsetDateTime,
+    ) -> Result<Vec<crate::DailyObjective>, CoreError>;
+
+    /// Tira o objetivo do dia, de vez.
+    ///
+    /// Aqui APAGA, e a excecao e deliberada: o M/OS arquiva em vez de apagar
+    /// porque o que ele guarda tem valor de memoria, e um objetivo removido
+    /// antes de o dia acabar nunca chegou a ser historia. Quem quer manter o
+    /// registro usa `dropped`, que e a outra porta e continua no placar.
+    fn remove_objective(&self, id: crate::DailyObjectiveId) -> Result<(), CoreError>;
+
+    /// Regrava a ordem da sessao inteira, numa transacao.
+    ///
+    /// A lista toda e nao um movimento, pelo mesmo motivo do
+    /// `set_widget_layout`: gravar "este foi para a posicao 2" obrigaria o banco
+    /// a saber o que acontece com quem estava la.
+    fn reorder_objectives(
+        &self,
+        session: crate::DailySessionId,
+        order: &[crate::DailyObjectiveId],
+        now: time::OffsetDateTime,
+    ) -> Result<Vec<crate::DailyObjective>, CoreError>;
+
+    /// Encerra o dia: resolve os pendentes, grava a reflexao e fecha a sessao —
+    /// **numa transacao so**.
+    fn end_day(
+        &self,
+        session: crate::DailySessionId,
+        resolutions: &[(crate::DailyObjectiveId, crate::ObjectiveStatus)],
+        reflection: Option<crate::NewDailyReflection>,
+        now: time::OffsetDateTime,
+    ) -> Result<crate::DailySession, CoreError>;
+
+    /// Reabre um dia encerrado.
+    ///
+    /// Existe porque encerrar por engano as 16h nao pode custar o resto do dia.
+    /// Recusa se ja houver outra sessao ativa — reabrir ontem com hoje aberto
+    /// devolveria o banco ao estado de dois dias ativos que o `start_day` evita.
+    fn reopen_day(
+        &self,
+        session: crate::DailySessionId,
+        now: time::OffsetDateTime,
+    ) -> Result<crate::DailySession, CoreError>;
+
+    fn reflection(
+        &self,
+        session: crate::DailySessionId,
+    ) -> Result<Option<crate::DailyReflection>, CoreError>;
+
+    /// As sessoes mais recentes, da mais nova para a mais antiga.
+    fn sessions(&self, limit: usize) -> Result<Vec<crate::DailySession>, CoreError>;
+
+    /// Quantos elos a corrente de carry-over de um objetivo tem.
+    ///
+    /// Feito no banco porque a corrente pode ter dez dias, e segui-la em memoria
+    /// exigiria carregar o historico inteiro para responder a um numero que
+    /// aparece ao lado de um titulo.
+    fn carry_depth(&self, id: crate::DailyObjectiveId) -> Result<usize, CoreError>;
+
+    /// Objetivos cujo titulo casa com o texto. Alimenta a Search unificada.
+    fn search_objectives(
+        &self,
+        request: SearchRequest,
+    ) -> Result<Vec<(crate::DailyObjective, crate::Day)>, CoreError>;
+}

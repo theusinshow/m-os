@@ -42,6 +42,17 @@ pub enum ActionKind {
     TimeStart,
     TimeStop,
     TimeRecord,
+    /// As cinco da Daily Session. Elas existem por um motivo estrutural, e nao
+    /// por conveniencia: sem elas, "inicia meu dia" so podia virar
+    /// `mos.task.create` — a mesma armadilha que o §2 do
+    /// `HERMES-ACTION-LAYER.md` registrou quando faltava `ReminderCreate`. Um
+    /// modelo sem a acao certa usa a errada, e o resultado e uma Task duplicada
+    /// onde se pediu foco.
+    DayStart,
+    DayAddObjective,
+    DaySetObjective,
+    DaySetMain,
+    DayEnd,
     MFinanceCreateBill,
 }
 
@@ -68,6 +79,11 @@ impl ActionKind {
             Self::TimeStart => "mos.time.start",
             Self::TimeStop => "mos.time.stop",
             Self::TimeRecord => "mos.time.record",
+            Self::DayStart => "mos.day.start",
+            Self::DayAddObjective => "mos.day.add_objective",
+            Self::DaySetObjective => "mos.day.set_objective",
+            Self::DaySetMain => "mos.day.set_main",
+            Self::DayEnd => "mos.day.end",
             Self::MFinanceCreateBill => "m-finance.create_bill",
         }
     }
@@ -86,6 +102,11 @@ impl ActionKind {
             "mos.time.start" => Some(Self::TimeStart),
             "mos.time.stop" => Some(Self::TimeStop),
             "mos.time.record" => Some(Self::TimeRecord),
+            "mos.day.start" => Some(Self::DayStart),
+            "mos.day.add_objective" => Some(Self::DayAddObjective),
+            "mos.day.set_objective" => Some(Self::DaySetObjective),
+            "mos.day.set_main" => Some(Self::DaySetMain),
+            "mos.day.end" => Some(Self::DayEnd),
             "m-finance.create_bill" => Some(Self::MFinanceCreateBill),
             _ => None,
         }
@@ -107,11 +128,16 @@ impl ActionKind {
             Self::TimeStart => "time.start",
             Self::TimeStop => "time.stop",
             Self::TimeRecord => "time.record",
+            Self::DayStart => "daily.start_day",
+            Self::DayAddObjective => "daily.add_objective",
+            Self::DaySetObjective => "daily.set_objective_status",
+            Self::DaySetMain => "daily.set_main",
+            Self::DayEnd => "daily.end_day",
             Self::MFinanceCreateBill => "m-finance.create_bill",
         }
     }
 
-    pub fn all() -> [ActionKind; 13] {
+    pub fn all() -> [ActionKind; 18] {
         [
             Self::CaptureCreate,
             Self::CaptureToTask,
@@ -125,6 +151,11 @@ impl ActionKind {
             Self::TimeStart,
             Self::TimeStop,
             Self::TimeRecord,
+            Self::DayStart,
+            Self::DayAddObjective,
+            Self::DaySetObjective,
+            Self::DaySetMain,
+            Self::DayEnd,
             Self::MFinanceCreateBill,
         ]
     }
@@ -156,6 +187,17 @@ impl ActionKind {
             // Em MINUTOS, e nao "1h30": tres jeitos de escrever a mesma duracao
             // dao tres jeitos de errar um quarto dela, e o erro sai na fatura.
             Self::TimeRecord => "{ project, minutes, day?: AAAA-MM-DD, activity?, description? }",
+            // `mainRef` e `taskRef` existem para a conclusao automatica: um
+            // objetivo que E uma Task fecha junto com ela, e um objetivo de
+            // texto solto nunca fecha sozinho. Sem o vinculo, um dia montado
+            // pelo Hermes teria de ser conferido a mao o dia inteiro.
+            Self::DayStart => "{ main, mainRef?: id da Task/Project, secondaries?: [\"...\"], note? }",
+            Self::DayAddObjective => "{ title, priority?: main|secondary, taskRef?, projectRef? }",
+            Self::DaySetObjective => {
+                "{ objective, status: completed|carried_over|dropped|pending }"
+            }
+            Self::DaySetMain => "{ objective }",
+            Self::DayEnd => "{ mood?: productive|normal|blocked, summary? }",
             Self::MFinanceCreateBill => "{ amountCents, description, dueDay?: 1-31, isRecurring }",
         }
     }
@@ -264,6 +306,37 @@ pub enum ActionArgs {
         activity: String,
         description: String,
     },
+    DayStart {
+        main: String,
+        /// Id ou titulo da Task/Project que o objetivo principal E. Resolvido
+        /// na execucao. Vazio significa intencao livre.
+        main_ref: String,
+        secondaries: Vec<String>,
+        /// A justificativa curta — "voce tem duas entregas hoje e uma reuniao
+        /// as 15h". NAO e raciocinio: o §7 do pedido e explicito em nao guardar
+        /// chain-of-thought, e o dominio ainda corta o texto por tamanho.
+        note: String,
+    },
+    DayAddObjective {
+        title: String,
+        /// `main` ou `secondary`.
+        priority: String,
+        /// Id ou titulo da entidade que o objetivo E. Um so: Task ganha de
+        /// Project pela mesma regra de especificidade do `ReminderCreate`.
+        link: Option<TargetRef>,
+    },
+    DaySetObjective {
+        /// Id ou titulo do objetivo.
+        objective: String,
+        status: String,
+    },
+    DaySetMain {
+        objective: String,
+    },
+    DayEnd {
+        mood: String,
+        summary: String,
+    },
     MFinanceCreateBill {
         /// Centavos. Sempre positivo — zero ou negativo nao e uma conta.
         amount_cents: i64,
@@ -289,6 +362,11 @@ impl ActionArgs {
             Self::TimeStart { .. } => ActionKind::TimeStart,
             Self::TimeStop => ActionKind::TimeStop,
             Self::TimeRecord { .. } => ActionKind::TimeRecord,
+            Self::DayStart { .. } => ActionKind::DayStart,
+            Self::DayAddObjective { .. } => ActionKind::DayAddObjective,
+            Self::DaySetObjective { .. } => ActionKind::DaySetObjective,
+            Self::DaySetMain { .. } => ActionKind::DaySetMain,
+            Self::DayEnd { .. } => ActionKind::DayEnd,
             Self::MFinanceCreateBill { .. } => ActionKind::MFinanceCreateBill,
         }
     }
@@ -452,6 +530,80 @@ pub fn parse_action_at(raw: &str, now_local: OffsetDateTime) -> Result<ActionArg
             activity: activity_of(&args)?,
             description: text(&args, "description"),
         },
+        ActionKind::DayStart => ActionArgs::DayStart {
+            main: required(&args, "main", kind)?,
+            main_ref: text(&args, "mainRef"),
+            secondaries: args
+                .get("secondaries")
+                .and_then(serde_json::Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(serde_json::Value::as_str)
+                        .map(|item| item.trim().to_owned())
+                        .filter(|item| !item.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            note: text(&args, "note"),
+        },
+        ActionKind::DayAddObjective => {
+            let priority = match text(&args, "priority").as_str() {
+                "" => "secondary".to_owned(),
+                value => {
+                    crate::ObjectivePriority::parse(value).map_err(|_| {
+                        CoreError::new(
+                            ErrorCode::InvalidInput,
+                            format!("`{value}` nao e uma prioridade. Use `main` ou `secondary`."),
+                            false,
+                        )
+                    })?;
+                    value.to_owned()
+                }
+            };
+            ActionArgs::DayAddObjective {
+                title: required(&args, "title", kind)?,
+                priority,
+                link: target_of(&args),
+            }
+        }
+        ActionKind::DaySetObjective => {
+            let status = required(&args, "status", kind)?;
+            crate::ObjectiveStatus::parse(&status).map_err(|_| {
+                CoreError::new(
+                    ErrorCode::InvalidInput,
+                    format!(
+                        "`{status}` nao e um desfecho de objetivo. Use `completed`,                          `carried_over`, `dropped` ou `pending`."
+                    ),
+                    false,
+                )
+            })?;
+            ActionArgs::DaySetObjective {
+                objective: required(&args, "objective", kind)?,
+                status,
+            }
+        }
+        ActionKind::DaySetMain => ActionArgs::DaySetMain {
+            objective: required(&args, "objective", kind)?,
+        },
+        ActionKind::DayEnd => {
+            let mood = text(&args, "mood");
+            if !mood.is_empty() {
+                crate::DayMood::parse(&mood).map_err(|_| {
+                    CoreError::new(
+                        ErrorCode::InvalidInput,
+                        format!(
+                            "`{mood}` nao e um humor de dia. Use `productive`, `normal`                              ou `blocked`."
+                        ),
+                        false,
+                    )
+                })?;
+            }
+            ActionArgs::DayEnd {
+                mood,
+                summary: text(&args, "summary"),
+            }
+        }
         ActionKind::MFinanceCreateBill => {
             let amount_cents = args
                 .get("amountCents")
@@ -826,6 +978,83 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
         ActionArgs::TaskSetState { task, state } => {
             ("MOVER TASK", vec![line("Task", task), line("Para", state)])
         }
+        // Os cinco cartoes do dia. O `note` entra no preview de proposito: e a
+        // justificativa que o Hermes deu, e autorizar um dia montado por outro
+        // sem ver o porque seria assinar em branco.
+        ActionArgs::DayStart {
+            main,
+            main_ref,
+            secondaries,
+            note,
+        } => {
+            let mut lines = vec![line("Principal", main)];
+            if !main_ref.is_empty() {
+                lines.push(line("Vinculado a", main_ref));
+            }
+            for (numero, titulo) in secondaries.iter().enumerate() {
+                lines.push(line(&format!("Secundário {}", numero + 1), titulo));
+            }
+            if !note.is_empty() {
+                lines.push(line("Por quê", note));
+            }
+            ("INICIAR O DIA", lines)
+        }
+        ActionArgs::DayAddObjective {
+            title,
+            priority,
+            link,
+        } => {
+            let mut lines = vec![
+                line("Objetivo", title),
+                line(
+                    "Peso",
+                    if priority == "main" { "principal" } else { "secundário" },
+                ),
+            ];
+            if let Some(link) = link {
+                lines.push(line("Vinculado a", &format!("{} {}", link.kind, link.reference)));
+            }
+            ("ADICIONAR OBJETIVO DO DIA", lines)
+        }
+        ActionArgs::DaySetObjective { objective, status } => (
+            "RESOLVER OBJETIVO DO DIA",
+            vec![
+                line("Objetivo", objective),
+                line(
+                    "Desfecho",
+                    match status.as_str() {
+                        "completed" => "concluído",
+                        "carried_over" => "levado para amanhã",
+                        "dropped" => "abandonado",
+                        _ => "de volta a pendente",
+                    },
+                ),
+            ],
+        ),
+        ActionArgs::DaySetMain { objective } => (
+            "DEFINIR O OBJETIVO PRINCIPAL",
+            vec![line("Objetivo", objective)],
+        ),
+        ActionArgs::DayEnd { mood, summary } => {
+            let mut lines = Vec::new();
+            if !mood.is_empty() {
+                lines.push(line(
+                    "Como foi",
+                    match mood.as_str() {
+                        "productive" => "dia produtivo",
+                        "blocked" => "dia travado",
+                        _ => "dia normal",
+                    },
+                ));
+            }
+            if !summary.is_empty() {
+                lines.push(line("Resumo", summary));
+            }
+            // Sem linha nenhuma o cartao ainda diz o que faz pelo titulo, e o
+            // que ele faz — resolver os pendentes e fechar o dia — nao depende
+            // de campo nenhum.
+            ("ENCERRAR O DIA", lines)
+        }
         ActionArgs::ProjectCreate { name, description } => {
             let mut lines = vec![line("Nome", name)];
             if !description.is_empty() {
@@ -1068,6 +1297,40 @@ pub enum UndoStep {
     UndoCaptureToTask {
         capture_id: String,
         task_id: String,
+    },
+    /// Tira do dia um objetivo que o Hermes acabou de acrescentar.
+    ///
+    /// APAGA, e a excecao a ADR-035 e a mesma que o repositorio ja registra: um
+    /// objetivo removido antes de o dia acabar nunca chegou a ser historia.
+    /// Arquivar nao serve porque objetivo nao tem `lifecycle_state` — o dia
+    /// inteiro e que e o registro, e ele continua de pe.
+    RemoveDailyObjective {
+        id: String,
+    },
+    /// O estado que o objetivo tinha antes. Espelha o `RestoreTaskState`, e por
+    /// isso precisa ser lido ANTES da mudanca: depois nao ha de onde tirar.
+    RestoreObjectiveStatus {
+        id: String,
+        status: String,
+    },
+    /// O principal que o dia tinha antes de a promocao acontecer.
+    ///
+    /// Dois campos porque "nao havia principal" e um estado de verdade: com
+    /// `previous_id` ausente, desfazer significa REBAIXAR o promovido, e nao
+    /// promover ninguem. Um passo com um campo so nao saberia distinguir isso de
+    /// "o principal anterior sumiu".
+    RestoreDailyMain {
+        previous_id: Option<String>,
+        demote_id: String,
+    },
+    /// Reabre o dia que a acao encerrou.
+    ///
+    /// E o unico desfazer do dia que devolve exatamente o estado anterior: os
+    /// desfechos gravados nos objetivos continuam, e e assim que tem de ser —
+    /// concluir tres objetivos e encerrar o dia foram decisoes diferentes, e
+    /// so a segunda esta sendo desfeita.
+    ReopenDay {
+        session_id: String,
     },
     /// Manda a sessao para a lixeira. Soft delete, entao ela continua no banco e
     /// volta pela lixeira do Historico — o desfazer aqui obedece a mesma regra
@@ -1822,5 +2085,155 @@ mod tests {
         let kind = ActionKind::MFinanceCreateBill;
         assert_eq!(ActionKind::parse(kind.as_str()), Some(kind));
         assert_eq!(kind.function_id(), "m-finance.create_bill");
+    }
+
+    // ------------------------------------------------------- Daily Session
+
+    fn dia(action: &str, args: &str) -> Result<ActionArgs, CoreError> {
+        parse_action(&format!(r#"{{"action":"mos.day.{action}","args":{args}}}"#))
+    }
+
+    #[test]
+    fn le_um_inicio_de_dia_com_principal_e_secundarios() {
+        let lido = dia(
+            "start",
+            r#"{"main":"Finalizar planta de formas","mainRef":"7c3e2b19","secondaries":["Revisar memorial","  ","Implementar Daily Session"],"note":"duas entregas hoje"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            lido,
+            ActionArgs::DayStart {
+                main: "Finalizar planta de formas".into(),
+                main_ref: "7c3e2b19".into(),
+                // O secundario em branco cai fora na leitura. Um objetivo vazio
+                // ocuparia uma das tres vagas de foco sem dizer nada.
+                secondaries: vec![
+                    "Revisar memorial".into(),
+                    "Implementar Daily Session".into()
+                ],
+                note: "duas entregas hoje".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn um_dia_sem_principal_e_recusado() {
+        // O principal e a pergunta que a feature existe para fazer. Aceitar a
+        // proposta sem ele devolveria um dia que nao responde nada.
+        assert!(dia("start", r#"{"secondaries":["a"]}"#).is_err());
+    }
+
+    #[test]
+    fn um_objetivo_sem_prioridade_nasce_secundario() {
+        let lido = dia("add_objective", r#"{"title":"Revisar memorial"}"#).unwrap();
+        assert_eq!(
+            lido,
+            ActionArgs::DayAddObjective {
+                title: "Revisar memorial".into(),
+                // Secundario e o padrao seguro: promover a principal em silencio
+                // rebaixaria o que a pessoa escolheu de manha.
+                priority: "secondary".into(),
+                link: None,
+            }
+        );
+        assert!(dia("add_objective", r#"{"title":"x","priority":"urgente"}"#).is_err());
+    }
+
+    #[test]
+    fn um_objetivo_pode_apontar_para_a_task_que_ele_e() {
+        let lido = dia(
+            "add_objective",
+            r#"{"title":"Enviar arquivos","priority":"main","taskRef":"7c3e2b19"}"#,
+        )
+        .unwrap();
+        let ActionArgs::DayAddObjective { link, priority, .. } = lido else {
+            panic!("esperava DayAddObjective");
+        };
+        assert_eq!(priority, "main");
+        let link = link.expect("o vinculo e o que faz a conclusao automatica existir");
+        assert_eq!(link.kind, "task");
+        assert_eq!(link.reference, "7c3e2b19");
+    }
+
+    #[test]
+    fn desfecho_de_objetivo_desconhecido_e_recusado_na_leitura() {
+        // Recusar na LEITURA devolve o erro para o cartao, onde ele e uma frase.
+        // Recusar so na execucao devolveria o erro depois de a pessoa autorizar.
+        assert!(dia("set_objective", r#"{"objective":"memorial","status":"talvez"}"#).is_err());
+        assert_eq!(
+            dia("set_objective", r#"{"objective":"memorial","status":"carried_over"}"#).unwrap(),
+            ActionArgs::DaySetObjective {
+                objective: "memorial".into(),
+                status: "carried_over".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn encerrar_o_dia_nao_exige_campo_nenhum() {
+        // A reflexao e opcional por desenho: o pedido pede menos de dois minutos
+        // para fechar o dia, e um campo obrigatorio ali e friccao pura.
+        assert_eq!(
+            dia("end", "{}").unwrap(),
+            ActionArgs::DayEnd {
+                mood: String::new(),
+                summary: String::new()
+            }
+        );
+        assert!(dia("end", r#"{"mood":"cansado"}"#).is_err(), "humor fora do vocabulario e recusado");
+        assert!(dia("end", r#"{"mood":"blocked","summary":"o 063-26 tomou o dia"}"#).is_ok());
+    }
+
+    /// O cartao precisa dizer POR QUE o Hermes montou aquele dia. Autorizar um
+    /// dia montado por outro sem ver a justificativa seria assinar em branco.
+    #[test]
+    fn o_cartao_do_inicio_do_dia_mostra_a_justificativa() {
+        let args = dia(
+            "start",
+            r#"{"main":"Planta de formas","secondaries":["Memorial"],"note":"reunião às 15h"}"#,
+        )
+        .unwrap();
+        let preview = preview_of(&args);
+        assert_eq!(preview.title, "INICIAR O DIA");
+        let rotulos: Vec<_> = preview.lines.iter().map(|linha| linha.label.as_str()).collect();
+        assert!(rotulos.contains(&"Principal"), "{rotulos:?}");
+        assert!(rotulos.contains(&"Secundário 1"), "{rotulos:?}");
+        assert!(rotulos.contains(&"Por quê"), "{rotulos:?}");
+    }
+
+    /// Encerrar o dia resolve varios objetivos de uma vez. O risco continua
+    /// baixo — reabrir devolve tudo —, mas a confirmacao e explicita: risco e
+    /// peso sao campos diferentes de proposito.
+    #[test]
+    fn encerrar_o_dia_pede_confirmacao_explicita_sem_ser_risco_alto() {
+        let preview = preview_of(&dia("end", "{}").unwrap());
+        assert_eq!(preview.risk, FunctionRisk::Low);
+        assert_eq!(preview.confirmation, FunctionConfirmation::Explicit);
+        assert_eq!(preview.title, "ENCERRAR O DIA");
+    }
+
+    /// Toda acao do catalogo tem de achar a funcao dela em `functions.rs`, senao
+    /// o preview sai sem risco e sem confirmacao — e um cartao sem peso e um
+    /// cartao que se autoriza no automatico.
+    #[test]
+    fn toda_acao_do_catalogo_tem_funcao_declarada() {
+        let registro = crate::function_registry();
+        for kind in ActionKind::all() {
+            assert!(
+                registro.iter().any(|entry| entry.id == kind.function_id()),
+                "{} aponta para `{}`, que nao existe em functions.rs",
+                kind.as_str(),
+                kind.function_id()
+            );
+        }
+    }
+
+    /// O nome de cada acao atravessa a ponte e desce no prompt. Um rename
+    /// silencioso faria o modelo propor uma acao que o M/OS recusa.
+    #[test]
+    fn todo_nome_de_acao_volta_pelo_parse() {
+        for kind in ActionKind::all() {
+            assert_eq!(ActionKind::parse(kind.as_str()), Some(kind));
+        }
     }
 }

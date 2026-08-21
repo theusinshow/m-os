@@ -1054,6 +1054,23 @@ impl WorkRepository for SqliteStorage {
             id.as_uuid(),
             &[("workState", serde_json::json!(state.as_str()))],
         )?;
+        // A Daily Session acompanha, NA MESMA TRANSACAO.
+        //
+        // O §11 do pedido pede que concluir a Task vinculada conclua o objetivo
+        // do dia — e pede tambem que nao existam estados divergentes. As duas
+        // coisas sao a mesma coisa: se isto rodasse depois do commit, uma queda
+        // no meio deixaria a Task em `done` e o objetivo pendente, e nada
+        // reconciliaria os dois.
+        //
+        // QUEM DECIDE nao e este arquivo. A regra ("so o objetivo que E aquela
+        // Task fecha junto") vive em `mos_core::completes_with_task`, com teste;
+        // o filtro `link_kind = 'task'` la dentro e a traducao dela para SQL.
+        self.sync_objectives_with_task(
+            &transaction,
+            id.as_uuid(),
+            state == TaskState::Done,
+            &now,
+        )?;
         transaction.commit().map_err(map_sql_error)?;
         query_task(&connection, id)
     }

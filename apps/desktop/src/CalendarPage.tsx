@@ -15,6 +15,13 @@ const KIND_LABEL: Record<CalendarKind, string> = {
   task_created: "Task criada",
   capture: "capture",
   app_opened: "programa aberto",
+  meeting: "reunião",
+  // As três da Daily Session. Elas entram aqui, e não numa Linha do Tempo nova:
+  // este calendário retrospectivo JÁ é a linha do tempo do M/OS, e o dia é um
+  // fato tão registrável quanto uma sessão de trabalho.
+  day_started: "dia iniciado",
+  day_ended: "dia encerrado",
+  objective_done: "objetivo concluído",
 };
 
 /** `2h30` ou `45min`. */

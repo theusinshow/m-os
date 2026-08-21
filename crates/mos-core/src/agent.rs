@@ -242,6 +242,50 @@ pub fn here_block(here: &Here) -> String {
     )
 }
 
+/// O dia de hoje, quando ele existe.
+///
+/// # Por que ele desce no preambulo, e nao por acao
+///
+/// *"O que falta dos meus objetivos de hoje?"* e uma PERGUNTA, e nao um comando.
+/// Responde-la por acao gastaria um turno inteiro — proposta, preview,
+/// confirmacao — para devolver tres linhas que o M/OS ja tem na mao. E o mesmo
+/// criterio do §15.3 do `MEETING-AGENT.md`: onde a regra deterministica serve,
+/// ela ganha da IA.
+///
+/// **Vazio quando nao ha sessao aberta**, e nao "nenhum objetivo definido". O
+/// preambulo desce em toda mensagem, e um bloco que so anuncia ausencia gastaria
+/// token em toda conversa para informar nada — mesma regra do `here_block`.
+/// Quem quer saber que o dia nao comecou pergunta, e a acao `mos.day.start`
+/// existe justamente para o que vem depois da resposta.
+pub fn today_block(day: &str, objectives: &[(String, String, bool)]) -> String {
+    if objectives.is_empty() {
+        return String::new();
+    }
+    let linhas = objectives
+        .iter()
+        .map(|(titulo, peso, feito)| {
+            format!(
+                "- {} {titulo} ({peso})",
+                // Marca de texto e nao so estado escrito: a linha e lida de
+                // relance, e o simbolo faz o "falta" aparecer antes da palavra.
+                if *feito { "[x]" } else { "[ ]" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("
+");
+    let feitos = objectives.iter().filter(|(_, _, feito)| *feito).count();
+    format!(
+        "[Os objetivos de hoje ({day})]
+{linhas}
+         {feitos} de {} concluídos. Objetivo é a decisão sobre o que importa          hoje — nunca crie Task para representar um.
+         [Fim dos objetivos]
+
+",
+        objectives.len()
+    )
+}
+
 // ------------------------------------------------------------------ candidatos
 
 /// Os tipos de entidade que a resolucao alcanca.
@@ -258,6 +302,10 @@ pub enum EntityKind {
     Workspace,
     Meeting,
     Reminder,
+    /// Um objetivo do dia. Entra no vocabulario porque o Hermes precisa poder
+    /// apontar para um — "troca meu segundo objetivo" so resolve se o objetivo
+    /// for uma entidade citavel.
+    DailyObjective,
 }
 
 impl EntityKind {
@@ -270,6 +318,7 @@ impl EntityKind {
             Self::Workspace => "workspace",
             Self::Meeting => "meeting",
             Self::Reminder => "reminder",
+            Self::DailyObjective => "objetivo",
         }
     }
 
@@ -282,6 +331,7 @@ impl EntityKind {
             "workspace" => Some(Self::Workspace),
             "meeting" | "reuniao" | "reunião" => Some(Self::Meeting),
             "reminder" | "lembrete" => Some(Self::Reminder),
+            "objetivo" | "objective" | "daily_objective" => Some(Self::DailyObjective),
             _ => None,
         }
     }
@@ -468,6 +518,7 @@ pub fn resolution_error<T>(
         EntityKind::Workspace => "Workspace",
         EntityKind::Meeting => "Reunião",
         EntityKind::Reminder => "Lembrete",
+        EntityKind::DailyObjective => "Objetivo do dia",
     };
     match resolved {
         Resolved::One(_) => None,
@@ -745,6 +796,9 @@ pub struct PreambleInput<'a> {
     pub finance_enabled: bool,
     /// Quantas buscas extras ainda cabem neste turno.
     pub hops_left: u8,
+    /// O dia e os objetivos dele: `(titulo, peso, concluido)`. Vazio quando nao
+    /// ha sessao aberta — e ai o bloco nao desce.
+    pub today: (String, Vec<(String, String, bool)>),
 }
 
 /// Monta o prefixo do prompt, na ordem em que ele deve ser lido.
@@ -759,6 +813,10 @@ pub fn preamble(input: PreambleInput<'_>) -> String {
         system_context(),
         now_block(input.now_local),
         here_block(input.here),
+        // Depois de "onde voce esta" e antes do catalogo: o dia e contexto, e
+        // nao acao. Ele reenquadra o que "meus objetivos" significa antes de o
+        // modelo ler o que da para fazer com eles.
+        today_block(&input.today.0, &input.today.1),
         crate::action_contract(input.finance_enabled),
     ];
     if input.hops_left > 0 {
@@ -1111,6 +1169,7 @@ mod tests {
             candidates: &candidatos,
             finance_enabled: false,
             hops_left: MAX_QUERY_HOPS,
+            today: (String::new(), Vec::new()),
         });
 
         let identidade = texto.find("[Quem você é]").expect("identidade");
@@ -1162,6 +1221,7 @@ mod tests {
             candidates: std::slice::from_ref(&task),
             finance_enabled: false,
             hops_left: MAX_QUERY_HOPS,
+            today: (String::new(), Vec::new()),
         });
 
         // A Task chega ao modelo com id, e o lembrete e uma acao que existe.
@@ -1218,6 +1278,7 @@ mod tests {
             candidates: &[],
             finance_enabled: false,
             hops_left: 1,
+            today: (String::new(), Vec::new()),
         });
         let sem_salto = preamble(PreambleInput {
             now_local: datetime!(2026-08-20 14:32:00 -03:00),
@@ -1225,8 +1286,63 @@ mod tests {
             candidates: &[],
             finance_enabled: false,
             hops_left: 0,
+            today: (String::new(), Vec::new()),
         });
         assert!(com_salto.contains("mos-query"));
         assert!(!sem_salto.contains("mos-query"));
+    }
+
+    /// Um bloco que so anuncia ausencia gastaria token em toda mensagem para
+    /// informar nada. Mesma regra do `here_block`.
+    #[test]
+    fn um_dia_sem_objetivos_nao_produz_bloco() {
+        assert!(today_block("2026-08-21", &[]).is_empty());
+    }
+
+    /// "O que falta dos meus objetivos de hoje?" e uma PERGUNTA. Ela se responde
+    /// pelo preambulo, e nao gastando um turno de proposta e confirmacao.
+    #[test]
+    fn o_bloco_de_hoje_diz_o_que_falta_e_o_que_ja_foi() {
+        let bloco = today_block(
+            "2026-08-21",
+            &[
+                ("Finalizar planta de formas".into(), "principal".into(), false),
+                ("Revisar memorial".into(), "secundário".into(), true),
+            ],
+        );
+        assert!(bloco.contains("2026-08-21"), "{bloco}");
+        assert!(bloco.contains("[ ] Finalizar planta de formas (principal)"), "{bloco}");
+        assert!(bloco.contains("[x] Revisar memorial (secundário)"), "{bloco}");
+        assert!(bloco.contains("1 de 2 concluídos"), "{bloco}");
+        // A frase que impede a duplicata, do mesmo jeito que o bloco de
+        // identidade impede "cria a task que ja existe".
+        assert!(bloco.contains("nunca crie Task para representar um"), "{bloco}");
+    }
+
+    #[test]
+    fn o_bloco_de_hoje_entra_no_preambulo_antes_do_catalogo() {
+        let prompt = preamble(PreambleInput {
+            now_local: datetime!(2026-08-21 09:08:00 -03:00),
+            here: &Here::default(),
+            candidates: &[],
+            finance_enabled: false,
+            hops_left: 0,
+            today: (
+                "2026-08-21".into(),
+                vec![("Planta de formas".into(), "principal".into(), false)],
+            ),
+        });
+        let dia = prompt.find("Os objetivos de hoje").expect("o bloco desce");
+        let acoes = prompt.find("Ações disponíveis").expect("o catalogo desce");
+        assert!(dia < acoes, "o dia e contexto, e contexto vem antes do que da para fazer");
+    }
+
+    /// O vocabulario de entidade atravessa a ponte e volta. Um tipo novo sem
+    /// `parse` seria um candidato que o modelo cita e o M/OS nao reconhece.
+    #[test]
+    fn objetivo_do_dia_e_um_tipo_de_entidade_citavel() {
+        assert_eq!(EntityKind::parse("objetivo"), Some(EntityKind::DailyObjective));
+        assert_eq!(EntityKind::parse("daily_objective"), Some(EntityKind::DailyObjective));
+        assert_eq!(EntityKind::DailyObjective.as_str(), "objetivo");
     }
 }

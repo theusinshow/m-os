@@ -251,6 +251,20 @@ pub enum SearchItem {
     App {
         app: RegisteredApp,
     },
+    /// Um objetivo de um dia, com a data em que ele foi escrito.
+    ///
+    /// Entra na Search porque *"o que eu estava fazendo terca?"* e uma pergunta
+    /// de verdade, e a resposta dela e o dia — nao a Task. Sem isto, a Daily
+    /// Session seria o unico substantivo do M/OS que a busca nao alcanca, e um
+    /// silo e exatamente o que o `CORE-FOUNDATION.md` §2 recusa.
+    ///
+    /// Carrega o `day` junto porque um objetivo sem data nao se distingue de
+    /// outro: dois dias podem ter escrito a mesma frase, e a data e o que faz o
+    /// resultado significar alguma coisa.
+    DailyObjective {
+        objective: crate::DailyObjective,
+        day: crate::Day,
+    },
     /// A REUNIAO, e nunca um segmento de transcricao.
     ///
     /// Uma reuniao de uma hora tem ~600 segmentos; tres reunioes dominariam

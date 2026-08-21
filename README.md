@@ -11,6 +11,8 @@ para Windows, da captura e acao organizada ate Resources reencontraveis.
 - SQLite local com WAL, `synchronous=FULL` e FTS5;
 - Inbox, Archive e Trash recuperaveis;
 - Projects e Tasks com proveniencia explicita de Capture;
+- Daily Session: iniciar e encerrar o dia, objetivos com peso e desfecho,
+  carry-over e historico (ver `docs/DAILY-SESSION.md`);
 - Kanban simples com Backlog, Doing e Done;
 - Workspaces como contexto compartilhado entre Projects e Apps;
 - App Registry local com abertura controlada de URLs e paths;

@@ -9,7 +9,8 @@ use mos_core::{
     AppCatalogEntry, AppLaunchKind, AppService, BackupInspection, BackupReceipt, Capture,
     CaptureService, ConversationService, CoreError, CreateAppInput, CreateCaptureInput,
     MeetingService,
-    CreateProjectInput, CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DataService,
+    CreateProjectInput, CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DailyService,
+    DataService,
     FunctionDefinition, HiddenWidget, MemoryService, MonitoringService, Project, RegisteredApp,
     Resource, ResourceWorkspace, SearchItem, Task, TaskState, TrackingService, UpdateAppInput,
     UpdateProjectInput, UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, VoiceService,
@@ -26,6 +27,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod calendar;
 mod attention;
+mod daily;
 mod finance;
 mod hermes;
 mod ingest;
@@ -72,6 +74,8 @@ struct AppState {
     monitoring: MonitoringService,
     data: DataService,
     attention: AttentionService,
+    /// A camada de intencao sobre o dia. Ver `docs/DAILY-SESSION.md`.
+    daily: DailyService,
     clock: Arc<dyn mos_core::Clock>,
     storage: Arc<SqliteStorage>,
     shortcut_status: Mutex<String>,
@@ -195,6 +199,17 @@ fn search_all(
             .search(query, include_archived, 100)?
             .into_iter()
             .map(|app| SearchItem::App { app }),
+    );
+    // Os objetivos do dia entram DEPOIS dos Apps, e nao antes das Tasks: a
+    // busca do Command procura coisa para abrir, e o dia e contexto. Ele
+    // responde "o que eu estava fazendo terca?", que e uma pergunta que se faz
+    // depois de nao achar o que se procurava.
+    items.extend(
+        state
+            .daily
+            .search(query, 20)?
+            .into_iter()
+            .map(|(objective, day)| SearchItem::DailyObjective { objective, day }),
     );
     items.truncate(100);
     Ok(items)
@@ -1766,6 +1781,7 @@ pub fn run() {
                 monitoring: MonitoringService::new(storage.clone()),
                 data: DataService::new(storage.clone()),
                 attention: AttentionService::new(storage.clone(), clock.clone()),
+                daily: DailyService::new(storage.clone(), clock.clone()),
                 clock,
                 storage,
                 shortcut_status: Mutex::new("Registrando...".into()),
@@ -2018,6 +2034,19 @@ pub fn run() {
             attention::attention_acknowledge,
             attention::attention_cancel,
             attention::attention_archive,
+            daily::daily_today,
+            daily::daily_context,
+            daily::daily_history,
+            daily::daily_session,
+            daily::daily_start,
+            daily::daily_add_objective,
+            daily::daily_update_objective,
+            daily::daily_set_objective_status,
+            daily::daily_set_main,
+            daily::daily_remove_objective,
+            daily::daily_reorder,
+            daily::daily_end,
+            daily::daily_reopen,
             monitor::fechar_reuniao_detectada,
             monitor::silenciar_deteccao,
             monitor::reminder_pending,

@@ -695,6 +695,7 @@ pub async fn hermes_send<R: Runtime>(
             candidates: &candidates,
             finance_enabled,
             hops_left: hops,
+            today: crate::daily::bloco_de_hoje(&app),
         }),
         assembled.block,
         text

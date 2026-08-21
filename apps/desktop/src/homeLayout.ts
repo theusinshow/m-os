@@ -67,6 +67,18 @@ export const HOME_SECTIONS: { id: string; title: string }[] = [
    que faz um widget criado depois ir para o FIM de uma Home ja arrumada, em vez
    de se enfiar no meio da escolha de alguem. */
 export const HOME_WIDGETS: { id: string; label: string; section: string; role: HomeWidgetRole; span: HomeWidgetSpan }[] = [
+  /* O dia abre a faixa "Agora" porque ele e a pergunta que vem antes das
+     outras: "o que importa hoje" enquadra "o que esta em andamento", e nao o
+     contrario.
+
+     PRIMEIRO no catalogo, e isso tem consequencia dupla — de proposito. Quem
+     nunca arrumou a Home ve o dia no topo. Quem JA arrumou recebe o widget no
+     fim da faixa dele, pela regra do `arrangeHome`: widget novo nao se enfia no
+     meio de um arranjo que a pessoa montou, nem quando o widget novo somos nos.
+
+     Largura 12 porque com uma sessao ativa ele lista objetivos, e uma lista de
+     titulos espremida num quarto de linha quebra em duas linhas cada. */
+  { id: "daily_session", label: "HOJE", section: "now", role: "focus", span: 12 },
   { id: "now", label: "EM ANDAMENTO", section: "now", role: "focus", span: 6 },
   { id: "timer", label: "CRONÔMETRO", section: "now", role: "focus", span: 3 },
   { id: "today_hours", label: "HOJE", section: "now", role: "focus", span: 3 },

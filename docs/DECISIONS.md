@@ -2623,3 +2623,97 @@ Operação carrega id de idempotência que nasce na origem. Reaplicar não muda 
 Aparecer um tipo de dado em que merge por campo não baste — texto longo editado
 nos dois lados ao mesmo tempo é o candidato óbvio, e a resposta ali provavelmente
 é CRDT de texto, não outra regra de conflito.
+
+## ADR-054 — O dia é uma entidade, e ele não é uma lista de tarefas
+
+**Estado:** Accepted · 2026-08-21
+
+### Contexto
+
+O M/OS acumulou onze substantivos — Capture, Task, Project, Workspace, Resource,
+App, Reminder, Meeting, Conversation, Time Entry, Ingestion — e nenhum deles
+responde à pergunta que se faz às nove da manhã: **o que importa hoje?**
+
+A lista de Tasks abertas de um sistema com meses de uso tem dezenas de linhas. O
+Kanban mostra em que coluna cada uma está. O Attention Center mostra o que vence.
+Nenhum dos três diz qual é a do dia, e a resposta ficava na cabeça da pessoa —
+que é exatamente o custo mental que o produto existe para remover.
+
+A tentação óbvia era uma lista de "prioridades do dia" dentro de Tasks: um campo
+`is_today`, ou uma coluna nova no Kanban. As duas transformariam a pergunta numa
+propriedade da Task, e uma intenção que não é Task nenhuma — *"resolver as
+pendências financeiras"*, *"avançar o 063-26"* — não teria onde existir.
+
+### Decisão
+
+**O dia é uma entidade.** `DailySession` com data única, `DailyObjective` com
+peso e desfecho, `DailyReflection` opcional.
+
+Um objetivo **pode** apontar para uma Task, um Project, uma Capture, um Resource
+ou uma Meeting — e quando aponta, a entidade apontada continua sendo a dona do
+trabalho. O objetivo só diz que ela é a que importa hoje. Um objetivo sem vínculo
+é uma intenção livre, e é isso que separa esta camada de mais uma base de
+tarefas.
+
+Cinco escolhas específicas, cada uma contra uma alternativa que parecia mais
+simples:
+
+**1. O dia é campo, e é local.** `AAAA-MM-DD`, decidido uma vez, no fuso que a
+tela publicou. O resto do M/OS guarda UTC e deixa o renderer decidir o dia —
+correto para um item de calendário, que não tem identidade de dia. Uma sessão
+tem: "uma por data" é impossível de garantir se cada leitor decidir sozinho que
+dia é hoje, e quem trabalha até 23h30 em UTC-3 viraria duas sessões.
+
+**2. Não existe `mainObjectiveId` na sessão.** Qual objetivo é o principal já
+está em `priority`. Duas colunas para a mesma pergunta divergem — e com merge por
+campo (ADR-053) seria pior: um dispositivo mudaria uma, o outro a outra, e as
+duas venceriam. A garantia é estrutural, num índice único parcial.
+
+**3. Não existe coluna `type` no objetivo.** O tipo é a presença e o tipo do
+vínculo. Pelo mesmo motivo do item 2.
+
+**4. Concluir a Task vinculada conclui o objetivo — e SÓ quando o objetivo É
+aquela Task.** Um objetivo ligado a um Project não acaba porque uma Task dele
+acabou; marcá-lo seria o sistema decidindo, em silêncio, que o dia da pessoa
+terminou. A regra é uma função pura no domínio, com teste, e roda dentro da mesma
+transação que move a Task no Kanban.
+
+**5. Não decidir é uma resposta válida.** Objetivo pendente que o End My Day não
+resolve **fica pendente**, e reaparece no carry-over do dia seguinte. Transformar
+silêncio em "abandonado" seria o sistema escolhendo por quem não escolheu. Pela
+mesma razão, começar hoje fecha a sessão de ontem que ficou aberta **sem tocar no
+desfecho de nenhum objetivo dela**.
+
+### Consequências
+
+- A migration 0028 acrescenta três tabelas e **não altera nenhuma existente**.
+  Nem uma coluna em `tasks`. Se o desenho mudar, as três se apagam sem risco.
+- Três `EntityKind` novos viajam na sincronização. `EntityKind` é texto no
+  contrato justamente para isto: um cliente antigo guarda e reenvia sem saber o
+  que são.
+- O Hermes ganhou cinco ações e um bloco de preâmbulo. O catálogo foi de treze
+  para dezoito linhas, e o bloco só desce quando há sessão aberta — o preâmbulo é
+  o maior custo fixo de token do chat.
+- **`remove_objective` apaga**, e é a única exceção à ADR-035 no sistema. Um
+  objetivo removido antes de o dia acabar nunca chegou a ser história; quem quer
+  o registro usa `dropped`, que fica.
+- A Home ganhou um widget na faixa "Agora". Quem já arrumou a Home recebe ele no
+  **fim** da faixa, pela regra do `arrangeHome` — widget novo não se enfia no
+  meio de um arranjo que alguém montou, nem quando o widget novo é este.
+- Três coisas que o pedido descrevia **não foram implementadas porque o M/OS não
+  as tem**: prazo em Task (D-1), entidade Event (D-4) e Waiting For. O contexto
+  do dia conta Reminders no lugar, e documenta as ausências no código para
+  ninguém "consertar" isso somando um número inventado.
+- A percepção de capacidade do dia ("2h30 em reuniões, ~5h30 disponíveis") ficou
+  de fora pela mesma razão: sem agenda futura, o número descreveria ontem.
+
+### Revisar quando
+
+Aparecer a segunda camada temporal — semana, ou sprint. A pergunta será se ela é
+outra entidade ou uma agregação desta, e a resposta provavelmente é agregação:
+`carried_from` já dá a corrente, `dropped` já dá o abandono, e o vínculo já dá o
+Project. Se for entidade nova, este é o precedente a reler.
+
+Ou se um objetivo passar a precisar de mais de um vínculo. Hoje ele tem um, pela
+mesma regra de especificidade do `ReminderTarget` — e mudar isso é o mesmo debate
+que a ADR-012 fechou ao recusar tabela genérica de arestas.

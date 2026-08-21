@@ -44,6 +44,13 @@ pub fn calendar_window<R: Runtime>(
     let captures = state.captures.between(from, to)?;
     let events = state.monitoring.events(from, to)?;
     let rounding = state.tracking.settings()?.rounding;
+    // Um ano de sessoes e ~365 linhas curtas, e a janela do calendario nunca
+    // passa de um mes — ler tudo e mais barato que uma consulta por faixa de
+    // data sobre uma tabela deste tamanho, e a filtragem por janela ja e da
+    // `compose`. Os objetivos vem numa consulta so, e nao uma por dia.
+    let sessions = state.daily.sessions(365)?;
+    let session_ids: Vec<_> = sessions.iter().map(|sessao| sessao.id).collect();
+    let objectives = state.daily.objectives_of(&session_ids)?;
 
     let name_of = |id: mos_core::ProjectId| {
         projects
@@ -61,6 +68,8 @@ pub fn calendar_window<R: Runtime>(
         tasks: &tasks,
         captures: &captures,
         events: &events,
+        sessions: &sessions,
+        objectives: &objectives,
         project_name: &name_of,
     }))
 }
