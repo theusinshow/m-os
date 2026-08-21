@@ -7946,15 +7946,60 @@ input[type="checkbox"]:disabled {
   gap: var(--space-1);
 }
 
+/* A linha de uma reuniao na lista.
+   O markup pede `list-row meeting-row`, e `.list-row` NAO EXISTE em lugar
+   nenhum do CSS: a regra abaixo so cuidava da grade, entao o `<button>` caia no
+   estilo padrao do navegador — fundo cinza claro, borda, texto escuro. Ninguem
+   tinha visto porque nenhuma reuniao chegou a ser gravada ate hoje: a lista
+   nunca saiu do estado vazio.
+   O tratamento e o mesmo do `.data-row`, que e a linha padrao do M/OS. Nao
+   virou `.data-row` no markup porque a grade de duas linhas com area nomeada e
+   propria daqui — o que faltava era so a superficie. */
 .meeting-row {
+  position: relative;
   display: grid;
+  width: 100%;
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
     "time title duration"
     "time meta  meta";
   align-items: baseline;
   gap: 0 var(--space-3);
+  padding: var(--space-2);
+  border: 0;
+  border-bottom: var(--line) solid var(--border);
+  border-radius: var(--radius-none);
+  background: transparent;
+  color: var(--text);
   text-align: left;
+  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
+}
+
+.meeting-row:hover {
+  background: var(--surface-hover);
+}
+
+/* O escolhido leva a regua de sodio, como toda selecao do sistema: aresta, e
+   nao fundo colorido. */
+.meeting-row[aria-current="true"] {
+  background: var(--surface-raised);
+}
+
+.meeting-row[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  top: var(--space-1);
+  bottom: var(--space-1);
+  left: 0;
+  width: var(--marker);
+  border-radius: var(--radius-sm);
+  background: var(--signal-fill);
+}
+
+.meeting-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .meeting-row-time {
@@ -7965,6 +8010,7 @@ input[type="checkbox"]:disabled {
 }
 
 .meeting-row-title { grid-area: title; }
+
 
 .meeting-row-duration {
   grid-area: duration;
