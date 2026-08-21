@@ -697,9 +697,18 @@ button {
 }
 
 .argos-canvas {
-  width: 72px;
-  height: 72px;
+  width: var(--argos-corpo);
+  height: var(--argos-corpo);
   display: block;
+}
+
+/* O piso sem WebGL tinha o tamanho do DESENHO, e nao o do bicho: o `svg` saia
+   com os 24px do `viewBox` enquanto o canvas media 72. Numa maquina com driver
+   velho ou sessao remota — exatamente o caso que o piso existe para cobrir —
+   Argos aparecia tres vezes menor. Agora os dois ocupam a mesma caixa. */
+.argos {
+  width: var(--argos-corpo);
+  height: var(--argos-corpo);
 }
 
 /* O deslize entre cantos e movimento que carrega dado — ele diz que outra coisa

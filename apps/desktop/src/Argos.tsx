@@ -151,8 +151,18 @@ function ArgosSvg({ pose }: { pose: ArgosPose }) {
   );
 }
 
-/** Onde o corpo desenha, em px. A ADR-048 fixou 72. */
-const CORPO = 72;
+/**
+ * O buffer inicial do canvas, em px.
+ *
+ * A ADR-048 fixou 72; o dono do produto pediu maior, e o numero passou a viver
+ * em `--argos-corpo` — a ADR fica desatualizada neste ponto e precisa de adendo.
+ *
+ * Isto aqui NAO decide o tamanho na tela: `argosScene.ts` chama
+ * `setSize(clientWidth, clientHeight)`, entao quem manda e o CSS. Este valor so
+ * cobre o quadro entre a montagem e a subida da cena WebGL — e por isso ele
+ * acompanha o token, para que esse quadro nao seja de outro tamanho.
+ */
+const CORPO = 96;
 
 /**
  * Argos, a face do estado (ADR-041, revisada pela ADR-048).

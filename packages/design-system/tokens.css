@@ -163,6 +163,16 @@
 
   /* Capture: a barra e o limiar de entrada, desenhada vertical (e a barra da
      marca a -22 graus). O caret e de bloco, nao de linha. */
+  /* O corpo de Argos.
+     Era 72px fixado em dois lugares — o atributo do canvas em `Argos.tsx` e a
+     regra `.argos-canvas` — e os dois podiam divergir em silencio. Como token,
+     o numero e um so, e quem precisa reservar espaco para ele no layout (o
+     rodape do Hermes) le a mesma fonte em vez de repetir a conta.
+     Quem manda no tamanho RENDERIZADO e o CSS: `argosScene.ts` chama
+     `setSize(clientWidth, clientHeight)`, entao o atributo do canvas so vale
+     antes de a cena WebGL subir. */
+  --argos-corpo: 96px;
+
   --capture-bar-width: 7px;
   --capture-bar-height: 22px;
   --caret-width: 8px;
