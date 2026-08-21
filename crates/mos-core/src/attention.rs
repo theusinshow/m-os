@@ -45,6 +45,14 @@ macro_rules! attention_id {
                     CoreError::new(ErrorCode::InvalidInput, concat!($label, " invalido."), false)
                 })
             }
+
+            /// O UUID cru, para quem enderessa esta entidade FORA do M/OS.
+            ///
+            /// Existe para a sincronizacao: o id que viaja entre dispositivos e
+            /// o mesmo que identifica aqui. Ver `mos-sync`.
+            pub fn as_uuid(&self) -> Uuid {
+                self.0
+            }
         }
 
         impl Default for $name {

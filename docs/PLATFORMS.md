@@ -122,11 +122,11 @@ Estado real em 2026-08-21. `—` significa que não existe; **não** significa
 | Captures / Inbox | ✓ | ✓ | — | **emite** | ✓ |
 | Tasks | ✓ | ✓ | — | **emite** | ✓ |
 | Projects | ✓ | ✓ | — | **emite** | ✓ |
-| Resources / Library | ✓ | ✓ | — | fundação | ✓ |
+| Resources / Library | ✓ | ✓ | — | **emite** (metadado) | ✓ |
 | Workspaces | ✓ | ✓ | — | fundação | — |
 | Search (FTS local) | ✓ | ✓ | — | fundação | ✓ |
 | Calendar | ✓ | ✓ | — | fundação | ✓ |
-| Reminders / Attention | ✓ | ✓ | — | fundação | ✓ |
+| Reminders / Attention | ✓ | ✓ | — | **emite** (intenção) | ✓ |
 | CronoCAD (tempo) | ✓ | ✓ | — | fundação | parcial |
 | Meetings (gravar) | ✓ | ✓ | — | fundação | ✓ |
 | Meetings (transcrever) | ✓ | ✓ | — | fundação | — |
@@ -147,9 +147,17 @@ bancos reais fazendo papel de dois dispositivos. O que falta nessas linhas é a
 entidade *emitir* operações quando muda.
 
 **"emite"** quer dizer que a entidade já registra cada mutação na fila de saída,
-**dentro da mesma transação da mudança**. Captures, Tasks e Projects já emitem —
-as três que aparecem na Home do iPhone. As outras nove vão uma de cada vez, para
-não parar o desktop.
+**dentro da mesma transação da mudança**. Cinco já emitem: Captures, Tasks,
+Projects, Reminders e Resources.
+
+Os dois parênteses são limites reais, não pendências disfarçadas. Reminder
+emite **a intenção** — título, gatilho, prazo, status — e não a entrega: o
+`deliveredCount` conta quantas vezes *este* aparelho tocou, e o iPhone tocar não
+significa que o PC tocou. Resource emite **o metadado**; o arquivo em si é uma
+camada separada, com upload, download, cache e checksum, e ela não existe.
+
+Faltam sete: Calendar, Meetings, Conversations, Tracking, Workspaces, Apps e
+Voice.
 
 O que continua não existindo em nenhuma linha: transporte de rede e servidor.
 

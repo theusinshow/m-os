@@ -254,7 +254,15 @@ dispositivo quebram a ordem total.
 `habilitar_sync` nunca chamado significa nenhuma emissão, e **nenhuma mutação
 falha por causa disso**. É o que permite ligar por entidade sem parar o desktop.
 
-Uma distinção que importa: **arquivar é mudança de campo, não `OpBody::Delete`**.
+Duas distinções que decidiram o desenho.
+
+**A intenção viaja; a entrega fica.** Um lembrete emite título, gatilho, prazo e
+status. Não emite `deliveredCount`, que conta quantas vezes *este* dispositivo
+mostrou o aviso — o iPhone tocar não significa que o PC tocou, e sincronizar
+esse número faria dois aparelhos disputarem um contador que nem descreve a mesma
+coisa. `snoozeCount` viaja, porque adiar é ação da pessoa e não do aparelho.
+
+**Arquivar é mudança de campo, não `OpBody::Delete`.**
 O `Delete` é para a exclusão definitiva, a que o M/OS só aceita depois de
 arquivar. Se arquivar virasse `Delete`, a regra de "apagar ganha" faria o
 arquivamento vencer a restauração para sempre — e a Capture nunca mais voltaria.
@@ -266,11 +274,18 @@ arquivamento vencer a restauração para sempre — e a Capture nunca mais volta
 - **Transporte real e servidor.** O `Transport` está definido; nenhuma
   implementação de rede existe.
 - **Auth.** Não existe.
-- **Emitir operações nas outras nove entidades.** Captures, Tasks e Projects já
-  emitem. Faltam Resources, Reminders, Calendar, Meetings, Conversations,
-  Tracking, Workspaces, Apps e Voice. Vai de uma em uma — o padrão está em
-  `sync_emit.rs`, e os testes em `capture_emite_operacoes.rs` e
-  `work_emite_operacoes.rs`.
+- **Emitir operações nas outras sete entidades.** Já emitem: Captures, Tasks,
+  Projects, Reminders e Resources. Faltam Calendar, Meetings, Conversations,
+  Tracking, Workspaces, Apps e Voice.
+- **As tabelas de relação.** `resource_workspaces` e `resource_projects` são
+  junções sem id próprio, e **merge por campo não serve para conjunto**: com
+  LWW, ligar um Resource a um Project num dispositivo apagaria uma ligação feita
+  no outro. O §24 pede que relações sincronizem como entidades de primeira
+  classe, e isso precisa de desenho próprio — id na junção, e `Delete` lógico em
+  vez de remover a linha. Ficou de fora de propósito: fazer errado é pior que
+  fazer depois.
+- **O arquivo dos Resources.** Só o metadado viaja. PDF, imagem e áudio são
+  outra camada (§44), com upload, download, cache e checksum. Não existe.
 - **Arquivos binários.** Resources com PDF, imagem e áudio não sincronizam como
   blob dentro de JSON (§44). Metadado e binário são camadas separadas, com
   upload, download, cache e checksum próprios. Nada disso está feito.

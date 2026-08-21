@@ -133,7 +133,16 @@ impl AttentionRepository for SqliteStorage {
     fn create_reminder(&self, reminder: NewReminder) -> Result<Reminder, CoreError> {
         let id = reminder.id;
         let connection = self.connection.lock().map_err(map_lock_error)?;
-        insert_reminder(&connection, &reminder)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        insert_reminder(&transaction, &reminder)?;
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("reminder", id.as_uuid()),
+            mos_sync::OpBody::Create {
+                fields: campos_do_lembrete_novo(&reminder)?,
+            },
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         drop(connection);
         self.reminder(id)
     }
@@ -182,7 +191,8 @@ impl AttentionRepository for SqliteStorage {
             None => (None, None),
         };
 
-        let changed = connection
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let changed = transaction
             .execute(
                 "UPDATE reminders SET title = ?2, body = ?3, target_type = ?4, target_id = ?5, \
                  trigger_kind = ?6, trigger = ?7, priority = ?8, status = ?9, \
@@ -217,6 +227,24 @@ impl AttentionRepository for SqliteStorage {
             ));
         }
 
+        // A INTENCAO viaja; a ENTREGA fica.
+        //
+        // `delivered_count` conta quantas vezes ESTE dispositivo mostrou o
+        // aviso, e isso e escrituracao local — o iPhone tocar nao significa que
+        // o PC tocou. Sincronizar esse numero faria dois aparelhos disputarem um
+        // contador que nem descreve a mesma coisa, e com merge por campo um
+        // deles perderia a propria contagem.
+        //
+        // `snooze_count` viaja porque adiar e ACAO DA PESSOA: ela adiou o
+        // lembrete, e nao o aparelho.
+        self.emitir_update(
+            &transaction,
+            "reminder",
+            reminder.id.as_uuid(),
+            &campos_do_lembrete(reminder, target_type.as_deref(), target_id.as_deref())?,
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
+
         drop(connection);
         self.reminder(reminder.id)
     }
@@ -227,7 +255,8 @@ impl AttentionRepository for SqliteStorage {
         state: LifecycleState,
     ) -> Result<Reminder, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
-        let changed = connection
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let changed = transaction
             .execute(
                 "UPDATE reminders SET lifecycle_state = ?2, updated_at = ?3 WHERE id = ?1",
                 params![
@@ -245,6 +274,14 @@ impl AttentionRepository for SqliteStorage {
                 false,
             ));
         }
+
+        self.emitir_update(
+            &transaction,
+            "reminder",
+            id.as_uuid(),
+            &[("lifecycleState", serde_json::json!(state.as_str()))],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
 
         drop(connection);
         self.reminder(id)
@@ -380,6 +417,83 @@ impl SqliteStorage {
 /// cria Task e Reminder juntos, e "juntos" precisa ser uma transacao so — senao
 /// existe um instante em que a Task existe e o lembrete dela nao, e uma queda
 /// ali deixaria o compromisso sem aviso.
+/// Os campos de um lembrete que VIAJAM.
+///
+/// Fora daqui, de proposito: `delivered_count`. Ele conta quantas vezes ESTE
+/// dispositivo mostrou o aviso, e isso e escrituracao local — o iPhone tocar
+/// nao significa que o PC tocou.
+fn campos_do_lembrete(
+    reminder: &mos_core::Reminder,
+    target_type: Option<&str>,
+    target_id: Option<&str>,
+) -> Result<Vec<(&'static str, serde_json::Value)>, CoreError> {
+    Ok(vec![
+        ("title", serde_json::json!(reminder.title)),
+        ("body", serde_json::json!(reminder.body)),
+        ("targetType", serde_json::json!(target_type)),
+        ("targetId", serde_json::json!(target_id)),
+        ("triggerKind", serde_json::json!(reminder.trigger.kind_str())),
+        ("trigger", serde_json::json!(encode_trigger(&reminder.trigger)?)),
+        ("priority", serde_json::json!(reminder.priority.as_str())),
+        ("status", serde_json::json!(reminder.status.as_str())),
+        (
+            "snoozeAllowed",
+            serde_json::json!(reminder.policy.snooze_allowed),
+        ),
+        ("privacy", serde_json::json!(reminder.policy.privacy.as_str())),
+        (
+            "nextDueAt",
+            serde_json::json!(reminder.next_due_at.map(format_time).transpose()?),
+        ),
+        ("snoozeCount", serde_json::json!(reminder.snooze_count)),
+        (
+            "completedAt",
+            serde_json::json!(reminder.completed_at.map(format_time).transpose()?),
+        ),
+    ])
+}
+
+/// O mesmo, para um lembrete que acabou de nascer.
+fn campos_do_lembrete_novo(
+    reminder: &NewReminder,
+) -> Result<serde_json::Map<String, serde_json::Value>, CoreError> {
+    let (target_type, target_id) = match reminder.target {
+        Some(target) => {
+            let (kind, id) = target.as_columns();
+            (Some(kind.to_owned()), Some(id))
+        }
+        None => (None, None),
+    };
+    Ok([
+        ("title".to_owned(), serde_json::json!(reminder.title)),
+        ("body".to_owned(), serde_json::json!(reminder.body)),
+        ("targetType".to_owned(), serde_json::json!(target_type)),
+        ("targetId".to_owned(), serde_json::json!(target_id)),
+        (
+            "triggerKind".to_owned(),
+            serde_json::json!(reminder.trigger.kind_str()),
+        ),
+        (
+            "trigger".to_owned(),
+            serde_json::json!(encode_trigger(&reminder.trigger)?),
+        ),
+        (
+            "priority".to_owned(),
+            serde_json::json!(reminder.priority.as_str()),
+        ),
+        (
+            "snoozeAllowed".to_owned(),
+            serde_json::json!(reminder.policy.snooze_allowed),
+        ),
+        (
+            "privacy".to_owned(),
+            serde_json::json!(reminder.policy.privacy.as_str()),
+        ),
+    ]
+    .into_iter()
+    .collect())
+}
+
 pub(crate) fn insert_reminder(
     connection: &rusqlite::Connection,
     reminder: &NewReminder,

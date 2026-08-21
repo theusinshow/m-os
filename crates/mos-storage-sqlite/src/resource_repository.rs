@@ -65,7 +65,7 @@ impl ResourceRepository for SqliteStorage {
     fn create_resource(&self, resource: NewResource) -> Result<Resource, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
-        let id = insert_resource(&transaction, resource)?;
+        let id = insert_resource(self, &transaction, resource)?;
         transaction.commit().map_err(map_sql_error)?;
         query_resource(&connection, id)
     }
@@ -98,6 +98,17 @@ impl ResourceRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
         insert_resource_search(&transaction, rowid)?;
+        self.emitir_update(
+            &transaction,
+            "resource",
+            id.as_uuid(),
+            &[
+                ("kind", serde_json::json!(kind.as_str())),
+                ("title", serde_json::json!(title)),
+                ("url", serde_json::json!(url)),
+                ("note", serde_json::json!(note)),
+            ],
+        )?;
         transaction.commit().map_err(map_sql_error)?;
         query_resource(&connection, id)
     }
@@ -147,7 +158,8 @@ impl ResourceRepository for SqliteStorage {
             LifecycleState::Trashed => (None, Some(now.as_str())),
         };
         let connection = self.connection.lock().map_err(map_lock_error)?;
-        let changed = connection
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let changed = transaction
             .execute(
                 "UPDATE resources
                  SET lifecycle_state = ?1, updated_at = ?2, archived_at = ?3, deleted_at = ?4
@@ -162,6 +174,13 @@ impl ResourceRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
         ensure_resource_changed(changed)?;
+        self.emitir_update(
+            &transaction,
+            "resource",
+            id.as_uuid(),
+            &[("lifecycleState", serde_json::json!(lifecycle.as_str()))],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         query_resource(&connection, id)
     }
 
@@ -265,6 +284,11 @@ impl ResourceRepository for SqliteStorage {
         transaction
             .execute("DELETE FROM resources WHERE id = ?1", [id.to_string()])
             .map_err(map_sql_error)?;
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("resource", id.as_uuid()),
+            mos_sync::OpBody::Delete,
+        )?;
         transaction.commit().map_err(map_sql_error)?;
         Ok(())
     }
@@ -673,7 +697,13 @@ mod tests {
 /// A regra de proveniencia (a Capture precisa estar ativa, e uma Capture deriva
 /// no maximo um Resource) mora aqui, e nao no comando, para que os dois caminhos
 /// nao possam divergir.
+/// Insere o Resource e emite a operacao, na MESMA transacao.
+///
+/// Emitir aqui dentro, e nao no chamador, e o que garante que um caminho novo
+/// de criacao nao nasca sem rastro: quem esquecer de emitir tera esquecido
+/// tambem de inserir.
 pub(crate) fn insert_resource(
+    storage: &SqliteStorage,
     transaction: &Transaction<'_>,
     resource: NewResource,
 ) -> Result<ResourceId, CoreError> {
@@ -732,6 +762,25 @@ pub(crate) fn insert_resource(
         )
         .map_err(map_sql_error)?;
     insert_resource_search(transaction, transaction.last_insert_rowid())?;
+    storage.emitir(
+        transaction,
+        mos_sync::EntityRef::new("resource", id.as_uuid()),
+        mos_sync::OpBody::Create {
+            fields: [
+                ("kind".to_owned(), serde_json::json!(resource.kind.as_str())),
+                ("title".to_owned(), serde_json::json!(resource.title)),
+                ("url".to_owned(), serde_json::json!(resource.url)),
+                ("note".to_owned(), serde_json::json!(resource.note)),
+                (
+                    "sourceCaptureId".to_owned(),
+                    serde_json::json!(resource.source_capture_id.map(|value| value.to_string())),
+                ),
+                ("createdAt".to_owned(), serde_json::json!(now)),
+            ]
+            .into_iter()
+            .collect(),
+        },
+    )?;
     if let Some(capture_id) = resource.source_capture_id {
         transaction
             .execute(
@@ -741,6 +790,14 @@ pub(crate) fn insert_resource(
                 params![now, capture_id.to_string()],
             )
             .map_err(map_sql_error)?;
+        // A Capture muda de estado junto, e a mudanca dela viaja como dela: sao
+        // duas entidades, e do outro lado elas se reconciliam separadas.
+        storage.emitir_update(
+            transaction,
+            "capture",
+            capture_id.as_uuid(),
+            &[("processingState", serde_json::json!("processed"))],
+        )?;
     }
     Ok(id)
 }

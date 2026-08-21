@@ -274,7 +274,7 @@ impl IngestionRepository for SqliteStorage {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         expect_state(&transaction, id, &["preserved"])?;
-        let resource_id = insert_resource(&transaction, resource)?;
+        let resource_id = insert_resource(self, &transaction, resource)?;
         apply_plan(&transaction, resource_id, plan)?;
         finish(
             &transaction,

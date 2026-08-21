@@ -18,6 +18,14 @@ impl ResourceId {
             .map(Self)
             .map_err(|_| CoreError::new(ErrorCode::InvalidInput, "Resource ID invalido.", false))
     }
+
+    /// O UUID cru, para quem enderessa este Resource FORA do M/OS.
+    ///
+    /// Existe para a sincronizacao: o id que viaja entre dispositivos e o mesmo
+    /// que identifica aqui. Ver `mos-sync`.
+    pub fn as_uuid(&self) -> Uuid {
+        self.0
+    }
 }
 
 impl Default for ResourceId {
