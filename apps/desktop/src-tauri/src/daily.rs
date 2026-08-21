@@ -428,3 +428,78 @@ pub fn resolver_objetivo<R: Runtime>(
         None => Ok(achado.one().expect("sem erro ha exatamente um").clone()),
     }
 }
+
+// ------------------------------------------------------------------- semana
+
+/// Como achar o Project de um vinculo de objetivo.
+///
+/// Vive aqui, e nao no servico, porque so este lado conhece Tasks e Projects.
+/// Um objetivo ligado a uma Task resolve pelo Project DA TASK — e e essa
+/// agregacao que faz "o que dominou" dizer algo: tres Tasks diferentes do mesmo
+/// Project sao uma semana daquele Project, e nao tres assuntos.
+///
+/// As duas listas sao lidas UMA vez e capturadas. Resolver por consulta a cada
+/// objetivo faria uma semana de vinte objetivos custar quarenta idas ao banco
+/// para desenhar cinco linhas.
+fn resolvedor_de_project<R: Runtime>(
+    app: &AppHandle<R>,
+) -> impl Fn(&ObjectiveLink) -> Option<String> {
+    let (tasks, projects) = match app.try_state::<AppState>() {
+        Some(state) => (
+            state.work.tasks(true).unwrap_or_default(),
+            state.work.projects(true).unwrap_or_default(),
+        ),
+        None => (Vec::new(), Vec::new()),
+    };
+
+    move |link: &ObjectiveLink| {
+        let project_id = match link.kind {
+            LinkKind::Project => mos_core::ProjectId::parse(&link.id).ok(),
+            LinkKind::Task => tasks
+                .iter()
+                .find(|task| task.id.to_string() == link.id)
+                .and_then(|task| task.project_id),
+            // Capture, Resource e Meeting nao levam a Project por um caminho
+            // que valha uma agregacao semanal.
+            _ => None,
+        }?;
+        projects
+            .iter()
+            .find(|project| project.id == project_id)
+            .map(|project| project.name.clone())
+    }
+}
+
+/// A semana pedida, ou a corrente quando nenhuma vem.
+#[tauri::command]
+pub fn weekly_week<R: Runtime>(
+    app: AppHandle<R>,
+    week: Option<String>,
+) -> Result<mos_core::WeekSummary, CoreError> {
+    let alvo = match week.as_deref().map(str::trim).filter(|valor| !valor.is_empty()) {
+        Some(valor) => mos_core::Week::parse(valor)?,
+        None => mos_core::Week::containing(&hoje(&app))?,
+    };
+    let project_of = resolvedor_de_project(&app);
+    crate::services(&app)?.daily.week(&alvo, &project_of)
+}
+
+/// A semana que acabou e nao foi fechada, se houver.
+#[tauri::command]
+pub fn weekly_pending<R: Runtime>(app: AppHandle<R>) -> Result<Option<mos_core::Week>, CoreError> {
+    let corrente = mos_core::Week::containing(&hoje(&app))?;
+    crate::services(&app)?.daily.pending_week(&corrente)
+}
+
+#[tauri::command]
+pub fn weekly_close<R: Runtime>(
+    app: AppHandle<R>,
+    week: String,
+    summary: String,
+) -> Result<mos_core::WeekSummary, CoreError> {
+    let alvo = mos_core::Week::parse(&week)?;
+    crate::services(&app)?.daily.close_week(&alvo, &summary)?;
+    avisar(&app);
+    let project_of = resolvedor_de_project(&app);
+    crate::services(&app)?.daily.week(&alvo, &project_of)
+}

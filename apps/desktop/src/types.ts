@@ -1100,3 +1100,52 @@ export type EndDayInput = {
   mood?: DayMood | "";
   summary?: string;
 };
+
+// ===========================================================================
+// Weekly Review — o fecho da semana
+// ===========================================================================
+//
+// Espelha `crates/mos-core/src/weekly.rs`.
+
+/** A data da SEGUNDA-FEIRA da semana, `AAAA-MM-DD`. Nunca número ISO. */
+export type Week = string;
+
+export type WeeklyReview = {
+  id: string;
+  week: Week;
+  /** Vazio é legítimo: fechar a semana é o gesto, escrever é opcional. */
+  summary: string;
+  closedAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Dominant = {
+  label: string;
+  /** Em quantos dias isto foi o objetivo principal. */
+  mainDays: number;
+  days: number;
+};
+
+export type Recurring = {
+  title: string;
+  timesCarried: number;
+};
+
+/**
+ * A semana em narrativa. **Nenhum placar** — não existe `X de Y` aqui, e a
+ * ausência é a decisão: `ATTENTION-SYSTEM.md` §19 proíbe resumo de
+ * produtividade em digest semanal. `daysWithSession` é fato sobre o uso do
+ * sistema, e não sobre o trabalho.
+ */
+export type WeekSummary = {
+  week: Week;
+  daysWithSession: number;
+  dominated: Dominant[];
+  recurring: Recurring[];
+  dropped: string[];
+  blockedDays: Day[];
+  review: WeeklyReview | null;
+  /** Nenhuma sessão na semana. A tela usa isto para NÃO oferecer o fecho. */
+  empty: boolean;
+};

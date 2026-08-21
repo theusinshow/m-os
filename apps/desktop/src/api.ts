@@ -5,7 +5,7 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
   VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
-  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, Task, TaskState, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, Task, TaskState, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -117,6 +117,23 @@ export const api = {
   },
   dailyReopen(sessionId: string) {
     return invoke<DailyToday>("daily_reopen", { sessionId });
+  },
+
+  // ------------------------------------------------------------ Weekly Review
+  //
+  // `weeklyWeek()` sem argumento devolve a semana CORRENTE: quem decide que
+  // semana e hoje e o backend, que le o fuso publicado por `surfaceSetLocale` —
+  // mesmo motivo dos comandos do dia.
+
+  weeklyWeek(week?: Week) {
+    return invoke<WeekSummary>("weekly_week", { week: week ?? null });
+  },
+  /** A semana que acabou e nao foi fechada, ou `null`. */
+  weeklyPending() {
+    return invoke<Week | null>("weekly_pending");
+  },
+  weeklyClose(week: Week, summary: string) {
+    return invoke<WeekSummary>("weekly_close", { week, summary });
   },
 
   // ===========================================================================
