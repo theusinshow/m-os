@@ -827,8 +827,19 @@ kbd {
    aparecia como a pagina do M-Finance espremida numa faixa com scrollbar
    propria. O `:has()` mantem a correcao presa a esta pagina: as demais
    continuam crescendo com o conteudo, que e o que elas precisam. */
+/* Quem precisa de ALTURA DEFINIDA, e nao so de altura minima.
+   `.page-surface` da apenas `min-height: 100%`, e contra um pai assim o
+   `height: 100%` do filho resolve como `auto`: a grade encolhe ate o conteudo,
+   a linha `1fr` some e o `align-self: center` dos vazios nao tem contra o que
+   centralizar. Era por isso que "Inbox limpa." nascia colada na trilha, em vez
+   de no meio da tela como o desenho pede. O Finance ja tinha descoberto isso
+   sozinho; as quatro telas vazias ficaram de fora. */
 .content:has(.finance-page),
-.page-surface:has(> .finance-page) {
+.page-surface:has(> .finance-page),
+.page-surface:has(> .inbox-empty-page),
+.page-surface:has(> .projects-empty-page),
+.page-surface:has(> .workspaces-empty-page),
+.page-surface:has(> .apps-empty-page) {
   height: 100%;
   min-height: 0;
 }
