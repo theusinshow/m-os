@@ -139,6 +139,11 @@ const OUTLINE_16: Record<string, ReactNode> = {
   plus: <path d="M8 4v8M4 8h8" />,
   close: <path d="m4 4 8 8M12 4l-8 8" />,
   trash: <><path d="M4.5 5.5h7l-.5 8h-6z" /><path d="M2.5 5.5h11" /><path d="M6.5 2.5h3l.4 3" /></>,
+  /* Os tres pontos. Circulos PREENCHIDOS, e nao contornados: a 16px com traco de
+     1.25 um circulo de raio 1 vira um anel borrado, e tres anéis borrados nao
+     leem como "mais opcoes" — leem como sujeira. E o unico do conjunto que
+     preenche, e por isso ele traz o proprio `fill`. */
+  more: <><circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none" /><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none" /><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none" /></>,
 };
 
 export type SmallIconName = keyof typeof OUTLINE_16 & IconName;

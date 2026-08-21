@@ -3029,6 +3029,10 @@ function DesktopApp() {
   const [dropOcupado, setDropOcupado] = useState(false);
   /* A ocupacao vem do estado que o shell ja tem: `delivered` e o toast, `undo` e
      o recibo, `dropOcupado` e o painel. Nada aqui mede a tela. */
+  /* Argos aparece em TODA tela, sem excecao. A colisao com o composer do Hermes
+     nao se resolve tirando o bicho: quem se muda e o layout. `.hermes-main`
+     reserva o canto dele, e a coluna da conversa desliza o tanto que faltar —
+     zero pixel numa janela larga, onde nunca houve disputa. Ver `App.css`. */
   const argosCanto = cantoPara({
     direitaOcupada: Boolean(delivered) || dropOcupado,
     esquerdaOcupada: Boolean(undo),
@@ -3341,7 +3345,7 @@ function DesktopApp() {
     return new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date()).toUpperCase().replace(",", " ·");
   }, [page]);
   const pageContent = useMemo(() => {
-    if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} />;
+    if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} openTask={(id) => { const task = tasks.find((candidate) => candidate.id === id); if (task) setDrawerTask(task); }} />;
     if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} setHiddenWidgets={setHiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} openFinancePage={() => setPage("finance")} openCalendarPage={() => setPage("calendario")} openMeetingsPage={() => setPage("reunioes")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} />;
     if (page === "tempo") return <TempoPage projects={projects} openProject={openProject} receipt={showReceipt} />;
     if (page === "finance") return <FinancePage />;

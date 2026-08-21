@@ -5103,7 +5103,45 @@ input[type="checkbox"]:disabled {
    Sodio so aparece quando ha estado.
    ============================================================ */
 
+/* ===========================================================================
+   HERMES — conversa, workspace de agente e interface de comando
+   ===========================================================================
+
+   O esqueleto e "Marginalia": coluna estreita a esquerda para tudo que o
+   sistema FAZ, coluna de leitura para tudo que ele DIZ. Nunca se misturam, e e
+   por isso que a atividade de ferramenta nao empurra a prosa para baixo
+   enquanto a resposta chega.
+
+   O redesign de 2026-08-20 manteve o esqueleto e mexeu no que estava dentro
+   dele: a pergunta ganhou moldura, o efeito ganhou materialidade, o composer
+   virou o ponto de comando e o contexto desceu para dentro dele. O que NAO
+   entrou: bolha de messenger, avatar, gradiente, glow e qualquer cor nova. O
+   sodio continua sendo so foco, estado ativo, acao principal e a assinatura do
+   Hermes. */
+
+/* O Hermes e uma superficie de altura fixa com rolagem POR DENTRO da thread: o
+   composer mora no rodape dela, e nao no fim de uma pagina que cresce. Sem
+   altura definida no pai, o `height: 100%` dele resolvia como `auto`, a
+   superficie inteira encolhia para a altura do conteudo e boiava no topo de uma
+   pagina em branco. Era essa a origem do "muito espaco vazio": nao havia
+   espaco morto nenhum — havia uma tela de 200px dentro de uma de 1400.
+   O `padding-bottom` sai junto, e so aqui: ele existe para a lista longa nao
+   morar debaixo do leque, e nesta tela quem rola e a thread, nao a pagina. */
+.page-surface:has(> .hermes-page) {
+  height: 100%;
+  min-height: 0;
+  padding-bottom: 0;
+}
+
 .hermes-page {
+  /* A medida da conversa mora AQUI, e nao em `.hermes-thread`: o composer, a
+     conversa vazia, os seletores e o painel de offline precisam do mesmo calc e
+     nenhum deles e filho da thread. Declarada la, a variavel nao existia para
+     eles e o `max-width` inteiro caia — era por isso que o composer atravessava
+     a tela num monitor largo. */
+  --hermes-margem: 132px;
+  --hermes-leitura: min(70ch, 100%);
+  --hermes-canvas: calc(var(--hermes-margem) + var(--space-loose) + 70ch);
   position: relative;
   isolation: isolate;
   display: grid;
@@ -5117,15 +5155,14 @@ input[type="checkbox"]:disabled {
   grid-template-columns: minmax(0, 1fr);
 }
 
-/* Ordem de sacrificio, sempre a mesma: conversas, depois inspector, depois
-   margem (§19). A coluna de leitura nunca e sacrificada. */
+/* Ordem de sacrificio, sempre a mesma: conversas, depois margem. A coluna de
+   leitura nunca e sacrificada. */
 @media (max-width: 1279px) {
   .hermes-page {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* Vira gaveta abaixo de 1280, entao usa o degrau de gaveta da escala. Um 20
-     literal acerta o valor de hoje e erra no dia em que a escala mudar. */
+  /* Vira gaveta abaixo de 1280, entao usa o degrau de gaveta da escala. */
   .hermes-rail {
     position: absolute;
     z-index: var(--z-overlay);
@@ -5138,15 +5175,8 @@ input[type="checkbox"]:disabled {
 }
 
 @keyframes hermesRailEnter {
-  from {
-    opacity: 0;
-    transform: translateX(calc(var(--space-1) * -1));
-  }
-
-  to {
-    opacity: 1;
-    transform: none;
-  }
+  from { opacity: 0; transform: translateX(calc(var(--space-1) * -1)); }
+  to { opacity: 1; transform: none; }
 }
 
 .hermes-rail-backdrop {
@@ -5155,16 +5185,16 @@ input[type="checkbox"]:disabled {
   inset: 0;
   border: 0;
   background: var(--overlay-backdrop);
-  cursor: default;
-  animation: viewEnter var(--dur-enter) var(--ease-enter);
 }
 
-/* ---------- Plano 2 · conversas ---------- */
+/* ---------- Conversas ---------- */
 
 .hermes-rail {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
+  gap: var(--space-3);
   min-height: 0;
+  padding: var(--space-4) var(--space-3);
   border-right: var(--line) solid var(--border);
 }
 
@@ -5172,70 +5202,81 @@ input[type="checkbox"]:disabled {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  height: var(--topbar-height);
-  padding: 0 var(--space-3) 0 var(--space-4);
-  border-bottom: var(--line) solid var(--border);
 }
 
 .hermes-rail-head .micro-label {
   flex: 1;
+  color: var(--text-system);
+  letter-spacing: var(--tracking-micro);
 }
 
-/* Alvo de 28px com desenho de 16: o minimo de mouse do design foundations, sem
-   o icone de 20 sufocar a moldura. */
 .hermes-rail-head button {
   display: grid;
   place-items: center;
-  width: var(--height-control-sm);
-  height: var(--height-control-sm);
-  border: var(--line) solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--signal-ink);
-  cursor: pointer;
+  width: var(--target-min);
+  height: var(--target-min);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-secondary);
+  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
 }
 
 .hermes-rail-head button:hover {
-  border-color: var(--signal-ink);
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .hermes-rail-search {
-  height: var(--height-input);
-  padding: 0 var(--space-4);
-  border: 0;
-  border-bottom: var(--line) solid var(--border);
-  background: transparent;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
   color: var(--text);
-  font: var(--text-meta);
+  font: var(--text-small);
 }
 
 .hermes-rail-search::placeholder {
   color: var(--text-placeholder);
 }
 
+.hermes-rail-search:focus-visible {
+  border-color: var(--border-strong);
+  outline: var(--marker) solid var(--signal-ink);
+  outline-offset: var(--line);
+}
+
 .hermes-rail-list {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  min-height: 0;
   overflow-y: auto;
-  padding: var(--space-3) 0 var(--space-4);
 }
 
 .hermes-rail-group {
-  padding: 0 var(--space-3);
-  margin-bottom: var(--space-4);
+  display: grid;
+  gap: var(--space-1);
 }
 
 .hermes-rail-group .micro-label {
-  display: block;
-  padding: 0 var(--space-1);
-  margin-bottom: var(--space-2);
+  padding: 0 var(--space-2) var(--space-1);
+  color: var(--text-disabled);
+  letter-spacing: var(--tracking-micro);
 }
 
 .hermes-rail-row {
-  display: flex;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  border-radius: var(--radius);
 }
 
 .hermes-rail-row[data-active] {
-  background: var(--surface-active);
+  background: var(--surface-raised);
 }
 
 .hermes-rail-row:hover:not([data-active]) {
@@ -5244,23 +5285,25 @@ input[type="checkbox"]:disabled {
 
 .hermes-rail-open {
   display: grid;
-  grid-template-columns: var(--space-2) minmax(0, 1fr);
-  column-gap: var(--space-2);
-  flex: 1;
+  gap: 2px;
   min-width: 0;
-  padding: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
   border: 0;
-  background: transparent;
+  background: none;
   text-align: left;
-  cursor: pointer;
 }
 
+/* A regua de selecao. Marcador de 2px, e nao fundo colorido: o M/OS marca o
+   ativo com aresta em todo lugar, e um fundo sodio aqui gritaria numa lista
+   que e pura navegacao. */
 .hermes-rail-open::before {
   content: "";
-  grid-row: 1 / 3;
-  align-self: center;
-  width: var(--space-1);
-  height: var(--space-1);
+  position: absolute;
+  top: var(--space-2);
+  bottom: var(--space-2);
+  left: 0;
+  width: var(--marker);
+  border-radius: var(--radius-sm);
   background: transparent;
 }
 
@@ -5269,11 +5312,9 @@ input[type="checkbox"]:disabled {
 }
 
 .hermes-rail-title {
-  grid-column: 2;
   overflow: hidden;
   color: var(--text-secondary);
-  font: 400 13.5px/1.3 var(--font-product);
-  letter-spacing: var(--tracking-body);
+  font: var(--text-small);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -5283,7 +5324,6 @@ input[type="checkbox"]:disabled {
 }
 
 .hermes-rail-meta {
-  grid-column: 2;
   color: var(--text-disabled);
   font: var(--text-micro);
   letter-spacing: var(--tracking-meta);
@@ -5292,13 +5332,14 @@ input[type="checkbox"]:disabled {
 .hermes-rail-drop {
   display: grid;
   place-items: center;
-  width: var(--height-control-sm);
-  height: var(--height-control-sm);
+  width: var(--target-min);
+  height: var(--target-min);
+  padding: 0;
   border: 0;
-  background: transparent;
+  background: none;
   color: var(--text-disabled);
   opacity: 0;
-  cursor: pointer;
+  transition: opacity var(--dur-instant) linear, color var(--dur-instant) linear;
 }
 
 .hermes-rail-row:hover .hermes-rail-drop,
@@ -5310,123 +5351,193 @@ input[type="checkbox"]:disabled {
   color: var(--danger);
 }
 
-/* ---------- Plano 3 · leitura ---------- */
+/* ---------- Coluna principal ---------- */
 
+/* Coluna em FLEX, e nao em grid de linhas numeradas.
+   Com `grid-template-rows`, a regiao viva de acessibilidade — que e
+   `position: absolute` e portanto NAO vira item de grade — deslocava a conta:
+   a thread caia na linha `auto`, o composer herdava o `1fr` e crescia ate o
+   rodape da tela. Em flex o tamanho e declarado no elemento que precisa dele,
+   e nao na posicao que ele ocupa, entao um filho fora de fluxo nao move nada. */
 .hermes-main {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  /* O canto do Argos, reservado.
+     Ele mora em `position: fixed` a 20px da borda direita e mede 72px, e o
+     rodape direito da conversa e justamente o botao de enviar. Esconder o bicho
+     no Hermes resolveria a colisao e custaria a presenca dele numa tela — ele
+     aparece em TODAS.
+     Entao quem se muda e a coluna: o `max()` reserva exatamente o que faltar
+     para o canto ficar livre, e nada mais. Numa janela larga a folga natural
+     dos lados ja passa de 92px e a conta da zero — a conversa nao sai do centro
+     onde nunca houve disputa. Numa estreita ela desliza o minimo necessario, e
+     thread e composer deslizam JUNTOS porque os dois se centram no mesmo
+     `--hermes-canvas`. */
+  /* O corpo do bicho mais a margem que ele guarda da borda. */
+  --hermes-canto: calc(var(--argos-corpo) + var(--space-4));
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
+  /* A conta: a coluna se centra, entao a folga que sobra a direita e
+     `(largura - canvas) / 2`. Para essa folga chegar aos 92px do canto, o
+     deslocamento precisa valer o DOBRO do que falta — compensar so o lado
+     direito empurraria metade, e foi assim que o bicho continuou em cima do
+     botao de enviar na primeira tentativa. O teto e o proprio canto: passar
+     disso so espremeria a conversa sem liberar mais nada. */
+  padding-right: clamp(
+    0px,
+    calc(var(--hermes-canto) * 2 - (100% - var(--hermes-canvas))),
+    var(--hermes-canto)
+  );
+}
+
+.hermes-main > .hermes-thread-area {
+  flex: 1;
+}
+
+.hermes-main > .hermes-header,
+.hermes-main > .hermes-composer,
+.hermes-main > .hermes-jump {
+  flex: none;
+}
+
+/* ---------- Cabecalho ---------- */
+
+.hermes-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.hermes-header-nome {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.hermes-header-nome .micro-label {
+  flex: none;
+  color: var(--signal-ink);
+  letter-spacing: var(--tracking-micro);
 }
 
 .hermes-rail-toggle {
   flex: none;
-  height: var(--height-control-sm);
-  padding: 0 var(--space-2);
-  border: var(--line) solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: transparent;
+  padding: var(--space-1) var(--space-2);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius);
+  background: none;
   color: var(--text-secondary);
   font: var(--text-micro);
-  letter-spacing: var(--tracking-meta);
-  cursor: pointer;
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  transition: border-color var(--dur-instant) linear, color var(--dur-instant) linear;
 }
 
 .hermes-rail-toggle:hover {
-  border-color: var(--signal-ink);
+  border-color: var(--border-strong);
   color: var(--text);
 }
 
-/* A regua VENDO responde a uma pergunta so: o que o Hermes esta vendo agora. */
-.hermes-seeing {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: var(--topbar-height);
-  padding: 0 var(--space-4);
-  border-bottom: var(--line) solid var(--border);
-}
-
-/* A rolagem horizontal fica confinada aos chips. Titulo e estado de conexao
-   ficam ancorados no fim da regua e nao saem de vista. */
-.hermes-seeing-chips {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: var(--space-2);
+.hermes-title,
+.hermes-header-nome form input {
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.hermes-seeing-chips::-webkit-scrollbar {
-  display: none;
-}
-
-.hermes-seeing form input,
-.hermes-title {
-  max-width: 220px;
+  max-width: 44ch;
+  padding: 0;
   overflow: hidden;
   border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  font: var(--text-small);
+  background: none;
+  color: var(--text);
+  font: var(--text-ui);
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
 }
 
 .hermes-title:hover {
+  color: var(--signal-ink);
+}
+
+.hermes-header-nome form input {
+  border-bottom: var(--line) solid var(--signal-fill);
+}
+
+/* Menu da conversa. Ancorado no cabecalho, e nao numa sobreposicao global: as
+   tres acoes sao sobre a conversa aberta, e um menu que voa para o centro da
+   tela perde esse vinculo. */
+.hermes-menu {
+  position: relative;
+  flex: none;
+}
+
+.hermes-menu-abrir {
+  display: grid;
+  place-items: center;
+  width: var(--target-min);
+  height: var(--target-min);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-disabled);
+  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
+}
+
+.hermes-menu-abrir:hover,
+.hermes-menu-abrir[aria-expanded="true"] {
+  background: var(--surface-hover);
   color: var(--text);
 }
 
-.hermes-seeing form input {
-  border-bottom: var(--line) solid var(--signal-ink);
-  cursor: text;
+.hermes-menu-lista {
+  position: absolute;
+  z-index: var(--z-overlay);
+  top: calc(100% + var(--space-1));
+  right: 0;
+  display: grid;
+  min-width: 14ch;
+  padding: var(--space-1);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-overlay);
+  animation: hermesTurno var(--dur-enter) var(--ease-enter) both;
 }
 
-/* Chip: borda solida e manual, tracejada e automatico. Sem cor extra, sem
-   icone, sem legenda (§06). */
-.hermes-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex: none;
-  padding: 3px var(--space-2);
-  border: var(--line) solid var(--signal-ink);
-  border-radius: var(--radius-sm);
-  color: var(--signal-ink);
-  font: var(--text-meta);
-  letter-spacing: var(--tracking-meta);
-}
-
-.hermes-chip[data-origin="automatic"] {
-  border-style: dashed;
-  border-color: var(--border-strong);
-  color: var(--text-secondary);
-}
-
-.hermes-chip-kind {
-  opacity: 0.7;
-}
-
-.hermes-chip-label {
-  max-width: 22ch;
-  overflow: hidden;
-  color: inherit;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.hermes-chip button {
+.hermes-menu-lista button {
+  padding: var(--space-2) var(--space-3);
   border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  line-height: 1;
-  padding: 0;
-  cursor: pointer;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-secondary);
+  font: var(--text-small);
+  text-align: left;
+  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
 }
+
+.hermes-menu-lista button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.hermes-menu-lista button[data-perigo]:hover {
+  color: var(--danger);
+}
+
+.hermes-estado {
+  flex: none;
+  color: var(--text-disabled);
+  letter-spacing: var(--tracking-micro);
+}
+
+.hermes-estado[data-state="online"] {
+  color: var(--text-system);
+}
+
+/* ---------- A thread ---------- */
 
 .hermes-thread-area {
   min-height: 0;
@@ -5434,6 +5545,8 @@ input[type="checkbox"]:disabled {
   padding: var(--space-6) var(--space-4) var(--space-5);
 }
 
+/* Vazio, o bloco desce para perto do composer: a conversa comeca de baixo, e
+   nao do topo de uma pagina em branco. */
 .hermes-thread-area[data-empty] {
   display: grid;
   align-items: end;
@@ -5445,30 +5558,41 @@ input[type="checkbox"]:disabled {
   width: 100%;
 }
 
-/* Em ultrawide a thread nao estica: sobra canvas dos dois lados. Uma linha de
-   200 caracteres nao e um recurso (§19). */
+/* A ancora visual da tela.
+   Em ultrawide a thread nao estica: sobra canvas dos dois lados. Uma linha de
+   200 caracteres nao e um recurso. A soma da margem com a coluna de leitura
+   fica na faixa de 720-900px pedida pelo redesign. */
 .hermes-thread {
-  max-width: calc(108px + var(--space-loose) + 62ch);
+  max-width: var(--hermes-canvas);
   margin: 0 auto;
 }
 
 .hermes-turn {
   display: grid;
-  grid-template-columns: 108px minmax(0, 62ch);
+  grid-template-columns: var(--hermes-margem) minmax(0, var(--hermes-leitura));
   gap: var(--space-loose);
-  /* 22px dentro do turno, 26px entre turnos (§03). Sem separador: o gutter ja
-     separa. No modelo, pergunta e resposta sao mensagens separadas — entao o
-     par se forma pelo ritmo, com o respiro depois da pergunta menor que o
-     respiro depois da resposta. */
+  /* 22px dentro do turno, 30px entre turnos. Sem separador: a margem ja separa.
+     No modelo, pergunta e resposta sao mensagens separadas — entao o par se
+     forma pelo ritmo, com o respiro depois da pergunta menor que o respiro
+     depois da resposta. */
   margin-bottom: 22px;
+  animation: hermesTurno var(--dur-enter) var(--ease-enter) both;
 }
 
 .hermes-turn[data-role="assistant"] {
-  margin-bottom: 26px;
+  margin-bottom: 30px;
 }
 
-/* Abaixo de 1280 a margem colapsa para uma linha superior e a thread vira a
-   gramatica B — sem sacrificar a coluna de leitura (§19). */
+/* Entrada de mensagem: so opacidade e 4px de deslocamento. O redesign proibe
+   bounce, glow e "AI magic" — o movimento aqui existe para dizer "isto e novo",
+   e nada alem disso. */
+@keyframes hermesTurno {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Abaixo de 1280 a margem colapsa para uma linha superior — sem sacrificar a
+   coluna de leitura. */
 @media (max-width: 1279px) {
   .hermes-turn {
     grid-template-columns: minmax(0, 1fr);
@@ -5481,7 +5605,32 @@ input[type="checkbox"]:disabled {
     gap: var(--space-3);
     text-align: left;
   }
+
+  /* A margem virou uma linha, entao os passos viram uma FILEIRA em vez de uma
+     pilha. Escondê-los era a saida facil e custava caro: numa janela estreita o
+     usuario deixaria de ver que o sistema esta trabalhando, que e a unica coisa
+     que a margem tem para dizer enquanto a resposta nao chega. */
+  .hermes-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    justify-content: flex-start;
+    min-width: 0;
+  }
+
+  /* Na fileira cada passo volta a ser uma caixa: `display: contents` dissolveria
+     o par marca+nome e os dois flutuariam separados entre os outros passos. */
+  .hermes-steps li {
+    display: flex;
+    gap: var(--space-1);
+  }
+
+  .hermes-turn[data-role="user"] .hermes-question-wrap {
+    justify-content: flex-start;
+  }
 }
+
+/* ---------- A margem: o que o sistema fez ---------- */
 
 .hermes-gutter {
   display: flex;
@@ -5498,136 +5647,189 @@ input[type="checkbox"]:disabled {
   color: var(--signal-ink);
 }
 
+/* A grade e da LISTA, e cada `li` e `display: contents`.
+   Com a grade dentro do `li`, cada passo dimensionava as proprias colunas e os
+   marcadores saiam desalinhados um sob o outro — "✓listar_projects" colado,
+   "✓  listar_tasks" com dois espacos. Colunas so se alinham entre linhas quando
+   sao da mesma grade. */
 .hermes-steps {
   display: grid;
-  gap: 2px;
+  grid-template-columns: 1ch minmax(0, 1fr);
+  justify-content: end;
+  gap: 3px var(--space-2);
   margin: 0;
   padding: 0;
+  color: var(--text-disabled);
+  line-height: 1.35;
   list-style: none;
 }
 
 .hermes-steps li {
-  color: var(--text-disabled);
+  display: contents;
 }
 
-.hermes-steps li[data-state="running"] {
-  color: var(--signal-ink);
-  animation: hermesTick 1.2s ease-in-out infinite;
+.hermes-steps .hermes-step-name {
+  text-align: left;
 }
 
-.hermes-steps li[data-state="error"] {
+.hermes-step-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hermes-steps li[data-state="running"] > span {
+  color: var(--text-secondary);
+  animation: hermesPulso 1.4s ease-in-out infinite;
+}
+
+.hermes-steps li[data-state="error"] > span {
   color: var(--danger);
 }
 
-@keyframes hermesTick {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
+@keyframes hermesPulso {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
 
-/* "pensando" — nenhum texto falso, nenhum "digitando..." (§17). */
 .hermes-thinking {
-  color: var(--signal-ink);
-  animation: hermesTick 1.2s ease-in-out infinite;
+  color: var(--text-system);
 }
 
-/* Recibo de uma linha, que se expande no clique. O detalhe tecnico nunca e
-   despejado na thread (§08). */
+/* O recibo colapsado. Fala em FONTES, e nao em ferramentas: diz o que o usuario
+   ganhou, e nao como o backend trabalhou. */
 .hermes-receipt {
-  border: 0;
-  border-bottom: var(--line) dashed var(--border-strong);
-  background: transparent;
-  color: var(--text-disabled);
-  font: inherit;
-  letter-spacing: inherit;
+  max-width: 100%;
   padding: 0;
-  cursor: pointer;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  /* Sublinhado no TEXTO, e nao no bloco: numa margem de 132px o recibo quebra
+     em duas linhas, e um `border-bottom` desenharia uma regua reta atravessando
+     a segunda — grossa e vermelha, no caso da falha. `text-decoration`
+     acompanha o texto. */
+  text-decoration: underline dotted var(--border-strong);
+  text-underline-offset: 3px;
+  color: var(--text-disabled);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-meta);
+  text-align: right;
+  text-overflow: ellipsis;
+  transition: color var(--dur-instant) linear;
 }
 
 .hermes-receipt:hover {
-  color: var(--signal-ink);
+  color: var(--text-secondary);
 }
+
+/* Falha nunca fica escondida atras de um numero: ela e o unico caso em que a
+   linha colapsada precisa provocar um clique. */
+.hermes-receipt[data-alerta] {
+  color: var(--danger);
+  text-decoration-color: var(--danger);
+}
+
+/* ---------- A coluna de leitura: o que ele diz ---------- */
 
 .hermes-said {
   min-width: 0;
-}
-
-/* Voce fala em 21px. */
-.hermes-question {
-  margin: 0;
   color: var(--text);
-  font: var(--text-capture);
-  letter-spacing: var(--tracking-capture);
+  font: var(--text-small);
 }
 
-/* Ele responde em 15px. */
 .hermes-said .md {
+  font: var(--text-small);
+}
+
+/* A PERGUNTA.
+   Nao e a bolha do messenger — nao ha canto de 18px, cor de marca nem cauda
+   apontando para avatar. E uma superficie um degrau acima do fundo, recuada a
+   direita, com a largura do CONTEUDO: uma pergunta de tres palavras nao vira um
+   retangulo de trinta centimetros. O problema que ela resolve e real: numa
+   thread longa, pergunta e resposta em prosa corrida se confundem. */
+.hermes-question-wrap {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.hermes-question {
+  max-width: 52ch;
+  margin: 0;
+  padding: var(--space-3) var(--space-inset);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
   color: var(--text);
   font: var(--text-body);
   letter-spacing: var(--tracking-body);
-  text-wrap: pretty;
+  white-space: pre-wrap;
 }
 
+/* O texto chegando. Cru de proposito: o Markdown assenta uma vez, no fim. */
 .hermes-streaming {
   margin: 0;
   color: var(--text);
-  font: var(--text-body);
-  letter-spacing: var(--tracking-body);
-  text-wrap: pretty;
   white-space: pre-wrap;
 }
 
 .hermes-caret {
   display: inline-block;
   width: 7px;
-  height: 15px;
+  height: 1em;
   margin-left: 2px;
   background: var(--signal-fill);
   vertical-align: text-bottom;
-  animation: hermesCaret 1.1s steps(1, end) infinite;
+  animation: hermesCaret 1s steps(1) infinite;
 }
 
 @keyframes hermesCaret {
-  0%, 46% { opacity: 1; }
-  47%, 100% { opacity: 0.12; }
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
 }
 
 .hermes-system-line {
-  margin: var(--space-2) 0 0;
-  color: var(--text-secondary);
-  font: var(--text-small);
+  margin: 0 0 var(--space-2);
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
 }
 
 .hermes-failed {
-  margin: var(--space-2) 0 0;
+  margin: 0 0 var(--space-2);
   color: var(--danger);
   font: var(--text-small);
 }
 
+/* Raciocinio e do modelo, e nao do usuario: fechado por padrao, e nunca
+   promovido a conteudo da conversa. */
 .hermes-reasoning {
-  margin-top: var(--space-3);
+  margin: 0 0 var(--space-3);
+  border-left: var(--line) solid var(--border-strong);
+  padding-left: var(--space-3);
 }
 
 .hermes-reasoning summary {
   color: var(--text-disabled);
   font: var(--text-micro);
   letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
   cursor: pointer;
 }
 
 .hermes-reasoning p {
   margin: var(--space-2) 0 0;
-  color: var(--text-secondary);
+  color: var(--text-system);
   font: var(--text-small);
   white-space: pre-wrap;
 }
 
-/* Acoes em mono 10px, no hover do turno. Nunca icones flutuantes (§03). */
+/* Acoes da mensagem: so no hover e no foco. Permanentes, elas viram uma barra
+   de ferramentas embaixo de cada turno e a thread deixa de ser uma leitura. */
 .hermes-actions {
   display: flex;
-  gap: var(--space-4);
-  margin-top: var(--space-3);
+  gap: var(--space-3);
+  margin-top: var(--space-2);
   opacity: 0;
-  transition: opacity var(--dur-instant) var(--ease-state);
+  transition: opacity var(--dur-instant) linear;
 }
 
 .hermes-turn:hover .hermes-actions,
@@ -5635,14 +5837,19 @@ input[type="checkbox"]:disabled {
   opacity: 1;
 }
 
+.hermes-turn[data-role="user"] .hermes-actions {
+  justify-content: flex-end;
+}
+
 .hermes-actions button {
+  padding: 0;
   border: 0;
-  background: transparent;
+  background: none;
   color: var(--text-disabled);
   font: var(--text-micro);
   letter-spacing: var(--tracking-micro);
-  padding: 0;
-  cursor: pointer;
+  text-transform: uppercase;
+  transition: color var(--dur-instant) linear;
 }
 
 .hermes-actions button:hover {
@@ -5652,119 +5859,317 @@ input[type="checkbox"]:disabled {
 .hermes-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
+  justify-content: flex-end;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
 }
 
-/* ---------- Pergunta e permissao ---------- */
+/* ---------- Chip de contexto ---------- */
+
+/* Borda solida e manual, tracejada e automatico. Sem cor extra, sem icone, sem
+   legenda: so uma das duas o usuario pode remover, e um `x` no automatico
+   prometeria um controle que nao existe. */
+.hermes-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 32ch;
+  padding: 2px var(--space-2);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  font: var(--text-micro);
+}
+
+.hermes-chip[data-origin="automatic"] {
+  border-style: dashed;
+  background: none;
+}
+
+.hermes-chip[data-compacto] {
+  max-width: 24ch;
+}
+
+.hermes-chip-kind {
+  flex: none;
+  color: var(--text-disabled);
+  letter-spacing: var(--tracking-micro);
+}
+
+.hermes-chip-label {
+  overflow: hidden;
+  color: var(--text-secondary);
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hermes-chip button {
+  flex: none;
+  padding: 0 0 0 var(--space-1);
+  border: 0;
+  background: none;
+  color: var(--text-disabled);
+  font: var(--text-micro);
+  transition: color var(--dur-instant) linear;
+}
+
+.hermes-chip button:hover {
+  color: var(--danger);
+}
+
+/* ---------- Proposta: o que e novo ----------
+   As regras de `.hermes-action` moram MAIS ABAIXO neste arquivo, e sao a copia
+   canonica. Aqui ficam so as duas coisas que o redesign acrescentou. */
+
+.hermes-action[data-status="pending"] {
+  border-color: var(--signal-ring);
+}
+
+.hermes-action-mark {
+  color: var(--signal-ink);
+  font: var(--text-meta);
+}
+
+.hermes-action[data-status="failed"] .hermes-action-mark {
+  color: var(--danger);
+}
+
+/* O erro fica NO cartao, com o caminho de volta ao lado. Mandar procurar o
+   motivo em outro lugar desfaz o motivo de o cartao existir. */
+.hermes-action-falha {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  color: var(--danger);
+  font: var(--text-small);
+}
+
+.hermes-action-falha button {
+  padding: 0;
+  border: 0;
+  border-bottom: var(--line) solid currentcolor;
+  background: none;
+  color: inherit;
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+
+/* Botao de superficie, para o que NAO e cartao de proposta: abrir uma entidade
+   e responder ao Hermes. Escrito aqui, e nao junto de `.hermes-action-foot`,
+   porque aquela regra tem outra dona e outro lugar no arquivo. */
+.hermes-entidade-abrir,
+.hermes-ask-choices button,
+.hermes-ask form button {
+  min-height: var(--target-min);
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-secondary);
+  font: var(--text-small);
+  transition: background var(--dur-instant) linear, border-color var(--dur-instant) linear,
+    color var(--dur-instant) linear;
+}
+
+.hermes-entidade-abrir:hover,
+.hermes-ask-choices button:hover,
+.hermes-ask form button:hover {
+  border-color: var(--border-control);
+  color: var(--text);
+}
+
+.hermes-ask-choices button[data-primary] {
+  border-color: var(--signal-fill);
+  background: var(--signal-fill);
+  color: var(--on-signal);
+  font-weight: 500;
+}
+
+.hermes-ask-choices button[data-primary]:hover {
+  background: var(--signal-hover);
+}
+
+/* ---------- O que a acao alcancou ---------- */
+
+.hermes-resultado {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.hermes-resultado-cards {
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* O card do efeito entra alguns milissegundos depois do texto: primeiro o
+   sistema diz o que fez, depois mostra com o que. A ordem e a mesma da fala. */
+.hermes-entidade {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  animation: hermesTurno var(--dur-enter) var(--ease-enter) 80ms both;
+}
+
+.hermes-entidade header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.hermes-entidade-marca {
+  color: var(--success);
+  font: var(--text-meta);
+}
+
+.hermes-entidade header .micro-label {
+  color: var(--text-disabled);
+  letter-spacing: var(--tracking-micro);
+}
+
+.hermes-entidade-titulo {
+  margin: 0;
+  color: var(--text);
+  font: var(--text-ui);
+}
+
+.hermes-entidade-meta {
+  margin: 0;
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+.hermes-entidade-abrir {
+  justify-self: start;
+  margin-top: var(--space-1);
+}
+
+/* ---------- Pergunta e aprovacao do Hermes ---------- */
 
 .hermes-ask {
   display: grid;
   gap: var(--space-3);
-  grid-column: 1 / -1;
+  max-width: var(--hermes-canvas);
+  margin: 0 auto var(--space-4);
   padding: var(--space-4);
-  border: var(--line) solid var(--border-strong);
-  border-left: var(--marker) solid var(--signal-ink);
-  background: var(--surface);
-  margin-bottom: 26px;
+  border: var(--line) solid var(--signal-ring);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  animation: hermesTurno var(--dur-enter) var(--ease-enter) both;
+}
+
+.hermes-ask .micro-label {
+  color: var(--signal-ink);
+  letter-spacing: var(--tracking-micro);
 }
 
 .hermes-ask p {
   margin: 0;
   color: var(--text);
-  font: var(--text-body);
+  font: var(--text-small);
 }
 
 .hermes-ask-choices {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--space-2);
 }
 
-.hermes-ask button,
-.hermes-ask-choices button {
-  border: var(--line) solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  font: var(--text-meta);
-  letter-spacing: var(--tracking-meta);
-  padding: var(--space-2) var(--space-3);
-  cursor: pointer;
-}
-
-.hermes-ask button:hover {
-  border-color: var(--signal-ink);
-  color: var(--signal-ink);
-}
-
-.hermes-ask button[data-primary] {
-  border-color: var(--signal-fill);
-  background: var(--signal-fill);
-  color: var(--on-signal);
-}
-
 .hermes-ask form {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-2);
 }
 
 .hermes-ask form input {
-  flex: 1;
-  height: var(--height-control-sm);
-  padding: 0 var(--space-2);
+  min-height: var(--target-min);
+  padding: 0 var(--space-3);
   border: var(--line) solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: transparent;
+  border-radius: var(--radius);
+  background: var(--surface);
   color: var(--text);
-  font: var(--text-ui);
+  font: var(--text-small);
 }
 
-/* ---------- Vazio ---------- */
+.hermes-ask form input::placeholder {
+  color: var(--text-placeholder);
+}
+
+/* ---------- Conversa vazia ---------- */
 
 .hermes-empty-state {
-  max-width: 560px;
+  display: grid;
+  gap: var(--space-5);
+  max-width: var(--hermes-canvas);
+  margin: 0 auto;
+  padding-left: calc(var(--hermes-margem) + var(--space-loose));
+}
+
+@media (max-width: 1279px) {
+  .hermes-empty-state {
+    padding-left: 0;
+  }
 }
 
 .hermes-empty-title {
-  max-width: 34ch;
-  margin: 0 0 var(--space-3);
+  margin: 0;
   color: var(--text);
-  font: var(--text-capture);
-  letter-spacing: var(--tracking-capture);
-  text-wrap: balance;
+  font: var(--text-title);
+  letter-spacing: var(--tracking-title);
 }
 
+/* Sugestoes sao linhas, e nao cards: o redesign pede silencio visual, e tres
+   cards grandes numa tela vazia sao o oposto disso. Elas sao perguntas de
+   VERDADE, lidas do M/OS de agora — nao exemplos genericos de chatbot. */
 .hermes-suggestions {
   display: grid;
-  max-width: 480px;
+  gap: 0;
+  max-width: 62ch;
+  border-top: var(--line) solid var(--border);
+}
+
+.hermes-suggestions .micro-label {
+  padding: var(--space-3) 0 var(--space-2);
+  color: var(--text-disabled);
+  letter-spacing: var(--tracking-micro);
 }
 
 .hermes-suggestions button {
-  display: flex;
-  gap: var(--space-3);
-  align-items: baseline;
-  padding: 11px 0;
+  display: grid;
+  grid-template-columns: 3ch minmax(0, 1fr);
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
   border: 0;
-  border-top: var(--line) solid var(--border-strong);
-  background: transparent;
-  color: var(--text);
-  font: var(--text-body);
+  border-bottom: var(--line) solid var(--border);
+  background: none;
+  color: var(--text-secondary);
+  font: var(--text-small);
   text-align: left;
-  cursor: pointer;
+  transition: color var(--dur-instant) linear;
 }
 
 .hermes-suggestions button:last-child {
-  border-bottom: var(--line) solid var(--border-strong);
+  border-bottom: 0;
 }
 
 .hermes-suggestions button span {
-  color: var(--signal-ink);
+  color: var(--text-disabled);
   font: var(--text-micro);
   letter-spacing: var(--tracking-meta);
 }
 
 .hermes-suggestions button:hover:enabled {
+  color: var(--text);
+}
+
+.hermes-suggestions button:hover:enabled span {
   color: var(--signal-ink);
 }
 
@@ -5775,193 +6180,312 @@ input[type="checkbox"]:disabled {
 
 .hermes-quiet {
   margin: 0;
-  color: var(--text-secondary);
+  color: var(--text-disabled);
   font: var(--text-small);
 }
 
+/* ---------- Voltar para o fim ---------- */
+
 .hermes-jump {
   justify-self: center;
-  margin-bottom: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  margin: 0 auto calc(var(--space-2) * -1);
+  padding: var(--space-1) var(--space-3);
   border: var(--line) solid var(--border-strong);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--surface-raised);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
   color: var(--text-secondary);
-  font: var(--text-meta);
+  font: var(--text-micro);
   letter-spacing: var(--tracking-meta);
-  cursor: pointer;
+  animation: hermesTurno var(--dur-enter) var(--ease-enter) both;
+  transition: color var(--dur-instant) linear, border-color var(--dur-instant) linear;
 }
 
-/* ---------- Composer · trilho (§04, decisao A) ----------
-   O campo nao e um objeto, e uma linha do sistema. Nada aparece antes de
-   existir: chips sobem como uma regua acima da regua. */
+.hermes-jump:hover {
+  border-color: var(--border-control);
+  color: var(--text);
+}
 
+/* ---------- SMART COMPOSER ---------- */
+
+/* A cupula do leque tambem tem lugar guardado.
+   Ela mora colada no rodape central da coluna, com 36px de altura, e o rodape
+   central da conversa e o composer — as duas affordances caiam no mesmo pixel.
+   Mesma solucao do canto do Argos: quem se muda e o layout, e nao a affordance
+   global. Os 36px + folga sao o preco de o leque continuar existindo aqui, e
+   ele e pago uma vez, embaixo de tudo. */
 .hermes-composer {
+  position: relative;
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-4) var(--space-4);
+  padding: var(--space-3) var(--space-4) calc(36px + var(--space-3));
 }
 
-/* A regua e o indicador de foco, e nao decoracao.
- *
- * Em repouso ela e neutra; no foco vira sodio (§04: REPOUSO x FOCO). Deixa-la
- * sempre em sodio gastava o unico sinal disponivel e, junto com o `outline:
- * none` do campo, o composer focado ficava indistinguivel do composer parado. */
+/* O trilho e o ponto de comando da tela, e o desenho diz isso: moldura propria,
+   altura de duas linhas mesmo vazio, e o contexto anexado morando DENTRO dele.
+   Antes era um campo de uma linha, indistinguivel de uma caixa de busca. */
 .hermes-trilho {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  max-width: calc(108px + var(--space-loose) + 62ch);
+  display: grid;
+  gap: var(--space-2);
+  max-width: var(--hermes-canvas);
   width: 100%;
   margin: 0 auto;
-  padding-top: 14px;
-  border-top: var(--line) solid var(--border-strong);
-  transition: border-color var(--dur-instant) linear;
+  padding: var(--space-3);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  transition: border-color var(--dur-state) var(--ease-state),
+    box-shadow var(--dur-state) var(--ease-state);
 }
 
 .hermes-trilho:focus-within {
-  border-top-color: var(--signal-ink);
-}
-
-/* A barra de sodio e o unico elemento que muda por estado: cheia, apagada. */
-.hermes-bar {
-  flex: none;
-  width: 6px;
-  height: 22px;
-  background: var(--signal-fill);
-}
-
-/* Gerando: a regua nao acende nem com foco. O campo aceita texto, mas o envio
-   nao esta disponivel, e prometer o contrario seria pior que nao sinalizar. */
-.hermes-trilho[data-running],
-.hermes-trilho[data-running]:focus-within {
-  border-top-color: var(--border-strong);
-}
-
-.hermes-trilho[data-running] .hermes-bar,
-.hermes-trilho[data-offline] .hermes-bar {
-  background: var(--border-strong);
+  border-color: var(--signal-fill);
+  box-shadow: 0 0 0 var(--line) var(--signal-ring);
 }
 
 .hermes-trilho[data-offline] {
-  border-top-color: var(--border-strong);
+  border-style: dashed;
+  opacity: 0.7;
 }
 
-.hermes-trilho textarea {
-  flex: 1;
-  min-width: 0;
-  max-height: 40vh;
+.hermes-trilho-contexto {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.hermes-trilho-contexto .micro-label {
+  margin-right: var(--space-1);
+  color: var(--text-disabled);
+  letter-spacing: var(--tracking-micro);
+}
+
+.hermes-campo {
+  width: 100%;
+  padding: 0;
+  overflow-y: hidden;
   border: 0;
-  background: transparent;
+  background: none;
   color: var(--text);
-  font: var(--text-capture);
-  letter-spacing: var(--tracking-capture);
+  font: var(--text-body);
+  letter-spacing: var(--tracking-body);
   resize: none;
-  field-sizing: content;
 }
 
-.hermes-trilho textarea::placeholder {
+.hermes-campo[data-rolando] {
+  overflow-y: auto;
+}
+
+.hermes-campo::placeholder {
   color: var(--text-placeholder);
 }
 
-.hermes-trilho textarea:focus {
+.hermes-campo:focus {
   outline: none;
 }
 
+.hermes-trilho-pe {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.hermes-mais {
+  display: grid;
+  place-items: center;
+  width: var(--target-min);
+  height: var(--target-min);
+  padding: 0;
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-secondary);
+  transition: border-color var(--dur-instant) linear, color var(--dur-instant) linear;
+}
+
+.hermes-mais:hover:enabled {
+  border-color: var(--border-control);
+  color: var(--text);
+}
+
+.hermes-mais:disabled {
+  opacity: 0.5;
+}
+
+.hermes-dica {
+  color: var(--text-disabled);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-meta);
+}
+
+.hermes-dica b {
+  color: var(--text-system);
+  font-weight: 500;
+}
+
+/* O modo e a unica promessa que o sistema faz sobre o que vai acontecer com os
+   seus dados. Fica a direita, junto do botao de enviar: e a ultima coisa lida
+   antes de apertar. */
 .hermes-mode {
-  flex: none;
+  margin-left: auto;
   color: var(--text-disabled);
   font: var(--text-micro);
   letter-spacing: var(--tracking-micro);
   cursor: help;
 }
 
-/* Enviar so ganha preenchimento sodio quando ha conteudo valido (§04). */
 .hermes-send {
   display: grid;
   place-items: center;
-  flex: none;
-  width: 24px;
-  height: 24px;
-  border: var(--line) solid var(--border-strong);
+  width: var(--target-min);
+  height: var(--target-min);
+  padding: 0;
+  border: 0;
   border-radius: var(--radius);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
+  background: var(--surface-active);
+  color: var(--text-disabled);
+  font: var(--text-ui);
+  transition: background var(--dur-instant) linear, color var(--dur-instant) linear,
+    transform var(--dur-instant) var(--ease-state);
 }
 
 .hermes-send:enabled {
-  border-color: var(--signal-fill);
   background: var(--signal-fill);
   color: var(--on-signal);
+}
+
+.hermes-send:enabled:hover {
+  background: var(--signal-hover);
+}
+
+.hermes-send:enabled:active {
+  transform: scale(0.94);
 }
 
 .hermes-send:disabled {
   cursor: not-allowed;
 }
 
-/* Parar substitui enviar no mesmo lugar. Nunca aparece um sexto botao. */
 .hermes-stop {
-  flex: none;
-  padding: 5px 9px;
-  border: var(--line) solid var(--signal-ink);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target-min);
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--border-strong);
   border-radius: var(--radius);
-  background: transparent;
-  color: var(--signal-ink);
-  font: var(--text-micro);
-  letter-spacing: var(--tracking-micro);
-  cursor: pointer;
+  background: none;
+  color: var(--text-secondary);
+  font: var(--text-small);
+  transition: border-color var(--dur-instant) linear, color var(--dur-instant) linear;
 }
 
-.hermes-mentions {
+.hermes-stop:hover {
+  border-color: var(--danger);
+  color: var(--text);
+}
+
+.hermes-stop kbd {
+  padding: 0 var(--space-1);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-disabled);
+  font: var(--text-micro);
+}
+
+/* ---------- Seletores: @ , / e + ---------- */
+
+.hermes-picker {
   display: grid;
-  max-width: calc(108px + var(--space-loose) + 62ch);
+  gap: 2px;
+  max-width: var(--hermes-canvas);
   width: 100%;
   margin: 0 auto;
-  padding: var(--space-1);
+  padding: var(--space-2);
   border: var(--line) solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--surface-raised);
+  box-shadow: var(--shadow-overlay);
+  animation: hermesTurno var(--dur-enter) var(--ease-enter) both;
 }
 
-.hermes-mentions button {
-  display: flex;
+.hermes-picker button {
+  display: grid;
+  /* `max-content` e nao um numero: a coluna do tipo carrega tanto `PROJ` quanto
+     `/calendar`, e um 6ch fixo cortava o comando mais longo pela metade. Com
+     `max-content` a grade se alinha pela linha mais larga da lista inteira, que
+     e exatamente o que faz as duas colunas lerem como colunas. */
+  grid-template-columns: minmax(6ch, max-content) minmax(0, 1fr);
   gap: var(--space-3);
   align-items: baseline;
   padding: var(--space-2);
   border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
+  border-radius: var(--radius);
+  background: none;
   text-align: left;
-  cursor: pointer;
 }
 
-.hermes-mentions button[data-active] {
+.hermes-picker button[data-active],
+.hermes-picker button:hover {
   background: var(--surface-hover);
 }
 
-.hermes-mention-kind {
-  color: var(--signal-ink);
+.hermes-picker-kind {
+  color: var(--text-disabled);
   font: var(--text-micro);
-  letter-spacing: var(--tracking-meta);
+  letter-spacing: var(--tracking-micro);
 }
 
-.hermes-mention-name {
-  flex: 1;
+.hermes-picker-name {
   overflow: hidden;
   color: var(--text);
-  font: 400 13.5px/1.3 var(--font-product);
+  font: var(--text-small);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.hermes-picker button[data-active] .hermes-picker-kind {
+  color: var(--signal-ink);
+}
+
+.hermes-picker-anexo input {
+  min-height: var(--target-min);
+  margin-bottom: var(--space-1);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-bottom: var(--line) solid var(--border);
+  background: none;
+  color: var(--text);
+  font: var(--text-small);
+}
+
+.hermes-picker-anexo input::placeholder {
+  color: var(--text-placeholder);
+}
+
+.hermes-picker-anexo input:focus {
+  border-bottom-color: var(--signal-fill);
+  outline: none;
+}
+
+.hermes-picker .hermes-quiet {
+  padding: var(--space-2);
+}
+
+/* ---------- Fora do ar ---------- */
+
 .hermes-offline {
   display: grid;
-  gap: var(--space-1);
-  max-width: calc(108px + var(--space-loose) + 62ch);
+  gap: var(--space-2);
+  max-width: var(--hermes-canvas);
   width: 100%;
   margin: 0 auto;
+  padding: var(--space-3);
+  border: var(--line) dashed var(--border-strong);
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font: var(--text-small);
 }
@@ -5975,62 +6499,51 @@ input[type="checkbox"]:disabled {
 
 .hermes-offline-head span {
   min-width: 0;
-  text-wrap: pretty;
 }
 
 .hermes-offline button {
   flex: none;
+  min-height: var(--target-min);
+  padding: 0 var(--space-3);
   border: var(--line) solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--signal-ink);
-  font: var(--text-micro);
-  letter-spacing: var(--tracking-micro);
-  padding: var(--space-1) var(--space-2);
-  cursor: pointer;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text);
+  font: var(--text-small);
+  transition: border-color var(--dur-instant) linear;
 }
 
-.hermes-offline-detail {
-  max-width: var(--measure);
-  color: var(--text-disabled);
+.hermes-offline button:hover {
+  border-color: var(--signal-fill);
 }
 
 .hermes-offline-detail summary {
-  width: max-content;
   color: var(--text-disabled);
   font: var(--text-micro);
-  letter-spacing: var(--tracking-meta);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
   cursor: pointer;
 }
 
 .hermes-offline-detail code {
   display: block;
-  max-height: var(--space-7);
   margin-top: var(--space-2);
-  overflow: auto;
   color: var(--text-system);
   font: var(--text-micro);
-  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
+/* ---------- Estreito ---------- */
+
 @media (max-width: 960px) {
-  .hermes-seeing,
+  .hermes-header,
   .hermes-composer {
     padding-inline: var(--space-3);
   }
 
-  .hermes-seeing {
-    gap: var(--space-1);
-  }
-
-  .hermes-seeing-chips .hermes-quiet {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .hermes-title {
-    max-width: 14ch;
+    max-width: 18ch;
   }
 
   .hermes-thread-area,
@@ -6038,8 +6551,32 @@ input[type="checkbox"]:disabled {
     padding-inline: var(--space-3);
   }
 
+  .hermes-dica {
+    display: none;
+  }
+
   .hermes-offline-head {
+    flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+/* Paridade total com quem pediu menos movimento. O caret para de piscar, o
+   passo corrente para de pulsar e as entradas viram corte seco — nenhuma
+   informacao depende de animacao para chegar. */
+@media (prefers-reduced-motion: reduce) {
+  .hermes-turn,
+  .hermes-entidade,
+  .hermes-ask,
+  .hermes-picker,
+  .hermes-jump,
+  .hermes-rail {
+    animation: none;
+  }
+
+  .hermes-caret,
+  .hermes-steps li[data-state="running"] > span {
+    animation: none;
   }
 }
 
@@ -6824,14 +7361,18 @@ input[type="checkbox"]:disabled {
   opacity: 0.5;
 }
 
-.hermes-action-outcome {
+/* O desfecho de uma proposta ja resolvida. Trocou de nome com o redesign —
+   `.hermes-action-outcome` era um paragrafo solto, e agora ele e a primeira
+   linha do bloco de resultado, acima dos cards das entidades que a acao
+   alcancou. A coloracao por desfecho e o que sobreviveu inteiro. */
+.hermes-resultado-resumo {
   margin: 0;
   color: var(--text-secondary);
   font: var(--text-small);
 }
 
-.hermes-action[data-status="failed"] .hermes-action-outcome,
-.hermes-action[data-status="refused"] .hermes-action-outcome {
+.hermes-action[data-status="failed"] .hermes-resultado-resumo,
+.hermes-action[data-status="refused"] .hermes-resultado-resumo {
   color: var(--danger);
 }
 
