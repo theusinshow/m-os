@@ -119,7 +119,7 @@ Estado real em 2026-08-21. `—` significa que não existe; **não** significa
 
 | Feature | Core | Desktop | iOS | Sync | Hermes |
 | --- | --- | --- | --- | --- | --- |
-| Captures / Inbox | ✓ | ✓ | — | fundação | ✓ |
+| Captures / Inbox | ✓ | ✓ | — | **emite** | ✓ |
 | Tasks | ✓ | ✓ | — | fundação | ✓ |
 | Projects | ✓ | ✓ | — | fundação | ✓ |
 | Resources / Library | ✓ | ✓ | — | fundação | ✓ |
@@ -143,8 +143,14 @@ Estado real em 2026-08-21. `—` significa que não existe; **não** significa
 
 **"fundação"** quer dizer: as tabelas, o relógio, as operações, a reconciliação
 e o motor de sincronização existem e estão testados — inclusive contra dois
-bancos reais fazendo papel de dois dispositivos. O que não existe é o transporte
-de rede, o servidor, e a emissão automática de operações a partir do domínio.
+bancos reais fazendo papel de dois dispositivos. O que falta nessas linhas é a
+entidade *emitir* operações quando muda.
+
+**"emite"** quer dizer que a entidade já registra cada mutação na fila de saída,
+**dentro da mesma transação da mudança**. Captures é a primeira, e é o padrão
+que as outras onze vão seguir — uma de cada vez, para não parar o desktop.
+
+O que continua não existindo em nenhuma linha: transporte de rede e servidor.
 
 **"impossível"** quer dizer restrição de plataforma, não pendência. Monitorar
 processos e registrar atalho global não existem no iOS — a manifestação mobile

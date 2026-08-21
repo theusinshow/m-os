@@ -52,6 +52,26 @@ impl CaptureRepository for SqliteStorage {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         insert_capture(&transaction, &capture, &now)?;
+        // A operacao entra na MESMA transacao. Gravar a Capture e falhar aqui
+        // deixaria uma Capture que nunca sai deste dispositivo, e ninguem
+        // ficaria sabendo. Ver `sync_emit.rs`.
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("capture", capture.id.as_uuid()),
+            mos_sync::OpBody::Create {
+                fields: [
+                    ("content".to_owned(), serde_json::json!(capture.content)),
+                    ("source".to_owned(), serde_json::json!(capture.source.as_str())),
+                    (
+                        "processingState".to_owned(),
+                        serde_json::json!(ProcessingState::Inbox.as_str()),
+                    ),
+                    ("capturedAt".to_owned(), serde_json::json!(now)),
+                ]
+                .into_iter()
+                .collect(),
+            },
+        )?;
         transaction.commit().map_err(map_sql_error)?;
         query_capture(&connection, capture.id)
     }
@@ -183,13 +203,21 @@ impl CaptureRepository for SqliteStorage {
     ) -> Result<Capture, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
         let connection = self.connection.lock().map_err(map_lock_error)?;
-        let changed = connection
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let changed = transaction
             .execute(
                 "UPDATE captures SET processing_state = ?1, updated_at = ?2 WHERE id = ?3",
                 params![state.as_str(), now, id.to_string()],
             )
             .map_err(map_sql_error)?;
         ensure_changed(changed)?;
+        self.emitir_update(
+            &transaction,
+            "capture",
+            id.as_uuid(),
+            &[("processingState", serde_json::json!(state.as_str()))],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         query_capture(&connection, id)
     }
 
@@ -205,7 +233,8 @@ impl CaptureRepository for SqliteStorage {
             LifecycleState::Trashed => (None, Some(now.as_str())),
         };
         let connection = self.connection.lock().map_err(map_lock_error)?;
-        let changed = connection
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let changed = transaction
             .execute(
                 "UPDATE captures
                  SET lifecycle_state = ?1, updated_at = ?2, archived_at = ?3, deleted_at = ?4
@@ -214,6 +243,18 @@ impl CaptureRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
         ensure_changed(changed)?;
+        // Arquivar e mandar para a lixeira sao MUDANCA DE CAMPO, e nao
+        // `OpBody::Delete`. O `Delete` do sync e para exclusao definitiva; o
+        // ciclo de vida do M/OS e um campo, e reconcilia como qualquer outro —
+        // arquivar num dispositivo e restaurar no outro precisa ser decidido
+        // pelo instante, e nao pela regra de "apagar ganha".
+        self.emitir_update(
+            &transaction,
+            "capture",
+            id.as_uuid(),
+            &[("lifecycleState", serde_json::json!(state.as_str()))],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         query_capture(&connection, id)
     }
 
@@ -251,6 +292,15 @@ impl CaptureRepository for SqliteStorage {
         transaction
             .execute("DELETE FROM captures WHERE id = ?1", [id.to_string()])
             .map_err(map_sql_error)?;
+        // Aqui sim e `OpBody::Delete`: esta e a exclusao definitiva, a que o
+        // M/OS so aceita depois de arquivar. O outro dispositivo precisa SABER
+        // que sumiu — uma linha ausente e indistinguivel de uma que nunca
+        // chegou.
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("capture", id.as_uuid()),
+            mos_sync::OpBody::Delete,
+        )?;
         transaction.commit().map_err(map_sql_error)?;
         Ok(())
     }

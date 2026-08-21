@@ -1724,6 +1724,30 @@ pub fn run() {
                 )
                 .map_err(|error| std::io::Error::other(error.to_string()))?,
             );
+            // A identidade deste dispositivo e a emissao de operacoes.
+            //
+            // Registrar e idempotente: abrir o M/OS todo dia nao cria um
+            // dispositivo por dia. Ligar a emissao e o que faz cada mudanca
+            // deixar rastro na fila de saida — hoje so a Capture emite, e as
+            // outras entidades entram uma de cada vez. Ver `docs/SYNC.md`.
+            //
+            // Falhar aqui NAO impede o M/OS de abrir: sincronizacao e camada
+            // por cima, e um sistema que se recusa a funcionar porque nao
+            // conseguiu se identificar seria pior que um sem sincronizacao.
+            {
+                use mos_sync::DeviceRepository;
+
+                let nome = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Este PC".to_owned());
+                match storage.este_dispositivo(&nome, "windows", env!("CARGO_PKG_VERSION")) {
+                    Ok(device) => {
+                        if let Err(causa) = storage.habilitar_sync(device.id) {
+                            eprintln!("[sync] emissao desligada: {causa}");
+                        }
+                    }
+                    Err(causa) => eprintln!("[sync] dispositivo nao registrado: {causa}"),
+                }
+            }
+
             app.manage(hermes::HermesState::default());
             // Um relogio so para o processo inteiro. O agendador e o
             // servico precisam do MESMO: dois relogios discordariam sobre o

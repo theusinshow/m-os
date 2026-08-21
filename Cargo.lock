@@ -2435,6 +2435,7 @@ dependencies = [
  "mos-hermes",
  "mos-ingest",
  "mos-storage-sqlite",
+ "mos-sync",
  "mos-transcribe",
  "printpdf",
  "reqwest 0.12.28",

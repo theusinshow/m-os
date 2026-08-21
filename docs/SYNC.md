@@ -233,15 +233,43 @@ um cursor, aceitar reenvio sem duplicar.
 
 ---
 
-## 12. O que falta
+## 12. Emissão: a operação entra na mesma transação
+
+Uma regra, e ela não é detalhe de implementação:
+
+> **A operação é gravada na mesma transação da mudança.**
+
+Sem isso existem dois modos de falhar em silêncio:
+
+- Gravar a Capture e falhar ao enfileirar deixa uma Capture que **nunca sai
+  deste dispositivo**, e ninguém fica sabendo.
+- Enfileirar e falhar ao gravar manda para o outro lado uma mudança que **não
+  aconteceu aqui**.
+
+Uma transação torna os dois impossíveis. O relógio entra junto pelo mesmo
+motivo: se a operação commita e o relógio não, reabrir o app reemitiria aquele
+instante para outra operação — e duas operações com o mesmo instante e o mesmo
+dispositivo quebram a ordem total.
+
+`habilitar_sync` nunca chamado significa nenhuma emissão, e **nenhuma mutação
+falha por causa disso**. É o que permite ligar por entidade sem parar o desktop.
+
+Uma distinção que importa: **arquivar é mudança de campo, não `OpBody::Delete`**.
+O `Delete` é para a exclusão definitiva, a que o M/OS só aceita depois de
+arquivar. Se arquivar virasse `Delete`, a regra de "apagar ganha" faria o
+arquivamento vencer a restauração para sempre — e a Capture nunca mais voltaria.
+
+---
+
+## 13. O que falta
 
 - **Transporte real e servidor.** O `Transport` está definido; nenhuma
   implementação de rede existe.
 - **Auth.** Não existe.
-- **Alimentar a fila a partir do domínio.** A fila funciona e está testada, mas
-  quem escreve nela hoje é o teste. Ligar `mos-core` para emitir uma operação
-  junto com cada mutação é o próximo passo — e ele toca 12 repositórios, então
-  vai de um em um, começando por Capture (§14).
+- **Emitir operações nas outras onze entidades.** Capture já emite; Tasks,
+  Projects, Resources, Reminders, Calendar, Meetings, Conversations, Tracking,
+  Workspaces, Apps e Voice ainda não. Vai de uma em uma — o padrão está em
+  `sync_emit.rs` e em `tests/capture_emite_operacoes.rs`.
 - **Arquivos binários.** Resources com PDF, imagem e áudio não sincronizam como
   blob dentro de JSON (§44). Metadado e binário são camadas separadas, com
   upload, download, cache e checksum próprios. Nada disso está feito.

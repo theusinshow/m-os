@@ -9,6 +9,7 @@ mod meeting_repository;
 mod monitoring_repository;
 mod repository;
 mod resource_repository;
+mod sync_emit;
 mod sync_repository;
 mod tracking_repository;
 mod voice_repository;
@@ -72,6 +73,12 @@ pub struct SqliteStorage {
     backup_lock: Mutex<()>,
     database_path: PathBuf,
     backup_directory: PathBuf,
+    /// O relogio logico, quando a emissao de operacoes esta ligada.
+    ///
+    /// `None` significa sincronizacao desligada, e nao erro: o M/OS funciona
+    /// inteiro sem ela, e e isso que permite ligar a emissao por entidade, uma
+    /// de cada vez, sem parar o desktop. Ver `sync_emit.rs`.
+    sync: Mutex<Option<mos_sync::HlcClock>>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -107,6 +114,7 @@ impl SqliteStorage {
             backup_lock: Mutex::new(()),
             database_path,
             backup_directory,
+            sync: Mutex::new(None),
         })
     }
 
