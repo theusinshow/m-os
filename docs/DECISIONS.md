@@ -2717,3 +2717,76 @@ Project. Se for entidade nova, este é o precedente a reler.
 Ou se um objetivo passar a precisar de mais de um vínculo. Hoje ele tem um, pela
 mesma regra de especificidade do `ReminderTarget` — e mudar isso é o mesmo debate
 que a ADR-012 fechou ao recusar tabela genérica de arestas.
+
+## ADR-055 — A semana é a segunda-feira, e a revisão não mostra placar
+
+**Estado:** Accepted · 2026-08-21
+
+### Contexto
+
+O §29 do pedido da Daily Session preparou o modelo para uma revisão semanal sem
+construí-la. Duas perguntas ficaram abertas: como identificar uma semana, e o
+que mostrar nela.
+
+A segunda é a que tinha uma armadilha. A coisa mais óbvia de mostrar numa semana
+é `12 de 20 objetivos`, e o `ATTENTION-SYSTEM.md` §19 já proibia resumo de
+produtividade em digest semanal — *"nenhuma sequência, nenhuma medalha, nenhuma
+comparação com ontem"*.
+
+Havia também duas coisas chamadas "Weekly Review" nos documentos. `IDEAS.md` #56
+descreve um retrato de estado — Projects ativos, Tasks paradas, Inbox. O §29
+descreve uma retrospectiva sobre as sessões diárias. São features diferentes com
+o mesmo nome, e esta ADR decide a segunda.
+
+### Decisão
+
+**A semana é identificada pela data da segunda-feira**, e não por número ISO.
+Semanas 53 e o 1º de janeiro que pertence à semana 52 do ano anterior são duas
+armadilhas que a data da segunda simplesmente não tem. `Week::containing` é a
+única cópia da regra — nada de `date(day,'weekday 0','-6 days')` em SQL, porque
+a semana calculada em dois lugares é como as duas versões divergem.
+
+**A revisão é narrativa, e não placar.** O que dominou, o que voltou toda vez, o
+que foi largado, que dias travaram. Número aparece só quando ele é o assunto:
+*"carregado 4 vezes"* informa uma decisão a tomar; *"12 de 20"* mede o
+planejamento e não o trabalho, e ensina a inflar o denominador na segunda e a
+evitar objetivo difícil na quinta.
+
+**A entidade é minúscula porque a narrativa é derivada.** Uma semana e um texto.
+Guardar o resumo duplicaria dado para exibir noutra superfície e envelheceria:
+reabrir um objetivo de terça mudaria a semana, e o texto gravado continuaria
+dizendo o contrário.
+
+**O fecho é registro, e não decisão.** Encerrar a semana não toca em objetivo
+nenhum. O Start My Day já pergunta sobre os carry-overs todo dia, e uma segunda
+superfície decidindo o destino dos mesmos objetivos criaria dois lugares onde a
+mesma escolha é feita — com resultados possivelmente diferentes na mesma manhã.
+
+**Semana sem sessão nenhuma não oferece o fecho.** Não há o que revisar, e um
+botão ali ensinaria que o M/OS quer um registro por semana mesmo quando não
+houve semana — a carga de organização que o `VISION.md` §14 proíbe criar.
+
+### Consequências
+
+- Migration 0029 acrescenta uma tabela e não altera nenhuma existente.
+- `weekly_review` viaja na sincronização, com merge por campo. O UPSERT emite
+  com o id que FICOU gravado: numa correção o INSERT perde para o ON CONFLICT, e
+  emitir com o id sorteado criaria uma segunda entidade do outro lado.
+- A revisão não tem ação do Hermes, entrada no Command palette nem notificação.
+  As três ausências são decisões, e estão no §4 do spec.
+- O `history()` da Daily Session deixou de fazer N+1 de reflexões, porque a
+  semana precisava de sete de uma vez.
+- **Argos passou a ceder o canto direito para as gavetas.** Defeito visto na
+  janela real e não em teste nenhum: a gaveta é ancorada à direita e vai até o
+  rodapé, então o bicho ficava por cima do botão primário dela. A gaveta da Task
+  já tinha o problema antes desta feature.
+
+### Revisar quando
+
+Aparecer a terceira camada temporal — mês, ou trimestre. A pergunta será se ela
+é outra entidade ou uma agregação desta, e o precedente aqui é que agregação
+ganha enquanto o registro couber num texto.
+
+Ou quando o `IDEAS.md` #56 for construído. Ele responde "onde eu estou" e esta
+responde "como foi" — e o dia em que ele existir não tem por que reaproveitar
+esta tela.

@@ -312,7 +312,8 @@ trava o valor.
 - **Auth.** Não existe.
 - **Emitir operações nas outras sete entidades.** Já emitem: Captures, Tasks,
   Projects, Reminders, Resources e a Daily Session (`daily_session`,
-  `daily_objective`, `daily_reflection` — ver `DAILY-SESSION.md`). Faltam
+  `daily_objective`, `daily_reflection` — ver `DAILY-SESSION.md`) e o fecho da
+  semana (`weekly_review`). Faltam
   Calendar, Meetings, Conversations, Tracking, Workspaces, Apps e Voice.
 - **O arquivo dos Resources.** Só o metadado viaja. PDF, imagem e áudio são
   outra camada (§44), com upload, download, cache e checksum. Não existe.

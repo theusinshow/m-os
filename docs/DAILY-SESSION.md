@@ -294,7 +294,21 @@ Home.
 | --- | --- |
 | percepção de capacidade do dia (§20) | exige agenda futura. `Event` não existe (D-4), e Meeting é gravação — fato passado. Somar "2h30 em reuniões" a partir de reuniões que já aconteceram descreveria ontem, não hoje |
 | notificações | ver §8 |
-| Weekly Review | o modelo já responde as sete perguntas do §29 — `carried_from` dá a corrente, `dropped` dá o abandono, o vínculo dá o Project, `sessions()` dá a contagem de dias. A **tela** não existe, e ela é outra feature |
 | Waiting For no contexto | o conceito não existe no `CORE.md` |
 | reordenar por teclado na sessão | o arrasto existe; as setas, não. A Home tem as duas (`Arrangeable`), e a paridade aqui é dívida registrada |
 | linkar objetivo a Capture/Resource/Meeting pela interface | o domínio, o banco e o Hermes aceitam os cinco tipos. O seletor da tela oferece Task e Project, que são os dois que a busca unificada devolve como candidatos úteis |
+
+---
+
+## 12. A Weekly Review
+
+Construída em 2026-08-21. Ver `docs/superpowers/specs/2026-08-21-weekly-review-design.md` e a ADR-055.
+
+Ela **consome** esta camada e não acrescenta nada a ela: `carried_from` dá a
+corrente, `dropped` dá o abandono, o vínculo dá o Project, e `sessions()` dá a
+contagem de dias. A única coisa que ela guarda é um texto por semana — a
+narrativa inteira é derivada.
+
+Ela também pagou uma dívida daqui: o `history()` fazia uma consulta de reflexão
+por dia listado, e a semana precisava de sete de uma vez. Agora são três
+consultas para N dias.
