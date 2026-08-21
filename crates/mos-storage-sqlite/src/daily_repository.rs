@@ -26,8 +26,8 @@
 use mos_core::{
     CoreError, DailyObjective, DailyObjectiveId, DailyReflection, DailyRepository, DailySession,
     DailySessionId, Day, DayMood, ErrorCode, NewDailyObjective, NewDailyReflection,
-    NewDailySession, ObjectiveLink, ObjectivePriority, ObjectiveStatus, SearchRequest,
-    SessionStatus,
+    NewDailySession, NewWeeklyReview, ObjectiveLink, ObjectivePriority, ObjectiveStatus,
+    SearchRequest, SessionStatus, Week, WeeklyReview, WeeklyReviewId,
 };
 use rusqlite::{params, Connection, Row};
 use time::OffsetDateTime;
@@ -49,6 +49,9 @@ const OBJECTIVE_COLUMNS: &str = "id, session_id, title, description, link_kind, 
 const KIND_SESSION: &str = "daily_session";
 const KIND_OBJECTIVE: &str = "daily_objective";
 const KIND_REFLECTION: &str = "daily_reflection";
+const KIND_WEEK: &str = "weekly_review";
+
+const WEEK_COLUMNS: &str = "id, week_start, summary, closed_at, created_at, updated_at";
 
 fn not_found(what: &str) -> CoreError {
     CoreError::new(ErrorCode::NotFound, what, false)
@@ -118,6 +121,26 @@ fn read_objective(row: &Row<'_>) -> rusqlite::Result<Result<DailyObjective, Core
             created_at: parse_time(&created_at)?,
             updated_at: parse_time(&updated_at)?,
             completed_at: completed_at.as_deref().map(parse_time).transpose()?,
+        })
+    })())
+}
+
+fn read_week(row: &Row<'_>) -> rusqlite::Result<Result<WeeklyReview, CoreError>> {
+    let id: String = row.get(0)?;
+    let week_start: String = row.get(1)?;
+    let summary: String = row.get(2)?;
+    let closed_at: String = row.get(3)?;
+    let created_at: String = row.get(4)?;
+    let updated_at: String = row.get(5)?;
+
+    Ok((|| {
+        Ok(WeeklyReview {
+            id: WeeklyReviewId::parse(&id)?,
+            week: Week::parse(&week_start)?,
+            summary,
+            closed_at: parse_time(&closed_at)?,
+            created_at: parse_time(&created_at)?,
+            updated_at: parse_time(&updated_at)?,
         })
     })())
 }
@@ -908,6 +931,158 @@ impl DailyRepository for SqliteStorage {
             atual = anterior;
         }
         Ok(elos)
+    }
+
+    fn reflections_of(
+        &self,
+        sessions: &[DailySessionId],
+    ) -> Result<Vec<DailyReflection>, CoreError> {
+        if sessions.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Lista montada por interpolacao pelo mesmo motivo do `objectives_of`:
+        // `IN (?)` nao aceita array em SQLite, e os ids sao UUIDs que ja
+        // passaram por `parse` — nao ha texto de usuario nesta string.
+        let lista = sessions
+            .iter()
+            .map(|id| format!("'{id}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT session_id, mood, summary, created_at, updated_at \
+                 FROM daily_reflections WHERE session_id IN ({lista})"
+            ))
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                let session_id: String = row.get(0)?;
+                let mood: Option<String> = row.get(1)?;
+                let summary: String = row.get(2)?;
+                let created_at: String = row.get(3)?;
+                let updated_at: String = row.get(4)?;
+                Ok((session_id, mood, summary, created_at, updated_at))
+            })
+            .map_err(map_sql_error)?;
+
+        let mut found = Vec::new();
+        for row in rows {
+            let (session_id, mood, summary, created_at, updated_at) = row.map_err(map_sql_error)?;
+            found.push(DailyReflection {
+                session_id: DailySessionId::parse(&session_id)?,
+                mood: mood.as_deref().map(DayMood::parse).transpose()?,
+                summary,
+                created_at: parse_time(&created_at)?,
+                updated_at: parse_time(&updated_at)?,
+            });
+        }
+        Ok(found)
+    }
+
+    fn sessions_between(&self, week: &Week) -> Result<Vec<DailySession>, CoreError> {
+        let fim = week.end()?;
+        self.query_sessions(
+            "WHERE day >= ?1 AND day <= ?2 ORDER BY day",
+            &[&week.start().as_str(), &fim.as_str()],
+        )
+    }
+
+    fn weekly_review(&self, week: &Week) -> Result<Option<WeeklyReview>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT {WEEK_COLUMNS} FROM weekly_reviews WHERE week_start = ?1"
+            ))
+            .map_err(map_sql_error)?;
+        let mut rows = statement
+            .query_map(params![week.start().as_str()], read_week)
+            .map_err(map_sql_error)?;
+        match rows.next() {
+            Some(row) => Ok(Some(row.map_err(map_sql_error)??)),
+            None => Ok(None),
+        }
+    }
+
+    fn save_weekly_review(
+        &self,
+        review: NewWeeklyReview,
+        now: OffsetDateTime,
+    ) -> Result<WeeklyReview, CoreError> {
+        let momento = format_time(now)?;
+        let fechado = format_time(review.closed_at)?;
+        let semana = review.week.start().as_str().to_owned();
+
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+
+        // `closed_at` fica FORA do UPDATE de proposito: corrigir o texto na
+        // quarta nao pode dizer que a semana foi fechada na quarta. E o `id`
+        // fica de fora pelo mesmo motivo — o registro continua sendo o mesmo, e
+        // trocar o id faria a sincronizacao ver uma entidade nova.
+        transaction
+            .execute(
+                "INSERT INTO weekly_reviews (id, week_start, summary, closed_at, created_at, \
+                 updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5) \
+                 ON CONFLICT(week_start) DO UPDATE SET summary = ?3, updated_at = ?5",
+                params![
+                    review.id.to_string(),
+                    semana,
+                    review.summary,
+                    fechado,
+                    momento,
+                ],
+            )
+            .map_err(map_sql_error)?;
+
+        // O id que FICOU gravado, e nao o que foi mandado: numa correcao o
+        // INSERT perde para o ON CONFLICT, e o id novo nunca chegou ao banco.
+        // Emitir com ele criaria uma segunda entidade do outro lado.
+        let gravado: String = transaction
+            .query_row(
+                "SELECT id FROM weekly_reviews WHERE week_start = ?1",
+                params![semana],
+                |row| row.get(0),
+            )
+            .map_err(map_sql_error)?;
+        let gravado = WeeklyReviewId::parse(&gravado)?;
+
+        self.emitir_update(
+            &transaction,
+            KIND_WEEK,
+            gravado.as_uuid(),
+            &[
+                // `weekStart` viaja porque e a identidade do registro: um
+                // dispositivo que recebe a operacao sem nunca ter visto esta
+                // semana precisa saber de que semana ela e — o id e um UUID e
+                // nao diz nada.
+                ("weekStart", serde_json::json!(semana)),
+                ("summary", serde_json::json!(review.summary)),
+                ("closedAt", serde_json::json!(fechado)),
+            ],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
+
+        drop(connection);
+        DailyRepository::weekly_review(self, &review.week)?
+            .ok_or_else(|| not_found("Fecho de semana nao encontrado."))
+    }
+
+    fn weekly_reviews(&self, limit: usize) -> Result<Vec<WeeklyReview>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT {WEEK_COLUMNS} FROM weekly_reviews ORDER BY week_start DESC LIMIT ?1"
+            ))
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map(params![(limit.min(520)) as i64], read_week)
+            .map_err(map_sql_error)?;
+        let mut found = Vec::new();
+        for row in rows {
+            found.push(row.map_err(map_sql_error)??);
+        }
+        Ok(found)
     }
 
     fn search_objectives(

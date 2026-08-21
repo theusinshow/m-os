@@ -1014,6 +1014,40 @@ pub trait DailyRepository: Send + Sync {
     /// aparece ao lado de um titulo.
     fn carry_depth(&self, id: crate::DailyObjectiveId) -> Result<usize, CoreError>;
 
+    /// As reflexoes de VARIAS sessoes, numa consulta.
+    ///
+    /// A semana precisa de sete de uma vez, e o `history()` fazia uma consulta
+    /// por dia listado. Mesma forma do `objectives_of`, e pelo mesmo motivo:
+    /// trinta dias de historico nao podem custar trinta idas ao banco.
+    fn reflections_of(
+        &self,
+        sessions: &[crate::DailySessionId],
+    ) -> Result<Vec<crate::DailyReflection>, CoreError>;
+
+    /// As sessoes de uma semana, da segunda ao domingo. As duas bordas entram.
+    ///
+    /// Recebe a `Week` e nao um par de datas: a semana e um tipo, e passar duas
+    /// datas soltas abriria a porta para alguem montar uma janela de seis dias
+    /// sem que nada reclamasse.
+    fn sessions_between(&self, week: &crate::Week) -> Result<Vec<crate::DailySession>, CoreError>;
+
+    /// O fecho de uma semana, se houver.
+    fn weekly_review(&self, week: &crate::Week)
+        -> Result<Option<crate::WeeklyReview>, CoreError>;
+
+    /// Grava o fecho, ou corrige o texto de um que ja existe.
+    ///
+    /// UPSERT por semana, e `closed_at` NAO se move na correcao: quando a
+    /// semana foi fechada e um fato, e o texto e outro.
+    fn save_weekly_review(
+        &self,
+        review: crate::NewWeeklyReview,
+        now: time::OffsetDateTime,
+    ) -> Result<crate::WeeklyReview, CoreError>;
+
+    /// Os fechos mais recentes, da semana mais nova para a mais antiga.
+    fn weekly_reviews(&self, limit: usize) -> Result<Vec<crate::WeeklyReview>, CoreError>;
+
     /// Objetivos cujo titulo casa com o texto. Alimenta a Search unificada.
     fn search_objectives(
         &self,
