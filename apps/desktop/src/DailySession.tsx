@@ -4,6 +4,8 @@ import { api, appError } from "./api";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import { ActionMenu, EmptyState, StateMessage } from "./Surface";
+import { WeeklyReviewPanel } from "./WeeklyReview";
+import { rotuloDaSemana } from "./weekly";
 import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
 import {
   HUMOR_ROTULO,
@@ -20,7 +22,7 @@ import {
   saudacao,
   vagasRestantes,
 } from "./daily";
-import type { DailySessionSummary, DailyContext, DailyObjective, DailyToday, ObjectiveLink } from "./types";
+import type { DailySessionSummary, DailyContext, DailyObjective, DailyToday, ObjectiveLink, Week } from "./types";
 
 const loadMotionFeatures = () => import("./motionFeatures").then((module) => module.default);
 
@@ -44,6 +46,27 @@ const loadMotionFeatures = () => import("./motionFeatures").then((module) => mod
 // A âncora do dia, na Home
 // ===========================================================================
 
+/**
+ * A porta da semana que acabou. Discreta, e sem travar nada.
+ *
+ * Reusa `.daily-stale` — o mesmo estilo que já diz "você ainda não encerrou
+ * 20/08". Um segundo desenho para o mesmo tipo de aviso faria a Home ter dois
+ * vocabulários para a mesma coisa.
+ *
+ * Aparece nos TRÊS estados do dia: a semana pode acabar numa segunda em que o
+ * dia de hoje já foi iniciado, e amarrar o aviso ao estado ocioso o faria sumir
+ * exatamente para quem começou a semana trabalhando.
+ */
+function LinhaDaSemana({ semana, abrir }: { semana: Week | null; abrir: () => void }) {
+  if (!semana) return null;
+  return (
+    <p className="daily-stale" role="status">
+      A semana de {rotuloDaSemana(semana)} acabou.
+      <Button size="sm" variant="ghost" onClick={abrir}>Encerrar</Button>
+    </p>
+  );
+}
+
 export function DailyFocusWidget({
   dia,
   contexto,
@@ -54,6 +77,8 @@ export function DailyFocusWidget({
   encerrarAntigo,
   concluirObjetivo,
   abrirVinculo,
+  semanaPendente,
+  abrirSemana,
 }: {
   dia: DailyToday | null;
   contexto: DailyContext | null;
@@ -64,6 +89,8 @@ export function DailyFocusWidget({
   encerrarAntigo: () => void;
   concluirObjetivo: (id: string) => void;
   abrirVinculo: (link: ObjectiveLink) => void;
+  semanaPendente: Week | null;
+  abrirSemana: () => void;
 }) {
   const estado = estadoDoDia(dia);
   const agora = useMemo(() => new Date(), []);
@@ -100,6 +127,8 @@ export function DailyFocusWidget({
           </p>
         ) : null}
 
+        <LinhaDaSemana semana={semanaPendente} abrir={abrirSemana} />
+
         <Button variant="primary" onClick={iniciar}>Iniciar meu dia</Button>
       </div>
     );
@@ -120,6 +149,7 @@ export function DailyFocusWidget({
         {/* "Ver resumo" e não "Reabrir": o pedido pede para não incentivar a
             reabertura do ciclo. Reabrir continua existindo, uma camada adentro,
             para quem precisa. */}
+        <LinhaDaSemana semana={semanaPendente} abrir={abrirSemana} />
         <Button variant="outline" size="sm" onClick={abrirSessao}>Ver resumo</Button>
       </div>
     );
@@ -141,6 +171,7 @@ export function DailyFocusWidget({
           />
         ))}
       </ul>
+      <LinhaDaSemana semana={semanaPendente} abrir={abrirSemana} />
       <Button variant="ghost" size="sm" onClick={abrirSessao}>Ver sessão do dia</Button>
     </div>
   );
@@ -210,7 +241,7 @@ function ObjectiveRow({
 // A sessão inteira
 // ===========================================================================
 
-type Aba = "hoje" | "historico";
+type Aba = "hoje" | "historico" | "semana";
 
 export function DailySessionView({
   dia,
@@ -218,14 +249,19 @@ export function DailySessionView({
   atualizado,
   encerrar,
   abrirVinculo,
+  semanaPendente,
+  abaInicial,
 }: {
   dia: DailyToday;
   close: () => void;
   atualizado: (proximo: DailyToday) => void;
   encerrar: () => void;
   abrirVinculo: (link: ObjectiveLink) => void;
+  /** A semana que acabou e nao foi fechada. A aba abre nela quando existe. */
+  semanaPendente: Week | null;
+  abaInicial?: Aba;
 }) {
-  const [aba, setAba] = useState<Aba>("hoje");
+  const [aba, setAba] = useState<Aba>(abaInicial ?? "hoje");
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
   const [adicionando, setAdicionando] = useState(false);
@@ -316,9 +352,12 @@ export function DailySessionView({
         <div className="daily-tabs" role="tablist" aria-label="Sessão do dia">
           <button type="button" role="tab" aria-selected={aba === "hoje"} onClick={() => setAba("hoje")}>Sessão</button>
           <button type="button" role="tab" aria-selected={aba === "historico"} onClick={() => setAba("historico")}>Histórico</button>
+          <button type="button" role="tab" aria-selected={aba === "semana"} onClick={() => setAba("semana")}>Semana</button>
         </div>
 
-        {aba === "historico" ? (
+        {aba === "semana" ? (
+          <WeeklyReviewPanel semanaInicial={semanaPendente} />
+        ) : aba === "historico" ? (
           <DailySessionHistory abrirVinculo={abrirVinculo} />
         ) : (
           <div className="daily-session-body" data-busy={ocupado || undefined}>
@@ -541,15 +580,21 @@ export function DailySessionHistory({ abrirVinculo }: { abrirVinculo: (link: Obj
 export function useDaily() {
   const [dia, setDia] = useState<DailyToday | null>(null);
   const [contexto, setContexto] = useState<DailyContext | null>(null);
+  const [semanaPendente, setSemanaPendente] = useState<Week | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
 
   const recarregar = useCallback(async () => {
     try {
       await api.surfaceSetLocale();
-      const [proximoDia, proximoContexto] = await Promise.all([api.dailyToday(), api.dailyContext()]);
+      const [proximoDia, proximoContexto, pendente] = await Promise.all([
+        api.dailyToday(),
+        api.dailyContext(),
+        api.weeklyPending(),
+      ]);
       setDia(proximoDia);
       setContexto(proximoContexto);
+      setSemanaPendente(pendente);
       setErro("");
     } catch (falha) {
       setErro(appError(falha).message);
@@ -562,5 +607,5 @@ export function useDaily() {
     void recarregar();
   }, [recarregar]);
 
-  return { dia, contexto, carregando, erro, recarregar, setDia };
+  return { dia, contexto, semanaPendente, carregando, erro, recarregar, setDia };
 }

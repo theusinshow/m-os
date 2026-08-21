@@ -9890,3 +9890,75 @@ button.daily-objective-title:focus-visible {
     max-height: calc(100vh - var(--space-4));
   }
 }
+
+/* --------------------------------------------------------- a semana */
+
+.weekly-head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.weekly-head strong {
+  color: var(--text);
+  font: var(--text-ui);
+  font-weight: 600;
+}
+
+.weekly-nav {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.weekly-nav button {
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  padding: 0;
+  color: var(--text-secondary);
+  font: var(--text-ui);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.weekly-nav button:hover,
+.weekly-nav button:focus-visible {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.weekly-secao {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.weekly-secao ul {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weekly-secao li {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  justify-content: space-between;
+  min-height: var(--height-row-dense);
+}
+
+/* O numero fica a direita e o assunto a esquerda, porque o assunto e o que se
+   le primeiro. Nenhum dos dois recebe sodio: a ADR-034 reserva a cor para
+   carga, e a semana ja passou — nao ha nada aqui a fazer agora. */
+.weekly-linha-texto {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font: var(--text-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

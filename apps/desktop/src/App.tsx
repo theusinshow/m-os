@@ -47,7 +47,7 @@ import { AnimatePresence, LazyMotion, m } from "framer-motion";
 import { AnimatedList, AnimatedListItem } from "./motion/AnimatedList";
 import { SpotlightCard } from "./motion/SpotlightCard";
 import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
-import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, DailyContext, DailyToday, FunctionDefinition, HiddenWidget, Ingestion, ObjectiveLink, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
+import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, DailyContext, DailyToday, FunctionDefinition, HiddenWidget, Ingestion, ObjectiveLink, Week, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
 import { SCREEN_LABEL } from "./types";
 import "./App.css";
 
@@ -75,6 +75,8 @@ type DailyProps = {
   encerrarAntigo: () => void;
   concluirObjetivo: (id: string) => void;
   abrirVinculo: (link: ObjectiveLink) => void;
+  semanaPendente: Week | null;
+  abrirSemana: () => void;
 };
 
 /**
@@ -761,7 +763,7 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
         /* O dia abre a Home. Ele NAO e um card fixo acima do quadro: tudo que
            mora na Home do M/OS e um widget arrumavel, e uma excecao seria a
            unica coisa da tela que nao se pode mover nem esconder. */
-        { id: "daily_session", node: <Panel label="HOJE"><DailyFocusWidget dia={daily.dia} contexto={daily.contexto} carregando={daily.carregando} erro={daily.erro} iniciar={daily.iniciar} abrirSessao={daily.abrirSessao} encerrarAntigo={daily.encerrarAntigo} concluirObjetivo={daily.concluirObjetivo} abrirVinculo={daily.abrirVinculo} /></Panel> },
+        { id: "daily_session", node: <Panel label="HOJE"><DailyFocusWidget dia={daily.dia} contexto={daily.contexto} carregando={daily.carregando} erro={daily.erro} iniciar={daily.iniciar} abrirSessao={daily.abrirSessao} encerrarAntigo={daily.encerrarAntigo} concluirObjetivo={daily.concluirObjetivo} abrirVinculo={daily.abrirVinculo} semanaPendente={daily.semanaPendente} abrirSemana={daily.abrirSemana} /></Panel> },
         { id: "now", node: <Panel label="EM ANDAMENTO" value={String(doing.length)} unit="em andamento" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel> },
         { id: "timer", node: <Panel label="CRONÔMETRO"><Timer projects={projects} onChanged={() => void refresh()} /></Panel> },
         { id: "today_hours", footLeft: "7 DIAS · CONTRA O PICO", footRight: `PICO ${hoursLabel(weekTime.peakSeconds)}`, node: <Panel label="HORAS HOJE"><TodayHours time={trackedTime} /></Panel> },
@@ -3023,7 +3025,7 @@ function DesktopApp() {
      e nao tres booleanos: dois fluxos abertos ao mesmo tempo escreveriam no
      mesmo dia por dois caminhos. `encerrar` carrega a sessao alvo, que e o que
      distingue "encerrar hoje" de "encerrar o dia que ficou aberto". */
-  const [fluxoDoDia, setFluxoDoDia] = useState<{ tipo: "iniciar" } | { tipo: "sessao"; carregada?: DailyToday } | { tipo: "encerrar"; dia: DailyToday; sessao: string | null } | null>(null);
+  const [fluxoDoDia, setFluxoDoDia] = useState<{ tipo: "iniciar" } | { tipo: "sessao"; carregada?: DailyToday; aba?: "hoje" | "historico" | "semana" } | { tipo: "encerrar"; dia: DailyToday; sessao: string | null } | null>(null);
 
   // O agendador vive no backend e avisa quando algo vence. A tela nunca
   // agenda nada: um `setTimeout` morreria no primeiro reload, e o lembrete
@@ -3073,8 +3075,12 @@ function DesktopApp() {
      nao se resolve tirando o bicho: quem se muda e o layout. `.hermes-main`
      reserva o canto dele, e a coluna da conversa desliza o tanto que faltar —
      zero pixel numa janela larga, onde nunca houve disputa. Ver `App.css`. */
+  /* A gaveta entra na ocupacao da direita: ela e ancorada la e vai ate o
+     rodape, entao Argos ficava por cima do botao primario dela. Vale para as
+     duas — a da Task e a da sessao do dia. */
+  const gavetaAberta = Boolean(drawerTask) || fluxoDoDia?.tipo === "sessao";
   const argosCanto = cantoPara({
-    direitaOcupada: Boolean(delivered) || dropOcupado,
+    direitaOcupada: Boolean(delivered) || dropOcupado || gavetaAberta,
     esquerdaOcupada: Boolean(undo),
   });
   const undoTimer = useRef<number | null>(null);
@@ -3343,6 +3349,10 @@ function DesktopApp() {
     },
     concluirObjetivo: concluirObjetivoDoDia,
     abrirVinculo: abrirVinculoDoDia,
+    semanaPendente: daily.semanaPendente,
+    /* Abre a gaveta JA na aba da semana. Levar para a aba da sessao obrigaria
+       um segundo clique logo depois de a linha ter dito o que ia acontecer. */
+    abrirSemana: () => setFluxoDoDia({ tipo: "sessao", aba: "semana" }),
   };
   function openWorkspace(workspace: Workspace) { setFunctionIntent(null); setSelectedWorkspaceId(workspace.id); setPage("workspaces"); }
   function openRegisteredApp(app: RegisteredApp) { setFunctionIntent(null); setSelectedAppId(app.id); setPage("apps"); }
@@ -3502,6 +3512,8 @@ function DesktopApp() {
          mandar o id junto seria dizer a mesma coisa duas vezes. */
       encerrar={() => { const alvo = fluxoDoDia.carregada ?? daily.dia; if (alvo) setFluxoDoDia({ tipo: "encerrar", dia: alvo, sessao: fluxoDoDia.carregada ? (alvo.session?.id ?? null) : null }); }}
       abrirVinculo={abrirVinculoDoDia}
+      semanaPendente={daily.semanaPendente}
+      abaInicial={fluxoDoDia.aba}
     /> : null}{fluxoDoDia?.tipo === "encerrar" ? <EndMyDayFlow
       dia={fluxoDoDia.dia}
       sessaoAntiga={fluxoDoDia.sessao}
