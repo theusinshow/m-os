@@ -25,11 +25,16 @@
 
 mod clock;
 mod device;
+mod engine;
 mod merge;
 mod op;
 mod ports;
 
 pub use clock::{Hlc, HlcClock};
+pub use engine::{
+    carregar_relogio, erro_de_contrato, instante_de, sincronizar, Deposito, Lote, Projecao, Rodada,
+    Transport,
+};
 pub use device::{Device, DeviceId, Platform};
 pub use merge::{aplicar, CampoResolvido, Conflito, EstadoDaEntidade, Reconciliacao};
 pub use op::{EntityKind, EntityRef, Op, OpBody};

@@ -185,13 +185,63 @@ vista — precisa ser descobrível quando algo está errado.
 
 ---
 
-## 11. O que falta
+## 11. O motor
 
-- **Transporte e servidor.** Não existem.
+`sincronizar()` faz uma rodada: empurra a fila, puxa o que mudou desde o cursor,
+reconcilia por entidade, grava conflitos e persiste o relógio.
+
+Duas fronteiras mantêm o motor livre de plataforma:
+
+- **`Transport`** — como falar com o outro lado. Existe como trait porque o
+  transporte real ainda não existe, e o motor precisa ser exercitável inteiro
+  sem rede. Quando um servidor existir, ele implementa isto e nada no motor
+  muda.
+- **`Projecao`** — como uma operação vira entidade. O motor sabe reconciliar,
+  mas não sabe o que é uma Task. É essa fronteira que permite acrescentar um
+  tipo novo sem tocar no motor.
+
+Garantias, cada uma com teste:
+
+| Garantia | Como |
+| --- | --- |
+| Nunca perde operação local | sai da fila quando o outro lado **confirma**, não quando é enviada |
+| Nunca duplica | chave de idempotência nasce na origem; `push` é repetível |
+| Custo proporcional ao que mudou | `pull` leva cursor |
+| Ordem de chegada não importa | quem decide é o instante da operação |
+| Falha parcial não perde o feito | o que já foi aplicado permanece |
+
+### A prova
+
+`crates/mos-storage-sqlite/tests/sync_two_devices.rs` — **dois bancos SQLite de
+verdade fazendo papel de dois dispositivos**, com identidades e relógios
+próprios, contra um hub em memória.
+
+O iPhone não existe (compilar para iOS exige Mac). Mas o laço não depende de
+qual é a plataforma: depende de dois bancos, dois relógios e um transporte. O
+que se prova é exatamente a parte que poderia estar errada.
+
+Nove testes, cobrindo os passos do §80 que não dependem de hardware: criar no PC
+e aparecer no outro, editar no outro e voltar, dez capturas offline chegando
+depois de reconectar, campos diferentes convivendo, mesmo campo guardando o
+perdedor, sincronizar de novo sem duplicar, relógio sobrevivendo ao fechamento
+do app, cursor fazendo o custo crescer só com o que mudou, e apagar num lado
+apagando no outro.
+
+O `HubLocal` do teste é o menor que satisfaz o contrato — e por isso vale como
+**especificação executável do servidor**: guardar em ordem, devolver a partir de
+um cursor, aceitar reenvio sem duplicar.
+
+---
+
+## 12. O que falta
+
+- **Transporte real e servidor.** O `Transport` está definido; nenhuma
+  implementação de rede existe.
 - **Auth.** Não existe.
-- **Alimentar a fila.** As tabelas existem; nenhum repositório escreve nelas.
-  Ligar isso é a Fase 2, e é onde `mos-core` vai emitir operações junto com cada
-  mutação.
+- **Alimentar a fila a partir do domínio.** A fila funciona e está testada, mas
+  quem escreve nela hoje é o teste. Ligar `mos-core` para emitir uma operação
+  junto com cada mutação é o próximo passo — e ele toca 12 repositórios, então
+  vai de um em um, começando por Capture (§14).
 - **Arquivos binários.** Resources com PDF, imagem e áudio não sincronizam como
   blob dentro de JSON (§44). Metadado e binário são camadas separadas, com
   upload, download, cache e checksum próprios. Nada disso está feito.

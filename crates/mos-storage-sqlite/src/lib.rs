@@ -9,6 +9,7 @@ mod meeting_repository;
 mod monitoring_repository;
 mod repository;
 mod resource_repository;
+mod sync_repository;
 mod tracking_repository;
 mod voice_repository;
 mod work_repository;

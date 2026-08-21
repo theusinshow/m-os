@@ -141,8 +141,10 @@ Estado real em 2026-08-21. `—` significa que não existe; **não** significa
 | Push remoto | — | — | — | — | — |
 | Identidade de dispositivo | ✓ | ✓ | — | ✓ | — |
 
-**"fundação"** quer dizer: as tabelas, o relógio, as operações e a
-reconciliação existem e estão testados; o transporte e o servidor não.
+**"fundação"** quer dizer: as tabelas, o relógio, as operações, a reconciliação
+e o motor de sincronização existem e estão testados — inclusive contra dois
+bancos reais fazendo papel de dois dispositivos. O que não existe é o transporte
+de rede, o servidor, e a emissão automática de operações a partir do domínio.
 
 **"impossível"** quer dizer restrição de plataforma, não pendência. Monitorar
 processos e registrar atalho global não existem no iOS — a manifestação mobile
@@ -237,8 +239,10 @@ Honestidade sobre o estado, para ninguém construir em cima de promessa:
   fundação de sync está pronta para receber um; ele não existe.
 - **Não há app iOS.** Não há `apps/ios`, não há bundle id, não há signing.
 - **Não há push.** Nem infraestrutura, nem certificado, nem plugin.
-- **A fila de saída não é alimentada.** As tabelas existem; nenhum repositório
-  escreve nelas ainda. Ligar isso é a Fase 2.
+- **A fila de saída não é alimentada pelo domínio.** A fila funciona, o motor
+  funciona e os dois estão testados contra dois bancos reais — mas quem escreve
+  nela hoje é o teste. Ligar `mos-core` para emitir uma operação junto com cada
+  mutação toca 12 repositórios, e vai de um em um.
 
 O que existe e está testado está na matriz da §4, marcado como `✓` ou
 `fundação`.
