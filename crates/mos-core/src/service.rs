@@ -2224,6 +2224,80 @@ impl DailyService {
         self.repository.sessions(limit)
     }
 
+
+    /// A semana em narrativa, com o fecho dela quando existe.
+    ///
+    /// `project_of` entra por parametro porque so quem conhece Tasks e Projects
+    /// consegue resolver o Project de um vinculo — e esse alguem e o comando do
+    /// desktop, nao este servico.
+    pub fn week(
+        &self,
+        week: &crate::Week,
+        project_of: &dyn Fn(&crate::ObjectiveLink) -> Option<String>,
+    ) -> Result<crate::WeekSummary, CoreError> {
+        let sessions = self.repository.sessions_between(week)?;
+        let ids: Vec<_> = sessions.iter().map(|session| session.id).collect();
+        let objectives = self.repository.objectives_of(&ids)?;
+        let reflections = self.repository.reflections_of(&ids)?;
+        let depth = |id: crate::DailyObjectiveId| self.carry_depth(id);
+
+        let mut summary = crate::compose_week(crate::WeekInput {
+            week: week.clone(),
+            sessions: &sessions,
+            objectives: &objectives,
+            reflections: &reflections,
+            project_of,
+            carry_depth: &depth,
+        })?;
+        summary.review = self.repository.weekly_review(week)?;
+        Ok(summary)
+    }
+
+    /// A semana mais recente, anterior a corrente, que teve sessao e nao tem
+    /// fecho.
+    ///
+    /// # Por que aqui, e nao em SQL
+    ///
+    /// Daria para derivar a segunda-feira com `date(day, 'weekday 0', '-6
+    /// days')`. Seria a regra da semana escrita num segundo lugar — e e assim
+    /// que o `arrange_widgets` do Rust ficou para tras em silencio, com os
+    /// testes dele passando. `Week::containing` continua sendo a unica copia.
+    pub fn pending_week(&self, current: &crate::Week) -> Result<Option<crate::Week>, CoreError> {
+        use std::collections::HashSet;
+
+        // 120 sessoes sao ~quatro meses de uso diario. Alem disso, uma semana
+        // nao fechada deixou de ser pendencia e virou historico.
+        let sessions = self.repository.sessions(120)?;
+        let fechadas: HashSet<crate::Week> = self
+            .repository
+            .weekly_reviews(60)?
+            .into_iter()
+            .map(|review| review.week)
+            .collect();
+
+        let mut candidatas: Vec<crate::Week> = Vec::new();
+        for session in &sessions {
+            let semana = crate::Week::containing(&session.day)?;
+            if semana < *current && !fechadas.contains(&semana) {
+                candidatas.push(semana);
+            }
+        }
+        Ok(candidatas.into_iter().max())
+    }
+
+    /// Fecha a semana, ou corrige o texto de um fecho que ja existe.
+    pub fn close_week(
+        &self,
+        week: &crate::Week,
+        summary: &str,
+    ) -> Result<crate::WeeklyReview, CoreError> {
+        let now = self.clock.now();
+        self.repository.save_weekly_review(
+            crate::NewWeeklyReview::create(week.clone(), summary, now),
+            now,
+        )
+    }
+
     /// Os objetivos de varias sessoes, numa consulta. E o que a Linha do Tempo
     /// usa para nao fazer uma ida ao banco por dia desenhado.
     pub fn objectives_of(

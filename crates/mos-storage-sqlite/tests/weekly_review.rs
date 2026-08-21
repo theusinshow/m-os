@@ -252,3 +252,72 @@ fn as_reflexoes_de_varias_sessoes_vem_numa_consulta() {
         "lista vazia nao vira consulta"
     );
 }
+
+// ---------------------------------------------------------------- o servico
+
+fn servico(storage: SqliteStorage) -> mos_core::DailyService {
+    let storage = std::sync::Arc::new(storage);
+    let clock: std::sync::Arc<dyn mos_core::Clock> = std::sync::Arc::new(mos_core::SystemClock);
+    mos_core::DailyService::new(storage, clock)
+}
+
+#[test]
+fn a_semana_pendente_e_a_mais_recente_sem_fecho() {
+    let (_dir, storage) = banco();
+    sessao_em(&storage, "2026-08-05", "semana de 03");
+    sessao_em(&storage, "2026-08-12", "semana de 10");
+    sessao_em(&storage, "2026-08-19", "semana de 17");
+    let service = servico(storage);
+
+    // A semana corrente e a de 24; as tres anteriores tiveram sessao.
+    let corrente = semana("2026-08-26");
+    assert_eq!(
+        service.pending_week(&corrente).unwrap().unwrap(),
+        semana("2026-08-19"),
+        "a mais recente entre as candidatas"
+    );
+
+    // Fechada a de 17, a pendencia recua para a de 10.
+    service.close_week(&semana("2026-08-19"), "").unwrap();
+    assert_eq!(
+        service.pending_week(&corrente).unwrap().unwrap(),
+        semana("2026-08-12")
+    );
+}
+
+#[test]
+fn a_semana_corrente_nunca_e_pendente() {
+    // Ela ainda esta acontecendo. Oferecer o fecho de uma semana em curso seria
+    // pedir para revisar o que ainda nao terminou.
+    let (_dir, storage) = banco();
+    sessao_em(&storage, "2026-08-19", "hoje");
+    let service = servico(storage);
+    assert!(service.pending_week(&semana("2026-08-19")).unwrap().is_none());
+}
+
+#[test]
+fn semana_sem_sessao_nenhuma_nao_e_pendente() {
+    // Nao ha o que revisar, e a linha da Home nunca deve apontar para uma
+    // semana vazia.
+    let (_dir, storage) = banco();
+    let service = servico(storage);
+    assert!(service.pending_week(&semana("2026-08-26")).unwrap().is_none());
+}
+
+#[test]
+fn o_resumo_da_semana_traz_o_fecho_quando_ele_existe() {
+    let (_dir, storage) = banco();
+    sessao_em(&storage, "2026-08-18", "planta");
+    let service = servico(storage);
+    let alvo = semana("2026-08-18");
+    let sem_project = |_: &mos_core::ObjectiveLink| None;
+
+    let antes = service.week(&alvo, &sem_project).unwrap();
+    assert!(antes.review.is_none());
+    assert_eq!(antes.days_with_session, 1);
+    assert!(!antes.empty);
+
+    service.close_week(&alvo, "foi uma semana").unwrap();
+    let depois = service.week(&alvo, &sem_project).unwrap();
+    assert_eq!(depois.review.unwrap().summary, "foi uma semana");
+}
