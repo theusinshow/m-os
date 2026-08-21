@@ -797,7 +797,7 @@ impl MeetingRepository for SqliteStorage {
             ));
         }
 
-        crate::work_repository::insert_task(&transaction, task, None)?;
+        crate::work_repository::insert_task(self, &transaction, task, None)?;
         if let Some(reminder) = &reminder {
             crate::attention_repository::insert_reminder(&transaction, reminder)?;
         }

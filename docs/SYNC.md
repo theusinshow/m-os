@@ -266,10 +266,11 @@ arquivamento vencer a restauração para sempre — e a Capture nunca mais volta
 - **Transporte real e servidor.** O `Transport` está definido; nenhuma
   implementação de rede existe.
 - **Auth.** Não existe.
-- **Emitir operações nas outras onze entidades.** Capture já emite; Tasks,
-  Projects, Resources, Reminders, Calendar, Meetings, Conversations, Tracking,
-  Workspaces, Apps e Voice ainda não. Vai de uma em uma — o padrão está em
-  `sync_emit.rs` e em `tests/capture_emite_operacoes.rs`.
+- **Emitir operações nas outras nove entidades.** Captures, Tasks e Projects já
+  emitem. Faltam Resources, Reminders, Calendar, Meetings, Conversations,
+  Tracking, Workspaces, Apps e Voice. Vai de uma em uma — o padrão está em
+  `sync_emit.rs`, e os testes em `capture_emite_operacoes.rs` e
+  `work_emite_operacoes.rs`.
 - **Arquivos binários.** Resources com PDF, imagem e áudio não sincronizam como
   blob dentro de JSON (§44). Metadado e binário são camadas separadas, com
   upload, download, cache e checksum próprios. Nada disso está feito.

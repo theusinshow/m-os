@@ -24,6 +24,20 @@ macro_rules! entity_id {
                     )
                 })
             }
+
+            /// O UUID cru, para quem enderessa esta entidade FORA do M/OS.
+            ///
+            /// Existe para a sincronizacao: o id que viaja entre dispositivos e
+            /// o mesmo que identifica aqui, porque todo id do M/OS ja e UUID v7
+            /// — ordenavel por tempo e sem colisao entre maquinas. Foi o que
+            /// dispensou um mapa de "id local para id remoto".
+            ///
+            /// Continua sem `From<Uuid>`: construir um id a partir de um UUID
+            /// qualquer e o caminho para um id que nao existe em lugar nenhum.
+            /// Quem entra vem de `parse`, que valida.
+            pub fn as_uuid(&self) -> Uuid {
+                self.0
+            }
         }
 
         impl Default for $name {

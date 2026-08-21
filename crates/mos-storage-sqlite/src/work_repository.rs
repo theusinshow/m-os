@@ -383,6 +383,11 @@ impl WorkRepository for SqliteStorage {
         transaction
             .execute("DELETE FROM tasks WHERE id = ?1", [id.to_string()])
             .map_err(map_sql_error)?;
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("task", id.as_uuid()),
+            mos_sync::OpBody::Delete,
+        )?;
         transaction.commit().map_err(map_sql_error)?;
         Ok(())
     }
@@ -398,6 +403,14 @@ impl WorkRepository for SqliteStorage {
         transaction
             .execute("DELETE FROM projects WHERE id = ?1", [id.to_string()])
             .map_err(map_sql_error)?;
+        // As Tasks do Project sobrevivem aqui e sobrevivem no outro dispositivo:
+        // o `project_id` delas vira NULL pela FK, e a operacao que viaja e a
+        // exclusao do Project — nunca a das Tasks.
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("project", id.as_uuid()),
+            mos_sync::OpBody::Delete,
+        )?;
         transaction.commit().map_err(map_sql_error)?;
         Ok(())
     }
@@ -720,6 +733,20 @@ impl WorkRepository for SqliteStorage {
             .map_err(map_sql_error)?;
         let rowid = transaction.last_insert_rowid();
         insert_project_search(&transaction, rowid)?;
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("project", project.id.as_uuid()),
+            mos_sync::OpBody::Create {
+                fields: [
+                    ("name".to_owned(), serde_json::json!(project.name)),
+                    ("description".to_owned(), serde_json::json!(project.description)),
+                    ("repository".to_owned(), serde_json::json!(project.repository)),
+                    ("createdAt".to_owned(), serde_json::json!(now)),
+                ]
+                .into_iter()
+                .collect(),
+            },
+        )?;
         transaction.commit().map_err(map_sql_error)?;
         query_project(&connection, project.id)
     }
@@ -752,6 +779,16 @@ impl WorkRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
         insert_project_search(&transaction, rowid)?;
+        self.emitir_update(
+            &transaction,
+            "project",
+            id.as_uuid(),
+            &[
+                ("name", serde_json::json!(name)),
+                ("description", serde_json::json!(description)),
+                ("repository", serde_json::json!(repository)),
+            ],
+        )?;
         transaction.commit().map_err(map_sql_error)?;
         query_project(&connection, id)
     }
@@ -784,7 +821,8 @@ impl WorkRepository for SqliteStorage {
         let now = format_time(OffsetDateTime::now_utc())?;
         let archived_at = (lifecycle == LifecycleState::Archived).then_some(now.as_str());
         let connection = self.connection.lock().map_err(map_lock_error)?;
-        let changed = connection
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let changed = transaction
             .execute(
                 "UPDATE projects SET lifecycle_state = ?1, updated_at = ?2, archived_at = ?3
                  WHERE id = ?4",
@@ -792,6 +830,13 @@ impl WorkRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
         ensure_changed(changed)?;
+        self.emitir_update(
+            &transaction,
+            "project",
+            id.as_uuid(),
+            &[("lifecycleState", serde_json::json!(lifecycle.as_str()))],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         query_project(&connection, id)
     }
 
@@ -799,7 +844,7 @@ impl WorkRepository for SqliteStorage {
         let id = task.id;
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
-        insert_task(&transaction, task, None)?;
+        insert_task(self, &transaction, task, None)?;
         transaction.commit().map_err(map_sql_error)?;
         query_task(&connection, id)
     }
@@ -826,7 +871,7 @@ impl WorkRepository for SqliteStorage {
                 false,
             ));
         }
-        insert_task(&transaction, task, Some(capture_id))?;
+        insert_task(self, &transaction, task, Some(capture_id))?;
         let now = format_time(OffsetDateTime::now_utc())?;
         let changed = transaction
             .execute(
@@ -875,7 +920,7 @@ impl WorkRepository for SqliteStorage {
             ));
         }
 
-        insert_task(&transaction, task, Some(capture_id))?;
+        insert_task(self, &transaction, task, Some(capture_id))?;
 
         // O Reminder aponta para a TASK, e nao para a Capture. Quando ele tocar
         // amanha as nove, "o que eu tenho de fazer?" precisa de resposta sem
@@ -940,6 +985,19 @@ impl WorkRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
         insert_task_search(&transaction, rowid)?;
+        self.emitir_update(
+            &transaction,
+            "task",
+            id.as_uuid(),
+            &[
+                ("title", serde_json::json!(title)),
+                ("description", serde_json::json!(description)),
+                (
+                    "projectId",
+                    serde_json::json!(project_id.map(|value| value.to_string())),
+                ),
+            ],
+        )?;
         transaction.commit().map_err(map_sql_error)?;
         query_task(&connection, id)
     }
@@ -970,13 +1028,24 @@ impl WorkRepository for SqliteStorage {
         let now = format_time(OffsetDateTime::now_utc())?;
         let completed_at = (state == TaskState::Done).then_some(now.as_str());
         let connection = self.connection.lock().map_err(map_lock_error)?;
-        let changed = connection
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let changed = transaction
             .execute(
                 "UPDATE tasks SET work_state = ?1, updated_at = ?2, completed_at = ?3 WHERE id = ?4",
                 params![state.as_str(), now, completed_at, id.to_string()],
             )
             .map_err(map_sql_error)?;
         ensure_changed(changed)?;
+        // Mover no Kanban e o gesto mais repetido do M/OS, e o que mais vai
+        // acontecer nos dois dispositivos ao mesmo tempo. Campo proprio: mover
+        // no celular e renomear no PC precisam conviver.
+        self.emitir_update(
+            &transaction,
+            "task",
+            id.as_uuid(),
+            &[("workState", serde_json::json!(state.as_str()))],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         query_task(&connection, id)
     }
 
@@ -984,7 +1053,8 @@ impl WorkRepository for SqliteStorage {
         let now = format_time(OffsetDateTime::now_utc())?;
         let archived_at = (lifecycle == LifecycleState::Archived).then_some(now.as_str());
         let connection = self.connection.lock().map_err(map_lock_error)?;
-        let changed = connection
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let changed = transaction
             .execute(
                 "UPDATE tasks SET lifecycle_state = ?1, updated_at = ?2, archived_at = ?3
                  WHERE id = ?4",
@@ -992,6 +1062,13 @@ impl WorkRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
         ensure_changed(changed)?;
+        self.emitir_update(
+            &transaction,
+            "task",
+            id.as_uuid(),
+            &[("lifecycleState", serde_json::json!(lifecycle.as_str()))],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         query_task(&connection, id)
     }
 
@@ -1139,12 +1216,23 @@ impl WorkRepository for SqliteStorage {
 /// `pub(crate)` porque a aceitacao de um item de reuniao precisa criar Task,
 /// Reminder e o vinculo na MESMA transacao. Duplicar o INSERT la seria criar um
 /// segundo lugar que precisa lembrar do FTS.
+/// Insere a Task e emite a operacao, na MESMA transacao.
+///
+/// Os tres caminhos de criacao — direto, a partir de Capture e a partir de
+/// Capture com lembrete — passam por aqui. Emitir aqui dentro, e nao em cada
+/// um deles, e o que garante que nenhum caminho novo nasca sem rastro: quem
+/// esquecer de emitir tera esquecido tambem de inserir.
 pub(crate) fn insert_task(
+    storage: &SqliteStorage,
     transaction: &Transaction<'_>,
     task: NewTask,
     source_capture_id: Option<CaptureId>,
 ) -> Result<(), CoreError> {
     let now = format_time(task.created_at)?;
+    let id = task.id;
+    let titulo = task.title.clone();
+    let descricao = task.description.clone();
+    let projeto = task.project_id;
     transaction
         .execute(
             "INSERT INTO tasks (
@@ -1161,7 +1249,29 @@ pub(crate) fn insert_task(
             ],
         )
         .map_err(map_sql_error)?;
-    insert_task_search(transaction, transaction.last_insert_rowid())
+    insert_task_search(transaction, transaction.last_insert_rowid())?;
+    storage.emitir(
+        transaction,
+        mos_sync::EntityRef::new("task", id.as_uuid()),
+        mos_sync::OpBody::Create {
+            fields: [
+                ("title".to_owned(), serde_json::json!(titulo)),
+                ("description".to_owned(), serde_json::json!(descricao)),
+                (
+                    "projectId".to_owned(),
+                    serde_json::json!(projeto.map(|value| value.to_string())),
+                ),
+                (
+                    "sourceCaptureId".to_owned(),
+                    serde_json::json!(source_capture_id.map(|value| value.to_string())),
+                ),
+                ("workState".to_owned(), serde_json::json!("backlog")),
+                ("createdAt".to_owned(), serde_json::json!(now)),
+            ]
+            .into_iter()
+            .collect(),
+        },
+    )
 }
 
 fn insert_project_search(transaction: &Transaction<'_>, rowid: i64) -> Result<(), CoreError> {

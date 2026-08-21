@@ -120,8 +120,8 @@ Estado real em 2026-08-21. `—` significa que não existe; **não** significa
 | Feature | Core | Desktop | iOS | Sync | Hermes |
 | --- | --- | --- | --- | --- | --- |
 | Captures / Inbox | ✓ | ✓ | — | **emite** | ✓ |
-| Tasks | ✓ | ✓ | — | fundação | ✓ |
-| Projects | ✓ | ✓ | — | fundação | ✓ |
+| Tasks | ✓ | ✓ | — | **emite** | ✓ |
+| Projects | ✓ | ✓ | — | **emite** | ✓ |
 | Resources / Library | ✓ | ✓ | — | fundação | ✓ |
 | Workspaces | ✓ | ✓ | — | fundação | — |
 | Search (FTS local) | ✓ | ✓ | — | fundação | ✓ |
@@ -147,8 +147,9 @@ bancos reais fazendo papel de dois dispositivos. O que falta nessas linhas é a
 entidade *emitir* operações quando muda.
 
 **"emite"** quer dizer que a entidade já registra cada mutação na fila de saída,
-**dentro da mesma transação da mudança**. Captures é a primeira, e é o padrão
-que as outras onze vão seguir — uma de cada vez, para não parar o desktop.
+**dentro da mesma transação da mudança**. Captures, Tasks e Projects já emitem —
+as três que aparecem na Home do iPhone. As outras nove vão uma de cada vez, para
+não parar o desktop.
 
 O que continua não existindo em nenhuma linha: transporte de rede e servidor.
 
