@@ -2179,7 +2179,11 @@ impl DailyService {
         let sessions = self.repository.sessions(limit)?;
         let ids: Vec<_> = sessions.iter().map(|session| session.id).collect();
         let objectives = self.repository.objectives_of(&ids)?;
-        sessions
+        // Tres consultas para N dias, e nao 2N+1: as sessoes, os objetivos de
+        // todas elas, e as reflexoes de todas elas. A versao anterior lia a
+        // reflexao de cada dia numa consulta propria.
+        let reflections = self.repository.reflections_of(&ids)?;
+        Ok(sessions
             .into_iter()
             .map(|session| {
                 let mine: Vec<_> = objectives
@@ -2187,13 +2191,13 @@ impl DailyService {
                     .filter(|objective| objective.session_id == session.id)
                     .cloned()
                     .collect();
-                let mood = self
-                    .repository
-                    .reflection(session.id)?
+                let mood = reflections
+                    .iter()
+                    .find(|reflection| reflection.session_id == session.id)
                     .and_then(|reflection| reflection.mood);
-                Ok(crate::summarize(session, &mine, mood))
+                crate::summarize(session, &mine, mood)
             })
-            .collect()
+            .collect())
     }
 
     /// Uma sessao passada, inteira. E o que a tela de historico abre.
