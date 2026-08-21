@@ -2299,6 +2299,34 @@ desenho da referência.
 - o dia em que a bateria incomodar, o primeiro corte é a taxa de quadros em
   `desperto`, que ocupa 90% do tempo — e não desligar o resto.
 
+### Adendo de 2026-08-21 — o corpo passa a 96px, e o número sai do código
+
+O dono do produto pediu Argos maior. O corpo vai de **72px para 96px**, e o
+texto acima que fala em "72px" deve ser lido como o valor original, não como o
+valor corrente.
+
+O que muda de forma mais durável que o número é onde ele mora. Eram **dois
+lugares** que podiam divergir em silêncio — o atributo do `<canvas>` em
+`Argos.tsx` e a regra `.argos-canvas` no CSS. Agora existe `--argos-corpo` em
+`tokens.css`, e quem precisa reservar espaço para o bicho no layout lê a mesma
+fonte em vez de repetir a conta: foi assim que o rodapé do Hermes passou a
+acompanhar o crescimento sozinho.
+
+Quem manda no tamanho **renderizado** continua sendo o CSS: `argosScene.ts`
+chama `setSize(clientWidth, clientHeight)`, então o atributo do canvas só vale
+no quadro entre a montagem e a subida da cena WebGL.
+
+O adendo também corrige um defeito que estava escondido desde a decisão
+original: o piso sem WebGL saía com os **22px do `viewBox`**, e não com o
+tamanho do corpo. Numa máquina com driver velho, VM ou sessão remota —
+exatamente o caso que o piso existe para cobrir — Argos aparecia três vezes
+menor que o normal. As duas versões passam a ocupar a mesma caixa.
+
+A frase da decisão que dizia que "a 72px a diferença não se vê" continua
+valendo como registro do que foi medido na época; a 96px ela não foi medida de
+novo, e se alguém for trocar os três senos por simplex, é aqui que a conta
+precisa ser refeita.
+
 ## ADR-050 — A página de Tempo passa a se chamar CronoCAD, e leva a marca junto
 
 **Data:** 2026-08-20
