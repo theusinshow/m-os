@@ -300,9 +300,10 @@ impl ResourceRepository for SqliteStorage {
         linked: bool,
     ) -> Result<(), CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         if linked {
             let now = format_time(OffsetDateTime::now_utc())?;
-            connection
+            transaction
                 .execute(
                     "INSERT OR IGNORE INTO resource_workspaces (resource_id, workspace_id, created_at)
                      VALUES (?1, ?2, ?3)",
@@ -310,7 +311,7 @@ impl ResourceRepository for SqliteStorage {
                 )
                 .map_err(map_sql_error)?;
         } else {
-            connection
+            transaction
                 .execute(
                     "DELETE FROM resource_workspaces
                      WHERE resource_id = ?1 AND workspace_id = ?2",
@@ -318,6 +319,14 @@ impl ResourceRepository for SqliteStorage {
                 )
                 .map_err(map_sql_error)?;
         }
+        self.emitir_relacao(
+            &transaction,
+            "resourceWorkspace",
+            resource_id.as_uuid(),
+            workspace_id.as_uuid(),
+            linked,
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         Ok(())
     }
 
@@ -355,7 +364,11 @@ impl ResourceRepository for SqliteStorage {
         linked: bool,
     ) -> Result<(), CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
-        link_resource_project(&connection, resource_id, project_id, linked)
+        {
+            let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+            link_resource_project(self, &transaction, resource_id, project_id, linked)?;
+            transaction.commit().map_err(map_sql_error)
+        }
     }
 
     fn resource_projects(&self) -> Result<Vec<ResourceProject>, CoreError> {
@@ -390,6 +403,7 @@ impl ResourceRepository for SqliteStorage {
 /// relacao que chega depois sao dois estados observaveis, e o de dentro seria
 /// um Resource sem contexto piscando na Library.
 pub(crate) fn link_resource_project(
+    storage: &SqliteStorage,
     connection: &rusqlite::Connection,
     resource_id: ResourceId,
     project_id: ProjectId,
@@ -412,11 +426,18 @@ pub(crate) fn link_resource_project(
             )
             .map_err(map_sql_error)?;
     }
-    Ok(())
+    storage.emitir_relacao(
+        connection,
+        "resourceProject",
+        resource_id.as_uuid(),
+        project_id.as_uuid(),
+        linked,
+    )
 }
 
 /// Igual ao de cima, para o par Resource-Workspace.
 pub(crate) fn link_resource_workspace(
+    storage: &SqliteStorage,
     connection: &rusqlite::Connection,
     resource_id: ResourceId,
     workspace_id: WorkspaceId,
@@ -439,7 +460,13 @@ pub(crate) fn link_resource_workspace(
             )
             .map_err(map_sql_error)?;
     }
-    Ok(())
+    storage.emitir_relacao(
+        connection,
+        "resourceWorkspace",
+        resource_id.as_uuid(),
+        workspace_id.as_uuid(),
+        linked,
+    )
 }
 
 pub(crate) fn insert_resource_search(transaction: &Transaction<'_>, rowid: i64) -> Result<(), CoreError> {

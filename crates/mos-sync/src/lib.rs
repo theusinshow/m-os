@@ -29,6 +29,7 @@ mod engine;
 mod merge;
 mod op;
 mod ports;
+mod relacao;
 
 pub use clock::{Hlc, HlcClock};
 pub use engine::{
@@ -38,6 +39,7 @@ pub use engine::{
 pub use device::{Device, DeviceId, Platform};
 pub use merge::{aplicar, CampoResolvido, Conflito, EstadoDaEntidade, Reconciliacao};
 pub use op::{EntityKind, EntityRef, Op, OpBody};
+pub use relacao::{Relacao, RelationKind};
 pub use ports::{
     ClockRepository, ConflictRepository, DeviceRepository, OutboxRepository, Resultado, SyncError,
 };

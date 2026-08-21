@@ -328,9 +328,10 @@ impl WorkRepository for SqliteStorage {
         linked: bool,
     ) -> Result<(), CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         if linked {
             let now = format_time(OffsetDateTime::now_utc())?;
-            connection
+            transaction
                 .execute(
                     "INSERT OR IGNORE INTO project_workspaces (project_id, workspace_id, created_at)
                      VALUES (?1, ?2, ?3)",
@@ -338,13 +339,21 @@ impl WorkRepository for SqliteStorage {
                 )
                 .map_err(map_sql_error)?;
         } else {
-            connection
+            transaction
                 .execute(
                     "DELETE FROM project_workspaces WHERE project_id = ?1 AND workspace_id = ?2",
                     params![project_id.to_string(), workspace_id.to_string()],
                 )
                 .map_err(map_sql_error)?;
         }
+        self.emitir_relacao(
+            &transaction,
+            "projectWorkspace",
+            project_id.as_uuid(),
+            workspace_id.as_uuid(),
+            linked,
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         Ok(())
     }
 

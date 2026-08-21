@@ -270,3 +270,123 @@ fn tipo_de_entidade_desconhecido_atravessa_sem_quebrar() {
     let op: Op = serde_json::from_value(cru).expect("tipo desconhecido precisa atravessar");
     assert_eq!(op.entity.kind.as_str(), "invencao-futura");
 }
+
+
+// ------------------------------------------------ relacoes do Knowledge Graph
+
+fn recurso() -> Uuid {
+    Uuid::from_u128(900)
+}
+
+fn projeto() -> Uuid {
+    Uuid::from_u128(901)
+}
+
+#[test]
+fn dois_dispositivos_chegam_ao_mesmo_id_sem_se_falarem() {
+    // A razao de o id ser DERIVADO e nao sorteado. Se cada lado sorteasse,
+    // ligar o mesmo Resource ao mesmo Project nos dois criaria DUAS relacoes
+    // para o mesmo vinculo, e desfazer uma deixaria a outra de pe.
+    let no_pc = Relacao::nova("resourceProject", recurso(), projeto());
+    let no_iphone = Relacao::nova("resourceProject", recurso(), projeto());
+    assert_eq!(no_pc.id(), no_iphone.id());
+}
+
+#[test]
+fn a_direcao_faz_parte_da_identidade() {
+    // `A -> B` e `B -> A` sao vinculos diferentes. Colapsa-los tornaria
+    // impossivel expressar uma relacao com direcao.
+    let ida = Relacao::nova("resourceProject", recurso(), projeto());
+    let volta = Relacao::nova("resourceProject", projeto(), recurso());
+    assert_ne!(ida.id(), volta.id());
+}
+
+#[test]
+fn o_tipo_faz_parte_da_identidade() {
+    let a = Relacao::nova("resourceProject", recurso(), projeto());
+    let b = Relacao::nova("resourceWorkspace", recurso(), projeto());
+    assert_ne!(a.id(), b.id());
+}
+
+#[test]
+fn desligar_e_religar_termina_ligado() {
+    // A razao de `linked` ser CAMPO e nao `OpBody::Delete`. Com `Delete`, a
+    // regra de "apagar ganha" faria desvincular as 10:00 vencer revincular as
+    // 10:05 — e o vinculo nunca mais voltaria.
+    let relacao = Relacao::nova("resourceProject", recurso(), projeto());
+    let ops = vec![
+        Op::new(
+            Uuid::now_v7(),
+            relacao.entidade(),
+            relacao.alternar(true),
+            Hlc::new(1_000, 0, pc()),
+        ),
+        Op::new(
+            Uuid::now_v7(),
+            relacao.entidade(),
+            relacao.alternar(false),
+            Hlc::new(2_000, 0, iphone()),
+        ),
+        Op::new(
+            Uuid::now_v7(),
+            relacao.entidade(),
+            relacao.alternar(true),
+            Hlc::new(3_000, 0, pc()),
+        ),
+    ];
+    let r = aplicar(EstadoDaEntidade::default(), &ops);
+    assert_eq!(r.estado.campo("linked").unwrap(), &json!(true));
+    assert!(r.estado.visivel(), "a relacao nunca e apagada, so alternada");
+}
+
+#[test]
+fn ligar_nos_dois_dispositivos_nao_duplica_nem_conflita() {
+    // Dois dispositivos ligando o mesmo vinculo concordam. Chamar isso de
+    // conflito encheria a tela de aviso sobre nada.
+    let relacao = Relacao::nova("resourceProject", recurso(), projeto());
+    let ops = vec![
+        Op::new(
+            Uuid::now_v7(),
+            relacao.entidade(),
+            relacao.alternar(true),
+            Hlc::new(1_000, 0, pc()),
+        ),
+        Op::new(
+            Uuid::now_v7(),
+            relacao.entidade(),
+            relacao.alternar(true),
+            Hlc::new(1_500, 0, iphone()),
+        ),
+    ];
+    let r = aplicar(EstadoDaEntidade::default(), &ops);
+    assert_eq!(r.estado.campo("linked").unwrap(), &json!(true));
+    assert!(r.conflitos.is_empty());
+}
+
+#[test]
+fn a_relacao_viaja_dizendo_o_que_ligou() {
+    // O id e um hash e nao diz nada. Um dispositivo que recebe esta operacao
+    // sem nunca ter visto a relacao precisa saber O QUE foi ligado.
+    let relacao = Relacao::nova("resourceProject", recurso(), projeto());
+    match relacao.alternar(true) {
+        OpBody::Update { fields } => {
+            assert_eq!(fields["kind"], json!("resourceProject"));
+            assert_eq!(fields["from"], json!(recurso().to_string()));
+            assert_eq!(fields["to"], json!(projeto().to_string()));
+            assert_eq!(fields["linked"], json!(true));
+        }
+        outro => panic!("alternar precisa ser Update, veio {outro:?}"),
+    }
+}
+
+#[test]
+fn o_namespace_e_estavel_entre_execucoes() {
+    // Mudar o namespace faria todas as relacoes existentes ganharem ids novos,
+    // e as antigas ficariam orfas. Este teste trava o valor.
+    let relacao = Relacao::nova("resourceProject", Uuid::from_u128(1), Uuid::from_u128(2));
+    assert_eq!(
+        relacao.id().to_string(),
+        "12fa7421-9883-5e03-806b-5e9c46ede391".to_string(),
+        "o id de uma relacao nao pode mudar entre versoes do M/OS"
+    );
+}

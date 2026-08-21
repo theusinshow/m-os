@@ -139,6 +139,7 @@ Estado real em 2026-08-21. `—` significa que não existe; **não** significa
 | Atalho global | — | ✓ | impossível | n/a | — |
 | Share Sheet | — | n/a | — | n/a | — |
 | Push remoto | — | — | — | — | — |
+| Knowledge Graph (relações) | ✓ | ✓ | — | **emite** | — |
 | Identidade de dispositivo | ✓ | ✓ | — | ✓ | — |
 
 **"fundação"** quer dizer: as tabelas, o relógio, as operações, a reconciliação
@@ -155,6 +156,9 @@ emite **a intenção** — título, gatilho, prazo, status — e não a entrega:
 `deliveredCount` conta quantas vezes *este* aparelho tocou, e o iPhone tocar não
 significa que o PC tocou. Resource emite **o metadado**; o arquivo em si é uma
 camada separada, com upload, download, cache e checksum, e ela não existe.
+
+As relações do Knowledge Graph também emitem, como entidade de primeira classe
+com id derivado do par — ver `SYNC.md` §13.
 
 Faltam sete: Calendar, Meetings, Conversations, Tracking, Workspaces, Apps e
 Voice.

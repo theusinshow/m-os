@@ -98,6 +98,24 @@ impl SqliteStorage {
         Ok(())
     }
 
+    /// Liga ou desliga um vinculo do Knowledge Graph.
+    ///
+    /// Sempre `Update`, e nunca `Delete`: o `Delete` do motor tem semantica de
+    /// "apagar ganha de editar", que esta certa para uma Task e ERRADA para um
+    /// interruptor — desvincular as 10:00 e revincular as 10:05 tem que
+    /// terminar vinculado. Ver `mos_sync::Relacao`.
+    pub(crate) fn emitir_relacao(
+        &self,
+        transacao: &Connection,
+        kind: &str,
+        from: Uuid,
+        to: Uuid,
+        linked: bool,
+    ) -> Result<(), CoreError> {
+        let relacao = mos_sync::Relacao::nova(kind, from, to);
+        self.emitir(transacao, relacao.entidade(), relacao.alternar(linked))
+    }
+
     /// Açucar para o caso comum: uma mudanca de campos.
     pub(crate) fn emitir_update(
         &self,

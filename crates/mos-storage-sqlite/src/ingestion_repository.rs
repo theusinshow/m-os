@@ -275,7 +275,7 @@ impl IngestionRepository for SqliteStorage {
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         expect_state(&transaction, id, &["preserved"])?;
         let resource_id = insert_resource(self, &transaction, resource)?;
-        apply_plan(&transaction, resource_id, plan)?;
+        apply_plan(self, &transaction, resource_id, plan)?;
         finish(
             &transaction,
             id,
@@ -327,7 +327,7 @@ impl IngestionRepository for SqliteStorage {
             Some(workspace) => !has_workspace_link(&transaction, existing, workspace)?,
             None => false,
         };
-        apply_plan(&transaction, existing, plan)?;
+        apply_plan(self, &transaction, existing, plan)?;
 
         // A Capture do drop repetido ja cumpriu o papel dela: ela registra que a
         // pessoa trouxe aquilo de novo, e nao ha decisao pendente — o arquivo ja
@@ -515,12 +515,12 @@ impl IngestionRepository for SqliteStorage {
             let (added_project, added_workspace) = added_links(&transaction, id)?;
             if added_project {
                 if let Some(project) = ingestion.context.project_id {
-                    link_resource_project(&transaction, existing, project, false)?;
+                    link_resource_project(self, &transaction, existing, project, false)?;
                 }
             }
             if added_workspace {
                 if let Some(workspace) = ingestion.context.workspace_id {
-                    link_resource_workspace(&transaction, existing, workspace, false)?;
+                    link_resource_workspace(self, &transaction, existing, workspace, false)?;
                 }
             }
         }
@@ -555,15 +555,16 @@ impl IngestionRepository for SqliteStorage {
 /// Aplica as relacoes de confianca alta. As sugestoes nao entram aqui: sugerir e
 /// oferecer, e oferecer nao escreve nada.
 fn apply_plan(
+    storage: &SqliteStorage,
     transaction: &Transaction<'_>,
     resource: ResourceId,
     plan: &RelationPlan,
 ) -> Result<(), CoreError> {
     if let Some(project) = plan.link_project {
-        link_resource_project(transaction, resource, project, true)?;
+        link_resource_project(storage, transaction, resource, project, true)?;
     }
     if let Some(workspace) = plan.link_workspace {
-        link_resource_workspace(transaction, resource, workspace, true)?;
+        link_resource_workspace(storage, transaction, resource, workspace, true)?;
     }
     Ok(())
 }

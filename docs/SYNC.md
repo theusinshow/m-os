@@ -269,7 +269,43 @@ arquivamento vencer a restauração para sempre — e a Capture nunca mais volta
 
 ---
 
-## 13. O que falta
+## 13. Relações: o Knowledge Graph
+
+`resource_projects`, `resource_workspaces` e `project_workspaces` são junções:
+duas colunas, sem id próprio. Sincronizá-las como campo de uma das pontas não
+funciona — **merge por campo não serve para conjunto**. Se a lista de Projects
+de um Resource fosse um campo, ligar a um Project no celular apagaria a ligação
+feita no PC, porque o campo inteiro seria substituído pelo mais recente.
+
+O §24 pede relação como entidade de primeira classe. Duas decisões fazem isso
+funcionar:
+
+**1. O id é derivado do par, não sorteado.** UUID v5 sobre
+`{tipo}:{de}:{para}`, num namespace fixo. Os dois dispositivos calculam o mesmo
+id sem se falarem. Se cada um sorteasse, ligar o mesmo Resource ao mesmo Project
+nos dois criaria **duas relações para o mesmo vínculo** — e desfazer uma
+deixaria a outra de pé.
+
+O tipo e a direção fazem parte da identidade: `A→B` não é `B→A`, e ligar as
+mesmas duas pontas por dois motivos diferentes são dois vínculos.
+
+**2. Desligar é campo, não `OpBody::Delete`.** O `Delete` tem semântica de
+"apagar ganha de editar", que está certa para uma Task e **errada para um
+interruptor**: desvincular às 10:00 e revincular às 10:05 tem que terminar
+vinculado. A relação nunca é apagada — ela tem um campo `linked`, e o merge por
+campo decide pelo instante. Último gesto vence.
+
+Os campos de identificação (`kind`, `from`, `to`) viajam junto com `linked`,
+porque um dispositivo que recebe a operação sem nunca ter visto a relação
+precisa saber **o que** foi ligado: o id é um hash e não diz nada.
+
+O namespace é constante e **nunca muda**: mudá-lo faria todas as relações
+existentes ganharem ids novos, e as antigas ficariam órfãs. Há um teste que
+trava o valor.
+
+---
+
+## 14. O que falta
 
 - **Transporte real e servidor.** O `Transport` está definido; nenhuma
   implementação de rede existe.
@@ -277,13 +313,6 @@ arquivamento vencer a restauração para sempre — e a Capture nunca mais volta
 - **Emitir operações nas outras sete entidades.** Já emitem: Captures, Tasks,
   Projects, Reminders e Resources. Faltam Calendar, Meetings, Conversations,
   Tracking, Workspaces, Apps e Voice.
-- **As tabelas de relação.** `resource_workspaces` e `resource_projects` são
-  junções sem id próprio, e **merge por campo não serve para conjunto**: com
-  LWW, ligar um Resource a um Project num dispositivo apagaria uma ligação feita
-  no outro. O §24 pede que relações sincronizem como entidades de primeira
-  classe, e isso precisa de desenho próprio — id na junção, e `Delete` lógico em
-  vez de remover a linha. Ficou de fora de propósito: fazer errado é pior que
-  fazer depois.
 - **O arquivo dos Resources.** Só o metadado viaja. PDF, imagem e áudio são
   outra camada (§44), com upload, download, cache e checksum. Não existe.
 - **Arquivos binários.** Resources com PDF, imagem e áudio não sincronizam como

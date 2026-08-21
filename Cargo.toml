@@ -34,4 +34,8 @@ rust-version = "1.85"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 time = { version = "0.3", features = ["formatting", "parsing", "serde", "macros"] }
-uuid = { version = "1", features = ["serde", "v7"] }
+# `v5` alem do `v7`: relacao do Knowledge Graph tem id DERIVADO do par, e nao
+# sorteado. Dois dispositivos que ligam o mesmo Resource ao mesmo Project
+# precisam chegar ao mesmo id sem se falarem — v5 e determinístico por nome, e e
+# exatamente isso. Ver `mos-sync::relacao`.
+uuid = { version = "1", features = ["serde", "v5", "v7"] }
