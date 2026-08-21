@@ -19,6 +19,7 @@ mod service;
 mod tracking;
 mod voice;
 mod voice_when;
+mod weekly;
 mod work;
 
 pub use action::{
@@ -121,6 +122,7 @@ pub use tracking::{
     StartTimer, TimeEntry, TimeEntryEdit, TimeEntryId, TimerSnapshot, TimerStatus, Totals,
     TrackedSession, TrackingSettings, TrackingStatus,
 };
+pub use weekly::Week;
 pub use work::{
     validate_pin_kind, validate_section_id, validate_span, validate_widget_id, HiddenWidget,
     NewProject, NewTask, NewWorkspace, Project, ProjectId, RadialPin, RadialPinInput, SearchItem,

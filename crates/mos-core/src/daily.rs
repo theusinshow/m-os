@@ -134,6 +134,29 @@ impl Day {
         &self.0
     }
 
+    /// A data, para quem precisa fazer conta de calendario com ela.
+    ///
+    /// `Result` e nao `Date` direto porque `from_local` tem um caminho de
+    /// formatacao que pode falhar e hoje cai num texto vazio — um `Day`
+    /// invalido nao deveria existir, e enquanto ele puder, quem faz conta
+    /// precisa poder recusar em vez de inventar uma data.
+    pub fn date(&self) -> Result<time::Date, CoreError> {
+        time::Date::parse(&self.0, DAY_FORMAT).map_err(|_| {
+            CoreError::new(
+                ErrorCode::DataIntegrity,
+                "Data persistida e invalida.",
+                false,
+            )
+        })
+    }
+
+    /// O contrario: a data vira `Day`.
+    pub(crate) fn from_date(date: time::Date) -> Result<Self, CoreError> {
+        date.format(DAY_FORMAT)
+            .map(Self)
+            .map_err(|_| CoreError::new(ErrorCode::DataIntegrity, "Data ilegivel.", false))
+    }
+
     /// O dia anterior. Existe para a pergunta "o que sobrou de ontem?", e faz a
     /// conta com `time` em vez de com aritmetica de string por causa dos meses
     /// de 28, 30 e 31 dias.
