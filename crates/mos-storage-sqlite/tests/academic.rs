@@ -32,7 +32,7 @@ fn semestre(storage: &SqliteStorage) -> mos_core::Semester {
 fn disciplina(storage: &SqliteStorage, semestre: &mos_core::Semester) -> mos_core::Subject {
     storage
         .create_subject(
-            NewSubject::create(semestre.id, "Estatica dos Corpos", "EMC5132", "Prof. X", "sodio", "")
+            NewSubject::create(semestre.id, "Estatica dos Corpos", "EMC5132", "Prof. X", "trigo", "")
                 .unwrap(),
         )
         .unwrap()
