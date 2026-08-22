@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::{
+    Assignment, AssignmentId, AssignmentStatus, Day, Exam, ExamId, ExamStatus, NewAssignment,
+    NewExam, NewSemester, NewSubject, Resource, ResourceId, Semester, SemesterId, StudySession,
+    StudySessionId, Subject, SubjectId,
     AppId, Capture, CaptureId, CoreError, HiddenWidget, LifecycleState, NewCapture, NewProject,
     NewRegisteredApp, NewReminder, NewTask, NewVoiceNote, NewWorkspace, ProcessingState, Project,
     ProjectId, RegisteredApp, Reminder, SearchItem, Task, TaskId, TaskState, VoiceNote,
@@ -1053,4 +1056,131 @@ pub trait DailyRepository: Send + Sync {
         &self,
         request: SearchRequest,
     ) -> Result<Vec<(crate::DailyObjective, crate::Day)>, CoreError>;
+}
+
+/// A persistencia do M/Academic.
+///
+/// Uma porta so para as cinco entidades, e nao cinco portas: elas nascem e
+/// morrem juntas — apagar o semestre leva as disciplinas, e a disciplina leva as
+/// atividades —, e separa-las faria uma transacao atravessar duas
+/// implementacoes.
+pub trait AcademicRepository: Send + Sync {
+    // --- Semestre
+    fn semesters(&self, include_archived: bool) -> Result<Vec<Semester>, CoreError>;
+    fn create_semester(&self, semester: NewSemester) -> Result<Semester, CoreError>;
+    fn update_semester(
+        &self,
+        id: SemesterId,
+        name: &str,
+        institution: &str,
+        starts_on: &Day,
+        ends_on: &Day,
+    ) -> Result<Semester, CoreError>;
+    fn set_semester_lifecycle(
+        &self,
+        id: SemesterId,
+        state: LifecycleState,
+    ) -> Result<Semester, CoreError>;
+
+    // --- Disciplina
+    fn subjects(&self, include_archived: bool) -> Result<Vec<Subject>, CoreError>;
+    fn create_subject(&self, subject: NewSubject) -> Result<Subject, CoreError>;
+    fn update_subject(
+        &self,
+        id: SubjectId,
+        name: &str,
+        code: &str,
+        teacher: &str,
+        accent: &str,
+        notes: &str,
+    ) -> Result<Subject, CoreError>;
+    fn set_subject_lifecycle(
+        &self,
+        id: SubjectId,
+        state: LifecycleState,
+    ) -> Result<Subject, CoreError>;
+
+    // --- Atividade
+    fn assignments(&self, include_archived: bool) -> Result<Vec<Assignment>, CoreError>;
+    fn create_assignment(&self, assignment: NewAssignment) -> Result<Assignment, CoreError>;
+    fn update_assignment(&self, assignment: UpdateAssignment) -> Result<Assignment, CoreError>;
+    fn set_assignment_status(
+        &self,
+        id: AssignmentId,
+        status: AssignmentStatus,
+    ) -> Result<Assignment, CoreError>;
+    fn set_assignment_lifecycle(
+        &self,
+        id: AssignmentId,
+        state: LifecycleState,
+    ) -> Result<Assignment, CoreError>;
+    /// Cria a Task do M/OS que executa esta atividade, e liga as duas.
+    ///
+    /// Numa transacao so: uma Task criada sem o vinculo seria uma tarefa orfa
+    /// que ninguem relaciona de volta a faculdade, e um vinculo sem Task
+    /// apontaria para o vazio.
+    fn create_task_for_assignment(&self, id: AssignmentId) -> Result<Task, CoreError>;
+    /// Desfaz o vinculo sem tocar na Task. Ela continua existindo — quem quer
+    /// apagar a Task usa o caminho da Task.
+    fn unlink_assignment_task(&self, id: AssignmentId) -> Result<Assignment, CoreError>;
+
+    // --- Avaliacao
+    fn exams(&self, include_archived: bool) -> Result<Vec<Exam>, CoreError>;
+    fn create_exam(&self, exam: NewExam) -> Result<Exam, CoreError>;
+    fn update_exam(&self, exam: UpdateExam) -> Result<Exam, CoreError>;
+    fn set_exam_lifecycle(&self, id: ExamId, state: LifecycleState) -> Result<Exam, CoreError>;
+
+    // --- Materiais
+    fn subject_resources(&self, id: SubjectId) -> Result<Vec<Resource>, CoreError>;
+    fn material_counts(&self) -> Result<Vec<(SubjectId, usize)>, CoreError>;
+    fn link_material(
+        &self,
+        subject: SubjectId,
+        resource: ResourceId,
+        linked: bool,
+    ) -> Result<(), CoreError>;
+
+    // --- Estudo
+    fn study_sessions(&self, limit: usize) -> Result<Vec<StudySession>, CoreError>;
+    fn running_study(&self) -> Result<Option<StudySession>, CoreError>;
+    fn start_study(&self, subject: SubjectId, topic: &str) -> Result<StudySession, CoreError>;
+    /// Fecha a sessao aberta. `seconds` vem de fora porque a tela e quem sabe se
+    /// houve pausa — o relogio de parede nao reproduz isso.
+    fn finish_study(
+        &self,
+        id: StudySessionId,
+        seconds: i64,
+        notes: &str,
+    ) -> Result<StudySession, CoreError>;
+    fn discard_study(&self, id: StudySessionId) -> Result<(), CoreError>;
+}
+
+/// Os campos editaveis de uma atividade.
+///
+/// Struct em vez de dez parametros: metade deles e `Option<f64>`, e trocar dois
+/// de lugar compilaria sem reclamacao nenhuma.
+#[derive(Clone, Debug)]
+pub struct UpdateAssignment {
+    pub id: AssignmentId,
+    pub title: String,
+    pub description: String,
+    pub due_at: Option<OffsetDateTime>,
+    pub priority: crate::Priority,
+    pub weight: f64,
+    pub score: Option<f64>,
+    pub max_score: Option<f64>,
+    pub status: AssignmentStatus,
+}
+
+#[derive(Clone, Debug)]
+pub struct UpdateExam {
+    pub id: ExamId,
+    pub name: String,
+    pub at: OffsetDateTime,
+    pub location: String,
+    pub topics: String,
+    pub weight: f64,
+    pub score: Option<f64>,
+    pub max_score: Option<f64>,
+    pub status: ExamStatus,
 }

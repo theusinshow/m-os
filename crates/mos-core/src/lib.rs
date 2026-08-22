@@ -30,7 +30,8 @@ pub use academic::{
     AcademicDashboard, AcademicToday, Assignment, AssignmentId, AssignmentStatus, Compromisso,
     DashboardInput, Desempenho, Exam, ExamId, ExamStatus, Horizonte, Nota, Semester, SemesterId,
     SemesterStatus, StudySession, StudySessionId, StudySuggestion, Subject, SubjectId,
-    SubjectOverview, MAX_UPCOMING, SUBJECT_ACCENTS,
+    NewAssignment, NewExam, NewSemester, NewSubject, Pontuacao, SubjectOverview, MAX_UPCOMING,
+    SUBJECT_ACCENTS,
 };
 pub use action::{
     action_contract, parse_action, parse_action_at, preview_of, ActionArgs, ActionAudit,
@@ -101,9 +102,9 @@ pub use monitoring::{
     MonitoredApp, MonitoringSettings, NewActivityEvent, Period,
 };
 pub use ports::{
-    AppRepository, AttentionRepository, BackupInspection, BackupReceipt, CaptureRepository,
+    AcademicRepository, AppRepository, AttentionRepository, BackupInspection, BackupReceipt, CaptureRepository,
     ConversationRepository, DailyRepository, DataMaintenance, IngestionRepository,
-    MeetingRepository,
+    MeetingRepository, UpdateAssignment, UpdateExam,
     MonitoringRepository, ResourceRepository, SearchRequest, TimeTrackingRepository,
     VoiceRepository,
     WorkRepository,

@@ -984,6 +984,250 @@ pub fn compose_today(dashboard: &AcademicDashboard, agora_local: OffsetDateTime)
     }
 }
 
+// ===========================================================================
+// O que entra
+// ===========================================================================
+//
+// Os tipos `New*` validam na construcao, como `NewTask` e `NewCapture`: um
+// titulo em branco ou um intervalo invertido morrem aqui, e nao num CHECK do
+// SQLite que devolve mensagem de banco para a tela.
+
+fn required(value: &str, message: &str) -> Result<String, CoreError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(CoreError::new(ErrorCode::InvalidInput, message, false));
+    }
+    Ok(trimmed.to_owned())
+}
+
+#[derive(Clone, Debug)]
+pub struct NewSemester {
+    pub id: SemesterId,
+    pub name: String,
+    pub institution: String,
+    pub starts_on: Day,
+    pub ends_on: Day,
+    pub created_at: OffsetDateTime,
+}
+
+impl NewSemester {
+    pub fn create(
+        name: &str,
+        institution: &str,
+        starts_on: &str,
+        ends_on: &str,
+    ) -> Result<Self, CoreError> {
+        let starts_on = Day::parse(starts_on)?;
+        let ends_on = Day::parse(ends_on)?;
+        if ends_on < starts_on {
+            return Err(CoreError::new(
+                ErrorCode::InvalidInput,
+                "O semestre termina antes de comecar.",
+                false,
+            ));
+        }
+        Ok(Self {
+            id: SemesterId::new(),
+            name: required(name, "O nome do semestre nao pode estar vazio.")?,
+            institution: institution.trim().to_owned(),
+            starts_on,
+            ends_on,
+            created_at: OffsetDateTime::now_utc(),
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct NewSubject {
+    pub id: SubjectId,
+    pub semester_id: SemesterId,
+    pub name: String,
+    pub code: String,
+    pub teacher: String,
+    pub accent: String,
+    pub notes: String,
+    pub created_at: OffsetDateTime,
+}
+
+impl NewSubject {
+    pub fn create(
+        semester_id: SemesterId,
+        name: &str,
+        code: &str,
+        teacher: &str,
+        accent: &str,
+        notes: &str,
+    ) -> Result<Self, CoreError> {
+        Ok(Self {
+            id: SubjectId::new(),
+            semester_id,
+            name: required(name, "O nome da disciplina nao pode estar vazio.")?,
+            code: code.trim().to_owned(),
+            teacher: teacher.trim().to_owned(),
+            accent: validate_accent(accent)?,
+            notes: notes.trim().to_owned(),
+            created_at: OffsetDateTime::now_utc(),
+        })
+    }
+}
+
+/// A nota de uma avaliacao: o par valor/teto, ou nada.
+///
+/// Tipo proprio em vez de dois `Option<f64>` soltos porque **os dois andam
+/// juntos**: nota sem teto nao se converte em media (8 de quanto?), e o CHECK do
+/// banco recusa esse par pela metade. Um tipo que so representa o par completo
+/// impede o estado invalido de existir antes de chegar la.
+#[derive(Clone, Copy, Debug)]
+pub struct Pontuacao {
+    pub score: f64,
+    pub max_score: f64,
+}
+
+impl Pontuacao {
+    pub fn nova(score: Option<f64>, max_score: Option<f64>) -> Result<Option<Self>, CoreError> {
+        match (score, max_score) {
+            (None, None) => Ok(None),
+            (Some(score), Some(max_score)) => {
+                if max_score <= 0.0 {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidInput,
+                        "A nota maxima precisa ser maior que zero.",
+                        false,
+                    ));
+                }
+                if score < 0.0 {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidInput,
+                        "A nota nao pode ser negativa.",
+                        false,
+                    ));
+                }
+                Ok(Some(Self { score, max_score }))
+            }
+            // Teto sem nota e um estado legitimo em EDICAO — "esta prova vale
+            // 10, ainda nao fiz" —, e por isso ele passa como ausencia de nota
+            // com teto guardado. Nota sem teto e que nao existe.
+            (None, Some(max_score)) => {
+                if max_score <= 0.0 {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidInput,
+                        "A nota maxima precisa ser maior que zero.",
+                        false,
+                    ));
+                }
+                Ok(Some(Self {
+                    score: f64::NAN,
+                    max_score,
+                }))
+            }
+            (Some(_), None) => Err(CoreError::new(
+                ErrorCode::InvalidInput,
+                "Uma nota precisa de uma nota maxima: 8 de quanto?",
+                false,
+            )),
+        }
+    }
+
+    /// O par pronto para o banco. `score` sai vazio quando so ha teto.
+    pub fn colunas(self) -> (Option<f64>, Option<f64>) {
+        (
+            (!self.score.is_nan()).then_some(self.score),
+            Some(self.max_score),
+        )
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct NewAssignment {
+    pub id: AssignmentId,
+    pub subject_id: SubjectId,
+    pub title: String,
+    pub description: String,
+    pub due_at: Option<OffsetDateTime>,
+    pub priority: crate::Priority,
+    pub weight: f64,
+    pub pontuacao: Option<Pontuacao>,
+    pub created_at: OffsetDateTime,
+}
+
+impl NewAssignment {
+    pub fn create(
+        subject_id: SubjectId,
+        title: &str,
+        description: &str,
+        due_at: Option<OffsetDateTime>,
+        priority: crate::Priority,
+        weight: f64,
+        score: Option<f64>,
+        max_score: Option<f64>,
+    ) -> Result<Self, CoreError> {
+        if weight < 0.0 {
+            return Err(CoreError::new(
+                ErrorCode::InvalidInput,
+                "O peso nao pode ser negativo.",
+                false,
+            ));
+        }
+        Ok(Self {
+            id: AssignmentId::new(),
+            subject_id,
+            title: required(title, "O titulo da atividade nao pode estar vazio.")?,
+            description: description.trim().to_owned(),
+            due_at,
+            priority,
+            weight,
+            pontuacao: Pontuacao::nova(score, max_score)?,
+            created_at: OffsetDateTime::now_utc(),
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct NewExam {
+    pub id: ExamId,
+    pub subject_id: SubjectId,
+    pub name: String,
+    pub at: OffsetDateTime,
+    pub location: String,
+    pub topics: String,
+    pub weight: f64,
+    pub pontuacao: Option<Pontuacao>,
+    pub created_at: OffsetDateTime,
+}
+
+impl NewExam {
+    #[allow(clippy::too_many_arguments)]
+    pub fn create(
+        subject_id: SubjectId,
+        name: &str,
+        at: OffsetDateTime,
+        location: &str,
+        topics: &str,
+        weight: f64,
+        score: Option<f64>,
+        max_score: Option<f64>,
+    ) -> Result<Self, CoreError> {
+        if weight < 0.0 {
+            return Err(CoreError::new(
+                ErrorCode::InvalidInput,
+                "O peso nao pode ser negativo.",
+                false,
+            ));
+        }
+        Ok(Self {
+            id: ExamId::new(),
+            subject_id,
+            name: required(name, "O nome da avaliacao nao pode estar vazio.")?,
+            at,
+            location: location.trim().to_owned(),
+            topics: topics.trim().to_owned(),
+            weight,
+            pontuacao: Pontuacao::nova(score, max_score)?,
+            created_at: OffsetDateTime::now_utc(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
