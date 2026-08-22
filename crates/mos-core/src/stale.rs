@@ -118,6 +118,39 @@ pub struct Parada {
     pub days: i64,
 }
 
+/// Quando um Project foi mexido de verdade.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectActivity {
+    pub project_id: ProjectId,
+    #[serde(with = "time::serde::rfc3339")]
+    pub last_activity: OffsetDateTime,
+}
+
+/// O que o comando devolve: as paradas, e a atividade real de cada Project.
+///
+/// As duas coisas viajam juntas porque a tela precisa das duas ao mesmo tempo —
+/// a lista de paradas para o widget novo, e a atividade para o ponto do widget
+/// PROJECTS. Dois comandos fariam duas leituras das mesmas duas tabelas.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StaleView {
+    pub paradas: Vec<Parada>,
+    pub activity: Vec<ProjectActivity>,
+}
+
+/// A atividade real de cada Project ativo, na ordem em que eles chegaram.
+pub fn project_activity(projects: &[Project], tasks: &[Task]) -> Vec<ProjectActivity> {
+    projects
+        .iter()
+        .filter(|project| project.lifecycle_state == LifecycleState::Active)
+        .map(|project| ProjectActivity {
+            project_id: project.id,
+            last_activity: atividade_do_project(project, tasks),
+        })
+        .collect()
+}
+
 /// O que [`compose_stale`] precisa.
 ///
 /// Estrutura em vez de quatro parametros soltos, como no `ComposeInput` do
@@ -583,5 +616,29 @@ mod tests {
             None,
         )];
         assert!(compose_stale(entrada(instante(), &tasks, &[])).is_empty());
+    }
+    /// O widget PROJECTS acende o ponto com `project.updatedAt`, e por isso ele
+    /// acende quando o Project e RENOMEADO. A mesma funcao que a lista de
+    /// paradas usa e a que corrige o ponto — uma funcao, dois consumidores.
+    #[test]
+    fn a_atividade_sai_para_todos_os_projects_ativos() {
+        let casa = project("Casa", instante() - Duration::days(30));
+        let vazio = project("Vazio", instante() - Duration::days(4));
+        let mut guardado = project("Guardado", instante());
+        guardado.lifecycle_state = LifecycleState::Archived;
+
+        let tasks = vec![task("hoje", TaskState::Doing, instante(), Some(&casa))];
+        let projects = vec![casa.clone(), vazio.clone(), guardado];
+
+        let atividade = project_activity(&projects, &tasks);
+        assert_eq!(atividade.len(), 2, "o arquivado nao entra");
+        assert_eq!(atividade[0].project_id, casa.id);
+        assert_eq!(atividade[0].last_activity, instante());
+        assert_eq!(atividade[1].project_id, vazio.id);
+        assert_eq!(
+            atividade[1].last_activity,
+            instante() - Duration::days(4),
+            "sem Task, cai no campo do proprio Project"
+        );
     }
 }
