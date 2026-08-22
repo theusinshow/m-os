@@ -2854,3 +2854,73 @@ uma vez não paga uma migration, uma tabela e uma tela.
 - Não há notificação. Mesma decisão do §8 do `DAILY-SESSION.md`.
 - Prioridade em `Task` continua não existindo. É a ausência que o #56 revelou, e
   é outra feature — maior que esta.
+
+---
+
+## ADR-057 — A migration responde pelo que ela deixou, e não pelo que encontrou
+
+**Estado:** Accepted · 2026-08-22
+
+### Contexto
+
+Em 2026-08-22 o M/OS recusou abrir na máquina do dono:
+
+```
+Failed to setup app: A migration deixou 50 referencias orfas no banco local.
+```
+
+A migration não tinha deixado nenhuma. As 50 linhas — 48 em
+`meeting_transcript_index` e 2 em `meeting_search_index` — apontavam para duas
+reuniões de 2026-08-21 que já não existiam, e o snapshot `pre-migration-v26`,
+gravado às 01:17 daquele dia, já as continha. Elas atravessaram as migrations
+0027, 0028 e 0029 sem que ninguém as visse.
+
+**Como elas nasceram.** As duas reuniões foram criadas às 00:09 e 00:30 (os ids
+são UUIDv7 e carregam o instante), e desapareceram antes de 01:17, junto com os
+áudios em `%APPDATA%\com.codedbym.mos\meetings\`. Não foi o app: o único
+`DELETE FROM meetings` do repositório está dentro de um teste, e em produção
+descartar não é apagar — a linha permanece com outro `lifecycle_state`. Sumiram
+exatamente as tabelas que uma pessoa nomearia (`meetings`, `meeting_segments`,
+`meeting_search`) e ficaram as duas que são detalhe interno do FTS.
+
+A explicação está no padrão do SQLite: **`PRAGMA foreign_keys` vem DESLIGADO**.
+O M/OS liga em `configure_connection`; o `sqlite3`, o DB Browser e qualquer
+script não ligam. Um `DELETE FROM meetings` dado ali fora não dispara o
+`ON DELETE CASCADE`, e o índice fica apontando para o vazio.
+
+**Por que só apareceu meses depois.** `verify_foreign_keys` só roda no caminho
+da migração (`current < SCHEMA_VERSION`). A sujeira dormiu até a migration
+seguinte e então trancou a porta, num momento arbitrário, com uma mensagem que
+acusava o inocente.
+
+### Decisão
+
+**A guarda passa a ser comparativa.** As órfãs são contadas **por tabela** antes
+de a primeira migration rodar e de novo no fim; a migração falha apenas quando
+alguma tabela tem **mais** órfãs do que tinha. Por tabela e não por total: uma
+migration que criasse uma órfa em `tasks` enquanto outra limpasse cinquenta de
+`meeting_transcript_index` faria o total cair, e a regressão passaria em
+silêncio.
+
+**Sujeira pré-existente não impede o app de abrir.** Lixo de índice não corrompe
+leitura nenhuma, e a resposta certa é uma migration de conserto que o conheça —
+não um app que não abre. Regressão de migration continua sendo erro duro, e a
+mensagem agora nomeia a tabela em vez de só contar.
+
+**A limpeza é uma migration, e não um reparo automático.** A 0030 varre as
+órfãs de reunião — o índice e o texto correspondente no FTS, nesta ordem, porque
+depois de apagar o índice o vínculo com o rowid do FTS se perde e o lixo vira
+permanente. Ela é idempotente e não tem o que apagar num banco saudável.
+
+### Consequências
+
+- Um banco sujo por edição externa continua abrindo, e a sujeira espera pela
+  migration que souber tratá-la.
+- Cada classe de órfa conhecida ganha a sua migration de conserto, com o motivo
+  escrito. A 0030 é a primeira.
+- **Editar o banco por fora continua sendo perigoso**, e agora por um motivo
+  documentado: sem `PRAGMA foreign_keys = ON`, todo `DELETE` deixa rastro. Quem
+  precisar mexer ali fora liga o pragma antes.
+- O que a guarda não faz: avisar. Sujeira pré-existente não aparece na tela hoje.
+  Se um dia isso importar, o lugar é o widget `SISTEMA`, e não um erro de
+  abertura.
