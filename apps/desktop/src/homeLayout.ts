@@ -83,7 +83,20 @@ export const HOME_WIDGETS: { id: string; label: string; section: string; role: H
   { id: "timer", label: "CRONÔMETRO", section: "now", role: "focus", span: 3 },
   { id: "today_hours", label: "HOJE", section: "now", role: "focus", span: 3 },
   { id: "inbox_pulse", label: "INBOX", section: "resume", role: "attention", span: 3 },
-  { id: "recent", label: "RECENTES", section: "resume", role: "attention", span: 6 },
+  /* PARADAS ao lado do INBOX porque as duas perguntas sao a mesma familia: o que
+     entrou e nao foi decidido, e o que foi decidido e nao andou. Faixa
+     "Retomar" e o lugar literal do nome dela.
+
+     Largura 3: a lista e de cinco linhas curtas, e um quarto de linha as
+     comporta sem quebrar. */
+  { id: "stale", label: "PARADAS", section: "resume", role: "attention", span: 3 },
+  /* RECENTES desceu de 6 para 3 quando PARADAS entrou: a faixa precisa fechar a
+     linha de doze, e o teste `tem faixas que somam multiplos de doze` guarda
+     isso. Com quatro perguntas curtas — o que entrou, o que parou, o que
+     aconteceu, onde estou — um quarto de linha cada e o formato certo: as
+     quatro sao listas de titulo e data, e o CSS de `[data-span="3"]` ja desce a
+     data para baixo do nome em vez de espremer os dois. */
+  { id: "recent", label: "RECENTES", section: "resume", role: "attention", span: 3 },
   { id: "projects", label: "PROJECTS", section: "resume", role: "attention", span: 3 },
   { id: "month_density", label: "MÊS", section: "overview", role: "overview", span: 6 },
   // Ids novos e nao renomeados: `week_rings` continua sendo a semana de TASKS, e
