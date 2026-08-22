@@ -11,7 +11,7 @@ import {
 import { ActionCard } from "./ActionCard";
 import { AgentActivity } from "./AgentActivity";
 import { ContextChip } from "./ContextChip";
-import type { Passo } from "./atividade";
+import { explicaOFim, type Passo } from "./atividade";
 
 function relogio(valor: string) {
   return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(new Date(valor));
@@ -137,10 +137,16 @@ const AssistantTurn = memo(function AssistantTurn({ message, onCopy, onRegenerat
           return null;
         })}
 
-        {message.status === "interrupted" ? (
-          <p className="hermes-system-line">
-            {texto ? "Interrompido por você. O texto parcial fica." : "Interrompido antes de começar."}
-          </p>
+        {/* O motivo do fim é GRAVADO como parte de status pelo `settle_turn`, e
+            desenhado ali em cima como qualquer outra linha de sistema. Esta
+            linha aqui é só o fallback para as mensagens antigas, gravadas antes
+            de 2026-08-22, que não têm a parte.
+
+            Ela não diz "por você": os quatro finais precoces compartilham o
+            mesmo `interrupted`, e afirmar autoria a partir dele era o defeito —
+            uma queda de túnel aparecia na tela como decisão do usuário. */}
+        {message.status === "interrupted" && !explicaOFim(message) ? (
+          <p className="hermes-system-line">Interrompido.</p>
         ) : null}
 
         <div className="hermes-actions">

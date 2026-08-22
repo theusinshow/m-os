@@ -76,3 +76,25 @@ export function decorridoDe(inicio: number, agora: number): string {
   if (segundos < 0.5) return "";
   return `${segundos.toFixed(1)}s`;
 }
+
+/**
+ * A mensagem já traz uma linha explicando como o turno acabou?
+ *
+ * Desde 2026-08-22 o `settle_turn` grava o motivo do fim como parte de status —
+ * "A conexão caiu.", "Interrompido por você." — e ela é desenhada como qualquer
+ * outra linha de sistema. Esta função existe para o componente não empilhar um
+ * segundo "Interrompido." embaixo dela.
+ *
+ * O teste é POSICIONAL, e não por texto: comparar com a lista de frases exigiria
+ * uma segunda cópia delas aqui, e duas cópias de uma frase divergem na primeira
+ * vez que alguém corrige uma vírgula. Se a última coisa dita no turno já é uma
+ * linha de sistema, ela ocupa esse lugar — venha do fim do turno ou de um
+ * `status.update` que por acaso foi o último.
+ *
+ * O erro possível é benigno nos dois sentidos: no máximo uma mensagem antiga
+ * deixa de mostrar "Interrompido.", ou mostra quando não precisava.
+ */
+export function explicaOFim(message: { parts: { body: { kind: string } }[] }): boolean {
+  const ultima = message.parts[message.parts.length - 1];
+  return ultima?.body.kind === "status";
+}

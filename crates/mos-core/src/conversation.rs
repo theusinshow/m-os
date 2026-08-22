@@ -477,6 +477,68 @@ pub fn validate_title(title: &str) -> Result<String, CoreError> {
     Ok(title.to_owned())
 }
 
+/// Por que o turno acabou antes da resposta inteira.
+///
+/// # Por que existe
+///
+/// Os quatro finais gravam o mesmo `MessageStatus::Interrupted`, e ate
+/// 2026-08-22 a tela dizia "Interrompido por voce" para todos — inclusive
+/// quando o tunel caiu no meio da resposta. O M/OS afirmava uma autoria que nao
+/// tinha como conhecer, e culpava o usuario por uma queda de rede.
+///
+/// O motivo NAO virou um `MessageStatus` novo de proposito. O status e
+/// persistido com `CHECK (status IN (...))` na migration 0010, e o SQLite nao
+/// altera CHECK: acrescentar um valor exigiria recriar `messages` com as filhas
+/// e as FKs desligadas — o procedimento que ja produziu orfas neste banco. O
+/// motivo cabe numa parte de mensagem, que persiste do mesmo jeito e nao
+/// encosta no esquema.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TurnEnding {
+    /// O usuario mandou parar.
+    UserStopped,
+    /// O socket caiu, ou o app fechou no meio.
+    ConnectionDropped,
+    /// Uma pergunta do agente foi fechada sem resposta.
+    ClarifyDismissed,
+    /// A conversa mudou embaixo do turno.
+    ConversationSwitched,
+}
+
+impl TurnEnding {
+    /// A linha que a conversa mostra no lugar do fim que nao veio.
+    ///
+    /// Ela e gravada COM a mensagem, e nao decidida na hora de desenhar: reabrir
+    /// o app precisa continuar dizendo a mesma coisa, e uma frase montada no
+    /// renderer se perde no reload.
+    pub fn nota(self) -> &'static str {
+        match self {
+            Self::UserStopped => "Interrompido por você.",
+            // Nao diz "por voce", e nao promete volta: o supervisor tenta de
+            // novo sozinho, mas prometer aqui seria afirmar sobre uma rede que
+            // ninguem conhece deste lado.
+            //
+            // Nenhuma frase menciona "o texto parcial fica": ele esta na tela,
+            // logo acima da linha, e o mesmo fim precisa servir ao turno que
+            // morreu ANTES de o primeiro token chegar — onde nao ha texto
+            // nenhum, e a promessa seria falsa.
+            Self::ConnectionDropped => "A conexão caiu.",
+            Self::ClarifyDismissed => "A pergunta foi fechada sem resposta.",
+            Self::ConversationSwitched => "A conversa mudou, e este turno parou aqui.",
+        }
+    }
+
+    /// O fim do turno como parte de mensagem.
+    ///
+    /// `Status`, e nao `Error`: `PartBody::Error` desenha com sinal de alarme, e
+    /// um texto parcial valido interrompido nao e falha da resposta — e um fato
+    /// sobre o turno.
+    pub fn parte(self) -> PartBody {
+        PartBody::Status {
+            text: self.nota().to_owned(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -629,5 +691,63 @@ mod tests {
             MessageRole::parse("assistant").unwrap(),
             MessageRole::Assistant
         );
+    }
+    /// O turno que morreu com o socket nao pode dizer que foi o usuario.
+    ///
+    /// Ate 2026-08-22 os quatro finais de turno gravavam o mesmo
+    /// `MessageStatus::Interrupted`, e a tela dizia "Interrompido por voce" para
+    /// todos — inclusive quando o tunel caiu no meio da resposta. O M/OS
+    /// afirmava uma autoria que nao tinha como conhecer.
+    #[test]
+    fn a_queda_de_conexao_nao_e_atribuida_ao_usuario() {
+        let nota = TurnEnding::ConnectionDropped.nota();
+        assert!(nota.contains("conexão"), "diz o que aconteceu: {nota}");
+        assert!(
+            !nota.contains("você"),
+            "e nao atribui ao usuario o que a rede fez: {nota}"
+        );
+    }
+
+    #[test]
+    fn a_parada_do_usuario_continua_dizendo_que_foi_ele() {
+        // O outro lado da mesma moeda: quando FOI o usuario, esconder isso
+        // deixaria a conversa sem explicacao para um texto que para no meio.
+        let nota = TurnEnding::UserStopped.nota();
+        assert!(nota.contains("você"), "{nota}");
+    }
+
+    /// Cada final tem a sua frase, e nenhuma se repete.
+    ///
+    /// Duas frases iguais significariam dois finais indistinguiveis na tela — e
+    /// e exatamente o defeito que esta mudanca existe para corrigir.
+    #[test]
+    fn cada_final_tem_a_sua_frase() {
+        let finais = [
+            TurnEnding::UserStopped,
+            TurnEnding::ConnectionDropped,
+            TurnEnding::ClarifyDismissed,
+            TurnEnding::ConversationSwitched,
+        ];
+        let mut notas: Vec<&str> = finais.iter().map(|fim| fim.nota()).collect();
+        notas.sort_unstable();
+        let antes = notas.len();
+        notas.dedup();
+        assert_eq!(notas.len(), antes, "duas frases iguais: {notas:?}");
+        for nota in &notas {
+            assert!(!nota.is_empty(), "final sem frase");
+        }
+    }
+
+    /// A frase e uma linha de sistema, e nao um erro.
+    ///
+    /// `PartBody::Error` desenha com "!" e cor de alarme. Uma queda de conexao
+    /// com texto parcial valido na tela nao e falha da resposta — e um fato
+    /// sobre o turno.
+    #[test]
+    fn a_frase_vira_parte_de_status() {
+        match TurnEnding::ConnectionDropped.parte() {
+            PartBody::Status { text } => assert_eq!(text, TurnEnding::ConnectionDropped.nota()),
+            outra => panic!("o fim do turno virou {outra:?}, e nao uma linha de sistema"),
+        }
     }
 }

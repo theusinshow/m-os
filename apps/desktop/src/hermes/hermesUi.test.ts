@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { aplicarComando, comandosPara, tokenDeComando } from "./comandos";
 import { aplicarMencao, coladoNoFim, LINHAS_MAXIMAS, LINHAS_MINIMAS, medirCampo, tokenDeMencao } from "./composer";
-import { decorridoDe, reciboAlerta, reciboDosPassos } from "./atividade";
+import { decorridoDe, explicaOFim, reciboAlerta, reciboDosPassos } from "./atividade";
 
 describe("comandos de barra", () => {
   it("so abre quando a barra E o rascunho inteiro", () => {
@@ -103,5 +103,25 @@ describe("recibo da atividade", () => {
     expect(decorridoDe(1000, 1200)).toBe("");
     expect(decorridoDe(1000, 3400)).toBe("2.4s");
     expect(decorridoDe(0, 9999)).toBe("");
+  });
+});
+
+describe("a linha que explica o fim do turno", () => {
+  const parte = (kind: string) => ({ body: { kind } });
+
+  it("reconhece a linha gravada pelo settle_turn", () => {
+    // "A conexão caiu." é gravada como parte de status, no fim. O componente
+    // não pode empilhar um segundo "Interrompido." embaixo dela.
+    expect(explicaOFim({ parts: [parte("text"), parte("status")] })).toBe(true);
+  });
+
+  it("uma resposta que termina em texto não explica nada", () => {
+    expect(explicaOFim({ parts: [parte("status"), parte("text")] })).toBe(false);
+  });
+
+  it("mensagem antiga, sem parte nenhuma, cai no fallback", () => {
+    // As mensagens gravadas antes de 2026-08-22 não têm a linha do motivo, e
+    // precisam do "Interrompido." genérico do componente.
+    expect(explicaOFim({ parts: [] })).toBe(false);
   });
 });

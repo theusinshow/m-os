@@ -51,6 +51,7 @@ pub use conversation::{
     validate_title, ContextEntity, ContextOrigin, Conversation, ConversationId,
     ConversationSummary, Message, MessageId, MessagePart, MessagePartId, MessageRole,
     MessageStatus, NewConversation, NewMessage, PartBody, ProposalStatus, ToolRunState,
+    TurnEnding,
 };
 pub use daily::{
     compose_context, completes_with_task, summarize, CarryOver, ContextInput, DailyContext,

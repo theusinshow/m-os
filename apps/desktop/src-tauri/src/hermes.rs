@@ -183,10 +183,17 @@ impl From<mos_hermes::HermesError> for HermesFailure {
 /// O retorno existe por causa do salto de busca: quem chama precisa saber que o
 /// modelo pediu uma, e so pode saber depois de o turno assentar — mandar outro
 /// `prompt.submit` antes disso levaria um `4009 session busy`.
+/// `ending` diz POR QUE o turno parou, e vira uma linha gravada com a mensagem.
+///
+/// `None` e o turno que chegou ao fim sozinho — completo ou falhado pelo
+/// proprio agente —, e ali nao ha nada a explicar. Os quatro finais precoces
+/// gravam o mesmo `MessageStatus::Interrupted`, e sem esta distincao a tela
+/// dizia "Interrompido por voce" ate para uma queda de tunel.
 fn settle_turn<R: Runtime>(
     app: &AppHandle<R>,
     state: &HermesState,
     status: MessageStatus,
+    ending: Option<mos_core::TurnEnding>,
 ) -> Option<String> {
     let recorder = state
         .recorder
@@ -195,9 +202,11 @@ fn settle_turn<R: Runtime>(
         .and_then(|mut guard| guard.take())?;
     if !recorder.has_content() && status == MessageStatus::Interrupted {
         // Nada chegou e o turno morreu: a mensagem vazia ainda precisa deixar de
-        // dizer "pensando", mas nao ha parte para gravar.
+        // dizer "pensando". A unica parte e a linha que explica o fim — sem ela
+        // a mensagem ficaria muda, e mudo o usuario le como travado.
         let service = app.state::<AppState>().conversations.clone();
-        if let Ok(message) = service.finish_answer(&recorder.message_id, status, Vec::new()) {
+        let parts: Vec<_> = ending.map(|fim| fim.parte()).into_iter().collect();
+        if let Ok(message) = service.finish_answer(&recorder.message_id, status, parts) {
             jarvis::announce_message(app, &message);
         }
         return None;
@@ -210,7 +219,12 @@ fn settle_turn<R: Runtime>(
     let query = (status == MessageStatus::Complete)
         .then(|| recorder.requested_query())
         .flatten();
-    let parts = recorder.into_parts(status, crate::surface::now_local(app));
+    let mut parts = recorder.into_parts(status, crate::surface::now_local(app));
+    // Por ultimo: a linha explica o que aconteceu DEPOIS do que chegou, e nao
+    // antes. Lida de cima para baixo, a conversa termina no motivo.
+    if let Some(fim) = ending {
+        parts.push(fim.parte());
+    }
     let service = app.state::<AppState>().conversations.clone();
     if let Ok(message) = service.finish_answer(&message_id, status, parts) {
         jarvis::announce_message(app, &message);
@@ -296,7 +310,7 @@ async fn answer_query<R: Runtime>(app: &AppHandle<R>, raw: &str) {
         // A resposta aberta precisa parar de dizer "pensando": o pedido de
         // busca ja foi gravado, e a mensagem que ia responde-lo ficaria
         // pendurada para sempre.
-        let _ = settle_turn(app, &state, MessageStatus::Failed);
+        let _ = settle_turn(app, &state, MessageStatus::Failed, None);
     }
 }
 
@@ -436,7 +450,7 @@ pub async fn hermes_connect<R: Runtime>(app: AppHandle<R>) -> Result<(), HermesF
                                             } else {
                                                 MessageStatus::Complete
                                             };
-                                            let query = settle_turn(&pump, &state, status);
+                                            let query = settle_turn(&pump, &state, status, None);
                                             // O titulo so existe depois do
                                             // primeiro turno. Perguntar antes
                                             // devolveria vazio.
@@ -504,9 +518,16 @@ pub async fn hermes_connect<R: Runtime>(app: AppHandle<R>) -> Result<(), HermesF
             }
         }
 
-        // O socket caiu ou o app fechou. O texto que ja chegou nao pode sumir.
+        // O socket caiu ou o app fechou. O texto que ja chegou nao pode sumir,
+        // e a linha diz que quem parou foi a CONEXAO — atribuir isso ao usuario
+        // era o defeito que esta chamada corrige.
         let state = pump.state::<HermesState>();
-        let _ = settle_turn(&pump, &state, MessageStatus::Interrupted);
+        let _ = settle_turn(
+            &pump,
+            &state,
+            MessageStatus::Interrupted,
+            Some(mos_core::TurnEnding::ConnectionDropped),
+        );
         set(&connection, ConnectionState::Offline);
         announce(&pump, &state);
     });
@@ -705,7 +726,7 @@ pub async fn hermes_send<R: Runtime>(
         // Falhou antes de sair: a resposta aberta precisa parar de dizer
         // "pensando" em vez de ficar pendurada para sempre.
         let state = app.state::<HermesState>();
-        let _ = settle_turn(&app, &state, MessageStatus::Failed);
+        let _ = settle_turn(&app, &state, MessageStatus::Failed, None);
     }
     sent
 }
@@ -716,7 +737,8 @@ pub async fn hermes_interrupt<R: Runtime>(app: AppHandle<R>) -> Result<(), Strin
     // Cancelar grava o que chegou. O contrario seria perder a resposta parcial
     // exatamente no momento em que o usuario decidiu ficar com ela.
     let state = app.state::<HermesState>();
-    let _ = settle_turn(&app, &state, MessageStatus::Interrupted);
+    // Foi o usuario que mandou parar, e a linha diz isso.
+    let _ = settle_turn(&app, &state, MessageStatus::Interrupted, Some(mos_core::TurnEnding::UserStopped));
     result
 }
 
@@ -759,7 +781,8 @@ pub async fn hermes_clarify_cancel<R: Runtime>(
     // Assenta mesmo se o gateway caiu no meio: e exatamente quando a resposta
     // nao chega que a tela nao pode continuar dizendo "pensando".
     let state = app.state::<HermesState>();
-    let _ = settle_turn(&app, &state, MessageStatus::Interrupted);
+    // A pergunta do agente foi fechada sem resposta.
+    let _ = settle_turn(&app, &state, MessageStatus::Interrupted, Some(mos_core::TurnEnding::ClarifyDismissed));
     answered.and(interrupted)
 }
 
@@ -777,7 +800,8 @@ pub async fn hermes_select_conversation<R: Runtime>(
     {
         let state = app.state::<HermesState>();
         // Um turno da conversa anterior nao pode continuar gravando na nova.
-        let _ = settle_turn(&app, &state, MessageStatus::Interrupted);
+        // A conversa mudou embaixo do turno.
+        let _ = settle_turn(&app, &state, MessageStatus::Interrupted, Some(mos_core::TurnEnding::ConversationSwitched));
         set(&state.conversation_id, conversation_id.clone());
         set(&state.session_id, None);
         announce(&app, &state);
