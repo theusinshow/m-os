@@ -2,6 +2,7 @@ use std::{
     fs,
     path::PathBuf,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use mos_core::{
@@ -1118,6 +1119,50 @@ fn notify_data_changed(app: &AppHandle, reason: &str) {
     let _ = app.emit_to("main", "data-changed", reason);
 }
 
+/// De quanto em quanto tempo o M/OS confere se o dia ja tem snapshot.
+///
+/// Trinta minutos e barato: `ensure_daily_snapshot` so olha se o arquivo do dia
+/// existe, e volta sem fazer nada quando existe. O que ele compra e o app que
+/// fica aberto atravessando a meia-noite — com `startMinimized`, isso e a
+/// regra, e nao a excecao.
+const PULSO_DO_SNAPSHOT: Duration = Duration::from_secs(30 * 60);
+
+/// Garante o snapshot do dia enquanto o app estiver de pe.
+///
+/// # Por que existe
+///
+/// Ate 2026-08-22 o snapshot diario so acontecia como efeito colateral de UMA
+/// mutacao — criar Capture, Task, Project, Resource, App ou Workspace. Trinta e
+/// duas chamadas espalhadas por trinta e dois comandos do `lib.rs`, e nenhuma
+/// nos modulos que vieram depois: `daily.rs`, `meeting.rs`, `tracking.rs`,
+/// `finance.rs`, `voice.rs`.
+///
+/// A consequencia apareceu no disco: os backups pararam em 2026-08-20. Nos dias
+/// 21 e 22 o M/OS foi usado — Daily Session, Weekly Review, duas reunioes —, e
+/// nada disso passa por um dos comandos que dispara. **Os dados mais novos eram
+/// justamente os que ficavam sem copia.**
+///
+/// A correcao nao e acrescentar a chamada nos modulos que faltam: seria a mesma
+/// armadilha esperando o proximo modulo. O backup do dia passa a depender do
+/// app estar ABERTO, que e a unica condicao que todo uso tem em comum.
+fn manter_snapshot_do_dia(data: &DataService, snapshot_status: &Arc<Mutex<String>>, app: &AppHandle) {
+    let data = data.clone();
+    let snapshot_status = snapshot_status.clone();
+    let app = app.clone();
+    std::thread::spawn(move || loop {
+        let message = match data.ensure_daily_snapshot() {
+            Ok(Some(_)) => "Snapshot diario criado.".to_owned(),
+            Ok(None) => "Snapshot diario ja existe.".to_owned(),
+            Err(error) => format!("Falha no snapshot diario: {}", error.message),
+        };
+        if let Ok(mut status) = snapshot_status.lock() {
+            *status = message.clone();
+        }
+        let _ = app.emit_to("main", "snapshot-status-changed", message);
+        std::thread::sleep(PULSO_DO_SNAPSHOT);
+    });
+}
+
 fn schedule_snapshot(data: &DataService, snapshot_status: &Arc<Mutex<String>>, app: &AppHandle) {
     let data = data.clone();
     let snapshot_status = snapshot_status.clone();
@@ -1797,6 +1842,13 @@ pub fn run() {
             // turno, e uma mensagem gravada como `streaming` voltaria
             // eternamente em curso na tela.
             let _ = app.state::<AppState>().conversations.settle_unfinished();
+
+            // O backup do dia nao pode depender de a pessoa ter criado uma
+            // Capture: ver `manter_snapshot_do_dia`.
+            {
+                let state = app.state::<AppState>();
+                manter_snapshot_do_dia(&state.data, &state.snapshot_status, &app.handle().clone());
+            }
 
             // A Drop Zone precisa do disco antes da primeira janela: a
             // reconciliacao roda na abertura, e ela e quem transforma uma
