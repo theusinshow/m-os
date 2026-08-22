@@ -1213,8 +1213,8 @@ impl AcademicRepository for SqliteStorage {
             .prepare(&format!(
                 "SELECT {SUBJECT_COLUMNS} FROM academic_subjects
                  WHERE lifecycle_state = 'active'
-                   AND (name LIKE ?1 ESCAPE '\' OR code LIKE ?1 ESCAPE '\'
-                        OR teacher LIKE ?1 ESCAPE '\')
+                   AND (name LIKE ?1 ESCAPE '\\' OR code LIKE ?1 ESCAPE '\\'
+                        OR teacher LIKE ?1 ESCAPE '\\')
                  ORDER BY name LIMIT {limite}"
             ))
             .map_err(map_sql_error)?;
@@ -1234,8 +1234,8 @@ impl AcademicRepository for SqliteStorage {
                 "SELECT e.{colunas}, s.name FROM academic_exams e
                  JOIN academic_subjects s ON s.id = e.subject_id
                  WHERE e.lifecycle_state = 'active' AND s.lifecycle_state = 'active'
-                   AND (e.name LIKE ?1 ESCAPE '\' OR e.topics LIKE ?1 ESCAPE '\'
-                        OR e.location LIKE ?1 ESCAPE '\')
+                   AND (e.name LIKE ?1 ESCAPE '\\' OR e.topics LIKE ?1 ESCAPE '\\'
+                        OR e.location LIKE ?1 ESCAPE '\\')
                  ORDER BY e.at DESC LIMIT {limite}",
                 colunas = EXAM_COLUMNS.replace(", ", ", e."),
             ))
@@ -1259,7 +1259,7 @@ impl AcademicRepository for SqliteStorage {
                 "SELECT a.{colunas}, s.name FROM academic_assignments a
                  JOIN academic_subjects s ON s.id = a.subject_id
                  WHERE a.lifecycle_state = 'active' AND s.lifecycle_state = 'active'
-                   AND (a.title LIKE ?1 ESCAPE '\' OR a.description LIKE ?1 ESCAPE '\')
+                   AND (a.title LIKE ?1 ESCAPE '\\' OR a.description LIKE ?1 ESCAPE '\\')
                  ORDER BY a.due_at IS NULL, a.due_at LIMIT {limite}",
                 colunas = ASSIGNMENT_COLUMNS.replace(", ", ", a."),
             ))

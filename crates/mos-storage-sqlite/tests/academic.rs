@@ -476,3 +476,129 @@ fn tudo_sobrevive_ao_fechamento_do_app() {
     assert_eq!(storage.assignments(false).unwrap()[0].id, assignment_id);
     assert_eq!(storage.study_sessions(10).unwrap()[0].seconds, 1800);
 }
+
+// ===========================================================================
+// Busca
+// ===========================================================================
+
+/// Procurar "Estatica" tem de achar a disciplina, a prova dela e a atividade.
+///
+/// Sem isto o M/Academic seria o unico substantivo do M/OS que a busca global
+/// nao alcanca — o silo que o `CORE-FOUNDATION.md` §2 recusa.
+#[test]
+fn a_busca_global_alcanca_disciplina_prova_e_atividade() {
+    use mos_core::{SearchItem, SearchRequest};
+
+    let (_dir, storage) = storage();
+    let periodo = semestre(&storage);
+    let materia = disciplina(&storage, &periodo);
+    atividade(&storage, &materia, "Lista de Estatica 03");
+    storage
+        .create_exam(
+            NewExam::create(
+                materia.id,
+                "P1 de Estatica",
+                OffsetDateTime::now_utc() + Duration::days(7),
+                "",
+                "",
+                0.0,
+                None,
+                None,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    let achados = storage
+        .search_academic(SearchRequest {
+            query: "estatica".into(),
+            include_archived: false,
+            limit: 20,
+        })
+        .unwrap();
+
+    let mut disciplinas = 0;
+    let mut provas = 0;
+    let mut atividades = 0;
+    for item in &achados {
+        match item {
+            SearchItem::Subject { .. } => disciplinas += 1,
+            SearchItem::Exam { subject, .. } => {
+                provas += 1;
+                assert_eq!(subject, "Estatica dos Corpos", "a prova carrega a materia");
+            }
+            SearchItem::Assignment { subject, .. } => {
+                atividades += 1;
+                assert_eq!(subject, "Estatica dos Corpos");
+            }
+            _ => panic!("a busca academica devolveu outro tipo"),
+        }
+    }
+    assert_eq!((disciplinas, provas, atividades), (1, 1, 1));
+    // A disciplina vem primeiro: quem procura a materia quer a materia.
+    assert!(matches!(achados[0], SearchItem::Subject { .. }));
+}
+
+#[test]
+fn a_busca_acha_pelo_conteudo_da_prova_e_pelo_codigo_da_materia() {
+    use mos_core::SearchRequest;
+
+    let (_dir, storage) = storage();
+    let periodo = semestre(&storage);
+    let materia = disciplina(&storage, &periodo);
+    storage
+        .create_exam(
+            NewExam::create(
+                materia.id,
+                "P1",
+                OffsetDateTime::now_utc() + Duration::days(7),
+                "",
+                "Equilibrio e trelicas",
+                0.0,
+                None,
+                None,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    let pedido = |termo: &str| SearchRequest {
+        query: termo.into(),
+        include_archived: false,
+        limit: 20,
+    };
+    assert_eq!(
+        storage.search_academic(pedido("trelicas")).unwrap().len(),
+        1,
+        "o conteudo da prova e o que se procura antes dela"
+    );
+    assert_eq!(
+        storage.search_academic(pedido("EMC5132")).unwrap().len(),
+        1,
+        "o codigo tambem acha a materia"
+    );
+    assert!(storage.search_academic(pedido("  ")).unwrap().is_empty());
+}
+
+/// Disciplina arquivada nao polui a busca, e nem carrega as provas dela junto.
+#[test]
+fn o_que_foi_arquivado_sai_da_busca() {
+    use mos_core::SearchRequest;
+
+    let (_dir, storage) = storage();
+    let periodo = semestre(&storage);
+    let materia = disciplina(&storage, &periodo);
+    atividade(&storage, &materia, "Lista de Estatica");
+    storage
+        .set_subject_lifecycle(materia.id, LifecycleState::Archived)
+        .unwrap();
+
+    let achados = storage
+        .search_academic(SearchRequest {
+            query: "estatica".into(),
+            include_archived: false,
+            limit: 20,
+        })
+        .unwrap();
+    assert!(achados.is_empty());
+}

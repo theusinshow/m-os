@@ -16,6 +16,8 @@ para Windows, da captura e acao organizada ate Resources reencontraveis.
 - Weekly Review: o fecho da semana em narrativa, sem placar de produtividade;
 - Obsolescência: o que está parado há tempo demais, com limiar por coluna do
   Kanban (ver `DECISIONS.md`, ADR-056);
+- M/Academic: semestre, disciplinas, provas, entregas, notas e estudo,
+  integrados a Tasks e ao Calendário (ver `docs/ACADEMIC.md`);
 - Kanban simples com Backlog, Doing e Done;
 - Workspaces como contexto compartilhado entre Projects e Apps;
 - App Registry local com abertura controlada de URLs e paths;

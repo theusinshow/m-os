@@ -141,6 +141,7 @@ Estado real em 2026-08-21. `—` significa que não existe; **não** significa
 | Push remoto | — | — | — | — | — |
 | Knowledge Graph (relações) | ✓ | ✓ | — | **emite** | — |
 | Obsolescência (paradas) | ✓ | ✓ | — | n/a (derivada) | lê |
+| M/Academic | ✓ | ✓ | — | **emite** | lê |
 | Identidade de dispositivo | ✓ | ✓ | — | ✓ | — |
 
 **"fundação"** quer dizer: as tabelas, o relógio, as operações, a reconciliação

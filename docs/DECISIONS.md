@@ -2924,3 +2924,73 @@ permanente. Ela é idempotente e não tem o que apagar num banco saudável.
 - O que a guarda não faz: avisar. Sujeira pré-existente não aparece na tela hoje.
   Se um dia isso importar, o lugar é o widget `SISTEMA`, e não um erro de
   abertura.
+
+---
+
+## ADR-058 — A faculdade é um contexto sobre os primitivos, e a nota mora na avaliação
+
+**Estado:** Accepted · 2026-08-22
+
+### Contexto
+
+O M/Academic precisava responder o que tenho, o que está chegando, o que fazer,
+o que estudar e como estou — sem virar um LMS e sem virar um aplicativo isolado
+dentro do aplicativo.
+
+Havia três armadilhas, e cada uma tinha uma escolha óbvia e errada.
+
+### Decisão
+
+**1. Faculdade é contexto, e não um segundo M/OS.** A atividade que exige ação
+aponta para uma `Task` de verdade (`task_id`, `ON DELETE SET NULL`); o material
+é um `Resource` de verdade, por junção; a prova entra no Calendário que já
+existe. O módulo só acrescenta o que não tinha lugar: período, disciplina, peso
+e tempo de estudo. Nenhuma coluna acadêmica foi acrescentada a `tasks` ou a
+`resources`.
+
+O vínculo com a Task é **bidirecional em comportamento**: concluir a atividade
+fecha a Task, reabrir reabre. Sem isso os dois lados divergiriam em silêncio — a
+atividade diria "entregue" e a Task continuaria no quadro pedindo ação.
+
+**2. Não existe tabela de notas.** A nota mora na avaliação que a produziu.
+Uma tabela `grades` separada seria uma terceira fonte para o mesmo fato, e no
+dia em que discordassem nada no banco diria qual estava certa. A média é
+derivada, em `mos_core::academic::desempenho`, com teste.
+
+E ela pondera pela **fração** (`score / max_score`), e não pelo valor cru: um
+trabalho de 0 a 100 com 80 e uma prova de 0 a 10 com 8 valem o mesmo, e somar 80
+com 8 diria que o trabalho pesa dez vezes mais. Avaliação sem nota **não é zero**
+— é avaliação que não aconteceu.
+
+**3. O status do semestre é derivado das datas.** Guardá-lo criaria a linha que
+diz "ativo" num semestre que acabou em dezembro. O que se guarda é o
+`lifecycle_state`, que é escolha da pessoa, e não passagem do tempo.
+
+**O Calendário ganhou duas fontes, e não um irmão.** `CalendarKind` recebeu
+`AssignmentDue` e `ExamScheduled`. O comentário de `Meeting` dizia que uma
+variante de agenda "prometeria uma capacidade sem lastro" — porque nada no M/OS
+tinha data futura de verdade. O M/Academic deu o lastro: são compromissos com
+instante marcado, gravados pela própria pessoa.
+
+### Consequências
+
+- Cinco tabelas novas, zero alteração nas existentes. Se o desenho mudar, elas se
+  apagam sem tocar no que existe.
+- Estudo tem tabela própria, e não `time_entries`: aquela mede hora **cobrável**,
+  e estudo somado ali inflaria a receita do Painel.
+- Cinco tipos novos emitem operações de sync; o material viaja como **relação**,
+  porque merge por campo não serve para conjunto (§13 do `SYNC.md`).
+- O progresso da disciplina é **estado**, e não porcentagem: "2 atrasadas" em vez
+  de um número que exigiria saber quantas atividades o semestre terá.
+- `EntityKind` do Hermes cresceu em três variantes. Ele já cita uma prova ao
+  responder "quando é a próxima?", sem nenhum agente novo.
+- As cores de disciplina são uma **extensão declarada** do design system
+  (`--academic-*`), e não uma paleta solta: no M/OS cor significa atenção, e aqui
+  ela significa identidade — por isso mora atrás de prefixo próprio e nunca
+  compete com o sódio.
+
+### Revisar quando
+
+Aparecer avaliação cuja nota não seja um número numa escala — conceito (A/B/C),
+menção ou aprovado/reprovado. `Pontuacao` assume `f64` com teto, e conceito
+pediria outro tipo, não outro campo.
