@@ -16,6 +16,7 @@ mod monitoring;
 mod ports;
 mod resource;
 mod service;
+mod stale;
 mod tracking;
 mod voice;
 mod voice_when;
@@ -108,6 +109,10 @@ pub use service::{
     CreateWorkspaceInput, DataService, MeetingService, MemoryService, MonitoringService,
     TrackingService, UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput,
     UpdateWorkspaceInput, VoiceService, WorkService,
+};
+pub use stale::{
+    atividade_do_project, compose_stale, project_activity, tolerancia, trabalho_aberto, Parada,
+    ProjectActivity, StaleInput, StaleKind, StaleView, TOLERANCIA_PROJECT,
 };
 pub use voice::{
     apply as apply_voice, heard, is_hallucination, title_from, understand, Heard, NewVoiceNote,

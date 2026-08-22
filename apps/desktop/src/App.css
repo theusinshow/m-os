@@ -2703,6 +2703,15 @@ textarea::placeholder {
   background: var(--signal-fill);
 }
 
+/* Parado: o ponto se esvazia. Cheio-sodio = mexido hoje, cheio-cinza = normal,
+   OCO = parado ha tempo demais. Tres estados numa forma so, sem cor de alarme —
+   um ponto vermelho na Home pediria acao imediata, e obsolescencia e uma
+   pergunta, nao uma urgencia. */
+.project-dot[data-stale] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
 /* Fileira, nao grade: os apps fixados sao poucos e cabem numa linha. Uma
    grade os espalharia e faria a secao competir com as rows ao lado. */
 .app-row {
@@ -4008,6 +4017,22 @@ select {
 .kanban-column .data-row:hover {
   background: var(--surface);
   border-color: var(--border-strong);
+}
+
+/* Parada: uma barra de sodio na borda de ataque, e o numero de dias na meta.
+   Nao um fundo colorido — o quadro tem seis colunas e um fundo por card
+   transformaria o Kanban num semaforo. A barra marca sem tingir.
+
+   `box-shadow` inset e nao borda mais grossa: borda mudaria a largura do card e
+   empurraria o texto 2px ao ser marcada, e a coluna inteira dancaria a cada
+   arrasto. */
+.kanban-column .data-row[data-stale] {
+  border-left-color: var(--signal-fill);
+  box-shadow: inset 2px 0 0 var(--signal-fill);
+}
+
+.kanban-column .data-row[data-stale] .row-meta {
+  color: var(--signal-fill);
 }
 
 .kanban-column .data-row .row-copy {

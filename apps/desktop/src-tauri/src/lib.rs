@@ -36,6 +36,7 @@ mod meeting;
 mod microfone;
 mod monitor;
 mod pdf;
+mod stale;
 mod surface;
 mod tracking;
 mod voice;
@@ -1988,6 +1989,7 @@ pub fn run() {
             meeting::meeting_dismiss_insight,
             jarvis::action_undo,
             calendar::calendar_window,
+            stale::stale_list,
             tracking::tracking_default_cronocad_path,
             tracking::tracking_import_cronocad,
             tracking::tracking_cronocad_imported_at,

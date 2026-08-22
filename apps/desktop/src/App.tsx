@@ -22,6 +22,7 @@ import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel, Stat
 import { CalendarPage } from "./CalendarPage";
 import { DailyFocusWidget, DailySessionView, useDaily } from "./DailySession";
 import { dataPorExtenso } from "./daily";
+import { atividadePorProject, diasPorTask, mexidoHoje, paradasVisiveis, projectsParados, rotuloDeDias } from "./stale";
 import { EndMyDayFlow, StartMyDayFlow } from "./DailyFlows";
 import { MeetingSettings } from "./MeetingSettings";
 import { MeetingsPage } from "./MeetingsPage";
@@ -47,7 +48,7 @@ import { AnimatePresence, LazyMotion, m } from "framer-motion";
 import { AnimatedList, AnimatedListItem } from "./motion/AnimatedList";
 import { SpotlightCard } from "./motion/SpotlightCard";
 import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
-import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, DailyContext, DailyToday, FunctionDefinition, HiddenWidget, Ingestion, ObjectiveLink, Week, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, SearchItem, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
+import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, DailyContext, DailyToday, FunctionDefinition, HiddenWidget, Ingestion, ObjectiveLink, Week, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, Parada, SearchItem, StaleView, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
 import { SCREEN_LABEL } from "./types";
 import "./App.css";
 
@@ -479,8 +480,8 @@ function RowProgress({ done, total }: { done: number; total: number }) {
  *  de lancamento sao dado de sistema e vao em mono; descricao de Project e
  *  texto do usuario e vai em grotesk. O AGENTS.md e explicito: mono nunca
  *  vaza para conteudo. */
-function DataRow({ primary, meta, secondary, secondaryKind = "text", marker, progress, selected = false, completed = false, saved = false, dragging = false, onClick, onKeyDown, onPointerDown, draggable, onDragStart, onDragEnd }: { primary: string; meta?: string; secondary?: string; secondaryKind?: "text" | "system"; marker?: ReactNode; progress?: { done: number; total: number }; selected?: boolean; completed?: boolean; saved?: boolean; dragging?: boolean; onClick?: () => void; onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void; onPointerDown?: React.PointerEventHandler<HTMLButtonElement>; draggable?: boolean; onDragStart?: React.DragEventHandler<HTMLButtonElement>; onDragEnd?: React.DragEventHandler<HTMLButtonElement> }) {
-  return <button className="data-row" type="button" aria-current={selected ? "true" : undefined} data-selected={selected || undefined} data-completed={completed || undefined} data-saved={saved || undefined} data-dragging={dragging || undefined} onClick={onClick} onKeyDown={onKeyDown} onPointerDown={onPointerDown} draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd}>{marker}<span className="row-copy"><strong>{primary}</strong>{secondary ? <small data-system={secondaryKind === "system" || undefined}>{secondary}</small> : null}</span>{progress ? <RowProgress done={progress.done} total={progress.total} /> : null}{meta ? <span className="row-meta">{meta}</span> : null}</button>;
+function DataRow({ primary, meta, secondary, secondaryKind = "text", marker, progress, selected = false, completed = false, saved = false, dragging = false, stale = false, onClick, onKeyDown, onPointerDown, draggable, onDragStart, onDragEnd }: { primary: string; meta?: string; secondary?: string; secondaryKind?: "text" | "system"; marker?: ReactNode; progress?: { done: number; total: number }; selected?: boolean; completed?: boolean; saved?: boolean; dragging?: boolean; stale?: boolean; onClick?: () => void; onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void; onPointerDown?: React.PointerEventHandler<HTMLButtonElement>; draggable?: boolean; onDragStart?: React.DragEventHandler<HTMLButtonElement>; onDragEnd?: React.DragEventHandler<HTMLButtonElement> }) {
+  return <button className="data-row" type="button" aria-current={selected ? "true" : undefined} data-selected={selected || undefined} data-completed={completed || undefined} data-saved={saved || undefined} data-dragging={dragging || undefined} data-stale={stale || undefined} onClick={onClick} onKeyDown={onKeyDown} onPointerDown={onPointerDown} draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd}>{marker}<span className="row-copy"><strong>{primary}</strong>{secondary ? <small data-system={secondaryKind === "system" || undefined}>{secondary}</small> : null}</span>{progress ? <RowProgress done={progress.done} total={progress.total} /> : null}{meta ? <span className="row-meta">{meta}</span> : null}</button>;
 }
 
 function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
@@ -498,7 +499,7 @@ function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
   return nextIndex;
 }
 
-function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, setHiddenWidgets, widgetPlacements, setWidgetPlacements, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, openFinancePage, openCalendarPage, openMeetingsPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent, daily }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; setHiddenWidgets: (next: HiddenWidget[]) => void; widgetPlacements: WidgetPlacement[]; setWidgetPlacements: (next: WidgetPlacement[]) => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; openFinancePage: () => void; openCalendarPage: () => void; openMeetingsPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent; daily: DailyProps }) {
+function HomePage({ recent, inbox, projects, tasks, stale, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, setHiddenWidgets, widgetPlacements, setWidgetPlacements, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, openFinancePage, openCalendarPage, openMeetingsPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent, daily }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; stale: StaleView; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; setHiddenWidgets: (next: HiddenWidget[]) => void; widgetPlacements: WidgetPlacement[]; setWidgetPlacements: (next: WidgetPlacement[]) => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; openFinancePage: () => void; openCalendarPage: () => void; openMeetingsPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent; daily: DailyProps }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
   const [workspaceApps, setWorkspaceApps] = useState<RegisteredApp[]>([]);
@@ -602,6 +603,19 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
   // no limite, mostrar "200+" em vez de "200" e "N+" em vez de "N".
   const staleInbox = inbox.filter((capture) => Date.now() - new Date(capture.capturedAt).getTime() > 3 * 24 * 60 * 60 * 1000).length;
   const inboxCapped = inbox.length >= INBOX_PAGE;
+  const paradasDaHome = paradasVisiveis(stale.paradas);
+  /* Task abre a gaveta; Project abre o Project. A parada e onde se NOTA, e o
+     clique leva a onde se AGE — sem acao em massa aqui, porque uma lista que se
+     resolve num clique convida a limpar sem decidir. */
+  function abrirParada(parada: Parada) {
+    if (parada.kind === "task") {
+      const alvo = tasks.find((task) => task.id === parada.id);
+      if (alvo) openTask(alvo);
+      return;
+    }
+    const alvo = projects.find((project) => project.id === parada.id);
+    if (alvo) openProject(alvo);
+  }
   /* Cada contexto esconde os proprios widgets, "Todos" inclusive — ele nao e
      mais a visao sem escolha nenhuma (migration 0019). O banco guarda "Todos"
      como NULL e o seletor carrega string vazia; e o mesmo encontro de
@@ -725,7 +739,13 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
   const scopedResourceIds = new Set(currentWorkspace ? resourceWorkspaces.filter((link) => link.workspaceId === currentWorkspace.id).map((link) => link.resourceId) : []);
   const activeResources = currentWorkspace ? allActiveResources.filter((resource) => scopedResourceIds.has(resource.id)) : allActiveResources;
   const projectName = (id: string | null) => projects.find((project) => project.id === id)?.name;
-  const isActiveToday = (project: Project) => new Date(project.updatedAt).toDateString() === new Date().toDateString();
+  /* A atividade vem das Tasks do Project, e nao do `updatedAt` dele.
+     Aquele campo so muda quando o Project e EDITADO: criar Task, mover no
+     Kanban e concluir nao o tocam. O ponto acendia ao RENOMEAR. */
+  const atividade = atividadePorProject(stale.activity);
+  const parados = projectsParados(stale.paradas);
+  const atividadeDe = (project: Project) => atividade.get(project.id) ?? project.updatedAt;
+  const isActiveToday = (project: Project) => mexidoHoje(atividadeDe(project));
   return <div className="page home-page">
     <DotField />
     <ContextPath segments={["M", "HOME"]} />
@@ -778,8 +798,9 @@ function HomePage({ recent, inbox, projects, tasks, workspaces, apps, resources,
            palavra sozinha, sem nada a direita — meia frase pendurada no pe do
            card. Sem numero a dizer, o rodape inteiro sai. */
         { id: "inbox_pulse", ...(inbox.length ? { footLeft: "ENVELHECENDO", footRight: `${staleInbox} DE ${inbox.length}${inboxCapped ? "+" : ""}` } : {}), node: <Panel label="INBOX"><button type="button" className="pulse" onClick={() => openInbox()}><Ring size={88} segments={[{ value: inbox.length ? staleInbox / inbox.length : 0 }]}><RingLabel value={inboxCapped ? `${INBOX_PAGE}+` : String(inbox.length)} /></Ring><small>{inbox.length === 1 ? "capture por processar" : "captures por processar"}</small>{staleInbox ? <small className="pulse-stale">{staleInbox === 1 && !inboxCapped ? "1 com mais de 3 dias" : `${staleInbox}${inboxCapped ? "+" : ""} com mais de 3 dias`}</small> : null}</button></Panel> },
+        { id: "stale", ...(paradasDaHome.restantes ? { footLeft: "MOSTRANDO 5", footRight: `E MAIS ${paradasDaHome.restantes}` } : {}), node: <Panel label="PARADAS" value={String(stale.paradas.length)} unit={stale.paradas.length === 1 ? "parada" : "paradas"}>{paradasDaHome.visiveis.map((parada) => <DataRow key={`${parada.kind}-${parada.id}`} primary={parada.title} secondary={parada.context || undefined} meta={rotuloDeDias(parada.days)} onClick={() => abrirParada(parada)} />)}{/* Vazio nao e falha, e o texto diz isso: "nada parado" e um bom resultado, e um estado vazio de erro faria o widget parecer quebrado no dia em que tudo esta em dia. */}{!stale.paradas.length ? <p className="empty-state">Nada parado.</p> : null}</Panel> },
         { id: "recent", node: <Panel label="RECENTES" value={String(recent.length)} unit={recent.length === 1 ? "captura" : "capturas"}>{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nada capturado ainda. O que você escrever no campo acima aparece aqui.</EmptyState>}</Panel> },
-        { id: "projects", node: <Panel label="PROJECTS" value={String(scopedProjects.length)} unit="ativos" action={scopedProjects.length > 5 ? <Button variant="ghost" onClick={() => openProjectsPage()}>Ver todos</Button> : undefined}>{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} aria-hidden="true" />} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <ScopedEmptyState total={projects.filter((project) => project.lifecycleState === "active").length} workspace={currentWorkspace} noun="project" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel> },
+        { id: "projects", node: <Panel label="PROJECTS" value={String(scopedProjects.length)} unit="ativos" action={scopedProjects.length > 5 ? <Button variant="ghost" onClick={() => openProjectsPage()}>Ver todos</Button> : undefined}>{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} data-stale={parados.has(project.id) || undefined} aria-hidden="true" />} meta={relativeTime(atividadeDe(project))} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <ScopedEmptyState total={projects.filter((project) => project.lifecycleState === "active").length} workspace={currentWorkspace} noun="project" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel> },
         { id: "month_density", footLeft: "MÊS CORRENTE · 4 DEGRAUS", footRight: `PICO ${month.peak}`, node: <Panel label="MÊS" value={String(month.records)} unit="registros"><MonthDensity tasks={tasks} captures={recent} /></Panel> },
         { id: "week_rings", footLeft: "SEG–DOM · CONTRA O PICO", footRight: `PICO ${taskWeek.peak}`, node: <Panel label="TASKS NA SEMANA" value={String(taskWeek.done)} unit="concluídas"><WeekRings tasks={tasks} onOpen={openTasksPage} /></Panel> },
         { id: "week_by_project", footLeft: `${weekTime.projectCount} PROJECTS · 7 DIAS`, footRight: weekTime.topProject ? `MAIOR: ${weekTime.topProject}` : undefined, node: <Panel label="HORAS POR PROJECT" value={hoursLabel(weekTime.seconds)} unit="na semana"><WeekByProject time={trackedTime} projects={projects} onOpen={openTempoPage} /></Panel> },
@@ -2199,7 +2220,7 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, ingestions, cu
   </div>;
 }
 
-function BoardPage({ tasks, projects, refresh, openTask, intent }: { tasks: Task[]; projects: Project[]; refresh: () => Promise<void>; openTask: (task: Task) => void; intent?: FunctionIntent }) {
+function BoardPage({ tasks, projects, stale, refresh, openTask, intent }: { tasks: Task[]; projects: Project[]; stale: StaleView; refresh: () => Promise<void>; openTask: (task: Task) => void; intent?: FunctionIntent }) {
   const [creating, setCreating] = useState(false);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [dragOverState, setDragOverState] = useState<TaskState | null>(null);
@@ -2207,6 +2228,9 @@ function BoardPage({ tasks, projects, refresh, openTask, intent }: { tasks: Task
   const suppressClickTaskId = useRef<string | null>(null);
   const board = useRef<HTMLDivElement>(null);
   const activeTasks = tasks.filter((task) => task.lifecycleState === "active");
+  /* Id da Task para dias parados. O quadro e onde se AGE: a marca fica ao lado
+     do card que se arrasta, e nao numa lista a parte. */
+  const diasParados = diasPorTask(stale.paradas);
   useEffect(() => {
     if (intent?.target === "tasks_create") setCreating(true);
     if (intent?.target === "tasks_move") window.requestAnimationFrame(() => board.current?.focus());
@@ -2299,7 +2323,7 @@ function BoardPage({ tasks, projects, refresh, openTask, intent }: { tasks: Task
       const visible = column.slice(0, 20);
       return <section key={state} className="kanban-column" data-kanban-state={state} data-drop-target={dragOverState === state || undefined} onDragEnter={(event) => { event.preventDefault(); setDragOverState(state); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverState(state); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverState(null); }} onDrop={(event) => { event.preventDefault(); const task = draggedTask(event); finishDrag(); if (task) void move(task, state); }}>
         <header><h2>{stateLabels[state]}</h2><span>{column.length}</span></header>
-        <AnimatedList>{visible.map((task) => <AnimatedListItem key={task.id} itemKey={task.id}><DataRow primary={task.title} secondary={projects.find((project) => project.id === task.projectId)?.name} completed={task.state === "done"} dragging={draggingTaskId === task.id} onClick={() => { if (suppressClickTaskId.current === task.id) { suppressClickTaskId.current = null; return; } openTask(task); }} onKeyDown={(event) => keyboardMove(event, task)} onPointerDown={(event) => { if (event.button !== 0) return; pointerDrag.current = { taskId: task.id, x: event.clientX, y: event.clientY, active: false }; }} draggable onDragStart={(event) => { pointerDrag.current = null; setDraggingTaskId(task.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={finishDrag} /></AnimatedListItem>)}{!column.length ? <p className="kanban-empty">Vazio</p> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</AnimatedList>
+        <AnimatedList>{visible.map((task) => <AnimatedListItem key={task.id} itemKey={task.id}><DataRow primary={task.title} secondary={projects.find((project) => project.id === task.projectId)?.name} meta={rotuloDeDias(diasParados.get(task.id) ?? 0)} stale={diasParados.has(task.id)} completed={task.state === "done"} dragging={draggingTaskId === task.id} onClick={() => { if (suppressClickTaskId.current === task.id) { suppressClickTaskId.current = null; return; } openTask(task); }} onKeyDown={(event) => keyboardMove(event, task)} onPointerDown={(event) => { if (event.button !== 0) return; pointerDrag.current = { taskId: task.id, x: event.clientX, y: event.clientY, active: false }; }} draggable onDragStart={(event) => { pointerDrag.current = null; setDraggingTaskId(task.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={finishDrag} /></AnimatedListItem>)}{!column.length ? <p className="kanban-empty">Vazio</p> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</AnimatedList>
       </section>;
     })}</div> : null}
   </div>;
@@ -2993,6 +3017,10 @@ function DesktopApp() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [trashedResources, setTrashedResources] = useState<Resource[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  /* O que esta parado ha tempo demais, e a atividade real de cada Project.
+     As duas vem juntas do mesmo comando: a tela precisa das duas no mesmo
+     render. */
+  const [stale, setStale] = useState<StaleView>({ paradas: [], activity: [] });
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [hiddenWidgets, setHiddenWidgets] = useState<HiddenWidget[]>([]);
   const [widgetPlacements, setWidgetPlacements] = useState<WidgetPlacement[]>([]);
@@ -3089,9 +3117,9 @@ function DesktopApp() {
   const refresh = useCallback(async () => {
     setBusy(true);
     try {
-      const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus, nextHiddenWidgets, nextResourceWorkspaces, nextWidgetPlacements, nextRadialPins, nextIngestions] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status(), api.hiddenWidgets(), api.resourceWorkspaces(), api.widgetPlacements(), api.radialPins(), api.ingestions()]);
+      const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus, nextHiddenWidgets, nextResourceWorkspaces, nextWidgetPlacements, nextRadialPins, nextIngestions, nextStale] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status(), api.hiddenWidgets(), api.resourceWorkspaces(), api.widgetPlacements(), api.radialPins(), api.ingestions(), api.staleList()]);
       setRecent(nextRecent); setInbox(nextInbox); setArchived(nextArchived); setTrashed(nextTrashed); setProjects(nextProjects); setWorkspaces(nextWorkspaces); setApps(nextApps); setResources(nextResources); setTrashedResources(nextTrashedResources); setTasks(nextTasks); setStatus(nextStatus); setHiddenWidgets(nextHiddenWidgets);
-      setWidgetPlacements(nextWidgetPlacements); setResourceWorkspaces(nextResourceWorkspaces); setRadialPins(nextRadialPins); setIngestions(nextIngestions);
+      setWidgetPlacements(nextWidgetPlacements); setResourceWorkspaces(nextResourceWorkspaces); setRadialPins(nextRadialPins); setIngestions(nextIngestions); setStale(nextStale);
       setDrawerTask((current) => current ? nextTasks.find((task) => task.id === current.id) ?? null : null);
     } finally {
       setBusy(false);
@@ -3453,7 +3481,7 @@ function DesktopApp() {
   }, [page]);
   const pageContent = useMemo(() => {
     if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} openTask={(id) => { const task = tasks.find((candidate) => candidate.id === id); if (task) setDrawerTask(task); }} />;
-    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} setHiddenWidgets={setHiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} openFinancePage={() => setPage("finance")} openCalendarPage={() => setPage("calendario")} openMeetingsPage={() => setPage("reunioes")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} daily={dailyProps} />;
+    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} stale={stale} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} setHiddenWidgets={setHiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} openFinancePage={() => setPage("finance")} openCalendarPage={() => setPage("calendario")} openMeetingsPage={() => setPage("reunioes")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} daily={dailyProps} />;
     if (page === "tempo") return <TempoPage projects={projects} openProject={openProject} receipt={showReceipt} />;
     if (page === "finance") return <FinancePage />;
     if (page === "calendario") return <CalendarPage />;
@@ -3463,7 +3491,7 @@ function DesktopApp() {
     if (page === "workspaces") return <WorkspacesPage workspaces={workspaces} projects={projects} apps={apps} initialWorkspaceId={selectedWorkspaceId} refresh={refresh} receipt={showReceipt} openProject={openProject} openApp={openRegisteredApp} openHome={(workspace) => { setCurrentWorkspaceId(workspace.id); setPage("home"); }} intent={functionIntent ?? undefined} />;
     if (page === "apps") return <AppsPage apps={apps} initialAppId={selectedAppId} refresh={refresh} receipt={showReceipt} intent={functionIntent ?? undefined} />;
     if (page === "library") return <LibraryPage resources={resources} workspaces={workspaces} resourceWorkspaces={resourceWorkspaces} ingestions={ingestions} currentWorkspace={currentWorkspace} initialResourceId={selectedResourceId} initialResourceKey={resourceOpenKey} refresh={refresh} receipt={showReceipt} openCapture={setViewedCapture} intent={functionIntent ?? undefined} />;
-    if (page === "tasks") return <BoardPage tasks={tasks} projects={projects} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
+    if (page === "tasks") return <BoardPage tasks={tasks} projects={projects} stale={stale} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
     return <SettingsPage theme={theme} setTheme={setThemeState} status={status} capturesArchived={archived} capturesTrashed={trashed} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} trashedResources={trashedResources} refresh={refresh} intent={functionIntent ?? undefined} />;
   // ATENCAO: esta lista e manual e nao ha lint que a verifique. Um estado novo
   // que chegue as paginas por prop e nao entre aqui fica CONGELADO na tela: o

@@ -1,7 +1,7 @@
 # Obsolescência — o que está parado há tempo demais — Design
 
-**Status:** ⚠️ **RASCUNHO — apresentado, aguardando aprovação do proprietário.**
-A sessão terminou logo depois de o desenho ser apresentado. Nada foi implementado.
+**Status:** ✅ **IMPLEMENTADO** em 2026-08-22. Ver `DECISIONS.md`, ADR-056, e o
+plano em `docs/superpowers/plans/2026-08-22-obsolescencia.md`.
 
 **Data:** 2026-08-21
 
