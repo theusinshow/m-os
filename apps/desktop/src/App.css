@@ -9996,7 +9996,7 @@ button.daily-objective-title:focus-visible {
    solta pelo app. O design system do M/OS tem uma cor de sinal (o sodio) porque
    a regra e "cor significa atencao"; aqui a cor significa outra coisa —
    IDENTIDADE de disciplina —, e por isso ela mora atras de um prefixo proprio,
-   nunca compete com o sodio em saturacao, e so aparece num ponto de 8px.
+   nunca compete com o sodio em saturacao, e so aparece num ponto de 5px.
 
    Sem isso, quatro materias na Home viram quatro pontos cinzas indistinguiveis,
    e a lista de compromissos deixa de dizer de que aula cada linha e sem que o
@@ -10004,9 +10004,17 @@ button.daily-objective-title:focus-visible {
 
    Os valores sao dessaturados de proposito: eles convivem com o sodio na mesma
    tela sem disputar, e o teto de contraste que importa e o do TEXTO ao lado, que
-   continua sendo `--text`. */
+   continua sendo `--text`.
+
+   O amarelo daqui e `trigo`, e NAO o sodio. Ele ja foi `--academic-sodio:
+   #E7C24E` — o mesmo byte de `--signal-fill` —, o que fazia a disciplina pintar
+   o ponto na cor que o M/OS reserva para foco, estado ativo e acao principal:
+   o ponto parava de dizer "esta materia" e passava a dizer "urgente". A regra
+   que separa os dois e a SATURACAO: a familia inteira fica entre 18% e 50%, e o
+   sodio esta em 76%. */
 :root {
-  --academic-sodio: #E7C24E;
+  /* trigo: H 50, S 42%, L 60% — na banda da familia, longe do sodio. */
+  --academic-trigo: #C4B66E;
   --academic-cobre: #C98B5E;
   --academic-musgo: #6E9B72;
   --academic-lilas: #9C8BC9;
@@ -10030,7 +10038,7 @@ button.daily-objective-title:focus-visible {
   background: var(--border-strong);
 }
 
-.academic-dot[data-accent="sodio"] { background: var(--academic-sodio); }
+.academic-dot[data-accent="trigo"] { background: var(--academic-trigo); }
 .academic-dot[data-accent="cobre"] { background: var(--academic-cobre); }
 .academic-dot[data-accent="musgo"] { background: var(--academic-musgo); }
 .academic-dot[data-accent="lilas"] { background: var(--academic-lilas); }

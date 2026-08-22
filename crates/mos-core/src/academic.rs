@@ -189,7 +189,7 @@ pub struct Subject {
 ///
 /// Lista fechada e por NOME: cor crua gravada no banco nao acompanharia a troca
 /// de tema, e o M/OS tem dois. Vazio e valido e significa o accent padrao.
-pub const SUBJECT_ACCENTS: [&str; 6] = ["sodio", "cobre", "musgo", "lilas", "argila", "ceu"];
+pub const SUBJECT_ACCENTS: [&str; 6] = ["trigo", "cobre", "musgo", "lilas", "argila", "ceu"];
 
 pub fn validate_accent(value: &str) -> Result<String, CoreError> {
     let value = value.trim().to_lowercase();
@@ -1929,7 +1929,10 @@ mod tests {
 
     #[test]
     fn accent_fora_do_design_system_e_recusado() {
-        assert!(validate_accent("sodio").is_ok());
+        assert!(validate_accent("trigo").is_ok());
+        // O sodio saiu da lista: ele e a cor de atencao do M/OS, e nao a
+        // identidade de uma disciplina.
+        assert!(validate_accent("sodio").is_err());
         assert_eq!(validate_accent("").unwrap(), "");
         assert!(validate_accent("#ff0000").is_err());
     }

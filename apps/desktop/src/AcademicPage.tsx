@@ -45,7 +45,7 @@ import type {
   SubjectOverview,
 } from "./types";
 
-const ACCENTS = ["", "sodio", "cobre", "musgo", "lilas", "argila", "ceu"] as const;
+const ACCENTS = ["", "trigo", "cobre", "musgo", "lilas", "argila", "ceu"] as const;
 
 /** O ponto colorido da disciplina. `aria-hidden`: a cor não carrega informação
  *  que o texto ao lado já não diga. */
@@ -116,14 +116,18 @@ export function AcademicPage({ refresh }: { refresh: () => Promise<void> }) {
             : "A faculdade dentro do M/OS."
         }
         actions={
-          <>
-            {semestre ? (
+          // Sem semestre a acao mora no empty state, e mora la sozinha: o header
+          // repetindo "Novo semestre" em primario punha dois botoes de sodio na
+          // mesma tela abrindo o mesmo formulario, e a primeira tela que alguem
+          // ve e justamente essa.
+          semestre ? (
+            <>
               <Button onClick={() => setCriandoDisciplina(true)}>Nova disciplina</Button>
-            ) : null}
-            <Button variant={semestre ? "ghost" : "primary"} onClick={() => setCriandoSemestre(true)}>
-              Novo semestre
-            </Button>
-          </>
+              <Button variant="ghost" onClick={() => setCriandoSemestre(true)}>
+                Novo semestre
+              </Button>
+            </>
+          ) : undefined
         }
       />
 
