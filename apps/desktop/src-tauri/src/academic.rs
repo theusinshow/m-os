@@ -399,3 +399,100 @@ pub fn academic_discard_study<R: Runtime>(app: AppHandle<R>, id: String) -> Resu
     avisar(&app);
     Ok(())
 }
+
+// ===========================================================================
+// A decisao da pessoa
+// ===========================================================================
+//
+// Separados dos comandos de `status` de proposito. Aqueles descrevem o FATO
+// ACADEMICO e o sync do Univirtus os escreve; estes sao a decisao de quem
+// estuda, e nenhum provedor externo os toca. Ver `mos_core::academic_decision`.
+
+fn repositorio<R: Runtime>(app: &AppHandle<R>) -> std::sync::Arc<mos_storage_sqlite::SqliteStorage> {
+    app.state::<AppState>().storage.clone()
+}
+
+fn plano_de(planned_at: Option<String>, minutes: i64) -> Result<Option<mos_core::Plano>, CoreError> {
+    let Some(bruto) = planned_at else {
+        return Ok(None);
+    };
+    if bruto.trim().is_empty() {
+        return Ok(None);
+    }
+    let quando = time::OffsetDateTime::parse(&bruto, &time::format_description::well_known::Rfc3339)
+        .map_err(|_| {
+            CoreError::new(
+                mos_core::ErrorCode::InvalidInput,
+                "Data do plano invalida.",
+                false,
+            )
+        })?;
+    Ok(Some(mos_core::Plano::novo(quando, minutes)?))
+}
+
+#[tauri::command]
+pub fn academic_set_assignment_decision<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    decision: String,
+) -> Result<Assignment, CoreError> {
+    let decisao = mos_core::Decision::parse(&decision)?;
+    let atividade = mos_core::AcademicRepository::set_assignment_decision(
+        repositorio(&app).as_ref(),
+        mos_core::AssignmentId::parse(&id)?,
+        decisao,
+    )?;
+    avisar(&app);
+    Ok(atividade)
+}
+
+#[tauri::command]
+pub fn academic_set_exam_decision<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    decision: String,
+) -> Result<Exam, CoreError> {
+    let decisao = mos_core::Decision::parse(&decision)?;
+    let prova = mos_core::AcademicRepository::set_exam_decision(
+        repositorio(&app).as_ref(),
+        mos_core::ExamId::parse(&id)?,
+        decisao,
+    )?;
+    avisar(&app);
+    Ok(prova)
+}
+
+/// Quando pretendo fazer, e por quanto tempo. `planned_at` vazio desfaz.
+#[tauri::command]
+pub fn academic_plan_assignment<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    planned_at: Option<String>,
+    minutes: i64,
+) -> Result<Assignment, CoreError> {
+    let plano = plano_de(planned_at, minutes)?;
+    let atividade = mos_core::AcademicRepository::plan_assignment(
+        repositorio(&app).as_ref(),
+        mos_core::AssignmentId::parse(&id)?,
+        plano,
+    )?;
+    avisar(&app);
+    Ok(atividade)
+}
+
+#[tauri::command]
+pub fn academic_plan_exam<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    planned_at: Option<String>,
+    minutes: i64,
+) -> Result<Exam, CoreError> {
+    let plano = plano_de(planned_at, minutes)?;
+    let prova = mos_core::AcademicRepository::plan_exam(
+        repositorio(&app).as_ref(),
+        mos_core::ExamId::parse(&id)?,
+        plano,
+    )?;
+    avisar(&app);
+    Ok(prova)
+}

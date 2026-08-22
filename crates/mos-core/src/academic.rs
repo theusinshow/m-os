@@ -265,6 +265,13 @@ pub struct Assignment {
     pub score: Option<f64>,
     /// A Task do M/OS que executa esta atividade, quando existe.
     pub task_id: Option<crate::TaskId>,
+    /// A decisao da pessoa. Ver `academic_decision`.
+    pub decision: crate::academic_decision::Decision,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub decided_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub planned_at: Option<OffsetDateTime>,
+    pub planned_minutes: i64,
     pub lifecycle_state: LifecycleState,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
@@ -324,6 +331,13 @@ pub struct Exam {
     pub max_score: Option<f64>,
     pub score: Option<f64>,
     pub status: ExamStatus,
+    /// A decisao da pessoa. Ver `academic_decision`.
+    pub decision: crate::academic_decision::Decision,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub decided_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub planned_at: Option<OffsetDateTime>,
+    pub planned_minutes: i64,
     pub lifecycle_state: LifecycleState,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
@@ -625,6 +639,13 @@ pub struct Compromisso {
     pub task_id: Option<String>,
     /// Local da prova, ou vazio.
     pub location: String,
+    /// O que a PESSOA resolveu. Nunca vem do provedor externo.
+    pub decision: crate::academic_decision::Decision,
+    /// Quando ela pretende fazer. Diferente de `at`, que e quando o prazo fecha.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub planned_at: Option<OffsetDateTime>,
+    /// Minutos reservados. Zero significa sem duracao definida.
+    pub planned_minutes: i64,
 }
 
 /// Como uma disciplina esta, resumida para a lista.
@@ -667,6 +688,25 @@ pub struct AcademicDashboard {
     pub study_seconds_week: i64,
     /// A sessao de estudo em curso, se houver.
     pub running: Option<StudySession>,
+
+    // --- As faixas operacionais.
+    //
+    // Derivadas de `upcoming` por `academic_decision::faixa_de`, e nao gravadas:
+    // "precisa de atencao" muda sozinho a cada madrugada. Cada compromisso cai
+    // em UMA faixa — aparecer em duas faria a pessoa decidir duas vezes sobre a
+    // mesma coisa.
+    /// O que pede decisao agora.
+    pub needs_attention: Vec<Compromisso>,
+    /// O que tem data nos proximos sete dias e ja esta encaminhado.
+    pub this_week: Vec<Compromisso>,
+    /// O que vem depois.
+    pub later: Vec<Compromisso>,
+    /// Resolvido, descartado ou resto de calendario antigo. Limitado: historico
+    /// nao compete com urgencia.
+    pub history: Vec<Compromisso>,
+    /// Quantos itens ainda nao tem plano nem decisao. E a pergunta "o que falta
+    /// eu decidir?" respondida com um numero.
+    pub undecided: usize,
 }
 
 /// O que [`compose_dashboard`] precisa.
@@ -686,6 +726,11 @@ pub struct DashboardInput<'a> {
 /// Quantos compromissos a tela recebe. O painel mostra os proximos, e uma lista
 /// sem teto vira o proprio semestre inteiro despejado na primeira viewport.
 pub const MAX_UPCOMING: usize = 12;
+
+/// Quantos itens resolvidos o painel carrega. O historico completo tem tela
+/// propria; aqui ele e o rastro recente, e uma lista sem teto faria a pagina
+/// crescer com o semestre.
+pub const MAX_HISTORICO: usize = 20;
 
 /// Monta o painel a partir do que ja foi lido.
 pub fn compose_dashboard(input: DashboardInput<'_>) -> AcademicDashboard {
@@ -712,6 +757,16 @@ pub fn compose_dashboard(input: DashboardInput<'_>) -> AcademicDashboard {
                 && subject.lifecycle_state == LifecycleState::Active
         })
         .collect();
+
+    // O contexto das faixas nasce ANTES do laco das disciplinas: o card de cada
+    // materia e a faixa de atencao tem de contar a mesma coisa. Sem isto o card
+    // dizia "3 atrasadas" enquanto a faixa dizia "0 compromissos" — e as duas
+    // frases estavam na mesma tela, uma acima da outra.
+    let contexto = crate::academic_decision::ContextoDaFaixa {
+        agora_local: input.now_local,
+        semestre_encerrado: status == SemesterStatus::Completed,
+        semestre_comecou_em: Some(semester.starts_on.inicio_do_dia(input.now_local.offset())),
+    };
 
     let mut upcoming = Vec::new();
     let mut overview = Vec::new();
@@ -751,6 +806,9 @@ pub fn compose_dashboard(input: DashboardInput<'_>) -> AcademicDashboard {
                 horizonte: horizonte_de(due, input.now_local),
                 task_id: item.task_id.map(|id| id.to_string()),
                 location: String::new(),
+                decision: item.decision,
+                planned_at: item.planned_at,
+                planned_minutes: item.planned_minutes,
             });
         }
         for item in &exams {
@@ -768,20 +826,33 @@ pub fn compose_dashboard(input: DashboardInput<'_>) -> AcademicDashboard {
                 horizonte: horizonte_de(item.at, input.now_local),
                 task_id: None,
                 location: item.location.clone(),
+                decision: item.decision,
+                planned_at: item.planned_at,
+                planned_minutes: item.planned_minutes,
             });
         }
         meus.sort_by_key(|item| item.at);
 
         let desempenho = desempenho(&assignments, &exams);
+        // Os contadores do card seguem a MESMA regra das faixas: o que a pessoa
+        // ja resolveu, ou o que e resto de calendario antigo, nao e pendencia.
         let pendentes = assignments
             .iter()
-            .filter(|item| !item.status.is_settled())
+            .filter(|item| !item.status.is_settled() && !item.decision.is_settled())
             .count();
         let atrasadas = meus
             .iter()
-            .filter(|item| item.kind == "assignment" && item.horizonte == Horizonte::Overdue)
+            .filter(|item| item.kind == "assignment")
+            .filter(|item| {
+                crate::academic_decision::faixa_de(item, contexto)
+                    == crate::academic_decision::Faixa::Atencao
+                    && item.horizonte == Horizonte::Overdue
+            })
             .count();
-        let provas = exams.iter().filter(|item| !item.status.is_settled()).count();
+        let provas = exams
+            .iter()
+            .filter(|item| !item.status.is_settled() && !item.decision.is_settled())
+            .count();
 
         overview.push(SubjectOverview {
             id: subject.id.to_string(),
@@ -802,7 +873,16 @@ pub fn compose_dashboard(input: DashboardInput<'_>) -> AcademicDashboard {
                     .collect::<Vec<_>>(),
                 input.now_local,
             ),
-            next: meus.first().cloned(),
+            // O PROXIMO que ainda importa, e nao o mais antigo da lista. Sem
+            // este filtro o card destacava "venceu ha 151 dias" — um resto de
+            // calendario que a propria faixa ja tinha mandado para o historico.
+            next: meus
+                .iter()
+                .find(|item| {
+                    crate::academic_decision::faixa_de(item, contexto)
+                        != crate::academic_decision::Faixa::Historico
+                })
+                .cloned(),
             materials: (input.materials)(subject.id),
         });
 
@@ -812,11 +892,41 @@ pub fn compose_dashboard(input: DashboardInput<'_>) -> AcademicDashboard {
     // A ordem e a urgencia, e a urgencia e a data. O atraso vem antes por ser a
     // data mais antiga — nao precisa de regra propria.
     upcoming.sort_by_key(|item| item.at);
-    let overdue = upcoming
+
+    // As faixas saem da lista COMPLETA, e nao da truncada: `upcoming` e o que a
+    // faixa "o que vem" mostra, e cortar antes de classificar esconderia um
+    // atraso porque havia doze provas na frente.
+    let mut needs_attention = Vec::new();
+    let mut this_week = Vec::new();
+    let mut later = Vec::new();
+    let mut history = Vec::new();
+    for item in &upcoming {
+        match crate::academic_decision::faixa_de(item, contexto) {
+            crate::academic_decision::Faixa::Atencao => needs_attention.push(item.clone()),
+            crate::academic_decision::Faixa::Semana => this_week.push(item.clone()),
+            crate::academic_decision::Faixa::Depois => later.push(item.clone()),
+            crate::academic_decision::Faixa::Historico => history.push(item.clone()),
+        }
+    }
+    // O historico e o unico que sai da ordem cronologica crescente: o que foi
+    // resolvido por ultimo interessa mais que o que foi resolvido em marco.
+    history.reverse();
+    history.truncate(MAX_HISTORICO);
+    let undecided = needs_attention
+        .iter()
+        .chain(this_week.iter())
+        .filter(|item| !crate::academic_decision::esta_planejado(item))
+        .count();
+
+    // `overdue` e `due_today` contam o que PEDE acao, e nao o que tem data
+    // vencida: um trabalho marcado como entregue nao e uma pendencia, e um
+    // resto de calendario antigo tambem nao. Sem isto o widget da Home diria
+    // "4 atrasados" apontando para uma tela que nao mostra nenhum.
+    let overdue = needs_attention
         .iter()
         .filter(|item| item.horizonte == Horizonte::Overdue)
         .count();
-    let due_today = upcoming
+    let due_today = needs_attention
         .iter()
         .filter(|item| item.horizonte == Horizonte::Today)
         .count();
@@ -842,6 +952,11 @@ pub fn compose_dashboard(input: DashboardInput<'_>) -> AcademicDashboard {
         study_seconds_today: segundos_no_dia(input.sessions, input.now_local, &hoje),
         study_seconds_week: segundos_na_semana(input.sessions, input.now_local),
         running: input.sessions.iter().find(|s| s.em_curso()).cloned(),
+        needs_attention,
+        this_week,
+        later,
+        history,
+        undecided,
     }
 }
 
@@ -934,6 +1049,9 @@ pub fn compose_compromissos(
                 horizonte: horizonte_de(due, agora_local),
                 task_id: item.task_id.map(|id| id.to_string()),
                 location: String::new(),
+                decision: item.decision,
+                planned_at: item.planned_at,
+                planned_minutes: item.planned_minutes,
             });
         }
         for item in exams {
@@ -955,6 +1073,9 @@ pub fn compose_compromissos(
                 horizonte: horizonte_de(item.at, agora_local),
                 task_id: None,
                 location: item.location.clone(),
+                decision: item.decision,
+                planned_at: item.planned_at,
+                planned_minutes: item.planned_minutes,
             });
         }
     }
@@ -981,6 +1102,14 @@ pub struct AcademicToday {
     /// estudar hoje.
     pub study_suggestions: Vec<StudySuggestion>,
     pub study_seconds_today: i64,
+    /// O que a pessoa **decidiu fazer hoje**.
+    ///
+    /// Nao e o que vence hoje: e o bloco que ela reservou. Um trabalho que vence
+    /// sexta e foi planejado para hoje entra aqui, e nao em `due_today` — e essa
+    /// e a diferenca entre o Start My Day mostrar prazos e mostrar acoes.
+    pub planned_today: Vec<Compromisso>,
+    /// O que foi resolvido hoje. Alimenta o End My Day.
+    pub decided_today: Vec<Compromisso>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1000,16 +1129,46 @@ pub struct StudySuggestion {
 /// e compor duas vezes abriria espaco para elas discordarem sobre o que e
 /// "hoje".
 pub fn compose_today(dashboard: &AcademicDashboard, agora_local: OffsetDateTime) -> AcademicToday {
+    // As tres primeiras listas saem de `needs_attention`, e nao de `upcoming`:
+    // o que a pessoa ja marcou como entregue ou descartou nao pode voltar a
+    // cobrar na cerimonia da manha. Era o que acontecia quando a leitura era
+    // por horizonte puro — o horizonte so sabe de data, e nao de decisao.
     let due_today: Vec<Compromisso> = dashboard
-        .upcoming
+        .needs_attention
         .iter()
         .filter(|item| item.horizonte == Horizonte::Today)
         .cloned()
         .collect();
     let overdue: Vec<Compromisso> = dashboard
-        .upcoming
+        .needs_attention
         .iter()
         .filter(|item| item.horizonte == Horizonte::Overdue)
+        .cloned()
+        .collect();
+    let hoje_civil = Day::from_local(agora_local);
+    // O que eu decidi fazer hoje, venca quando vencer.
+    let planned_today: Vec<Compromisso> = dashboard
+        .needs_attention
+        .iter()
+        .chain(dashboard.this_week.iter())
+        .chain(dashboard.later.iter())
+        .filter(|item| {
+            item.planned_at
+                .map(|quando| Day::from_local(quando.to_offset(agora_local.offset())) == hoje_civil)
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect();
+    // O que foi resolvido hoje. O End My Day conta o dia, e nao o semestre.
+    let decided_today: Vec<Compromisso> = dashboard
+        .history
+        .iter()
+        .filter(|item| item.decision.is_settled())
+        .filter(|item| {
+            item.planned_at
+                .map(|quando| Day::from_local(quando.to_offset(agora_local.offset())) == hoje_civil)
+                .unwrap_or(true)
+        })
         .cloned()
         .collect();
     let exams_soon: Vec<Compromisso> = dashboard
@@ -1060,6 +1219,8 @@ pub fn compose_today(dashboard: &AcademicDashboard, agora_local: OffsetDateTime)
         exams_soon,
         study_suggestions: sugestoes,
         study_seconds_today: dashboard.study_seconds_today,
+        planned_today,
+        decided_today,
     }
 }
 
@@ -1363,6 +1524,10 @@ mod tests {
             max_score: None,
             score: None,
             status: ExamStatus::Scheduled,
+            decision: crate::academic_decision::Decision::None,
+            decided_at: None,
+            planned_at: None,
+            planned_minutes: 0,
             lifecycle_state: LifecycleState::Active,
             created_at: agora(),
             updated_at: agora(),
@@ -1382,6 +1547,10 @@ mod tests {
             max_score: None,
             score: None,
             task_id: None,
+            decision: crate::academic_decision::Decision::None,
+            decided_at: None,
+            planned_at: None,
+            planned_minutes: 0,
             lifecycle_state: LifecycleState::Active,
             created_at: agora(),
             updated_at: agora(),
@@ -1935,5 +2104,190 @@ mod tests {
         assert!(validate_accent("sodio").is_err());
         assert_eq!(validate_accent("").unwrap(), "");
         assert!(validate_accent("#ff0000").is_err());
+    }
+
+    // =======================================================================
+    // As faixas operacionais
+    // =======================================================================
+
+    /// O que a tela mostra primeiro: so o que ainda pede decisao.
+    #[test]
+    fn a_atencao_recebe_o_que_vence_e_deixa_de_fora_o_decidido() {
+        let semestre = semestre("2026B2", "2026-07-01", "2026-08-31");
+        let materia = disciplina(&semestre, "Estatica");
+        let mut vence_hoje = atividade(&materia, "APOL 3", Some(agora() + Duration::hours(4)));
+        let mut ja_entregue = atividade(&materia, "APOL 2", Some(agora() - Duration::days(2)));
+        ja_entregue.decision = crate::academic_decision::Decision::Done;
+        let mut descartada = atividade(&materia, "Extra", Some(agora() - Duration::days(1)));
+        descartada.decision = crate::academic_decision::Decision::Skipped;
+        vence_hoje.due_at = Some(agora() + Duration::hours(4));
+
+        let painel = compose_dashboard(DashboardInput {
+            now_local: agora(),
+            semesters: std::slice::from_ref(&semestre),
+            subjects: std::slice::from_ref(&materia),
+            assignments: &[vence_hoje.clone(), ja_entregue, descartada],
+            exams: &[],
+            sessions: &[],
+            materials: &|_| 0,
+        });
+
+        let titulos: Vec<&str> = painel
+            .needs_attention
+            .iter()
+            .map(|i| i.title.as_str())
+            .collect();
+        assert_eq!(titulos, ["APOL 3"], "so o que ainda pede decisao");
+        assert_eq!(painel.history.len(), 2, "as decididas viram historico");
+    }
+
+    /// O contador que a Home mostra tem de apontar para o que a tela mostra.
+    #[test]
+    fn o_contador_de_atraso_ignora_o_que_ja_foi_decidido() {
+        let semestre = semestre("2026B2", "2026-07-01", "2026-08-31");
+        let materia = disciplina(&semestre, "Estatica");
+        let mut resolvida = atividade(&materia, "APOL 1", Some(agora() - Duration::days(3)));
+        resolvida.decision = crate::academic_decision::Decision::Done;
+        let aberta = atividade(&materia, "APOL 2", Some(agora() - Duration::days(1)));
+
+        let painel = compose_dashboard(DashboardInput {
+            now_local: agora(),
+            semesters: std::slice::from_ref(&semestre),
+            subjects: std::slice::from_ref(&materia),
+            assignments: &[resolvida, aberta],
+            exams: &[],
+            sessions: &[],
+            materials: &|_| 0,
+        });
+        assert_eq!(painel.overdue, 1, "uma atrasada, e nao duas");
+    }
+
+    /// A cerimonia da manha nao pode cobrar o que ja foi resolvido ontem.
+    #[test]
+    fn o_start_my_day_nao_cobra_o_que_ja_foi_entregue() {
+        let semestre = semestre("2026B2", "2026-07-01", "2026-08-31");
+        let materia = disciplina(&semestre, "Estatica");
+        let mut entregue = atividade(&materia, "APOL 1", Some(agora() - Duration::days(1)));
+        entregue.decision = crate::academic_decision::Decision::Done;
+
+        let painel = compose_dashboard(DashboardInput {
+            now_local: agora(),
+            semesters: std::slice::from_ref(&semestre),
+            subjects: std::slice::from_ref(&materia),
+            assignments: &[entregue],
+            exams: &[],
+            sessions: &[],
+            materials: &|_| 0,
+        });
+        let hoje = compose_today(&painel, agora());
+        assert!(hoje.overdue.is_empty());
+        assert!(hoje.due_today.is_empty());
+    }
+
+    /// O que eu planejei para hoje aparece hoje, mesmo vencendo sexta.
+    #[test]
+    fn o_planejado_para_hoje_entra_no_dia_mesmo_vencendo_depois() {
+        let semestre = semestre("2026B2", "2026-07-01", "2026-08-31");
+        let materia = disciplina(&semestre, "Estatica");
+        let mut item = atividade(&materia, "APOL 3", Some(agora() + Duration::days(4)));
+        item.planned_at = Some(agora() + Duration::hours(6));
+
+        let painel = compose_dashboard(DashboardInput {
+            now_local: agora(),
+            semesters: std::slice::from_ref(&semestre),
+            subjects: std::slice::from_ref(&materia),
+            assignments: &[item],
+            exams: &[],
+            sessions: &[],
+            materials: &|_| 0,
+        });
+        let hoje = compose_today(&painel, agora());
+        assert_eq!(hoje.planned_today.len(), 1);
+        assert_eq!(hoje.planned_today[0].title, "APOL 3");
+        assert!(
+            hoje.due_today.is_empty(),
+            "vence daqui a quatro dias: nao e prazo de hoje"
+        );
+    }
+
+    /// Um mesmo compromisso nunca cai em duas faixas: contaria duas vezes e
+    /// pediria duas decisoes.
+    #[test]
+    fn cada_compromisso_cai_em_uma_faixa_so() {
+        let semestre = semestre("2026B2", "2026-07-01", "2026-08-31");
+        let materia = disciplina(&semestre, "Estatica");
+        let itens = vec![
+            atividade(&materia, "hoje", Some(agora() + Duration::hours(2))),
+            atividade(&materia, "semana", Some(agora() + Duration::days(4))),
+            atividade(&materia, "depois", Some(agora() + Duration::days(20))),
+        ];
+        let painel = compose_dashboard(DashboardInput {
+            now_local: agora(),
+            semesters: std::slice::from_ref(&semestre),
+            subjects: std::slice::from_ref(&materia),
+            assignments: &itens,
+            exams: &[],
+            sessions: &[],
+            materials: &|_| 0,
+        });
+        let total = painel.needs_attention.len()
+            + painel.this_week.len()
+            + painel.later.len()
+            + painel.history.len();
+        assert_eq!(total, 3);
+    }
+
+    /// O card da disciplina e a faixa de atencao contam a MESMA coisa. Foi o
+    /// defeito visto na tela: "3 atrasadas" no card, "0 compromissos" na faixa,
+    /// uma frase acima da outra.
+    #[test]
+    fn o_card_da_disciplina_nao_conta_o_que_a_faixa_ignora() {
+        let semestre = semestre("2026B2", "2026-07-01", "2026-08-31");
+        let materia = disciplina(&semestre, "Estatica");
+        // Prazo de marco: resto de calendario antigo, anterior ao semestre.
+        let resto = atividade(
+            &materia,
+            "Etapa antiga",
+            Some(datetime!(2026-03-23 23:59 -03:00)),
+        );
+        let painel = compose_dashboard(DashboardInput {
+            now_local: agora(),
+            semesters: std::slice::from_ref(&semestre),
+            subjects: std::slice::from_ref(&materia),
+            assignments: &[resto],
+            exams: &[],
+            sessions: &[],
+            materials: &|_| 0,
+        });
+        assert_eq!(painel.needs_attention.len(), 0);
+        assert_eq!(
+            painel.subjects[0].overdue, 0,
+            "o card nao pode acusar atraso que a faixa nao mostra"
+        );
+        assert_eq!(painel.history.len(), 1);
+    }
+
+    /// O card destaca o proximo compromisso que ainda importa. Antes ele
+    /// destacava o mais antigo da lista, que era justamente o resto de
+    /// calendario que a faixa ja tinha mandado para o historico.
+    #[test]
+    fn o_proximo_do_card_pula_o_resto_de_calendario_antigo() {
+        let semestre = semestre("2026B2", "2026-07-01", "2026-08-31");
+        let materia = disciplina(&semestre, "Estatica");
+        let resto = atividade(&materia, "Etapa antiga", Some(datetime!(2026-03-23 23:59 -03:00)));
+        let real = atividade(&materia, "APOL 3", Some(datetime!(2026-08-24 23:59 -03:00)));
+        let painel = compose_dashboard(DashboardInput {
+            now_local: agora(),
+            semesters: std::slice::from_ref(&semestre),
+            subjects: std::slice::from_ref(&materia),
+            assignments: &[resto, real],
+            exams: &[],
+            sessions: &[],
+            materials: &|_| 0,
+        });
+        assert_eq!(
+            painel.subjects[0].next.as_ref().map(|i| i.title.as_str()),
+            Some("APOL 3")
+        );
     }
 }

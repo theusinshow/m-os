@@ -55,6 +55,16 @@ pub enum CalendarKind {
     /// M/OS ganha duas fontes, e nao um irmao.
     AssignmentDue,
     ExamScheduled,
+    /// **Quando eu vou fazer**, e nao quando o prazo fecha.
+    ///
+    /// A terceira variante academica existe porque as duas primeiras respondem
+    /// a pergunta errada para quem esta planejando o dia. "APOL 3 vence sexta
+    /// as 23h59" e um fato do portal; "vou escrever a APOL quarta das 19h30 as
+    /// 20h30" e uma decisao minha, e e ela que ocupa a agenda.
+    ///
+    /// Confundir as duas e o que faz o calendario mostrar trabalho marcado para
+    /// a meia-noite de sexta — hora em que ninguem planejou fazer nada.
+    AcademicPlanned,
     /// Uma reuniao que aconteceu. Este calendario e retrospectivo por
     /// construcao, e uma reuniao gravada e exatamente o material dele.
     ///
@@ -77,6 +87,7 @@ impl CalendarKind {
             Self::ObjectiveDone => "objective_done",
             Self::AssignmentDue => "assignment_due",
             Self::ExamScheduled => "exam_scheduled",
+            Self::AcademicPlanned => "academic_planned",
             Self::Meeting => "meeting",
         }
     }
@@ -140,6 +151,23 @@ pub fn compose(input: ComposeInput<'_>) -> Vec<CalendarItem> {
     let mut items = Vec::new();
 
     for compromisso in input.academic {
+        // O bloco planejado entra ALEM do prazo, e nao no lugar dele: os dois
+        // sao fatos diferentes sobre a mesma coisa, e quem planejou quarta
+        // continua precisando ver que o prazo e sexta.
+        if let Some(quando) = compromisso.planned_at {
+            if within(quando) {
+                items.push(CalendarItem {
+                    kind: CalendarKind::AcademicPlanned,
+                    at: quando,
+                    ends_at: (compromisso.planned_minutes > 0)
+                        .then(|| quando + time::Duration::minutes(compromisso.planned_minutes)),
+                    title: format!("{} — {}", compromisso.subject, compromisso.title),
+                    project_id: None,
+                    seconds: compromisso.planned_minutes * 60,
+                    amount_cents: 0,
+                });
+            }
+        }
         if !within(compromisso.at) {
             continue;
         }

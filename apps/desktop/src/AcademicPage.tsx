@@ -11,19 +11,19 @@
  * `mos-core::academic`. A apresentação testável — faixas, frases de data,
  * duração, cronômetro — vive em `academic.ts`. O que sobra aqui é desenho.
  */
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { api, appError } from "./api";
 import { Button } from "./Button";
-import { ContextPath, EmptyState, PageHeader, Panel } from "./Surface";
+import { ActionMenu, ContextPath, EmptyState, PageHeader, Panel } from "./Surface";
 import {
   avaliadoDe,
   campoDoInstante,
   cronometroDe,
   decorridoDe,
   duracaoDe,
-  faixasDe,
   instanteDoCampo,
   mediaDe,
+  planoDe,
   quandoDe,
   situacaoDe,
   STATUS_ATIVIDADE,
@@ -42,6 +42,7 @@ import type {
   Semester,
   StudySession,
   Subject,
+  Decision,
   ProviderSubjectFact,
   SubjectOverview,
 } from "./types";
@@ -67,6 +68,10 @@ export function AcademicPage({ refresh }: { refresh: () => Promise<void> }) {
   const [aberta, setAberta] = useState<string | null>(null);
   const [criandoSemestre, setCriandoSemestre] = useState(false);
   const [criandoDisciplina, setCriandoDisciplina] = useState(false);
+  // O recibo das decisoes, com Undo. Toast e nao dialogo: a decisao e
+  // reversivel, e confirmar cada uma transformaria a operacao mais comum da
+  // tela em dois cliques.
+  const [recibo, setRecibo] = useState<{ texto: string; desfazer?: () => Promise<void> } | null>(null);
 
   const carregar = useCallback(async () => {
     try {
@@ -91,6 +96,10 @@ export function AcademicPage({ refresh }: { refresh: () => Promise<void> }) {
   useEffect(() => {
     void carregar();
   }, [carregar]);
+
+  const avisar = useCallback((texto: string, desfazer?: () => Promise<void>) => {
+    setRecibo({ texto, desfazer });
+  }, []);
 
   const recarregar = useCallback(async () => {
     await carregar();
@@ -139,6 +148,27 @@ export function AcademicPage({ refresh }: { refresh: () => Promise<void> }) {
 
       {erro ? <p className="form-error">{erro}</p> : null}
 
+      {recibo ? (
+        <div className="academic-recibo" role="status" aria-live="polite">
+          <span>{recibo.texto}</span>
+          {recibo.desfazer ? (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                const desfazer = recibo.desfazer;
+                setRecibo(null);
+                if (desfazer) void desfazer();
+              }}
+            >
+              Desfazer
+            </Button>
+          ) : null}
+          <Button variant="ghost" onClick={() => setRecibo(null)}>
+            Fechar
+          </Button>
+        </div>
+      ) : null}
+
       {criandoSemestre ? (
         <SemesterForm
           fechar={() => setCriandoSemestre(false)}
@@ -176,9 +206,40 @@ export function AcademicPage({ refresh }: { refresh: () => Promise<void> }) {
 
       {semestre && dashboard ? (
         <>
-          <ProximosPainel dashboard={dashboard} abrir={setAberta} recarregar={recarregar} />
+          {/* A hierarquia e a resposta a "o que exige minha atencao agora":
+              decisao primeiro, prazo depois, estudo e disciplinas em seguida, e
+              historico por ultimo — fechado, para nao competir com urgencia. */}
+          <AtencaoPainel
+            dashboard={dashboard}
+            abrir={setAberta}
+            recarregar={recarregar}
+            avisar={avisar}
+          />
+          <FaixaPainel
+            label="ESTA SEMANA"
+            itens={dashboard.thisWeek}
+            vazio="Nenhum prazo nos próximos sete dias."
+            abrir={setAberta}
+            recarregar={recarregar}
+            avisar={avisar}
+          />
+          <FaixaPainel
+            label="DEPOIS"
+            itens={dashboard.later}
+            vazio="Nada marcado além desta semana."
+            abrir={setAberta}
+            recarregar={recarregar}
+            avisar={avisar}
+            fechada
+          />
           <EstudoPainel dashboard={dashboard} subjects={subjects} recarregar={recarregar} />
           <DisciplinasPainel dashboard={dashboard} abrir={setAberta} facts={facts} />
+          <HistoricoPainel
+            dashboard={dashboard}
+            abrir={setAberta}
+            recarregar={recarregar}
+            avisar={avisar}
+          />
           <SemestresPainel
             semesters={semesters}
             atual={semestre.id}
@@ -190,23 +251,29 @@ export function AcademicPage({ refresh }: { refresh: () => Promise<void> }) {
   );
 }
 
-/** O que está chegando, em faixas de urgência. É a primeira viewport. */
-function ProximosPainel({
+/** O QUE PRECISA DE MIM — a primeira viewport, e a razão de a tela existir.
+ *
+ *  Ela não mostra "o que existe na faculdade": mostra o que ainda pede uma
+ *  decisão. O que foi entregue, descartado ou é resto de calendário antigo cai
+ *  no Histórico, e o critério vive em `mos_core::academic_decision` — derivado,
+ *  nunca gravado, porque "precisa de atenção" muda sozinho toda madrugada. */
+function AtencaoPainel({
   dashboard,
   abrir,
   recarregar,
+  avisar,
 }: {
   dashboard: AcademicDashboard;
   abrir: (id: string) => void;
   recarregar: () => Promise<void>;
+  avisar: (texto: string, desfazer?: () => Promise<void>) => void;
 }) {
-  const faixas = useMemo(() => faixasDe(dashboard.upcoming), [dashboard.upcoming]);
-
+  const itens = dashboard.needsAttention;
   return (
     <Panel
-      label="O QUE VEM"
-      value={String(dashboard.upcoming.length)}
-      unit={dashboard.upcoming.length === 1 ? "compromisso" : "compromissos"}
+      label="PRECISA DE MIM"
+      value={String(itens.length)}
+      unit={itens.length === 1 ? "compromisso" : "compromissos"}
       action={
         dashboard.overdue ? (
           <span className="academic-alerta">
@@ -215,70 +282,330 @@ function ProximosPainel({
         ) : undefined
       }
     >
-      {faixas.map((faixa) => (
-        <section key={faixa.horizonte} className="academic-faixa" data-horizonte={faixa.horizonte}>
-          <h3 className="micro-label">{faixa.titulo}</h3>
+      {itens.length ? (
+        <ul className="academic-lista">
+          {itens.map((item) => (
+            <CompromissoRow
+              key={`${item.kind}-${item.id}`}
+              item={item}
+              abrir={abrir}
+              recarregar={recarregar}
+              avisar={avisar}
+              destaque
+            />
+          ))}
+        </ul>
+      ) : (
+        <EmptyState>
+          Nada pede decisão agora.
+          {dashboard.thisWeek.length
+            ? ` ${dashboard.thisWeek.length} ${dashboard.thisWeek.length === 1 ? "compromisso" : "compromissos"} esta semana, logo abaixo.`
+            : ""}
+        </EmptyState>
+      )}
+    </Panel>
+  );
+}
+
+/** Uma faixa secundária: esta semana, ou depois. */
+function FaixaPainel({
+  label,
+  itens,
+  vazio,
+  abrir,
+  recarregar,
+  avisar,
+  fechada = false,
+}: {
+  label: string;
+  itens: Compromisso[];
+  vazio: string;
+  abrir: (id: string) => void;
+  recarregar: () => Promise<void>;
+  avisar: (texto: string, desfazer?: () => Promise<void>) => void;
+  fechada?: boolean;
+}) {
+  return (
+    <Panel label={label} value={String(itens.length)} unit={itens.length === 1 ? "item" : "itens"}>
+      {itens.length ? (
+        <details className="disclosure" open={!fechada}>
+          <summary>{itens.length === 1 ? "1 compromisso" : `${itens.length} compromissos`}</summary>
           <ul className="academic-lista">
-            {faixa.itens.map((item) => (
+            {itens.map((item) => (
               <CompromissoRow
                 key={`${item.kind}-${item.id}`}
                 item={item}
                 abrir={abrir}
                 recarregar={recarregar}
+                avisar={avisar}
               />
             ))}
           </ul>
-        </section>
-      ))}
-      {!faixas.length ? (
-        <EmptyState>
-          Nada marcado. Sem provas nem entregas com data — por enquanto, está livre.
-        </EmptyState>
-      ) : null}
+        </details>
+      ) : (
+        <EmptyState>{vazio}</EmptyState>
+      )}
     </Panel>
   );
 }
 
+/** Uma linha de compromisso, com as ações que a tornam operacional.
+ *
+ *  Uma ação primária visível — **Planejar** — e o resto num menu. Sete botões
+ *  expostos por linha transformariam uma lista de doze itens em oitenta e quatro
+ *  alvos de clique, e a pessoa pararia de ler os títulos. */
 function CompromissoRow({
   item,
   abrir,
   recarregar,
+  avisar,
+  destaque = false,
 }: {
   item: Compromisso;
   abrir: (id: string) => void;
   recarregar: () => Promise<void>;
+  avisar: (texto: string, desfazer?: () => Promise<void>) => void;
+  destaque?: boolean;
 }) {
   const [ocupado, setOcupado] = useState(false);
+  const [planejando, setPlanejando] = useState(false);
+  const ehAtividade = item.kind === "assignment";
 
-  async function entregar() {
+  async function planejar(quando: string | null, minutos: number) {
     setOcupado(true);
     try {
-      await api.academicSetAssignmentStatus(item.id, "submitted");
+      if (ehAtividade) await api.academicPlanAssignment(item.id, quando, minutos);
+      else await api.academicPlanExam(item.id, quando, minutos);
+      setPlanejando(false);
       await recarregar();
+      avisar(quando ? "Planejado." : "Plano desfeito.");
+    } catch (erro) {
+      avisar(appError(erro).message);
     } finally {
       setOcupado(false);
     }
   }
 
+  async function decidir(decision: Decision, frase: string) {
+    setOcupado(true);
+    const anterior = item.decision;
+    try {
+      if (ehAtividade) await api.academicSetAssignmentDecision(item.id, decision);
+      else await api.academicSetExamDecision(item.id, decision);
+      await recarregar();
+      // Undo em vez de confirmação: a decisão é reversível, e perguntar "tem
+      // certeza?" a cada item transformaria a operação mais comum da tela em
+      // dois cliques.
+      avisar(frase, async () => {
+        if (ehAtividade) await api.academicSetAssignmentDecision(item.id, anterior);
+        else await api.academicSetExamDecision(item.id, anterior);
+        await recarregar();
+      });
+    } catch (erro) {
+      avisar(appError(erro).message);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  const acoes = [
+    {
+      label: item.decision === "done" ? "Desmarcar entregue" : "Já entreguei",
+      onSelect: () =>
+        void decidir(item.decision === "done" ? "none" : "done", "Marcado como entregue."),
+    },
+    {
+      label: item.decision === "skipped" ? "Voltar a considerar" : "Não vou fazer",
+      onSelect: () =>
+        void decidir(
+          item.decision === "skipped" ? "none" : "skipped",
+          "Marcado como não vou fazer.",
+        ),
+    },
+    ...(item.plannedAt
+      ? [{ label: "Desfazer o plano", onSelect: () => void planejar(null, 0) }]
+      : []),
+    { label: "Abrir a disciplina", onSelect: () => abrir(item.subjectId) },
+  ];
+
   return (
-    <li className="academic-row" data-kind={item.kind} data-horizonte={item.horizonte}>
+    <li
+      className="academic-row"
+      data-kind={item.kind}
+      data-horizonte={item.horizonte}
+      data-decision={item.decision !== "none" ? item.decision : undefined}
+      data-destaque={destaque || undefined}
+    >
       <SubjectDot accent={item.subjectAccent} />
       <button type="button" className="academic-row-main" onClick={() => abrir(item.subjectId)}>
         <strong>{item.title}</strong>
         <small>
           {item.subject}
           {item.location ? ` · ${item.location}` : ""}
+          {item.plannedAt ? ` · faço ${planoDe(item.plannedAt, item.plannedMinutes)}` : ""}
         </small>
       </button>
       <span className="academic-quando">{quandoDe(item.at, item.horizonte)}</span>
-      {item.kind === "assignment" ? (
-        <Button variant="ghost" onClick={entregar} disabled={ocupado}>
-          Entreguei
+      {item.kind === "exam" ? <span className="academic-tag">Prova</span> : null}
+      {item.decision === "none" ? (
+        <Button
+          variant={destaque && !item.plannedAt ? "secondary" : "ghost"}
+          onClick={() => setPlanejando((aberto) => !aberto)}
+          disabled={ocupado}
+        >
+          {item.plannedAt ? "Replanejar" : "Planejar"}
         </Button>
       ) : (
-        <span className="academic-tag">Prova</span>
+        <span className="academic-tag" data-decision={item.decision}>
+          {item.decision === "done" ? "Entregue" : "Não vou fazer"}
+        </span>
       )}
+      <ActionMenu trigger={<span aria-hidden="true">···</span>} items={acoes} />
+      {planejando ? (
+        <PlanoForm
+          item={item}
+          fechar={() => setPlanejando(false)}
+          planejar={planejar}
+          ocupado={ocupado}
+        />
+      ) : null}
     </li>
+  );
+}
+
+/** Quando vou fazer, e por quanto tempo.
+ *
+ *  Atalhos em vez de só um seletor de data: a resposta quase sempre é "hoje à
+ *  noite" ou "amanhã", e abrir um calendário completo para escolher amanhã é o
+ *  tipo de precisão que custa mais do que entrega. O campo exato continua ali
+ *  para quem precisa dele. */
+function PlanoForm({
+  item,
+  fechar,
+  planejar,
+  ocupado,
+}: {
+  item: Compromisso;
+  fechar: () => void;
+  planejar: (quando: string | null, minutos: number) => Promise<void>;
+  ocupado: boolean;
+}) {
+  const [quando, setQuando] = useState(() => campoDoInstante(item.plannedAt ?? sugestaoDeQuando()));
+  const [minutos, setMinutos] = useState(item.plannedMinutes || 60);
+
+  return (
+    <form
+      className="academic-plano"
+      onSubmit={(evento) => {
+        evento.preventDefault();
+        void planejar(instanteDoCampo(quando), minutos);
+      }}
+    >
+      <span className="micro-label">QUANDO VOU FAZER</span>
+      <p className="support-copy">
+        O prazo é {quandoDe(item.at, item.horizonte)}. Isto é outra coisa: a hora em que você senta
+        para fazer.
+      </p>
+      <div className="academic-plano-atalhos">
+        {atalhosDePlano().map((atalho) => (
+          <Button
+            key={atalho.label}
+            variant="ghost"
+            onClick={() => setQuando(campoDoInstante(atalho.iso))}
+          >
+            {atalho.label}
+          </Button>
+        ))}
+      </div>
+      <div className="academic-form-grid">
+        <label className="field">
+          <span>Início</span>
+          <input
+            type="datetime-local"
+            value={quando}
+            onChange={(evento) => setQuando(evento.target.value)}
+          />
+        </label>
+        <label className="field">
+          <span>Duração</span>
+          <select value={minutos} onChange={(evento) => setMinutos(Number(evento.target.value))}>
+            <option value={0}>sem duração</option>
+            <option value={30}>30 min</option>
+            <option value={60}>1h</option>
+            <option value={120}>2h</option>
+            <option value={180}>3h</option>
+          </select>
+        </label>
+      </div>
+      <div className="academic-form-acoes">
+        <Button variant="ghost" onClick={fechar}>
+          Cancelar
+        </Button>
+        <Button variant="primary" type="submit" disabled={ocupado || !quando}>
+          Planejar
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/** Hoje às 19h, se ainda der; senão amanhã às 19h. */
+function sugestaoDeQuando(): string {
+  const agora = new Date();
+  const alvo = new Date(agora);
+  alvo.setHours(19, 0, 0, 0);
+  if (alvo.getTime() <= agora.getTime()) alvo.setDate(alvo.getDate() + 1);
+  return alvo.toISOString();
+}
+
+function atalhosDePlano(): { label: string; iso: string }[] {
+  const noite = (dias: number) => {
+    const alvo = new Date();
+    alvo.setDate(alvo.getDate() + dias);
+    alvo.setHours(19, 0, 0, 0);
+    return alvo.toISOString();
+  };
+  const agora = new Date();
+  return [
+    ...(agora.getHours() < 19 ? [{ label: "Hoje, 19h", iso: noite(0) }] : []),
+    { label: "Amanhã, 19h", iso: noite(1) },
+    { label: "Depois de amanhã", iso: noite(2) },
+  ];
+}
+
+/** O que já foi resolvido, descartado, ou é resto de calendário antigo.
+ *
+ *  Fechado por padrão: histórico que compete com urgência deixa de ser
+ *  histórico e vira ruído. */
+function HistoricoPainel({
+  dashboard,
+  abrir,
+  recarregar,
+  avisar,
+}: {
+  dashboard: AcademicDashboard;
+  abrir: (id: string) => void;
+  recarregar: () => Promise<void>;
+  avisar: (texto: string, desfazer?: () => Promise<void>) => void;
+}) {
+  if (!dashboard.history.length) return null;
+  return (
+    <Panel label="HISTÓRICO" value={String(dashboard.history.length)} unit="resolvidos">
+      <details className="disclosure">
+        <summary>O que saiu da frente</summary>
+        <ul className="academic-lista">
+          {dashboard.history.map((item) => (
+            <CompromissoRow
+              key={`${item.kind}-${item.id}`}
+              item={item}
+              abrir={abrir}
+              recarregar={recarregar}
+              avisar={avisar}
+            />
+          ))}
+        </ul>
+      </details>
+    </Panel>
   );
 }
 

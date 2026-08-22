@@ -24,7 +24,7 @@
 //! campo nao serve para conjunto — e a mesma regra da §13 do `SYNC.md`.
 
 use mos_core::{
-    AcademicRepository, Assignment, AssignmentId, AssignmentStatus, CoreError, Day, ErrorCode, Exam,
+    AcademicRepository, Decision, Plano, Assignment, AssignmentId, AssignmentStatus, CoreError, Day, ErrorCode, Exam,
     ExamId, ExamStatus, LifecycleState, NewAssignment, NewExam, NewSemester, NewSubject, NewTask,
     Pontuacao, Priority, Resource, ResourceId, Semester, SemesterId, StudySession, StudySessionId,
     Subject, SubjectId, Task, TaskId, UpdateAssignment, UpdateExam,
@@ -51,11 +51,21 @@ const SEMESTER_COLUMNS: &str =
 const SUBJECT_COLUMNS: &str = "id, semester_id, name, code, teacher, accent, notes, \
      lifecycle_state, created_at, updated_at";
 const ASSIGNMENT_COLUMNS: &str = "id, subject_id, title, description, due_at, status, priority, \
-     weight, max_score, score, task_id, lifecycle_state, created_at, updated_at";
+     weight, max_score, score, task_id, lifecycle_state, created_at, updated_at,      decision, decided_at, planned_at, planned_minutes";
 const EXAM_COLUMNS: &str = "id, subject_id, name, at, location, topics, weight, max_score, \
-     score, status, lifecycle_state, created_at, updated_at";
+     score, status, lifecycle_state, created_at, updated_at,      decision, decided_at, planned_at, planned_minutes";
 const STUDY_COLUMNS: &str =
     "id, subject_id, topic, notes, started_at, ended_at, seconds, created_at, updated_at";
+
+/// Quantas colunas uma lista declara.
+///
+/// A busca junta a disciplina DEPOIS das colunas da entidade, e precisa saber
+/// em que indice ela cai. Cravar o numero a mao funciona ate alguem acrescentar
+/// uma coluna — foi exatamente o que a 0034 fez, e o teste da busca foi o unico
+/// a perceber.
+fn colunas_de(lista: &str) -> usize {
+    lista.split(',').count()
+}
 
 fn not_found(what: &str) -> CoreError {
     CoreError::new(ErrorCode::NotFound, what, false)
@@ -138,6 +148,10 @@ fn read_assignment(row: &Row<'_>) -> rusqlite::Result<Result<Assignment, CoreErr
     let lifecycle: String = row.get(11)?;
     let created_at: String = row.get(12)?;
     let updated_at: String = row.get(13)?;
+    let decision: String = row.get(14)?;
+    let decided_at: Option<String> = row.get(15)?;
+    let planned_at: Option<String> = row.get(16)?;
+    let planned_minutes: i64 = row.get(17)?;
     Ok((|| {
         Ok(Assignment {
             id: AssignmentId::parse(&id)?,
@@ -151,6 +165,10 @@ fn read_assignment(row: &Row<'_>) -> rusqlite::Result<Result<Assignment, CoreErr
             max_score,
             score,
             task_id: task_id.as_deref().map(TaskId::parse).transpose()?,
+            decision: Decision::parse(&decision)?,
+            decided_at: decided_at.as_deref().map(parse_time).transpose()?,
+            planned_at: planned_at.as_deref().map(parse_time).transpose()?,
+            planned_minutes,
             lifecycle_state: LifecycleState::parse(&lifecycle)?,
             created_at: parse_time(&created_at)?,
             updated_at: parse_time(&updated_at)?,
@@ -172,6 +190,10 @@ fn read_exam(row: &Row<'_>) -> rusqlite::Result<Result<Exam, CoreError>> {
     let lifecycle: String = row.get(10)?;
     let created_at: String = row.get(11)?;
     let updated_at: String = row.get(12)?;
+    let decision: String = row.get(13)?;
+    let decided_at: Option<String> = row.get(14)?;
+    let planned_at: Option<String> = row.get(15)?;
+    let planned_minutes: i64 = row.get(16)?;
     Ok((|| {
         Ok(Exam {
             id: ExamId::parse(&id)?,
@@ -184,6 +206,10 @@ fn read_exam(row: &Row<'_>) -> rusqlite::Result<Result<Exam, CoreError>> {
             max_score,
             score,
             status: ExamStatus::parse(&status)?,
+            decision: Decision::parse(&decision)?,
+            decided_at: decided_at.as_deref().map(parse_time).transpose()?,
+            planned_at: planned_at.as_deref().map(parse_time).transpose()?,
+            planned_minutes,
             lifecycle_state: LifecycleState::parse(&lifecycle)?,
             created_at: parse_time(&created_at)?,
             updated_at: parse_time(&updated_at)?,
@@ -1243,7 +1269,11 @@ impl AcademicRepository for SqliteStorage {
         let rows = statement
             .query_map(params![padrao], |row| {
                 let exam = read_exam(row)?;
-                let subject: String = row.get(13)?;
+                // O indice acompanha EXAM_COLUMNS: a materia vem logo depois da
+                // ultima coluna da prova. Numero cravado a mao aqui e o que
+                // quebrou quando a 0034 acrescentou quatro colunas — por isso
+                // ele agora e derivado da propria constante.
+                let subject: String = row.get(colunas_de(EXAM_COLUMNS))?;
                 Ok((exam, subject))
             })
             .map_err(map_sql_error)?;
@@ -1267,7 +1297,7 @@ impl AcademicRepository for SqliteStorage {
         let rows = statement
             .query_map(params![padrao], |row| {
                 let assignment = read_assignment(row)?;
-                let subject: String = row.get(14)?;
+                let subject: String = row.get(colunas_de(ASSIGNMENT_COLUMNS))?;
                 Ok((assignment, subject))
             })
             .map_err(map_sql_error)?;
@@ -1317,5 +1347,150 @@ impl AcademicRepository for SqliteStorage {
         )?;
         transaction.commit().map_err(map_sql_error)?;
         Ok(())
+    }
+
+    // =======================================================================
+    // A decisao da pessoa
+    // =======================================================================
+    //
+    // Estes quatro metodos escrevem colunas que o sync do Univirtus NUNCA toca
+    // (`academic_provider_repository.rs` lista colunas explicitamente, e nenhuma
+    // delas e `decision`, `decided_at` ou `planned_at`). E o que faz "ja
+    // entreguei" sobreviver a proxima sincronizacao.
+
+    fn set_assignment_decision(
+        &self,
+        id: AssignmentId,
+        decision: Decision,
+    ) -> Result<Assignment, CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        // `decided_at` volta a NULL ao desfazer: guardar a hora de uma decisao
+        // que nao existe mais faria o historico contar um evento que nao houve.
+        let decided_at = if decision == Decision::None {
+            None
+        } else {
+            Some(now.clone())
+        };
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let mudou = transaction
+            .execute(
+                "UPDATE academic_assignments
+                    SET decision = ?2, decided_at = ?3, updated_at = ?4
+                  WHERE id = ?1",
+                params![id.to_string(), decision.as_str(), decided_at, now],
+            )
+            .map_err(map_sql_error)?;
+        if mudou == 0 {
+            return Err(not_found("Atividade"));
+        }
+        self.emitir_update(
+            &transaction,
+            KIND_ASSIGNMENT,
+            id.as_uuid(),
+            &[
+                ("decision", serde_json::json!(decision.as_str())),
+                ("decidedAt", serde_json::json!(decided_at)),
+            ],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
+        one_assignment(&connection, id)
+    }
+
+    fn set_exam_decision(&self, id: ExamId, decision: Decision) -> Result<Exam, CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let decided_at = if decision == Decision::None {
+            None
+        } else {
+            Some(now.clone())
+        };
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let mudou = transaction
+            .execute(
+                "UPDATE academic_exams
+                    SET decision = ?2, decided_at = ?3, updated_at = ?4
+                  WHERE id = ?1",
+                params![id.to_string(), decision.as_str(), decided_at, now],
+            )
+            .map_err(map_sql_error)?;
+        if mudou == 0 {
+            return Err(not_found("Avaliacao"));
+        }
+        self.emitir_update(
+            &transaction,
+            KIND_EXAM,
+            id.as_uuid(),
+            &[
+                ("decision", serde_json::json!(decision.as_str())),
+                ("decidedAt", serde_json::json!(decided_at)),
+            ],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
+        one_exam(&connection, id)
+    }
+
+    fn plan_assignment(
+        &self,
+        id: AssignmentId,
+        plano: Option<Plano>,
+    ) -> Result<Assignment, CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let quando = plano.map(|p| format_time(p.quando)).transpose()?;
+        let minutos = plano.map(|p| p.minutos).unwrap_or(0);
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let mudou = transaction
+            .execute(
+                "UPDATE academic_assignments
+                    SET planned_at = ?2, planned_minutes = ?3, updated_at = ?4
+                  WHERE id = ?1",
+                params![id.to_string(), quando, minutos, now],
+            )
+            .map_err(map_sql_error)?;
+        if mudou == 0 {
+            return Err(not_found("Atividade"));
+        }
+        self.emitir_update(
+            &transaction,
+            KIND_ASSIGNMENT,
+            id.as_uuid(),
+            &[
+                ("plannedAt", serde_json::json!(quando)),
+                ("plannedMinutes", serde_json::json!(minutos)),
+            ],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
+        one_assignment(&connection, id)
+    }
+
+    fn plan_exam(&self, id: ExamId, plano: Option<Plano>) -> Result<Exam, CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let quando = plano.map(|p| format_time(p.quando)).transpose()?;
+        let minutos = plano.map(|p| p.minutos).unwrap_or(0);
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let mudou = transaction
+            .execute(
+                "UPDATE academic_exams
+                    SET planned_at = ?2, planned_minutes = ?3, updated_at = ?4
+                  WHERE id = ?1",
+                params![id.to_string(), quando, minutos, now],
+            )
+            .map_err(map_sql_error)?;
+        if mudou == 0 {
+            return Err(not_found("Avaliacao"));
+        }
+        self.emitir_update(
+            &transaction,
+            KIND_EXAM,
+            id.as_uuid(),
+            &[
+                ("plannedAt", serde_json::json!(quando)),
+                ("plannedMinutes", serde_json::json!(minutos)),
+            ],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
+        one_exam(&connection, id)
     }
 }

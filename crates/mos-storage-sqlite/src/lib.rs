@@ -32,7 +32,7 @@ use serde::Serialize;
 pub use academic_provider_repository::{AcademicProviderRepository, ProviderSubjectFact};
 pub use cronocad_import::ImportReport;
 
-const SCHEMA_VERSION: u32 = 33;
+const SCHEMA_VERSION: u32 = 34;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -80,6 +80,7 @@ const MIGRATION_031: &str = include_str!("../migrations/0031_academic.sql");
 // executa. Ver o cabecalho da 0033.
 const MIGRATION_032: &str = include_str!("../migrations/0032_academic_provider.sql");
 const MIGRATION_033: &str = include_str!("../migrations/0033_academic_provider_grades.sql");
+const MIGRATION_034: &str = include_str!("../migrations/0034_academic_decision.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -390,6 +391,11 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
     if current <= 32 {
         connection
             .execute_batch(MIGRATION_033)
+            .map_err(map_sql_error)?;
+    }
+    if current <= 33 {
+        connection
+            .execute_batch(MIGRATION_034)
             .map_err(map_sql_error)?;
     }
     if current < SCHEMA_VERSION {
@@ -720,7 +726,7 @@ mod tests {
             MIGRATION_016, MIGRATION_017, MIGRATION_018, MIGRATION_019, MIGRATION_020,
             MIGRATION_021, MIGRATION_022, MIGRATION_023, MIGRATION_024, MIGRATION_025,
             MIGRATION_026, MIGRATION_027, MIGRATION_028, MIGRATION_029, MIGRATION_030,
-            MIGRATION_031, MIGRATION_032, MIGRATION_033,
+            MIGRATION_031, MIGRATION_032, MIGRATION_033, MIGRATION_034,
         ];
         for migration in migrations.into_iter().take(ate as usize) {
             connection.execute_batch(migration).unwrap();

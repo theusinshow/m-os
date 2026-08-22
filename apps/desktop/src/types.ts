@@ -1282,6 +1282,12 @@ export type Compromisso = {
   horizonte: Horizonte;
   taskId: string | null;
   location: string;
+  /** O que eu resolvi. Independente do `status` que o portal registra. */
+  decision: Decision;
+  /** Quando pretendo fazer — diferente de `at`, que é quando o prazo fecha. */
+  plannedAt: string | null;
+  /** Minutos reservados. Zero significa sem duração definida. */
+  plannedMinutes: number;
 };
 
 export type SubjectOverview = {
@@ -1301,6 +1307,9 @@ export type SubjectOverview = {
   materials: number;
 };
 
+/** O que a PESSOA resolveu sobre um compromisso. Nunca vem do provedor. */
+export type Decision = "none" | "done" | "skipped";
+
 export type AcademicDashboard = {
   semester: Semester | null;
   semesterStatus: SemesterStatus | null;
@@ -1312,6 +1321,14 @@ export type AcademicDashboard = {
   studySecondsToday: number;
   studySecondsWeek: number;
   running: StudySession | null;
+  /** O que pede decisão agora. Derivado, nunca gravado. */
+  needsAttention: Compromisso[];
+  thisWeek: Compromisso[];
+  later: Compromisso[];
+  /** Resolvido, descartado ou resto de calendário antigo. */
+  history: Compromisso[];
+  /** Quantos ainda não têm plano nem decisão. */
+  undecided: number;
 };
 
 export type StudySuggestion = {
@@ -1327,6 +1344,10 @@ export type AcademicToday = {
   examsSoon: Compromisso[];
   studySuggestions: StudySuggestion[];
   studySecondsToday: number;
+  /** O que eu decidi fazer hoje, vença quando vencer. */
+  plannedToday: Compromisso[];
+  /** O que foi resolvido hoje. Alimenta o End My Day. */
+  decidedToday: Compromisso[];
 };
 
 // ===========================================================================

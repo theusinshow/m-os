@@ -1154,6 +1154,30 @@ pub trait AcademicRepository: Send + Sync {
     ) -> Result<StudySession, CoreError>;
     fn discard_study(&self, id: StudySessionId) -> Result<(), CoreError>;
 
+    // --- A decisao da pessoa
+    //
+    // Separada das mutacoes de `status` de proposito: aquelas descrevem o fato
+    // academico e o sync as escreve; estas sao a decisao de quem estuda, e
+    // nenhum provedor externo as toca. Ver `mos_core::academic_decision`.
+    /// "Ja entreguei", "nao vou fazer", ou de volta a indefinido.
+    fn set_assignment_decision(
+        &self,
+        id: AssignmentId,
+        decision: crate::Decision,
+    ) -> Result<Assignment, CoreError>;
+    fn set_exam_decision(
+        &self,
+        id: ExamId,
+        decision: crate::Decision,
+    ) -> Result<Exam, CoreError>;
+    /// Quando pretendo fazer, e por quanto tempo. `None` desfaz o plano.
+    fn plan_assignment(
+        &self,
+        id: AssignmentId,
+        plano: Option<crate::Plano>,
+    ) -> Result<Assignment, CoreError>;
+    fn plan_exam(&self, id: ExamId, plano: Option<crate::Plano>) -> Result<Exam, CoreError>;
+
     // --- Busca
     /// Disciplinas, avaliacoes e atividades que casam com o termo.
     ///

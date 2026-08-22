@@ -127,3 +127,132 @@ cronômetro rodando, e travar a pessoa por isso seria pior que a aproximação.
 O domínio inteiro está em `mos-core` e compila idêntico nos dois lados. Não há
 superfície iOS construída hoje (`PLATFORMS.md` §3); quando existir, o painel é a
 mesma lista, com o mesmo `compose_dashboard`.
+
+---
+
+## 11. A camada operacional
+
+Até aqui o M/Academic respondia *"o que existe na faculdade"*. Esta camada o faz
+responder **"o que exige minha atenção agora"** — e a diferença entre as duas
+perguntas é inteiramente a decisão de quem estuda.
+
+Implementação: `mos-core/src/academic_decision.rs`, migration `0034`,
+`AcademicPage.tsx`.
+
+### 11.1 Os dois vocabulários
+
+| | quem escreve | o que responde |
+| --- | --- | --- |
+| `status` | o Univirtus, ou a pessoa à mão | o que o **portal** registra |
+| `decision` | só a pessoa | o que **eu** resolvi |
+
+Eles discordam de propósito, e o caso comum é esse: a pessoa entrega às 23h e o
+portal só atualiza no dia seguinte. Até lá o M/OS continuaria cobrando algo já
+feito — a não ser que ela possa dizer "já entreguei", e que essa frase sobreviva
+ao próximo sync. Sobrevive: os `UPDATE` do
+`academic_provider_repository.rs` listam colunas, e nenhum nomeia `decision`,
+`decided_at` ou `planned_at`.
+
+Três decisões, e só três: `none`, `done`, `skipped`.
+
+**Não existe `planned`** porque planejado não é decisão: é um fato derivado de
+`planned_at` existir. Guardar o estado ao lado da data criaria a linha que diz
+"planejado" sem data, e a que diz "não planejado" com data.
+
+**Não existe `ignored`** separado de `skipped`. A diferença não muda nada: os
+dois saem da atenção, ficam no histórico e podem voltar.
+
+### 11.2 As faixas
+
+Derivadas por `academic_decision::faixa_de`, **nunca gravadas**: "precisa de
+atenção" muda sozinho toda madrugada, e uma coluna estaria errada todo dia.
+
+```
+PRECISA DE MIM   vencido, hoje, amanhã, ou prova nos próximos 3 dias
+ESTA SEMANA      data nos próximos sete dias
+DEPOIS           mais adiante
+HISTÓRICO        resolvido, descartado, ou resto de calendário antigo
+```
+
+Cada compromisso cai em **uma** faixa. Aparecer em duas faria a pessoa decidir
+duas vezes sobre a mesma coisa e contar duas vezes o que falta.
+
+Duas regras impedem a tela de virar depósito:
+
+- **semestre encerrado → histórico.** Uma atividade vencida há 151 dias de um
+  período fechado não é urgência, é arqueologia;
+- **prazo anterior ao início do próprio semestre → histórico.** O Univirtus
+  republica etapas de ciclos antigos: "Estática dos Corpos" chega no 2026B2
+  (julho) com entregas vencidas em março e maio. Nada que valha para este
+  período vence antes de ele começar, e esse é o sinal.
+
+Os contadores do card de disciplina usam a **mesma** regra. Sem isso o card
+dizia "3 atrasadas" enquanto a faixa dizia "0 compromissos", uma frase acima da
+outra — foi o defeito que a primeira verificação em tela pegou.
+
+### 11.3 O prazo e o plano são duas datas
+
+```
+due_at      quando o prazo FECHA          — do portal
+planned_at  quando eu vou FAZER           — meu
+```
+
+Confundi-las é o erro que faz o calendário mostrar "entregar APOL" às 23h59 de
+sexta, quando a pessoa vai escrever na quarta. O calendário do M/OS ganhou
+`CalendarKind::AcademicPlanned` para o bloco planejado — ele entra **além** do
+prazo, e não no lugar dele.
+
+`planned_at` mora no compromisso acadêmico, e não na Task: a `Task` do M/OS não
+tem data planejada nem prioridade (o ADR-058 já registrou que promovê-las é
+outra feature), e o plano sobrevive à Task ser apagada.
+
+### 11.4 A hora exata
+
+O Univirtus manda `23:59`, e a hora importa: "vence 23h59" é diferente de "vence
+hoje". Mas um compromisso criado à mão sem hora vira meia-noite.
+
+A regra é **meia-noite em ponto significa "sem hora"**. Ela não inventa 23:59 no
+lugar — inventar horário é pior que omiti-lo — e não esconde a hora quando ela
+existe. Vale nos dois lados: `academic_decision::tem_hora_real` e
+`academic.ts::temHoraReal`.
+
+**O fuso é do renderer, e o sync espera por ele.** A primeira sincronização real
+rodou antes de a tela montar, leu offset zero, gravou `23:59Z` e a tela mostrou
+`20:59`. Agora `surface::offset_minutes` é `Option`: zero é um fuso legítimo,
+"ainda não sei" é outra coisa, e `univirtus_sync` recusa rodar enquanto não
+souber. A correção se cura sozinha na sincronização seguinte, porque a impressão
+digital da avaliação inclui o instante.
+
+### 11.5 O que a pessoa faz na tela
+
+Uma ação primária visível — **Planejar** — e o resto no menu de cada linha. Sete
+botões expostos por linha transformariam uma lista de doze itens em oitenta e
+quatro alvos de clique.
+
+| Ação | Efeito |
+| --- | --- |
+| Planejar | `planned_at` + duração; vira bloco no Calendário |
+| Já entreguei | `decision = done`; sai da atenção |
+| Não vou fazer | `decision = skipped`; sai da atenção |
+| Desfazer o plano | limpa `planned_at` |
+
+Todas com **Undo** em vez de confirmação: são reversíveis, e perguntar "tem
+certeza?" a cada item transformaria a operação mais comum da tela em dois
+cliques.
+
+### 11.6 O dia
+
+`AcademicToday` ganhou duas listas, e as três antigas passaram a ler
+`needs_attention` em vez do horizonte puro — o horizonte só sabe de data, e não
+de decisão:
+
+- `planned_today` — o que **eu decidi fazer hoje**, vença quando vencer. É a
+  diferença entre o Start My Day mostrar prazos e mostrar ações;
+- `decided_today` — o que foi resolvido hoje, para o End My Day.
+
+### 11.7 O Hermes
+
+Os candidatos acadêmicos passaram a carregar a decisão no detalhe: "vence sexta ·
+marcada como não vou fazer", "vence sexta · planejada para quarta às 19h". Sem
+isso ele não consegue responder *"o que eu já marquei como não vou fazer?"* nem
+*"o que ainda não planejei?"* — as duas perguntas que esta camada criou.

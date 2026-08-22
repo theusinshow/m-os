@@ -8,7 +8,9 @@ import {
   faixasDe,
   instanteDoCampo,
   mediaDe,
+  planoDe,
   quandoDe,
+  temHoraReal,
   situacaoDe,
 } from "./academic";
 import type { Compromisso, Horizonte, SubjectOverview } from "./types";
@@ -20,6 +22,9 @@ function compromisso(horizonte: Horizonte, over: Partial<Compromisso> = {}): Com
     title: "Lista 03",
     subjectId: "s1",
     subject: "Estática",
+    decision: "none",
+    plannedAt: null,
+    plannedMinutes: 0,
     subjectAccent: "sodio",
     at: "2026-08-22T23:59:00Z",
     horizonte,
@@ -100,14 +105,17 @@ describe("quando", () => {
 
   it("na semana, o dia da semana situa sem contar nos dedos", () => {
     const sexta = new Date(2026, 7, 28, 15, 0).toISOString();
-    expect(quandoDe(sexta, "this_week", agora)).toMatch(/^sex, 28\/08$/);
+    // A hora entra junto desde a camada operacional: "vence sexta 23h59" e
+    // "vence sexta" sao decisoes diferentes, e o prazo do Univirtus sempre traz
+    // hora de verdade.
+    expect(quandoDe(sexta, "this_week", agora)).toBe("sex, 28/08 · 15:00");
   });
 
   it("o ano só aparece quando muda", () => {
     const esteAno = new Date(2026, 11, 1, 8, 0).toISOString();
-    expect(quandoDe(esteAno, "later", agora)).toBe("01/12");
+    expect(quandoDe(esteAno, "later", agora)).toBe("01/12 · 08:00");
     const outroAno = new Date(2027, 1, 1, 8, 0).toISOString();
-    expect(quandoDe(outroAno, "later", agora)).toBe("01/02/2027");
+    expect(quandoDe(outroAno, "later", agora)).toBe("01/02/2027 · 08:00");
   });
 
   it("data inválida não vira texto quebrado", () => {
@@ -208,5 +216,51 @@ describe("o campo de data e hora", () => {
   it("sem instante, o campo abre vazio", () => {
     expect(campoDoInstante(null)).toBe("");
     expect(campoDoInstante("lixo")).toBe("");
+  });
+});
+
+describe("a hora exata do prazo", () => {
+  // 23h59 é hora de verdade, e a diferença entre "vence 23h59" e "vence hoje"
+  // é toda a informação que o Univirtus manda junto do prazo.
+  it("mostra a hora quando ela existe", () => {
+    const iso = new Date(2026, 8, 14, 23, 59).toISOString();
+    expect(temHoraReal(iso)).toBe(true);
+    expect(quandoDe(iso, "later", new Date(2026, 7, 22))).toContain("23:59");
+  });
+
+  // Meia-noite é ausência de hora. Mostrar "00:00" afirmaria uma precisão que
+  // ninguém informou, e inventar 23:59 no lugar seria pior ainda.
+  it("omite a hora na meia-noite em vez de inventar uma", () => {
+    const iso = new Date(2026, 8, 14, 0, 0).toISOString();
+    expect(temHoraReal(iso)).toBe(false);
+    const texto = quandoDe(iso, "later", new Date(2026, 7, 22));
+    expect(texto).not.toContain("00:00");
+    expect(texto).not.toContain("23:59");
+    expect(texto).toContain("14/09");
+  });
+
+  it("vale também para a faixa da semana", () => {
+    const comHora = new Date(2026, 7, 26, 19, 30).toISOString();
+    const semHora = new Date(2026, 7, 26, 0, 0).toISOString();
+    expect(quandoDe(comHora, "this_week", new Date(2026, 7, 22))).toContain("19:30");
+    expect(quandoDe(semHora, "this_week", new Date(2026, 7, 22))).not.toContain("00:00");
+  });
+});
+
+describe("o bloco planejado", () => {
+  it("diz quando e por quanto tempo", () => {
+    const iso = new Date(2026, 7, 26, 19, 30).toISOString();
+    expect(planoDe(iso, 60)).toBe("26/08 · 19:30 · 1h");
+    expect(planoDe(iso, 90)).toBe("26/08 · 19:30 · 1h 30min");
+    expect(planoDe(iso, 30)).toBe("26/08 · 19:30 · 30min");
+  });
+
+  it("omite a duração quando ela não foi definida", () => {
+    const iso = new Date(2026, 7, 26, 19, 30).toISOString();
+    expect(planoDe(iso, 0)).toBe("26/08 · 19:30");
+  });
+
+  it("sem plano, não diz nada", () => {
+    expect(planoDe(null, 60)).toBe("");
   });
 });

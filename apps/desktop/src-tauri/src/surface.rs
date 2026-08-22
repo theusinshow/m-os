@@ -38,7 +38,14 @@ pub struct SurfaceRuntime {
     /// `CORE-FOUNDATION.md` §5 e o `ReminderComposer` sao explicitos: quem
     /// conhece o fuso e a tela, e o banco guarda UTC. O renderer publica isto
     /// na montagem, e "amanha as nove" e resolvido contra ele.
-    offset_minutes: Mutex<i32>,
+    /// `None` enquanto o renderer nao publicou.
+    ///
+    /// A distincao importa: zero e um fuso legitimo (Londres no inverno), e
+    /// trata-lo como "ainda nao sei" seria errado — mas o contrario e pior. Um
+    /// sync que roda antes da tela montar leria offset zero, interpretaria
+    /// "vence 23h59" como UTC e gravaria um prazo tres horas adiantado. O
+    /// prazo apareceria como 20h59, e ninguem saberia por que.
+    offset_minutes: Mutex<Option<i32>>,
 }
 
 /// O que o renderer publica quando a tela muda.
@@ -109,11 +116,21 @@ pub fn here<R: Runtime>(app: &AppHandle<R>) -> Here {
     }
 }
 
+/// O renderer ja publicou o fuso?
+///
+/// Quem grava instante derivado de data sem fuso — o sync academico — precisa
+/// esperar por isto. Ver o comentario de `offset_minutes`.
+pub fn offset_publicado<R: Runtime>(app: &AppHandle<R>) -> bool {
+    app.try_state::<SurfaceRuntime>()
+        .map(|state| read(&state.offset_minutes).is_some())
+        .unwrap_or(false)
+}
+
 /// O agora de quem esta na frente do computador, no fuso dele.
 pub fn now_local<R: Runtime>(app: &AppHandle<R>) -> time::OffsetDateTime {
     let minutes = app
         .try_state::<SurfaceRuntime>()
-        .map(|state| read(&state.offset_minutes))
+        .map(|state| read(&state.offset_minutes).unwrap_or(0))
         .unwrap_or(0);
     let offset = time::UtcOffset::from_whole_seconds(minutes * 60).unwrap_or(time::UtcOffset::UTC);
     time::OffsetDateTime::now_utc().to_offset(offset)
@@ -167,7 +184,7 @@ pub fn surface_set_locale<R: Runtime>(
             false,
         ));
     }
-    write(&runtime(&app)?.offset_minutes, offset_minutes);
+    write(&runtime(&app)?.offset_minutes, Some(offset_minutes));
     Ok(())
 }
 

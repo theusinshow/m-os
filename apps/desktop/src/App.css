@@ -10341,3 +10341,85 @@ button.daily-objective-title:focus-visible {
 .daily-academic-linha[data-alerta] {
   color: var(--signal-fill);
 }
+
+/* ---- A camada operacional: decisao, plano e recibo ---- */
+
+/* A linha da faixa de atencao pesa mais que as outras. Nao por cor — cor no
+   M/OS significa atencao, e a faixa inteira ja e atencao — mas por uma aresta
+   na borda de ataque, que e o mesmo recurso que a coluna DOING do Kanban usa. */
+.academic-row[data-destaque] {
+  padding-left: var(--space-3);
+  box-shadow: inset 2px 0 0 var(--border-strong);
+}
+
+/* Decidido sai do primeiro plano sem sumir: o texto recua um degrau e a aresta
+   se apaga. Riscar o titulo seria pior — quem descartou uma atividade ainda
+   precisa ler qual era. */
+.academic-row[data-decision] .academic-row-main strong {
+  color: var(--text-secondary);
+}
+.academic-row[data-decision] {
+  box-shadow: none;
+}
+
+.academic-tag[data-decision="done"] {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+}
+.academic-tag[data-decision="skipped"] {
+  color: var(--text-system);
+}
+
+/* O formulario de plano abre DENTRO da linha, e ocupa a largura inteira dela.
+   Um popover flutuante fecharia ao rolar a lista, que e exatamente o gesto de
+   quem esta decidindo entre tres itens. */
+.academic-plano {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.academic-plano-atalhos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* O recibo da decisao. Fica no fluxo, no topo da pagina, e nao sobreposto:
+   um toast flutuante sobre uma lista operacional cobre justamente a proxima
+   linha que a pessoa ia decidir. */
+.academic-recibo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: var(--text-small);
+}
+.academic-recibo > span:first-child {
+  flex: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .academic-plano {
+    animation: academic-plano-abre var(--dur-enter) var(--ease-enter);
+  }
+}
+
+@keyframes academic-plano-abre {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -160,6 +160,21 @@ impl Day {
     /// O dia anterior. Existe para a pergunta "o que sobrou de ontem?", e faz a
     /// conta com `time` em vez de com aritmetica de string por causa dos meses
     /// de 28, 30 e 31 dias.
+    /// O primeiro instante deste dia, no fuso de quem esta olhando.
+    ///
+    /// Existe porque comparar um `Day` com um `OffsetDateTime` exige escolher um
+    /// dos dois vocabularios, e converter o dia para instante e a direcao que
+    /// nao perde informacao. O offset entra como parametro pela mesma razao de
+    /// sempre: `Day` nao le relogio.
+    pub fn inicio_do_dia(&self, offset: time::UtcOffset) -> OffsetDateTime {
+        match self.date() {
+            Ok(date) => date.midnight().assume_offset(offset),
+            // Um `Day` invalido no banco nao pode derrubar a composicao do
+            // painel. O epoch e a escolha inofensiva: ele nunca e "depois de".
+            Err(_) => OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
     pub fn previous(&self) -> Self {
         match time::Date::parse(&self.0, DAY_FORMAT) {
             Ok(date) => Self(

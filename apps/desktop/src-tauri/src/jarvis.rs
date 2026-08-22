@@ -1642,7 +1642,15 @@ fn candidate_of(item: &mos_core::SearchItem) -> Option<mos_core::Candidate> {
             kind: mos_core::EntityKind::Exam,
             id: exam.id.to_string(),
             label: resumo(&format!("{subject} — {}", exam.name), 70),
-            detail: mos_core::spoken_moment(exam.at),
+            // A DECISAO entra no detalhe, e nao so a data. Sem ela o Hermes nao
+            // consegue responder "o que eu ja marquei como nao vou fazer?" nem
+            // "o que ainda nao planejei?" — as duas perguntas que a camada
+            // operacional criou.
+            detail: detalhe_academico(
+                mos_core::spoken_moment(exam.at),
+                exam.decision,
+                exam.planned_at,
+            ),
         },
         mos_core::SearchItem::Assignment {
             assignment,
@@ -1651,13 +1659,39 @@ fn candidate_of(item: &mos_core::SearchItem) -> Option<mos_core::Candidate> {
             kind: mos_core::EntityKind::Assignment,
             id: assignment.id.to_string(),
             label: resumo(&format!("{subject} — {}", assignment.title), 70),
-            detail: assignment
-                .due_at
-                .map(mos_core::spoken_moment)
-                .unwrap_or_else(|| assignment.status.as_str().to_owned()),
+            detail: detalhe_academico(
+                assignment
+                    .due_at
+                    .map(mos_core::spoken_moment)
+                    .unwrap_or_else(|| assignment.status.as_str().to_owned()),
+                assignment.decision,
+                assignment.planned_at,
+            ),
         },
         mos_core::SearchItem::App { .. } => return None,
     })
+}
+
+/// O detalhe de um compromisso academico para o Hermes.
+///
+/// Junta o quando com o que a pessoa resolveu. "vence sexta" sozinho nao
+/// distingue o que ela ja entregou do que ela nem olhou, e as duas coisas
+/// exigem respostas opostas.
+fn detalhe_academico(
+    quando: String,
+    decision: mos_core::Decision,
+    planned_at: Option<time::OffsetDateTime>,
+) -> String {
+    let estado = match decision {
+        mos_core::Decision::Done => Some("marcada como entregue".to_owned()),
+        mos_core::Decision::Skipped => Some("marcada como nao vou fazer".to_owned()),
+        mos_core::Decision::None => planned_at
+            .map(|quando| format!("planejada para {}", mos_core::spoken_moment(quando))),
+    };
+    match estado {
+        Some(estado) => format!("{quando} · {estado}"),
+        None => quando,
+    }
 }
 
 /// Executa a busca que o modelo pediu pelo bloco `mos-query`.

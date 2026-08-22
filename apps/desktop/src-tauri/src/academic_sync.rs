@@ -264,9 +264,18 @@ pub async fn univirtus_sync<R: Runtime>(app: AppHandle<R>) -> Result<SyncReport,
         return Err(falha("O Univirtus nao esta conectado."));
     };
 
-    // O fuso de quem esta na frente da tela. O Univirtus manda data sem fuso, e
-    // le-la como UTC atrasaria todo prazo em tres horas — "vence 23h59" viraria
-    // "vence 20h59".
+    // O fuso de quem esta na frente da tela. O Univirtus manda data SEM fuso, e
+    // le-la como UTC adiantaria todo prazo em tres horas: "vence 23h59" seria
+    // gravado como 23h59 UTC e apareceria na tela como 20h59.
+    //
+    // Por isso a recusa em vez do palpite. Sincronizar antes de a tela montar
+    // gravaria a hora errada em todos os prazos de uma vez, e a proxima
+    // sincronizacao nao consertaria — o hash bateria, e nada seria atualizado.
+    if !crate::surface::offset_publicado(&app) {
+        return Err(falha(
+            "A tela ainda nao publicou o fuso. Tente sincronizar em um instante.",
+        ));
+    }
     let offset = crate::surface::now_local(&app).offset();
 
     let cliente = UnivirtusClient::new(sessao)?;
@@ -300,6 +309,19 @@ pub fn sincronizar_na_abertura<R: Runtime>(app: AppHandle<R>) {
         return;
     }
     tauri::async_runtime::spawn(async move {
+        // Espera a tela publicar o fuso. Sem isto o sync da abertura roda com
+        // offset zero e grava todo prazo tres horas adiantado — foi o que
+        // aconteceu na primeira sincronizacao real, e a tela mostrou 20h59
+        // onde o portal diz 23h59.
+        for _ in 0..60 {
+            if crate::surface::offset_publicado(&app) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        if !crate::surface::offset_publicado(&app) {
+            return;
+        }
         match univirtus_sync(app.clone()).await {
             Ok(relatorio) if relatorio.outcome != SyncOutcome::Completed => {
                 let _ = app.emit_to("main", "univirtus-synced", &relatorio);

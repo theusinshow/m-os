@@ -5,7 +5,7 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
   VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
-  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, AcademicDashboard, AcademicToday, Assignment, AssignmentStatus, Exam, ExamStatus, ReminderPriority, Semester, StaleView, StudySession, Subject, Task, TaskState, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace, UnivirtusStatus, SyncReport, ProviderSubjectFact } from "./types";
+  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, AcademicDashboard, AcademicToday, Assignment, AssignmentStatus, Exam, ExamStatus, ReminderPriority, Semester, StaleView, StudySession, Subject, Task, TaskState, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace, UnivirtusStatus, SyncReport, ProviderSubjectFact, Decision } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -253,6 +253,26 @@ export const api = {
   },
   academicArchiveExam(id: string, archived: boolean) {
     return invoke<Exam>("academic_archive_exam", { id, archived });
+  },
+
+  // ---- A decisão da pessoa
+  //
+  // Separadas das de `status`: aquelas descrevem o fato acadêmico e o sync do
+  // Univirtus as escreve; estas são a decisão de quem estuda, e nenhum provedor
+  // externo as toca.
+
+  academicSetAssignmentDecision(id: string, decision: Decision) {
+    return invoke<Assignment>("academic_set_assignment_decision", { id, decision });
+  },
+  academicSetExamDecision(id: string, decision: Decision) {
+    return invoke<Exam>("academic_set_exam_decision", { id, decision });
+  },
+  /** `plannedAt` nulo desfaz o plano. */
+  academicPlanAssignment(id: string, plannedAt: string | null, minutes: number) {
+    return invoke<Assignment>("academic_plan_assignment", { id, plannedAt, minutes });
+  },
+  academicPlanExam(id: string, plannedAt: string | null, minutes: number) {
+    return invoke<Exam>("academic_plan_exam", { id, plannedAt, minutes });
   },
 
   // ---- Materiais

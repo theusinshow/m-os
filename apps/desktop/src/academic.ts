@@ -74,12 +74,45 @@ export function quandoDe(iso: string, horizonte: Horizonte, agora = new Date()):
       .format(quando)
       .replace(".", "")
       .replace("-feira", "");
-    return `${semana}, ${dataCurta}`;
+    return temHoraReal(iso) ? `${semana}, ${dataCurta} · ${hora}` : `${semana}, ${dataCurta}`;
   }
   // Ano só quando ele muda: "29/08/2026" no mesmo ano é ruído.
-  return quando.getFullYear() === agora.getFullYear()
+  const data = quando.getFullYear() === agora.getFullYear()
     ? dataCurta
     : new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }).format(quando);
+  return temHoraReal(iso) ? `${data} · ${hora}` : data;
+}
+
+/**
+ * O prazo tem hora de verdade?
+ *
+ * O Univirtus manda `23:59` e a hora importa: "vence 23h59" é diferente de
+ * "vence hoje". Mas um compromisso criado à mão sem hora vira meia-noite, e
+ * mostrar "24/08 · 00:00" afirmaria uma precisão que ninguém informou.
+ *
+ * A regra: **meia-noite em ponto significa "sem hora"**. Ela não inventa 23:59
+ * no lugar — inventar horário é pior que omiti-lo — e não esconde a hora quando
+ * ela existe. Espelha `mos_core::academic_decision::tem_hora_real`, e o teste
+ * dos dois lados usa os mesmos casos.
+ */
+export function temHoraReal(iso: string): boolean {
+  const quando = new Date(iso);
+  if (Number.isNaN(quando.getTime())) return false;
+  return !(quando.getHours() === 0 && quando.getMinutes() === 0);
+}
+
+/** "26/08 · 19:30 · 1h" — o bloco que a pessoa reservou. */
+export function planoDe(plannedAt: string | null, minutes: number): string {
+  if (!plannedAt) return "";
+  const quando = new Date(plannedAt);
+  if (Number.isNaN(quando.getTime())) return "";
+  const data = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" }).format(quando);
+  const hora = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(quando);
+  if (!minutes) return `${data} · ${hora}`;
+  const duracao = minutes >= 60
+    ? (minutes % 60 === 0 ? `${minutes / 60}h` : `${Math.floor(minutes / 60)}h ${minutes % 60}min`)
+    : `${minutes}min`;
+  return `${data} · ${hora} · ${duracao}`;
 }
 
 /**

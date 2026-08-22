@@ -1,4 +1,5 @@
 mod academic;
+mod academic_decision;
 #[path = "academic_sync.rs"]
 mod academic_sync_impl;
 #[path = "academic_univirtus.rs"]
@@ -45,6 +46,10 @@ pub use academic::{
 pub mod academic_sync {
     pub use crate::academic_sync_impl::*;
 }
+pub use academic_decision::{
+    esta_planejado, faixa_de, tem_hora_real, ContextoDaFaixa, Decision, Faixa, Plano,
+    DIAS_DE_PROVA_EM_ATENCAO,
+};
 /// O normalizador do Univirtus: JSON do AVA -> tipos de `academic_sync`.
 pub mod univirtus {
     pub use crate::academic_univirtus_impl::*;
