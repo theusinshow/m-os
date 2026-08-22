@@ -1,3 +1,4 @@
+mod academic;
 mod action;
 mod agent;
 mod attention;
@@ -23,6 +24,14 @@ mod voice_when;
 mod weekly;
 mod work;
 
+pub use academic::{
+    compose_dashboard, compose_today, desempenho, horizonte_de, nota_necessaria,
+    progresso_do_periodo, segundos_na_semana, segundos_no_dia, semestre_corrente, validate_accent,
+    AcademicDashboard, AcademicToday, Assignment, AssignmentId, AssignmentStatus, Compromisso,
+    DashboardInput, Desempenho, Exam, ExamId, ExamStatus, Horizonte, Nota, Semester, SemesterId,
+    SemesterStatus, StudySession, StudySessionId, StudySuggestion, Subject, SubjectId,
+    SubjectOverview, MAX_UPCOMING, SUBJECT_ACCENTS,
+};
 pub use action::{
     action_contract, parse_action, parse_action_at, preview_of, ActionArgs, ActionAudit,
     ActionEffect, ActionKind, ActionLine, ActionPreview, TargetRef, TouchedEntity, UndoStep,
