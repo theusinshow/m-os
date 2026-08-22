@@ -74,6 +74,7 @@ function contexto(over: Partial<DailyContext> = {}): DailyContext {
   return {
     dueToday: 0,
     overdue: 0,
+    academic: [],
     highPriority: 0,
     meetingsToday: 0,
     inbox: 0,

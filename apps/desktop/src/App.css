@@ -9987,3 +9987,349 @@ button.daily-objective-title:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ===========================================================================
+   M/ACADEMIC
+   ===========================================================================
+
+   As cores das disciplinas sao uma EXTENSAO declarada, e nao uma paleta nova
+   solta pelo app. O design system do M/OS tem uma cor de sinal (o sodio) porque
+   a regra e "cor significa atencao"; aqui a cor significa outra coisa —
+   IDENTIDADE de disciplina —, e por isso ela mora atras de um prefixo proprio,
+   nunca compete com o sodio em saturacao, e so aparece num ponto de 8px.
+
+   Sem isso, quatro materias na Home viram quatro pontos cinzas indistinguiveis,
+   e a lista de compromissos deixa de dizer de que aula cada linha e sem que o
+   olho leia o texto inteiro.
+
+   Os valores sao dessaturados de proposito: eles convivem com o sodio na mesma
+   tela sem disputar, e o teto de contraste que importa e o do TEXTO ao lado, que
+   continua sendo `--text`. */
+:root {
+  --academic-sodio: #E7C24E;
+  --academic-cobre: #C98B5E;
+  --academic-musgo: #6E9B72;
+  --academic-lilas: #9C8BC9;
+  --academic-argila: #C97A72;
+  --academic-ceu: #6E93B8;
+}
+
+.academic-page {
+  display: grid;
+  gap: var(--space-5);
+  align-content: start;
+}
+
+/* O ponto da disciplina. Sem accent escolhido, ele fica neutro — e continua
+   informando "isto pertence a uma materia" pela forma. */
+.academic-dot {
+  flex: none;
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.academic-dot[data-accent="sodio"] { background: var(--academic-sodio); }
+.academic-dot[data-accent="cobre"] { background: var(--academic-cobre); }
+.academic-dot[data-accent="musgo"] { background: var(--academic-musgo); }
+.academic-dot[data-accent="lilas"] { background: var(--academic-lilas); }
+.academic-dot[data-accent="argila"] { background: var(--academic-argila); }
+.academic-dot[data-accent="ceu"] { background: var(--academic-ceu); }
+
+/* ---- As faixas de urgencia: NOW, SOON, LATER ---- */
+
+.academic-faixa {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+}
+
+.academic-faixa + .academic-faixa {
+  border-top: var(--line) solid var(--border);
+}
+
+/* Atrasado ganha a barra de sodio na borda de ataque, e nao fundo vermelho: o
+   `--danger` do M/OS e para falha do sistema, e um prazo perdido nao e falha da
+   maquina. Mesma marca do card parado no Kanban. */
+.academic-faixa[data-horizonte="overdue"] h3 {
+  color: var(--signal-fill);
+}
+
+.academic-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.academic-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  min-height: 44px; /* alvo de toque: o companion mobile ja e premissa */
+}
+
+.academic-row:hover {
+  background: var(--surface-hover);
+}
+
+.academic-row[data-horizonte="overdue"] {
+  box-shadow: inset 2px 0 0 var(--signal-fill);
+}
+
+.academic-row[data-concluida] .row-copy strong {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+  text-decoration-color: var(--border-strong);
+}
+
+.academic-row-main {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.academic-row-main strong {
+  font: var(--text-ui);
+  color: var(--text);
+}
+
+.academic-row-main small,
+.academic-row .row-copy small {
+  font: var(--text-small);
+  color: var(--text-secondary);
+}
+
+.academic-quando {
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--text-system);
+  white-space: nowrap;
+}
+
+.academic-row[data-horizonte="overdue"] .academic-quando {
+  color: var(--signal-fill);
+}
+
+.academic-tag {
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--text-system);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2);
+  white-space: nowrap;
+}
+
+.academic-alerta {
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--signal-fill);
+}
+
+/* ---- Disciplinas ---- */
+
+.academic-grid {
+  display: grid;
+  /* `auto-fill` com minimo: no desktop cabem quatro, no companion cabe uma, e
+     nenhuma media query decide isso. */
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+
+.academic-card {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  padding: var(--space-3);
+  background: var(--surface);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-instant) var(--ease-state);
+}
+
+.academic-card:hover {
+  border-color: var(--border-strong);
+}
+
+.academic-card[data-alerta] {
+  box-shadow: inset 2px 0 0 var(--signal-fill);
+}
+
+.academic-card header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.academic-card header strong {
+  font: var(--text-ui);
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+}
+
+.academic-card-situacao {
+  font: var(--text-small);
+  color: var(--text-secondary);
+}
+
+.academic-card-next {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font: var(--text-small);
+  color: var(--text);
+}
+
+.academic-card footer {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: var(--line) solid var(--border);
+}
+
+/* A media e o unico numero grande do card: e a resposta de "como estou". */
+.academic-media {
+  font: var(--text-title);
+  color: var(--text);
+}
+
+/* ---- Estudo ---- */
+
+.academic-study-form,
+.academic-material-add {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+
+.academic-running {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+
+/* Tabular: sem isso o cronometro empurra os digitos a cada segundo, e a linha
+   inteira treme. */
+.academic-cronometro {
+  font: var(--text-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--signal-fill);
+}
+
+.academic-running-alvo {
+  font: var(--text-small);
+  color: var(--text-secondary);
+}
+
+.academic-running-acoes {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* ---- Formularios ---- */
+
+.academic-form {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.academic-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+}
+
+.academic-form-acoes {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.academic-row-form {
+  padding: var(--space-2) 0;
+}
+
+.academic-topicos {
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.academic-situacao {
+  font: var(--text-body);
+  color: var(--text);
+}
+
+/* ---- Vazio ---- */
+
+.academic-empty {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+  max-width: var(--measure);
+  padding: var(--space-6) 0;
+}
+
+.academic-empty h1 {
+  font: var(--text-title);
+  color: var(--text);
+}
+
+.academic-empty p {
+  font: var(--text-body);
+  color: var(--text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .academic-card {
+    transition: none;
+  }
+}
+
+/* O balanço da faculdade no End My Day. Três linhas no máximo: o fecho do dia
+   é sobre os objetivos, e a faculdade é contexto — não pode virar a tela. */
+.daily-academic {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  background: var(--surface);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-3);
+}
+
+.daily-academic-linha {
+  font: var(--text-small);
+  color: var(--text-secondary);
+}
+
+.daily-academic-linha strong {
+  color: var(--text);
+}
+
+.daily-academic-linha[data-alerta] {
+  color: var(--signal-fill);
+}

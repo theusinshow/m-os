@@ -19,7 +19,9 @@ import {
   rascunhoValido,
   resumoDoDia,
 } from "./daily";
+import { duracaoDe, quandoDe } from "./academic";
 import type {
+  AcademicToday,
   DailyContext,
   DailyToday,
   DayMood,
@@ -108,6 +110,15 @@ function DailyObjectivePicker({
         titulo: project.name,
         detalhe: project.openTasks ? `project · ${project.openTasks} abertas` : "project",
         link: { kind: "project", id: project.id } as ObjectiveLink,
+      })),
+      /* A faculdade. O link aponta para a TASK da atividade quando ela existe —
+         é ela que se conclui no quadro, e concluí-la já fecha a atividade do
+         outro lado. Sem Task, o objetivo entra solto: "Estudar Estática" não é
+         uma Task, é uma intenção do dia. */
+      ...contexto.academic.map((item) => ({
+        titulo: item.title,
+        detalhe: item.detail,
+        link: item.taskId ? ({ kind: "task", id: item.taskId } as ObjectiveLink) : null,
       })),
     ];
   }, [contexto]);
@@ -542,7 +553,18 @@ export function EndMyDayFlow({
   const [resumo, setResumo] = useState("");
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
+  /* O balanço da faculdade no dia. Lido aqui e não recebido por prop porque o
+     End My Day é o único lugar que o mostra — passá-lo pela árvore inteira
+     obrigaria a Home a carregá-lo em todo refresh para usar uma vez por dia.
+
+     Falha silenciosa de propósito: encerrar o dia não pode depender de a
+     faculdade responder. */
+  const [academico, setAcademico] = useState<AcademicToday | null>(null);
   const painel = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    void api.academicToday().then(setAcademico).catch(() => setAcademico(null));
+  }, []);
 
   useEffect(() => {
     painel.current?.focus();
@@ -606,6 +628,29 @@ export function EndMyDayFlow({
         </header>
 
         <div className="daily-flow-body">
+          {academico && (academico.studySecondsToday || academico.overdue.length || academico.examsSoon.length) ? (
+            <section className="daily-academic" aria-label="Faculdade hoje">
+              <span className="micro-label">FACULDADE</span>
+              {academico.studySecondsToday ? (
+                <p className="daily-academic-linha">
+                  <strong>{duracaoDe(academico.studySecondsToday)}</strong> estudados hoje
+                </p>
+              ) : null}
+              {academico.overdue.length ? (
+                <p className="daily-academic-linha" data-alerta="true">
+                  {academico.overdue.length === 1
+                    ? "1 entrega atrasada"
+                    : `${academico.overdue.length} entregas atrasadas`}
+                </p>
+              ) : null}
+              {academico.examsSoon.slice(0, 2).map((prova) => (
+                <p className="daily-academic-linha" key={prova.id}>
+                  {prova.subject} — {prova.title} {quandoDe(prova.at, prova.horizonte)}
+                </p>
+              ))}
+            </section>
+          ) : null}
+
           {objetivos.length ? (
             <ul className="daily-close-list">
               {objetivos.map((objetivo) => {

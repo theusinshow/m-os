@@ -809,6 +809,29 @@ pub struct DailyContext {
     pub carry_over: Vec<CarryOver>,
     /// A data da sessao de onde vieram os carry-overs. Vazia quando nao ha.
     pub carry_over_day: String,
+    /// O que a faculdade poe no dia: entregas de hoje, atrasos e estudo
+    /// sugerido.
+    ///
+    /// Chega PRONTO de `academic::compose_today`, e nao como Exams e Assignments
+    /// crus: a regra de o que e "hoje" e de qual disciplina sugerir ja mora la,
+    /// e reescreve-la aqui daria ao Start My Day uma nocao de hoje diferente da
+    /// do painel do Academic.
+    pub academic: Vec<AcademicObjectiveSuggestion>,
+}
+
+/// Uma sugestao academica pronta para virar objetivo do dia.
+///
+/// `link` aponta para a TASK da atividade quando ela existe — nao para a
+/// atividade. `ObjectiveLink` so aceita os cinco tipos que a migration 0028
+/// gravou no CHECK, e o vinculo util e mesmo a Task: e ela que se conclui no
+/// quadro, e concluir a Task ja fecha a atividade do outro lado.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcademicObjectiveSuggestion {
+    pub title: String,
+    pub detail: String,
+    /// Id da Task, quando a atividade tem uma.
+    pub task_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -858,6 +881,8 @@ pub struct ContextInput<'a> {
     pub meetings: &'a [crate::Meeting],
     /// A ultima sessao que nao e a de hoje, com os objetivos dela.
     pub previous: Option<(&'a DailySession, &'a [DailyObjective])>,
+    /// O recorte academico de hoje, quando o M/Academic tem semestre.
+    pub academic: Option<&'a crate::AcademicToday>,
     /// Quantas vezes cada objetivo anterior ja foi carregado. Vem do
     /// repositorio porque a corrente pode ter dez elos, e segui-la em memoria
     /// exigiria carregar o historico inteiro.
@@ -1004,6 +1029,38 @@ pub fn compose_context(input: ContextInput<'_>) -> DailyContext {
             .collect();
     }
 
+    // A faculdade entra no fim da lista, e nao no topo: o dia comeca pelo que
+    // JA estava em andamento, e a entrega de amanha nao pode empurrar a Task de
+    // ontem para fora da primeira tela. Atraso vem antes de prazo de hoje, que
+    // vem antes de estudo — a mesma ordem de urgencia do painel.
+    if let Some(academico) = input.academic {
+        for item in academico
+            .overdue
+            .iter()
+            .chain(academico.due_today.iter())
+        {
+            context.academic.push(AcademicObjectiveSuggestion {
+                title: format!("Entregar {}", item.title),
+                detail: format!(
+                    "{} · {}",
+                    item.subject,
+                    if item.horizonte == crate::Horizonte::Overdue {
+                        "atrasada"
+                    } else {
+                        "vence hoje"
+                    }
+                ),
+                task_id: item.task_id.clone(),
+            });
+        }
+        for sugestao in &academico.study_suggestions {
+            context.academic.push(AcademicObjectiveSuggestion {
+                title: format!("Estudar {}", sugestao.subject),
+                detail: sugestao.reason.clone(),
+                task_id: None,
+            });
+        }
+    }
     context
 }
 
@@ -1401,6 +1458,7 @@ mod tests {
         ];
         let profundidade = sem_profundidade();
         let contexto = compose_context(ContextInput {
+            academic: None,
             now_local: agora,
             reminders: &[],
             tasks: &tasks,
@@ -1445,6 +1503,7 @@ mod tests {
         ];
         let profundidade = sem_profundidade();
         let contexto = compose_context(ContextInput {
+            academic: None,
             now_local: agora,
             reminders: &reminders,
             tasks: &[],
@@ -1472,6 +1531,7 @@ mod tests {
         ];
         let profundidade = |_: DailyObjectiveId| 2usize;
         let contexto = compose_context(ContextInput {
+            academic: None,
             now_local: agora,
             reminders: &[],
             tasks: &[],

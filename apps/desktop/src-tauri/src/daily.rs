@@ -116,9 +116,21 @@ pub fn contexto<R: Runtime>(app: &AppHandle<R>) -> Result<DailyContext, CoreErro
     let meetings = state.meetings.meetings(false)?;
     let anterior = state.daily.previous(&day)?;
 
+    // A faculdade entra no dia pela MESMA funcao que o painel do Academic usa.
+    // Uma segunda nocao de "hoje" aqui faria o Start My Day sugerir entrega que
+    // a tela do Academic ja considera atrasada.
+    //
+    // Falhar aqui NAO impede o dia de comecar: o M/Academic e uma camada por
+    // cima, e um dia que se recusa a abrir porque a faculdade nao carregou
+    // seria pior que um dia sem faculdade.
+    let academico = mos_core::AcademicService::new(state.storage.clone())
+        .today(crate::surface::now_local(app))
+        .ok();
+
     let profundidade = |id: DailyObjectiveId| state.daily.carry_depth(id);
     Ok(mos_core::compose_context(mos_core::ContextInput {
         now_local: crate::surface::now_local(app),
+        academic: academico.as_ref(),
         reminders: &reminders,
         tasks: &tasks,
         projects: &projects,

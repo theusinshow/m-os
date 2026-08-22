@@ -20,6 +20,7 @@ import { cantoPara } from "./argosCorner";
 import { Button } from "./Button";
 import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel, StateMessage } from "./Surface";
 import { CalendarPage } from "./CalendarPage";
+import { AcademicPage, AcademicWidget } from "./AcademicPage";
 import { DailyFocusWidget, DailySessionView, useDaily } from "./DailySession";
 import { dataPorExtenso } from "./daily";
 import { atividadePorProject, diasPorTask, mexidoHoje, paradasVisiveis, projectsParados, rotuloDeDias } from "./stale";
@@ -48,7 +49,7 @@ import { AnimatePresence, LazyMotion, m } from "framer-motion";
 import { AnimatedList, AnimatedListItem } from "./motion/AnimatedList";
 import { SpotlightCard } from "./motion/SpotlightCard";
 import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
-import type { AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, DailyContext, DailyToday, FunctionDefinition, HiddenWidget, Ingestion, ObjectiveLink, Week, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, Parada, SearchItem, StaleView, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
+import type { AcademicDashboard, AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, DailyContext, DailyToday, FunctionDefinition, HiddenWidget, Ingestion, ObjectiveLink, Week, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, Parada, SearchItem, StaleView, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
 import { SCREEN_LABEL } from "./types";
 import "./App.css";
 
@@ -499,7 +500,7 @@ function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
   return nextIndex;
 }
 
-function HomePage({ recent, inbox, projects, tasks, stale, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, setHiddenWidgets, widgetPlacements, setWidgetPlacements, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, openFinancePage, openCalendarPage, openMeetingsPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent, daily }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; stale: StaleView; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; setHiddenWidgets: (next: HiddenWidget[]) => void; widgetPlacements: WidgetPlacement[]; setWidgetPlacements: (next: WidgetPlacement[]) => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; openFinancePage: () => void; openCalendarPage: () => void; openMeetingsPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent; daily: DailyProps }) {
+function HomePage({ recent, inbox, projects, tasks, stale, academic, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, setHiddenWidgets, widgetPlacements, setWidgetPlacements, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, openFinancePage, openCalendarPage, openMeetingsPage, openAcademicPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent, daily }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; stale: StaleView; academic: AcademicDashboard | null; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; setHiddenWidgets: (next: HiddenWidget[]) => void; widgetPlacements: WidgetPlacement[]; setWidgetPlacements: (next: WidgetPlacement[]) => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; openFinancePage: () => void; openCalendarPage: () => void; openMeetingsPage: () => void; openAcademicPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent; daily: DailyProps }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
   const [workspaceApps, setWorkspaceApps] = useState<RegisteredApp[]>([]);
@@ -784,6 +785,7 @@ function HomePage({ recent, inbox, projects, tasks, stale, workspaces, apps, res
            mora na Home do M/OS e um widget arrumavel, e uma excecao seria a
            unica coisa da tela que nao se pode mover nem esconder. */
         { id: "daily_session", node: <Panel label="HOJE"><DailyFocusWidget dia={daily.dia} contexto={daily.contexto} carregando={daily.carregando} erro={daily.erro} iniciar={daily.iniciar} abrirSessao={daily.abrirSessao} encerrarAntigo={daily.encerrarAntigo} concluirObjetivo={daily.concluirObjetivo} abrirVinculo={daily.abrirVinculo} semanaPendente={daily.semanaPendente} abrirSemana={daily.abrirSemana} /></Panel> },
+        { id: "academic", ...(academic?.overdue ? { footLeft: "ATRASADO", footRight: String(academic.overdue) } : {}), node: <Panel label="FACULDADE" value={academic?.semester ? String(academic.upcoming.length) : "—"} unit={academic?.semester ? (academic.upcoming.length === 1 ? "compromisso" : "compromissos") : "sem semestre"} action={academic?.semester ? <Button variant="ghost" onClick={() => openAcademicPage()}>Abrir</Button> : undefined}><AcademicWidget dashboard={academic} abrir={() => openAcademicPage()} /></Panel> },
         { id: "now", node: <Panel label="EM ANDAMENTO" value={String(doing.length)} unit="em andamento" count={doing.length ? String(doing.length) : undefined}>{doing.length ? doing.map((task) => <DataRow key={task.id} primary={task.title} meta={projectName(task.projectId)} onClick={() => openTask(task)} />) : <EmptyState>Nada em andamento. Uma Task movida para Doing aparece aqui.</EmptyState>}</Panel> },
         { id: "timer", node: <Panel label="CRONÔMETRO"><Timer projects={projects} onChanged={() => void refresh()} /></Panel> },
         { id: "today_hours", footLeft: "7 DIAS · CONTRA O PICO", footRight: `PICO ${hoursLabel(weekTime.peakSeconds)}`, node: <Panel label="HORAS HOJE"><TodayHours time={trackedTime} /></Panel> },
@@ -3021,6 +3023,7 @@ function DesktopApp() {
      As duas vem juntas do mesmo comando: a tela precisa das duas no mesmo
      render. */
   const [stale, setStale] = useState<StaleView>({ paradas: [], activity: [] });
+  const [academic, setAcademic] = useState<AcademicDashboard | null>(null);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [hiddenWidgets, setHiddenWidgets] = useState<HiddenWidget[]>([]);
   const [widgetPlacements, setWidgetPlacements] = useState<WidgetPlacement[]>([]);
@@ -3117,9 +3120,9 @@ function DesktopApp() {
   const refresh = useCallback(async () => {
     setBusy(true);
     try {
-      const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus, nextHiddenWidgets, nextResourceWorkspaces, nextWidgetPlacements, nextRadialPins, nextIngestions, nextStale] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status(), api.hiddenWidgets(), api.resourceWorkspaces(), api.widgetPlacements(), api.radialPins(), api.ingestions(), api.staleList()]);
+      const [nextRecent, nextInbox, nextArchived, nextTrashed, nextProjects, nextWorkspaces, nextApps, nextResources, nextTrashedResources, nextTasks, nextStatus, nextHiddenWidgets, nextResourceWorkspaces, nextWidgetPlacements, nextRadialPins, nextIngestions, nextStale, nextAcademic] = await Promise.all([api.recent(), api.inbox(), api.archived(), api.trashed(), api.projects(true), api.workspaces(true), api.registeredApps(true), api.resources(true), api.trashedResources(), api.tasks(true), api.status(), api.hiddenWidgets(), api.resourceWorkspaces(), api.widgetPlacements(), api.radialPins(), api.ingestions(), api.staleList(), api.academicDashboard()]);
       setRecent(nextRecent); setInbox(nextInbox); setArchived(nextArchived); setTrashed(nextTrashed); setProjects(nextProjects); setWorkspaces(nextWorkspaces); setApps(nextApps); setResources(nextResources); setTrashedResources(nextTrashedResources); setTasks(nextTasks); setStatus(nextStatus); setHiddenWidgets(nextHiddenWidgets);
-      setWidgetPlacements(nextWidgetPlacements); setResourceWorkspaces(nextResourceWorkspaces); setRadialPins(nextRadialPins); setIngestions(nextIngestions); setStale(nextStale);
+      setWidgetPlacements(nextWidgetPlacements); setResourceWorkspaces(nextResourceWorkspaces); setRadialPins(nextRadialPins); setIngestions(nextIngestions); setStale(nextStale); setAcademic(nextAcademic);
       setDrawerTask((current) => current ? nextTasks.find((task) => task.id === current.id) ?? null : null);
     } finally {
       setBusy(false);
@@ -3452,6 +3455,7 @@ function DesktopApp() {
      tela nenhuma, e renomea-lo tocaria roteamento, leque, Command e widget da
      Home para trocar uma string que ninguem le. */
   { page: "tempo", label: "CronoCAD", icon: "cronocad" },
+  { page: "academic", label: "Academic", icon: "academic" },
   /* Workspaces e a lente sobre tudo (ADR-038). Ele ja foi rebaixado uma vez e
      ficou "invisivel para quem nao conhece o Command, ate ser promovido de
      volta" — a ADR-031 registra isso, e e por isso que ele NAO foi para o
@@ -3474,16 +3478,17 @@ function DesktopApp() {
     { label: "TRABALHO", items: nav.slice(2, 6) },
     { label: "MEMÓRIA", items: nav.slice(6) },
   ];
-  const pageLabels: Record<Page, string> = { home: "Home", hermes: "Hermes", inbox: "Inbox", tasks: "Tasks", projects: "Projects", tempo: "CronoCAD", calendario: "Calendário", finance: "Finance", reunioes: "Reuniões", library: "Library", apps: "Apps", workspaces: "Workspaces", settings: "Settings" };
+  const pageLabels: Record<Page, string> = { home: "Home", hermes: "Hermes", inbox: "Inbox", tasks: "Tasks", projects: "Projects", tempo: "CronoCAD", calendario: "Calendário", academic: "Academic", finance: "Finance", reunioes: "Reuniões", library: "Library", apps: "Apps", workspaces: "Workspaces", settings: "Settings" };
   const pageMeta = useMemo(() => {
     if (page !== "home") return pageLabels[page].toUpperCase();
     return new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date()).toUpperCase().replace(",", " ·");
   }, [page]);
   const pageContent = useMemo(() => {
     if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} openTask={(id) => { const task = tasks.find((candidate) => candidate.id === id); if (task) setDrawerTask(task); }} />;
-    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} stale={stale} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} setHiddenWidgets={setHiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} openFinancePage={() => setPage("finance")} openCalendarPage={() => setPage("calendario")} openMeetingsPage={() => setPage("reunioes")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} daily={dailyProps} />;
+    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} stale={stale} academic={academic} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} setHiddenWidgets={setHiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} openFinancePage={() => setPage("finance")} openCalendarPage={() => setPage("calendario")} openMeetingsPage={() => setPage("reunioes")} openAcademicPage={() => setPage("academic")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} daily={dailyProps} />;
     if (page === "tempo") return <TempoPage projects={projects} openProject={openProject} receipt={showReceipt} />;
     if (page === "finance") return <FinancePage />;
+    if (page === "academic") return <AcademicPage refresh={refresh} />;
     if (page === "calendario") return <CalendarPage />;
     if (page === "reunioes") return <MeetingsPage projects={projects} focus={focusedMeetingId} receipt={showReceipt} refresh={refresh} />;
     if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} openResource={openResource} intent={functionIntent ?? undefined} />;

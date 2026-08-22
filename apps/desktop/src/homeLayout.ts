@@ -82,6 +82,15 @@ export const HOME_WIDGETS: { id: string; label: string; section: string; role: H
   { id: "now", label: "EM ANDAMENTO", section: "now", role: "focus", span: 6 },
   { id: "timer", label: "CRONÔMETRO", section: "now", role: "focus", span: 3 },
   { id: "today_hours", label: "HOJE", section: "now", role: "focus", span: 3 },
+  /* A faculdade na faixa "Agora", e nao em "Visao": prazo e prova sao o que
+     pede acao HOJE, e visao e o que se olha uma vez por semana.
+
+     Largura 12 por aritmetica, e nao por vaidade: a faixa precisa fechar a
+     linha de doze colunas (o teste `tem faixas que somam multiplos de doze`
+     guarda isso), e com 12+6+3+3 ja somando 24, o unico span que fecha e outro
+     12. A largura cheia tambem e a que cabe as tres faixas de urgencia lado a
+     lado sem quebrar cada titulo em duas linhas. */
+  { id: "academic", label: "FACULDADE", section: "now", role: "focus", span: 12 },
   { id: "inbox_pulse", label: "INBOX", section: "resume", role: "attention", span: 3 },
   /* PARADAS ao lado do INBOX porque as duas perguntas sao a mesma familia: o que
      entrou e nao foi decidido, e o que foi decidido e nao andou. Faixa

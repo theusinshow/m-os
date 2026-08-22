@@ -666,6 +666,7 @@ export type Page =
   | "tasks"
   | "tempo"
   | "calendario"
+  | "academic"
   | "finance"
   | "reunioes"
   | "settings";
@@ -692,6 +693,7 @@ export const SCREEN_LABEL: Record<Page, string> = {
   tasks: "Kanban",
   tempo: "CronoCAD",
   calendario: "Calendário",
+  academic: "Academic",
   finance: "Finance",
   reunioes: "Reuniões",
   settings: "Configurações",
@@ -1067,6 +1069,15 @@ export type DailyContext = {
   carryOver: CarryOver[];
   /** Vazia quando não há carry-over. */
   carryOverDay: string;
+  /** O que a faculdade põe no dia. Vem pronto de `academic::compose_today`. */
+  academic: AcademicObjectiveSuggestion[];
+};
+
+export type AcademicObjectiveSuggestion = {
+  title: string;
+  detail: string;
+  /** Id da Task da atividade, quando ela tem uma. */
+  taskId: string | null;
 };
 
 /** Um objetivo como a interface o descreve, antes de ele existir. */
@@ -1166,3 +1177,154 @@ export type Parada = {
 export type ProjectActivity = { projectId: string; lastActivity: string };
 
 export type StaleView = { paradas: Parada[]; activity: ProjectActivity[] };
+
+// ============================================================================
+// M/Academic
+// ============================================================================
+
+export type SemesterStatus = "upcoming" | "active" | "completed";
+
+export type Semester = {
+  id: string;
+  name: string;
+  institution: string;
+  /** `AAAA-MM-DD`. Dia civil, e não instante: semestre é intervalo de calendário. */
+  startsOn: Day;
+  endsOn: Day;
+  lifecycleState: LifecycleState;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Subject = {
+  id: string;
+  semesterId: string;
+  name: string;
+  code: string;
+  teacher: string;
+  /** Nome de accent do design system. Vazio é o accent padrão. */
+  accent: string;
+  notes: string;
+  lifecycleState: LifecycleState;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AssignmentStatus =
+  | "pending"
+  | "in_progress"
+  | "submitted"
+  | "graded"
+  | "cancelled";
+
+export type Assignment = {
+  id: string;
+  subjectId: string;
+  title: string;
+  description: string;
+  /** Instante RFC-3339, ou null quando não há prazo definido. */
+  dueAt: string | null;
+  status: AssignmentStatus;
+  priority: ReminderPriority;
+  weight: number;
+  maxScore: number | null;
+  score: number | null;
+  /** A Task do M/OS que executa esta atividade. */
+  taskId: string | null;
+  lifecycleState: LifecycleState;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ExamStatus = "scheduled" | "done" | "graded" | "cancelled";
+
+export type Exam = {
+  id: string;
+  subjectId: string;
+  name: string;
+  at: string;
+  location: string;
+  topics: string;
+  weight: number;
+  maxScore: number | null;
+  score: number | null;
+  status: ExamStatus;
+  lifecycleState: LifecycleState;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StudySession = {
+  id: string;
+  subjectId: string;
+  topic: string;
+  notes: string;
+  startedAt: string;
+  /** Vazio enquanto a sessão está em curso. */
+  endedAt: string | null;
+  seconds: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Onde um prazo cai. A ordem é a urgência. */
+export type Horizonte = "overdue" | "today" | "tomorrow" | "this_week" | "later";
+
+/** Um compromisso acadêmico com data, pronto para a tela. */
+export type Compromisso = {
+  kind: "assignment" | "exam";
+  id: string;
+  title: string;
+  subjectId: string;
+  subject: string;
+  subjectAccent: string;
+  at: string;
+  horizonte: Horizonte;
+  taskId: string | null;
+  location: string;
+};
+
+export type SubjectOverview = {
+  id: string;
+  name: string;
+  code: string;
+  accent: string;
+  pending: number;
+  overdue: number;
+  upcomingExams: number;
+  /** Média de 0 a 10, ou null quando nada foi corrigido. */
+  media: number | null;
+  /** Quanto do peso planejado já foi avaliado, de 0 a 1. */
+  pesoAvaliado: number | null;
+  studySecondsWeek: number;
+  next: Compromisso | null;
+  materials: number;
+};
+
+export type AcademicDashboard = {
+  semester: Semester | null;
+  semesterStatus: SemesterStatus | null;
+  semesterProgress: number | null;
+  subjects: SubjectOverview[];
+  upcoming: Compromisso[];
+  overdue: number;
+  dueToday: number;
+  studySecondsToday: number;
+  studySecondsWeek: number;
+  running: StudySession | null;
+};
+
+export type StudySuggestion = {
+  subjectId: string;
+  subject: string;
+  reason: string;
+  daysToExam: number | null;
+};
+
+export type AcademicToday = {
+  dueToday: Compromisso[];
+  overdue: Compromisso[];
+  examsSoon: Compromisso[];
+  studySuggestions: StudySuggestion[];
+  studySecondsToday: number;
+};

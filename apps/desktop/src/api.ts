@@ -5,7 +5,7 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
   VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
-  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, StaleView, Task, TaskState, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, AcademicDashboard, AcademicToday, Assignment, AssignmentStatus, Exam, ExamStatus, ReminderPriority, Semester, StaleView, StudySession, Subject, Task, TaskState, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -134,6 +134,147 @@ export const api = {
   },
   weeklyClose(week: Week, summary: string) {
     return invoke<WeekSummary>("weekly_close", { week, summary });
+  },
+
+  // =========================================================================
+  // M/Academic
+  // =========================================================================
+  //
+  // O painel e o "hoje" vem COMPOSTOS do Rust: quem decide o que e "chegando",
+  // como a media pondera e o que e atraso e `mos_core::academic`, e refazer
+  // isso aqui daria duas respostas para a mesma pergunta.
+
+  academicDashboard() {
+    return invoke<AcademicDashboard>("academic_dashboard");
+  },
+  academicToday() {
+    return invoke<AcademicToday>("academic_today");
+  },
+
+  // ---- Semestre
+  academicSemesters(includeArchived = false) {
+    return invoke<Semester[]>("academic_semesters", { includeArchived });
+  },
+  academicCreateSemester(name: string, institution: string, startsOn: string, endsOn: string) {
+    return invoke<Semester>("academic_create_semester", { name, institution, startsOn, endsOn });
+  },
+  academicUpdateSemester(id: string, name: string, institution: string, startsOn: string, endsOn: string) {
+    return invoke<Semester>("academic_update_semester", { id, name, institution, startsOn, endsOn });
+  },
+  academicArchiveSemester(id: string, archived: boolean) {
+    return invoke<Semester>("academic_archive_semester", { id, archived });
+  },
+
+  // ---- Disciplina
+  academicSubjects(includeArchived = false) {
+    return invoke<Subject[]>("academic_subjects", { includeArchived });
+  },
+  academicCreateSubject(semesterId: string, name: string, code: string, teacher: string, accent: string, notes: string) {
+    return invoke<Subject>("academic_create_subject", { semesterId, name, code, teacher, accent, notes });
+  },
+  academicUpdateSubject(id: string, name: string, code: string, teacher: string, accent: string, notes: string) {
+    return invoke<Subject>("academic_update_subject", { id, name, code, teacher, accent, notes });
+  },
+  academicArchiveSubject(id: string, archived: boolean) {
+    return invoke<Subject>("academic_archive_subject", { id, archived });
+  },
+
+  // ---- Atividade
+  academicAssignments(includeArchived = false) {
+    return invoke<Assignment[]>("academic_assignments", { includeArchived });
+  },
+  academicCreateAssignment(input: {
+    subjectId: string;
+    title: string;
+    description: string;
+    dueAt: string | null;
+    priority: ReminderPriority;
+    weight: number;
+    score: number | null;
+    maxScore: number | null;
+  }) {
+    return invoke<Assignment>("academic_create_assignment", input);
+  },
+  academicUpdateAssignment(input: {
+    id: string;
+    title: string;
+    description: string;
+    dueAt: string | null;
+    priority: ReminderPriority;
+    weight: number;
+    score: number | null;
+    maxScore: number | null;
+    status: AssignmentStatus;
+  }) {
+    return invoke<Assignment>("academic_update_assignment", input);
+  },
+  academicSetAssignmentStatus(id: string, status: AssignmentStatus) {
+    return invoke<Assignment>("academic_set_assignment_status", { id, status });
+  },
+  academicArchiveAssignment(id: string, archived: boolean) {
+    return invoke<Assignment>("academic_archive_assignment", { id, archived });
+  },
+  /** Cria a Task do M/OS que executa a atividade, e liga as duas. */
+  academicCreateTask(id: string) {
+    return invoke<Task>("academic_create_task", { id });
+  },
+  academicUnlinkTask(id: string) {
+    return invoke<Assignment>("academic_unlink_task", { id });
+  },
+
+  // ---- Avaliacao
+  academicExams(includeArchived = false) {
+    return invoke<Exam[]>("academic_exams", { includeArchived });
+  },
+  academicCreateExam(input: {
+    subjectId: string;
+    name: string;
+    at: string;
+    location: string;
+    topics: string;
+    weight: number;
+    score: number | null;
+    maxScore: number | null;
+  }) {
+    return invoke<Exam>("academic_create_exam", input);
+  },
+  academicUpdateExam(input: {
+    id: string;
+    name: string;
+    at: string;
+    location: string;
+    topics: string;
+    weight: number;
+    score: number | null;
+    maxScore: number | null;
+    status: ExamStatus;
+  }) {
+    return invoke<Exam>("academic_update_exam", input);
+  },
+  academicArchiveExam(id: string, archived: boolean) {
+    return invoke<Exam>("academic_archive_exam", { id, archived });
+  },
+
+  // ---- Materiais
+  academicMaterials(subjectId: string) {
+    return invoke<Resource[]>("academic_materials", { subjectId });
+  },
+  academicLinkMaterial(subjectId: string, resourceId: string, linked: boolean) {
+    return invoke<void>("academic_link_material", { subjectId, resourceId, linked });
+  },
+
+  // ---- Estudo
+  academicStudySessions(limit = 50) {
+    return invoke<StudySession[]>("academic_study_sessions", { limit });
+  },
+  academicStartStudy(subjectId: string, topic: string) {
+    return invoke<StudySession>("academic_start_study", { subjectId, topic });
+  },
+  academicFinishStudy(id: string, seconds: number, notes: string) {
+    return invoke<StudySession>("academic_finish_study", { id, seconds, notes });
+  },
+  academicDiscardStudy(id: string) {
+    return invoke<void>("academic_discard_study", { id });
   },
 
   // ---------------------------------------------------------------- Paradas

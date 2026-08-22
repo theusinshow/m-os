@@ -162,10 +162,21 @@ describe("moveInArrangement", () => {
   });
 
   /* O caso onde o indice erra por um: o widget sai de ANTES da mira, entao a
-     lista encolhe atras dela. Com indice cru, ele cairia uma casa adiante. */
+     lista encolhe atras dela. Com indice cru, ele cairia uma casa adiante.
+
+     O esperado e LITERAL, e nao montado com `filter`. A versao anterior
+     construia a lista pondo os movidos no fim, e so passava porque a mira era o
+     ultimo widget da faixa — quando `academic` entrou depois dela, o teste
+     quebrou sem que nada do comportamento tivesse mudado. */
   it("nao erra por um quando o widget vem de tras da mira", () => {
     const next = moveInArrangement(base(), "now", "now", "today_hours");
-    expect(idsDa(next, "now")).toEqual(comeca(NOW, ...NOW.filter((id) => id !== "now" && id !== "today_hours"), "now", "today_hours"));
+    const semNow = NOW.filter((id) => id !== "now");
+    const alvo = semNow.indexOf("today_hours");
+    expect(idsDa(next, "now")).toEqual([
+      ...semNow.slice(0, alvo),
+      "now",
+      ...semNow.slice(alvo),
+    ]);
   });
 
   it("sem mira, vai para o fim da faixa e nao para o fim da Home", () => {

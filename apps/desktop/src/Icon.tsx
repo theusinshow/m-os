@@ -40,7 +40,8 @@ export type IconName =
   | "close"
   | "archive"
   | "trash"
-  | "attention";
+  | "attention"
+  | "academic";
 
 /** Desenho de 20px, contorno. Coordenadas na grade de .5 para o traco de 1.25
  *  cair sobre o pixel em vez de entre dois. */
@@ -70,6 +71,9 @@ const OUTLINE_20: Record<IconName, ReactNode> = {
   // Folha com a regua do cabecalho e as duas argolas. A regua e o que separa
   // "calendario" de "janela" a 20px.
   calendar: <><rect x="3.5" y="5.5" width="13" height="11" /><path d="M3.5 9.5h13M7 3.5v3M13 3.5v3" /></>,
+  // Capelo: o losango da aba e a borla. Nao um livro — livro ja e "library",
+  // e duas telas com a mesma silhueta na barra lateral seriam indistinguiveis.
+  academic: <><path d="M10 3.5 17.5 7.5 10 11.5 2.5 7.5z" /><path d="M5.5 9.5v4c0 1 2 2.5 4.5 2.5s4.5-1.5 4.5-2.5v-4" /></>,
   // Nota com o valor marcado por um circulo vazado: diferencia de "calendar" e
   // "board" sem precisar de simbolo de moeda (que nao cabe limpo no traco de
   // 1.25 a 20px).
