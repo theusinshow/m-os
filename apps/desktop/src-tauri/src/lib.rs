@@ -27,6 +27,7 @@ use tauri::{
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod academic;
+mod academic_sync;
 mod calendar;
 mod attention;
 mod daily;
@@ -41,6 +42,7 @@ mod pdf;
 mod stale;
 mod surface;
 mod tracking;
+mod univirtus;
 mod voice;
 
 const DEFAULT_CAPTURE_SHORTCUT: &str = "Ctrl+Shift+Space";
@@ -1862,6 +1864,12 @@ pub fn run() {
                 manter_snapshot_do_dia(&state.data, &state.snapshot_status, &app.handle().clone());
             }
 
+            // A faculdade, uma vez por abertura — e so quando ja ha sessao
+            // guardada. Dado academico muda algumas vezes por semana; um
+            // polling contra o portal da faculdade seria uma gentileza que
+            // ninguem pediu. O resto e o botao "Sincronizar agora".
+            academic_sync::sincronizar_na_abertura(app.handle().clone());
+
             // A Drop Zone precisa do disco antes da primeira janela: a
             // reconciliacao roda na abertura, e ela e quem transforma uma
             // transferencia morta pela metade num fato visivel em vez de um
@@ -2080,6 +2088,12 @@ pub fn run() {
             academic::academic_start_study,
             academic::academic_finish_study,
             academic::academic_discard_study,
+            academic_sync::univirtus_status,
+            academic_sync::univirtus_connect,
+            academic_sync::univirtus_sync,
+            academic_sync::univirtus_disconnect,
+            academic_sync::univirtus_subject_facts,
+            academic_sync::univirtus_material_url,
             stale::stale_list,
             tracking::tracking_default_cronocad_path,
             tracking::tracking_import_cronocad,

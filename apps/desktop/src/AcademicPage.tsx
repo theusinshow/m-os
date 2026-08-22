@@ -42,6 +42,7 @@ import type {
   Semester,
   StudySession,
   Subject,
+  ProviderSubjectFact,
   SubjectOverview,
 } from "./types";
 
@@ -61,6 +62,7 @@ export function AcademicPage({ refresh }: { refresh: () => Promise<void> }) {
   const [dashboard, setDashboard] = useState<AcademicDashboard | null>(null);
   const [semesters, setSemesters] = useState<Semester[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [facts, setFacts] = useState<Record<string, ProviderSubjectFact>>({});
   const [erro, setErro] = useState("");
   const [aberta, setAberta] = useState<string | null>(null);
   const [criandoSemestre, setCriandoSemestre] = useState(false);
@@ -68,14 +70,18 @@ export function AcademicPage({ refresh }: { refresh: () => Promise<void> }) {
 
   const carregar = useCallback(async () => {
     try {
-      const [painel, periodos, materias] = await Promise.all([
+      const [painel, periodos, materias, fatos] = await Promise.all([
         api.academicDashboard(),
         api.academicSemesters(true),
         api.academicSubjects(false),
+        // A media oficial da instituicao. Falha em silencio: quem nunca
+        // conectou um AVA nao pode perder o painel por causa disso.
+        api.univirtusSubjectFacts().catch(() => [] as ProviderSubjectFact[]),
       ]);
       setDashboard(painel);
       setSemesters(periodos);
       setSubjects(materias);
+      setFacts(Object.fromEntries(fatos.map((f) => [f.subjectId, f])));
       setErro("");
     } catch (falha) {
       setErro(appError(falha).message);
@@ -172,7 +178,7 @@ export function AcademicPage({ refresh }: { refresh: () => Promise<void> }) {
         <>
           <ProximosPainel dashboard={dashboard} abrir={setAberta} recarregar={recarregar} />
           <EstudoPainel dashboard={dashboard} subjects={subjects} recarregar={recarregar} />
-          <DisciplinasPainel dashboard={dashboard} abrir={setAberta} />
+          <DisciplinasPainel dashboard={dashboard} abrir={setAberta} facts={facts} />
           <SemestresPainel
             semesters={semesters}
             atual={semestre.id}
@@ -408,9 +414,11 @@ function StudyRunning({
 function DisciplinasPainel({
   dashboard,
   abrir,
+  facts,
 }: {
   dashboard: AcademicDashboard;
   abrir: (id: string) => void;
+  facts: Record<string, ProviderSubjectFact>;
 }) {
   return (
     <Panel
@@ -427,7 +435,7 @@ function DisciplinasPainel({
     >
       <div className="academic-grid">
         {dashboard.subjects.map((subject) => (
-          <SubjectCard key={subject.id} subject={subject} abrir={abrir} />
+          <SubjectCard key={subject.id} subject={subject} abrir={abrir} fact={facts[subject.id]} />
         ))}
       </div>
       {!dashboard.subjects.length ? (
@@ -443,9 +451,11 @@ function DisciplinasPainel({
 function SubjectCard({
   subject,
   abrir,
+  fact,
 }: {
   subject: SubjectOverview;
   abrir: (id: string) => void;
+  fact?: ProviderSubjectFact;
 }) {
   const media = mediaDe(subject.media);
   return (
@@ -475,6 +485,15 @@ function SubjectCard({
         ) : (
           <span className="row-meta">sem nota</span>
         )}
+        {/* A media da INSTITUICAO, ao lado da nossa e nunca no lugar dela.
+            As duas discordam de proposito — a faculdade conta exame e
+            recuperacao que o M/OS nao modela —, e esconder uma delas obrigaria
+            a pessoa a abrir o portal para conferir a que importa na secretaria. */}
+        {fact?.officialGrade !== undefined && fact?.officialGrade !== null ? (
+          <span className="row-meta" title={`Média oficial da instituição${fact.situation ? ` · ${fact.situation}` : ""}`}>
+            oficial {fact.officialGrade.toFixed(1).replace(".", ",")}
+          </span>
+        ) : null}
         {subject.studySecondsWeek ? (
           <span className="row-meta">{duracaoDe(subject.studySecondsWeek)} na semana</span>
         ) : null}

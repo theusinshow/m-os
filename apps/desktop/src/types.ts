@@ -1328,3 +1328,63 @@ export type AcademicToday = {
   studySuggestions: StudySuggestion[];
   studySecondsToday: number;
 };
+
+// ===========================================================================
+// A integracao com um AVA externo
+// ===========================================================================
+//
+// Os tipos aqui sao NEUTROS de provedor de proposito: nenhum campo se chama
+// `idSalaVirtual` nem `pesoMedia`. O dialeto do Univirtus morre no Rust, em
+// `mos_core::univirtus`, e o que chega a tela e o vocabulario do M/OS.
+
+export type ProviderConnection = "disconnected" | "connected" | "expired";
+
+export type SyncOutcome =
+  | "completed"
+  | "completed_with_warnings"
+  | "requires_authentication"
+  | "failed";
+
+export type SyncCounts = {
+  created: number;
+  updated: number;
+  unchanged: number;
+  /** Quantos o provedor deixou de listar. Marcados, e nunca apagados. */
+  unavailable: number;
+};
+
+export type SyncReport = {
+  provider: string;
+  startedAt: string;
+  finishedAt: string;
+  outcome: SyncOutcome;
+  semesters: SyncCounts;
+  subjects: SyncCounts;
+  assessments: SyncCounts;
+  assignments: SyncCounts;
+  materials: SyncCounts;
+  warnings: string[];
+};
+
+export type UnivirtusStatus = {
+  provider: string;
+  connection: ProviderConnection;
+  lastSyncAt: string | null;
+  lastOutcome: SyncOutcome | null;
+  courseName: string;
+  /** Quantas linhas o provedor rastreia, por tipo. */
+  tracked: Record<string, number>;
+  /** Ha sessao no cofre do sistema. Nunca diz QUAL. */
+  hasSession: boolean;
+};
+
+/** O que a INSTITUICAO diz sobre a disciplina.
+ *
+ *  `officialGrade` é a média da faculdade, e não a do M/OS. As duas discordam
+ *  de propósito — a UNINTER conta exame e recuperação que o M/OS não modela —
+ *  e esta nunca substitui aquela. */
+export type ProviderSubjectFact = {
+  subjectId: string;
+  situation: string;
+  officialGrade: number | null;
+};

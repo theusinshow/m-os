@@ -5,7 +5,7 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
   VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
-  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, AcademicDashboard, AcademicToday, Assignment, AssignmentStatus, Exam, ExamStatus, ReminderPriority, Semester, StaleView, StudySession, Subject, Task, TaskState, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, AcademicDashboard, AcademicToday, Assignment, AssignmentStatus, Exam, ExamStatus, ReminderPriority, Semester, StaleView, StudySession, Subject, Task, TaskState, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace, UnivirtusStatus, SyncReport, ProviderSubjectFact } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -261,6 +261,33 @@ export const api = {
   },
   academicLinkMaterial(subjectId: string, resourceId: string, linked: boolean) {
     return invoke<void>("academic_link_material", { subjectId, resourceId, linked });
+  },
+
+  // ---- Univirtus
+  //
+  // Nenhuma destas funcoes conhece um endpoint do portal. O que atravessa e o
+  // vocabulario do M/OS; o dialeto do AVA morre em `crate::univirtus`, atras da
+  // allowlist.
+
+  univirtusStatus() {
+    return invoke<UnivirtusStatus>("univirtus_status");
+  },
+  /** Abre a pagina oficial numa janela e espera o login. Nao pede senha. */
+  univirtusConnect() {
+    return invoke<UnivirtusStatus>("univirtus_connect");
+  },
+  univirtusSync() {
+    return invoke<SyncReport>("univirtus_sync");
+  },
+  univirtusDisconnect() {
+    return invoke<void>("univirtus_disconnect");
+  },
+  univirtusSubjectFacts() {
+    return invoke<ProviderSubjectFact[]>("univirtus_subject_facts");
+  },
+  /** O ultimo endereco visto de um material. Pode estar vencido: e cache. */
+  univirtusMaterialUrl(externalId: string) {
+    return invoke<string | null>("univirtus_material_url", { externalId });
   },
 
   // ---- Estudo

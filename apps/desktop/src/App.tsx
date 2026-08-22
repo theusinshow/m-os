@@ -49,7 +49,7 @@ import { AnimatePresence, LazyMotion, m } from "framer-motion";
 import { AnimatedList, AnimatedListItem } from "./motion/AnimatedList";
 import { SpotlightCard } from "./motion/SpotlightCard";
 import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
-import type { AcademicDashboard, AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, DailyContext, DailyToday, FunctionDefinition, HiddenWidget, Ingestion, ObjectiveLink, Week, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, Parada, SearchItem, StaleView, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent } from "./types";
+import type { AcademicDashboard, AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, DailyContext, DailyToday, FunctionDefinition, HiddenWidget, Ingestion, ObjectiveLink, Week, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, Parada, SearchItem, StaleView, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent, UnivirtusStatus, SyncReport } from "./types";
 import { SCREEN_LABEL } from "./types";
 import "./App.css";
 
@@ -2576,6 +2576,132 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
   </LazyMotion>;
 }
 
+/** A integração com o Univirtus.
+ *
+ *  O botão Conectar NÃO abre um formulário de RU e senha: ele abre a página
+ *  oficial da UNINTER numa janela do app, e o M/OS recolhe de lá só o que a API
+ *  exige. É o que a investigação mediu — não existe endpoint que troque
+ *  credencial por token (`docs/UNIVIRTUS-INTEGRATION.md` §2) —, e o efeito é que
+ *  a senha de ninguém passa por aqui.
+ *
+ *  O estado nunca é escondido: quem sincroniza um portal externo precisa saber
+ *  quando foi a última vez e se ainda está conectado, senão passa a confiar em
+ *  dados velhos sem perceber. */
+function UnivirtusSettings() {
+  const [status, setStatus] = useState<UnivirtusStatus | null>(null);
+  const [busy, setBusy] = useState<"idle" | "connecting" | "syncing">("idle");
+  const [message, setMessage] = useState("");
+  const [messageState, setMessageState] = useState<"loading" | "saved" | "error">("saved");
+  const [report, setReport] = useState<SyncReport | null>(null);
+
+  const load = useCallback(async () => {
+    try { setStatus(await api.univirtusStatus()); } catch { /* a tela sobrevive sem o estado */ }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  function notify(state: "loading" | "saved" | "error", text: string) {
+    setMessageState(state);
+    setMessage(text);
+  }
+
+  async function connect() {
+    setBusy("connecting");
+    notify("loading", "Entre no Univirtus na janela que abriu. O M/OS espera.");
+    try {
+      setStatus(await api.univirtusConnect());
+      notify("saved", "Conectado. Sincronize para trazer o semestre.");
+    } catch (error) { notify("error", appError(error).message); }
+    finally { setBusy("idle"); }
+  }
+
+  async function sync() {
+    setBusy("syncing");
+    notify("loading", "Sincronizando com o Univirtus...");
+    try {
+      const next = await api.univirtusSync();
+      setReport(next);
+      const resumo = resumoDoSync(next);
+      notify(next.outcome === "completed" ? "saved" : "error", resumo);
+      await load();
+    } catch (error) { notify("error", appError(error).message); await load(); }
+    finally { setBusy("idle"); }
+  }
+
+  async function disconnect() {
+    try {
+      await api.univirtusDisconnect();
+      setReport(null);
+      notify("saved", "Desconectado. O que já foi sincronizado continua no M/Academic.");
+      await load();
+    } catch (error) { notify("error", appError(error).message); }
+  }
+
+  const conectado = status?.connection === "connected";
+  const expirado = status?.connection === "expired";
+  const estadoLabel = conectado ? "Conectado" : expirado ? "Sessão expirada" : "Desconectado";
+
+  return <Panel label="UNIVIRTUS">
+    <p className="support-copy">
+      A faculdade como fonte de dados, e não como um segundo aplicativo. O M/OS lê disciplinas,
+      prazos, notas e materiais — e nunca escreve nada no portal: não entrega trabalho, não inicia
+      prova e não marca conteúdo como acessado.
+    </p>
+    <p className="support-copy">
+      Conectar abre a página oficial da UNINTER numa janela. Você entra lá; o M/OS não pede nem
+      guarda sua senha.
+    </p>
+
+    <dl className="fact-grid">
+      <div><dt>ESTADO</dt><dd>{estadoLabel}</dd></div>
+      <div><dt>CURSO</dt><dd>{status?.courseName || <span className="fact-empty">—</span>}</dd></div>
+      <div><dt>DISCIPLINAS</dt><dd>{status?.tracked?.subject ?? <span className="fact-empty">—</span>}</dd></div>
+      <div><dt>ÚLTIMA SINCRONIZAÇÃO</dt><dd>{status?.lastSyncAt ? relativeTime(status.lastSyncAt) : <span className="fact-empty">Nunca</span>}</dd></div>
+    </dl>
+
+    {expirado ? <p className="support-copy">
+      A sessão do Univirtus caiu — elas não se renovam sozinhas. Os dados já sincronizados
+      continuam no M/Academic; reconecte quando quiser trazer o que mudou.
+    </p> : null}
+
+    {report?.warnings?.length ? <ul className="academic-lista">
+      {report.warnings.map((aviso: string) => <li key={aviso} className="support-copy">{aviso}</li>)}
+    </ul> : null}
+
+    <div className="button-line">
+      {conectado
+        ? <Button variant="primary" onClick={() => void sync()} disabled={busy !== "idle"}>
+            {busy === "syncing" ? "Sincronizando" : "Sincronizar agora"}
+          </Button>
+        : <Button variant="primary" onClick={() => void connect()} disabled={busy !== "idle"}>
+            {busy === "connecting" ? "Aguardando login" : expirado ? "Reconectar" : "Conectar"}
+          </Button>}
+      {status?.hasSession || conectado || expirado
+        ? <Button variant="ghost" onClick={() => void disconnect()} disabled={busy !== "idle"}>Desconectar</Button>
+        : null}
+    </div>
+    {message ? <StateMessage state={messageState} label={message} /> : null}
+  </Panel>;
+}
+
+/** A frase de um sync. Vazia não existe aqui: mesmo "tudo em dia" precisa
+ *  responder ao clique, senão o botão parece morto. */
+function resumoDoSync(report: SyncReport): string {
+  const partes: string[] = [];
+  const add = (n: number, singular: string, plural: string) => {
+    if (n > 0) partes.push(`+${n} ${n === 1 ? singular : plural}`);
+  };
+  add(report.subjects.created, "disciplina", "disciplinas");
+  add(report.assessments.created, "avaliação", "avaliações");
+  add(report.assignments.created, "trabalho", "trabalhos");
+  add(report.materials.created, "material", "materiais");
+  const atualizados = report.assessments.updated + report.assignments.updated;
+  if (atualizados > 0) partes.push(`~${atualizados} ${atualizados === 1 ? "atualizado" : "atualizados"}`);
+  const sumiram = report.assessments.unavailable + report.assignments.unavailable;
+  if (sumiram > 0) partes.push(`${sumiram} fora do portal (mantido)`);
+  if (!partes.length) return "Tudo em dia. Nada mudou no Univirtus.";
+  return partes.join(" · ");
+}
+
 function HermesSettings() {
   const [status, setStatus] = useState<HermesStatus | null>(null);
   const [username, setUsername] = useState("");
@@ -2923,7 +3049,7 @@ function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrash
   const archivedResources = resources.filter((resource) => resource.lifecycleState === "archived");
   const archivedWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "archived");
   const functionsByCategory = functionCategories.map((category) => ({ category, items: functions.filter((item) => item.category === category) })).filter((group) => group.items.length);
-  return <div className="page settings-page"><PaneHeader segments={["M", "SETTINGS"]} meta="SISTEMA" /><section className="settings-section" aria-labelledby="settings-connection"><h2 id="settings-connection" className="settings-section-title">Conexão e aparência</h2><HermesSettings /><FinanceActionSettings /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" aria-label="Tema claro" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel></section><section className="settings-section" aria-labelledby="settings-updates"><h2 id="settings-updates" className="settings-section-title">Atualizações e entrada</h2><StartupSettings /><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateStatusLine() ? <StateMessage state={updateState === "error" ? "error" : updateState === "checking" || updateState === "installing" ? "loading" : "saved"} label={updateStatusLine() ?? ""} /> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form>{/* A voz mora no mesmo Panel porque ela e a mesma captura por outra
+  return <div className="page settings-page"><PaneHeader segments={["M", "SETTINGS"]} meta="SISTEMA" /><section className="settings-section" aria-labelledby="settings-connection"><h2 id="settings-connection" className="settings-section-title">Conexão e aparência</h2><HermesSettings /><UnivirtusSettings /><FinanceActionSettings /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" aria-label="Tema claro" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel></section><section className="settings-section" aria-labelledby="settings-updates"><h2 id="settings-updates" className="settings-section-title">Atualizações e entrada</h2><StartupSettings /><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong><p>{updateInfo ? `Versão instalada: ${updateInfo.currentVersion} · disponível: ${updateInfo.version}` : "Procura uma versão assinada publicada no GitHub Releases."}</p>{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateStatusLine() ? <StateMessage state={updateState === "error" ? "error" : updateState === "checking" || updateState === "installing" ? "loading" : "saved"} label={updateStatusLine() ?? ""} /> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{updateState === "available" || updateState === "installing" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : "Atualizar agora"}</Button> : null}</div></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form>{/* A voz mora no mesmo Panel porque ela e a mesma captura por outra
      porta — separa-la num painel proprio a transformaria numa feature
      ao lado, que e exatamente o que o §Voz do design system recusa. */}<form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setVoiceShortcut(voiceShortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="voice-shortcut">Atalho da voz</label><p>{status?.voiceShortcut}</p><p className="support-copy">Segure para falar, solte para guardar. Vale de qualquer lugar do Windows, e o microfone só abre enquanto a tecla está pressionada.</p></div><div className="inline-form"><input id="voice-shortcut" value={voiceShortcut} onChange={(event) => setVoiceShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="ATALHOS"><p className="support-copy">O M/OS é operável quase inteiro pelo teclado. Nada aqui precisa ser decorado — esta lista existe para quando você quiser.</p><dl className="shortcut-list">{SHORTCUTS.map((entry) => <div key={entry.keys}><dt>{entry.keys}</dt><dd>{entry.does}</dd></div>)}</dl></Panel></section><section className="settings-section" aria-labelledby="settings-meetings"><h2 id="settings-meetings" className="micro-label">REUNIÕES</h2><MeetingSettings /></section><section className="settings-section" aria-labelledby="settings-data"><h2 id="settings-data" className="settings-section-title">Dados e ciclo de vida</h2><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Project", project.name, () => api.deleteProject(project.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Workspace", workspace.name, () => api.deleteWorkspace(workspace.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("App", app.name, () => api.deleteRegisteredApp(app.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Task", task.title, () => api.deleteTask(task.id))}>Excluir</Button></div>)}</details></Panel><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel>{message ? <StateMessage state={messageState} label={message} /> : null}<dialog ref={deleteDialog} className="restore-dialog" onCancel={() => { deleteDialog.current?.close(); setPendingDelete(null); }}><span className="micro-label">EXCLUSÃO DEFINITIVA</span><h2>Excluir {pendingDelete?.noun.toLowerCase()} “{pendingDelete?.label}”?</h2><p>Isto apaga o registro do banco. Não há Desfazer: o único caminho de volta é restaurar um backup anterior a esta ação.</p><div className="form-actions"><Button variant="ghost" onClick={() => { deleteDialog.current?.close(); setPendingDelete(null); }}>Cancelar</Button><Button variant="danger" onClick={() => void confirmDelete()}>Excluir</Button></div></dialog><dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></section><section className="settings-section" aria-labelledby="settings-advanced"><h2 id="settings-advanced" className="settings-section-title">Avançado</h2><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="CRONOCAD"><div className="setting-row"><div><strong>Importar horas do CronoCAD</strong><p>Traz projetos, sessões e pendências para o M/OS. As horas passam a pertencer aos Projects daqui, e o valor/hora de cada sessão é preservado como estava na época.</p><p className="support-copy">Vem tudo: sessões, pendências, programas monitorados, o histórico observado pelo sistema e a sua configuração de arredondamento — sem ela o valor cobrável aqui daria diferente do que o CronoCAD mostra. Roda uma vez, e o banco de origem é aberto somente para leitura. Compare o total com a tela dele antes de desinstalar.</p>{importReport ? <p className="support-copy" aria-live="polite">{importReport.projects} {importReport.projects === 1 ? "project" : "projects"} · {importReport.entries} {importReport.entries === 1 ? "sessão" : "sessões"} · {importReport.tasks} {importReport.tasks === 1 ? "task" : "tasks"} · <strong>{(importReport.trackedSeconds / 3600).toFixed(1)} h</strong>{importReport.activityEvents ? ` · ${importReport.activityEvents} eventos observados` : ""}{importReport.monitoredApps ? ` · ${importReport.monitoredApps} programas` : ""}{importReport.clients ? ` · ${importReport.clients} clientes` : ""}</p> : null}{importNote ? <p className="support-copy" aria-live="polite">{importNote}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void importCronocad()} disabled={importing || Boolean(importedAt)}>{importing ? "Importando" : importedAt ? "Importado" : "Importar"}</Button></div></div></Panel></section></div>;
 }

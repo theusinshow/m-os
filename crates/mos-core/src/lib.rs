@@ -1,4 +1,8 @@
 mod academic;
+#[path = "academic_sync.rs"]
+mod academic_sync_impl;
+#[path = "academic_univirtus.rs"]
+mod academic_univirtus_impl;
 mod action;
 mod agent;
 mod attention;
@@ -33,6 +37,18 @@ pub use academic::{
     NewAssignment, NewExam, NewSemester, NewSubject, Pontuacao, SubjectOverview, MAX_UPCOMING,
     SUBJECT_ACCENTS,
 };
+/// A sincronizacao academica com um AVA externo.
+///
+/// Modulo, e nao re-export achatado: `reconcile` e `Reconciliation` ja existem
+/// na raiz com o sentido do Attention System, e achatar aqui trocaria os dois em
+/// silencio. Quem quer o motor academico escreve `academic_sync::reconcile`.
+pub mod academic_sync {
+    pub use crate::academic_sync_impl::*;
+}
+/// O normalizador do Univirtus: JSON do AVA -> tipos de `academic_sync`.
+pub mod univirtus {
+    pub use crate::academic_univirtus_impl::*;
+}
 pub use action::{
     action_contract, parse_action, parse_action_at, preview_of, ActionArgs, ActionAudit,
     ActionEffect, ActionKind, ActionLine, ActionPreview, TargetRef, TouchedEntity, UndoStep,
