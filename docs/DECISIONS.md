@@ -2790,3 +2790,67 @@ ganha enquanto o registro couber num texto.
 Ou quando o `IDEAS.md` #56 for construído. Ele responde "onde eu estou" e esta
 responde "como foi" — e o dia em que ele existir não tem por que reaproveitar
 esta tela.
+
+---
+
+## ADR-056 — Obsolescência é por coluna, e o Project vive pelas Tasks dele
+
+**Estado:** Accepted · 2026-08-22
+
+### Contexto
+
+O pedido chegou como `IDEAS.md` #56 — o "retrato de estado". Ao explorar, três
+dos cinco itens dele já existiam na Home: Projects ativos é o widget `PROJECTS`,
+Tasks concluídas são o `CONCLUÍDO` e o `TASKS NA SEMANA`, e o Inbox é o `INBOX`,
+que já envelhece em três dias. Dos dois que sobravam, "próximas prioridades" não
+tem lastro — `Task` não tem campo de prioridade, só `Reminder` tem — e, depois da
+Daily Session, "o que vem" já é respondido pelo Start My Day.
+
+O que era novo de verdade era "Tasks paradas": o #57 e o #58.
+
+### Decisão
+
+**O limiar é por coluna do Kanban, e não um número único.** `doing` e `review`
+em 7 dias, `planned` em 21, `inbox` em 14; `backlog` e `done` não têm limiar
+nenhum. Um limiar único transformaria o backlog inteiro num alerta permanente —
+num sistema com meses de uso o backlog domina a lista e afoga o sinal. Com
+limiar por coluna, o resultado típico é três paradas, e não quarenta e sete.
+
+**A atividade de um Project é a atividade das Tasks dele** —
+`max(task.updated_at)`, caindo no campo do próprio Project só quando ele não tem
+Task nenhuma. `projects.updated_at` só muda quando o Project é *editado*: apenas
+`update_project` e `set_project_lifecycle` escrevem naquela coluna. Criar Task,
+mover no Kanban, concluir — nada disso a toca. Usá-la como sinal marcaria como
+"parado" o Project em que se trabalhou ontem, e como "vivo" o que foi renomeado
+e abandonado. **Esse defeito já existia**: o ponto do widget `PROJECTS` acendia
+ao renomear, e a mesma função que a lista de paradas precisa é a que o corrige.
+Uma função, dois consumidores.
+
+**Project só entra quando tem trabalho aberto.** Project sem Task aberta e sem
+atividade não está travado — ele acabou e ninguém arquivou, que é outra pergunta
+e merece outra resposta.
+
+**A ordem é o excesso proporcional, e não os dias crus.** Uma Task 12 dias
+parada num limiar de 7 está a 171%; uma 24 dias num limiar de 21 está a 114%.
+Ordenar por dias colocaria a segunda primeiro, e ela é a menos urgente das duas.
+
+**Zero persistência.** Nenhuma migration, nenhuma tabela, nenhuma operação de
+sync: obsolescência é uma leitura de `updated_at`, que já existe. Os limiares são
+fixos pelo mesmo motivo que os 3 dias do `INBOX` são — um número que se ajusta
+uma vez não paga uma migration, uma tabela e uma tela.
+
+### Consequências
+
+- `mos-core::stale` é puro e testado; o comando `stale_list` só busca e delega.
+- Três superfícies e nenhuma nova: o widget `PARADAS` na faixa Retomar, a marca
+  no card do Kanban, e o ponto corrigido do `PROJECTS`.
+- **A faixa Retomar foi rebalanceada.** Ela precisa fechar a linha de doze
+  colunas, e o teste `tem faixas que somam multiplos de doze` guarda isso: com
+  `PARADAS` entrando com três colunas, `RECENTES` desceu de seis para três. A
+  faixa passou a ser quatro perguntas curtas de largura igual — o que entrou, o
+  que parou, o que aconteceu, onde estou.
+- Não há ação em massa. Uma lista que se resolve num clique convida a limpar sem
+  decidir; o gesto certo já existe no Kanban, arrastando.
+- Não há notificação. Mesma decisão do §8 do `DAILY-SESSION.md`.
+- Prioridade em `Task` continua não existindo. É a ausência que o #56 revelou, e
+  é outra feature — maior que esta.
