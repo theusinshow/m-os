@@ -22,7 +22,7 @@ import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel, Stat
 import { CalendarPage } from "./CalendarPage";
 import { DailyFocusWidget, DailySessionView, useDaily } from "./DailySession";
 import { dataPorExtenso } from "./daily";
-import { diasPorTask, paradasVisiveis, rotuloDeDias } from "./stale";
+import { atividadePorProject, diasPorTask, mexidoHoje, paradasVisiveis, projectsParados, rotuloDeDias } from "./stale";
 import { EndMyDayFlow, StartMyDayFlow } from "./DailyFlows";
 import { MeetingSettings } from "./MeetingSettings";
 import { MeetingsPage } from "./MeetingsPage";
@@ -739,7 +739,13 @@ function HomePage({ recent, inbox, projects, tasks, stale, workspaces, apps, res
   const scopedResourceIds = new Set(currentWorkspace ? resourceWorkspaces.filter((link) => link.workspaceId === currentWorkspace.id).map((link) => link.resourceId) : []);
   const activeResources = currentWorkspace ? allActiveResources.filter((resource) => scopedResourceIds.has(resource.id)) : allActiveResources;
   const projectName = (id: string | null) => projects.find((project) => project.id === id)?.name;
-  const isActiveToday = (project: Project) => new Date(project.updatedAt).toDateString() === new Date().toDateString();
+  /* A atividade vem das Tasks do Project, e nao do `updatedAt` dele.
+     Aquele campo so muda quando o Project e EDITADO: criar Task, mover no
+     Kanban e concluir nao o tocam. O ponto acendia ao RENOMEAR. */
+  const atividade = atividadePorProject(stale.activity);
+  const parados = projectsParados(stale.paradas);
+  const atividadeDe = (project: Project) => atividade.get(project.id) ?? project.updatedAt;
+  const isActiveToday = (project: Project) => mexidoHoje(atividadeDe(project));
   return <div className="page home-page">
     <DotField />
     <ContextPath segments={["M", "HOME"]} />
@@ -794,7 +800,7 @@ function HomePage({ recent, inbox, projects, tasks, stale, workspaces, apps, res
         { id: "inbox_pulse", ...(inbox.length ? { footLeft: "ENVELHECENDO", footRight: `${staleInbox} DE ${inbox.length}${inboxCapped ? "+" : ""}` } : {}), node: <Panel label="INBOX"><button type="button" className="pulse" onClick={() => openInbox()}><Ring size={88} segments={[{ value: inbox.length ? staleInbox / inbox.length : 0 }]}><RingLabel value={inboxCapped ? `${INBOX_PAGE}+` : String(inbox.length)} /></Ring><small>{inbox.length === 1 ? "capture por processar" : "captures por processar"}</small>{staleInbox ? <small className="pulse-stale">{staleInbox === 1 && !inboxCapped ? "1 com mais de 3 dias" : `${staleInbox}${inboxCapped ? "+" : ""} com mais de 3 dias`}</small> : null}</button></Panel> },
         { id: "stale", ...(paradasDaHome.restantes ? { footLeft: "MOSTRANDO 5", footRight: `E MAIS ${paradasDaHome.restantes}` } : {}), node: <Panel label="PARADAS" value={String(stale.paradas.length)} unit={stale.paradas.length === 1 ? "parada" : "paradas"}>{paradasDaHome.visiveis.map((parada) => <DataRow key={`${parada.kind}-${parada.id}`} primary={parada.title} secondary={parada.context || undefined} meta={rotuloDeDias(parada.days)} onClick={() => abrirParada(parada)} />)}{/* Vazio nao e falha, e o texto diz isso: "nada parado" e um bom resultado, e um estado vazio de erro faria o widget parecer quebrado no dia em que tudo esta em dia. */}{!stale.paradas.length ? <p className="empty-state">Nada parado.</p> : null}</Panel> },
         { id: "recent", node: <Panel label="RECENTES" value={String(recent.length)} unit={recent.length === 1 ? "captura" : "capturas"}>{recent.length ? recent.map((capture) => <DataRow key={capture.id} primary={capture.content} meta={relativeTime(capture.capturedAt)} saved={savedIds.has(capture.id)} onClick={() => openCapture(capture)} />) : <EmptyState>Nada capturado ainda. O que você escrever no campo acima aparece aqui.</EmptyState>}</Panel> },
-        { id: "projects", node: <Panel label="PROJECTS" value={String(scopedProjects.length)} unit="ativos" action={scopedProjects.length > 5 ? <Button variant="ghost" onClick={() => openProjectsPage()}>Ver todos</Button> : undefined}>{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} aria-hidden="true" />} meta={relativeTime(project.updatedAt)} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <ScopedEmptyState total={projects.filter((project) => project.lifecycleState === "active").length} workspace={currentWorkspace} noun="project" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel> },
+        { id: "projects", node: <Panel label="PROJECTS" value={String(scopedProjects.length)} unit="ativos" action={scopedProjects.length > 5 ? <Button variant="ghost" onClick={() => openProjectsPage()}>Ver todos</Button> : undefined}>{scopedProjects.slice(0, 5).map((project) => <DataRow key={project.id} primary={project.name} marker={<span className="project-dot" data-active={isActiveToday(project) || undefined} data-stale={parados.has(project.id) || undefined} aria-hidden="true" />} meta={relativeTime(atividadeDe(project))} onClick={() => openProject(project)} />)}{!scopedProjects.length ? <ScopedEmptyState total={projects.filter((project) => project.lifecycleState === "active").length} workspace={currentWorkspace} noun="project" onLink={() => { if (currentWorkspace) openWorkspace(currentWorkspace); }} /> : null}</Panel> },
         { id: "month_density", footLeft: "MÊS CORRENTE · 4 DEGRAUS", footRight: `PICO ${month.peak}`, node: <Panel label="MÊS" value={String(month.records)} unit="registros"><MonthDensity tasks={tasks} captures={recent} /></Panel> },
         { id: "week_rings", footLeft: "SEG–DOM · CONTRA O PICO", footRight: `PICO ${taskWeek.peak}`, node: <Panel label="TASKS NA SEMANA" value={String(taskWeek.done)} unit="concluídas"><WeekRings tasks={tasks} onOpen={openTasksPage} /></Panel> },
         { id: "week_by_project", footLeft: `${weekTime.projectCount} PROJECTS · 7 DIAS`, footRight: weekTime.topProject ? `MAIOR: ${weekTime.topProject}` : undefined, node: <Panel label="HORAS POR PROJECT" value={hoursLabel(weekTime.seconds)} unit="na semana"><WeekByProject time={trackedTime} projects={projects} onOpen={openTempoPage} /></Panel> },
