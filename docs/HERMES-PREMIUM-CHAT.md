@@ -25,6 +25,10 @@ ADR-025 a ADR-030 em `DECISIONS.md`, e o desenho seguido é
 
 **O único item de P0 deliberadamente adiado é o Capability Service** — ver §11.
 
+**Correções posteriores.** Em 2026-08-22 o fim precoce de turno deixou de ser
+atribuído ao usuário: os quatro caminhos que gravam `interrupted` agora dizem
+qual foi o deles, e a queda de conexão fala por si. Ver §4.5.
+
 ---
 
 **As fases seguintes não entram em código antes de aprovação explícita.**
@@ -40,6 +44,12 @@ anterior, o texto diz isso.
 ---
 
 ## 1. Current State
+
+> **Esta seção é o retrato da auditoria ORIGINAL, anterior ao P0, e fica como
+> registro do que foi encontrado.** Boa parte do que ela descreve como frágil já
+> foi substituída — a conversa deixou de ser um triplo de strings, o Markdown é
+> renderizado, e as conversas são persistidas pelo M/OS. Para o estado de hoje,
+> leia o quadro no topo e a §4.
 
 ### 1.1 O que existe, e é bom
 
@@ -349,11 +359,32 @@ Legenda: **✓** existe e funciona · **~** existe parcial ou decorativo · **�
 | Authentication failed | ✓ | `kind: unauthorized` |
 | Rate limited | ✓ | Sem retry, correto |
 | Server unavailable | ✓ | `kind: gateway` |
-| Streaming interrompido | ✗ | **P0.** Socket cai no meio: o texto fica na tela, mas nada diz que acabou por queda, e não há Retry |
+| Streaming interrompido | ✓ | Resolvido em 2026-08-22 — ver abaixo |
 | M/OS funciona sem Hermes | ✓ | Requisito atendido |
 
-Esta é a área mais madura da implementação atual. A única lacuna real é a interrupção
-durante o streaming.
+Esta é a área mais madura da implementação atual.
+
+**A lacuna que existia aqui era mais estreita do que esta tabela dizia**, e a
+auditoria original errou em dois pontos. O Retry existia desde o P0: um turno
+`interrupted` sempre ofereceu "Tentar de novo" (`MessageTurn.tsx`), e o texto
+parcial já era gravado por `settle_turn`. Existe também um supervisor de
+reconexão no `App.tsx` — backoff de 5 s a 5 min, trava em erro não-retriável,
+contagem reiniciada só depois de um minuto de conexão de pé.
+
+O defeito real era outro, e pior: os **quatro** finais precoces de turno — você
+mandar parar, o socket cair, uma pergunta do agente ser fechada sem resposta, a
+conversa mudar embaixo do turno — gravavam o mesmo `MessageStatus::Interrupted`,
+e a tela dizia *"Interrompido por você"* para todos. Uma queda de túnel aparecia
+como decisão sua, e o reload repetia a acusação.
+
+Desde 2026-08-22 o `settle_turn` recebe um `mos_core::TurnEnding` e grava o
+motivo como parte de status junto da mensagem — *"A conexão caiu."*,
+*"Interrompido por você."*. Persistido, portanto verdadeiro depois do reload.
+
+O motivo **não** virou um `MessageStatus` novo: o status tem
+`CHECK (status IN (...))` na migration 0010, o SQLite não altera CHECK, e
+acrescentar um valor exigiria recriar `messages` com as filhas e as FKs
+desligadas — o procedimento que já deixou órfãs neste banco (ADR-057).
 
 ---
 
