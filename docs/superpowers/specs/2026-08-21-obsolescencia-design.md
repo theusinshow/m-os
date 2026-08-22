@@ -1,7 +1,8 @@
 # Obsolescência — o que está parado há tempo demais — Design
 
-**Status:** ⚠️ **RASCUNHO — apresentado, aguardando aprovação do proprietário.**
-A sessão terminou logo depois de o desenho ser apresentado. Nada foi implementado.
+**Status:** ✅ **APROVADO para plano de implementação.**
+O proprietário aceitou o conjunto em 2026-08-22; as quatro decisões da §2 estão
+fechadas.
 
 **Data:** 2026-08-21
 
