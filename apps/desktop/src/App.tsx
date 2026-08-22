@@ -22,7 +22,7 @@ import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel, Stat
 import { CalendarPage } from "./CalendarPage";
 import { DailyFocusWidget, DailySessionView, useDaily } from "./DailySession";
 import { dataPorExtenso } from "./daily";
-import { paradasVisiveis, rotuloDeDias } from "./stale";
+import { diasPorTask, paradasVisiveis, rotuloDeDias } from "./stale";
 import { EndMyDayFlow, StartMyDayFlow } from "./DailyFlows";
 import { MeetingSettings } from "./MeetingSettings";
 import { MeetingsPage } from "./MeetingsPage";
@@ -480,8 +480,8 @@ function RowProgress({ done, total }: { done: number; total: number }) {
  *  de lancamento sao dado de sistema e vao em mono; descricao de Project e
  *  texto do usuario e vai em grotesk. O AGENTS.md e explicito: mono nunca
  *  vaza para conteudo. */
-function DataRow({ primary, meta, secondary, secondaryKind = "text", marker, progress, selected = false, completed = false, saved = false, dragging = false, onClick, onKeyDown, onPointerDown, draggable, onDragStart, onDragEnd }: { primary: string; meta?: string; secondary?: string; secondaryKind?: "text" | "system"; marker?: ReactNode; progress?: { done: number; total: number }; selected?: boolean; completed?: boolean; saved?: boolean; dragging?: boolean; onClick?: () => void; onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void; onPointerDown?: React.PointerEventHandler<HTMLButtonElement>; draggable?: boolean; onDragStart?: React.DragEventHandler<HTMLButtonElement>; onDragEnd?: React.DragEventHandler<HTMLButtonElement> }) {
-  return <button className="data-row" type="button" aria-current={selected ? "true" : undefined} data-selected={selected || undefined} data-completed={completed || undefined} data-saved={saved || undefined} data-dragging={dragging || undefined} onClick={onClick} onKeyDown={onKeyDown} onPointerDown={onPointerDown} draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd}>{marker}<span className="row-copy"><strong>{primary}</strong>{secondary ? <small data-system={secondaryKind === "system" || undefined}>{secondary}</small> : null}</span>{progress ? <RowProgress done={progress.done} total={progress.total} /> : null}{meta ? <span className="row-meta">{meta}</span> : null}</button>;
+function DataRow({ primary, meta, secondary, secondaryKind = "text", marker, progress, selected = false, completed = false, saved = false, dragging = false, stale = false, onClick, onKeyDown, onPointerDown, draggable, onDragStart, onDragEnd }: { primary: string; meta?: string; secondary?: string; secondaryKind?: "text" | "system"; marker?: ReactNode; progress?: { done: number; total: number }; selected?: boolean; completed?: boolean; saved?: boolean; dragging?: boolean; stale?: boolean; onClick?: () => void; onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void; onPointerDown?: React.PointerEventHandler<HTMLButtonElement>; draggable?: boolean; onDragStart?: React.DragEventHandler<HTMLButtonElement>; onDragEnd?: React.DragEventHandler<HTMLButtonElement> }) {
+  return <button className="data-row" type="button" aria-current={selected ? "true" : undefined} data-selected={selected || undefined} data-completed={completed || undefined} data-saved={saved || undefined} data-dragging={dragging || undefined} data-stale={stale || undefined} onClick={onClick} onKeyDown={onKeyDown} onPointerDown={onPointerDown} draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd}>{marker}<span className="row-copy"><strong>{primary}</strong>{secondary ? <small data-system={secondaryKind === "system" || undefined}>{secondary}</small> : null}</span>{progress ? <RowProgress done={progress.done} total={progress.total} /> : null}{meta ? <span className="row-meta">{meta}</span> : null}</button>;
 }
 
 function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
@@ -2214,7 +2214,7 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, ingestions, cu
   </div>;
 }
 
-function BoardPage({ tasks, projects, refresh, openTask, intent }: { tasks: Task[]; projects: Project[]; refresh: () => Promise<void>; openTask: (task: Task) => void; intent?: FunctionIntent }) {
+function BoardPage({ tasks, projects, stale, refresh, openTask, intent }: { tasks: Task[]; projects: Project[]; stale: StaleView; refresh: () => Promise<void>; openTask: (task: Task) => void; intent?: FunctionIntent }) {
   const [creating, setCreating] = useState(false);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [dragOverState, setDragOverState] = useState<TaskState | null>(null);
@@ -2222,6 +2222,9 @@ function BoardPage({ tasks, projects, refresh, openTask, intent }: { tasks: Task
   const suppressClickTaskId = useRef<string | null>(null);
   const board = useRef<HTMLDivElement>(null);
   const activeTasks = tasks.filter((task) => task.lifecycleState === "active");
+  /* Id da Task para dias parados. O quadro e onde se AGE: a marca fica ao lado
+     do card que se arrasta, e nao numa lista a parte. */
+  const diasParados = diasPorTask(stale.paradas);
   useEffect(() => {
     if (intent?.target === "tasks_create") setCreating(true);
     if (intent?.target === "tasks_move") window.requestAnimationFrame(() => board.current?.focus());
@@ -2314,7 +2317,7 @@ function BoardPage({ tasks, projects, refresh, openTask, intent }: { tasks: Task
       const visible = column.slice(0, 20);
       return <section key={state} className="kanban-column" data-kanban-state={state} data-drop-target={dragOverState === state || undefined} onDragEnter={(event) => { event.preventDefault(); setDragOverState(state); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverState(state); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverState(null); }} onDrop={(event) => { event.preventDefault(); const task = draggedTask(event); finishDrag(); if (task) void move(task, state); }}>
         <header><h2>{stateLabels[state]}</h2><span>{column.length}</span></header>
-        <AnimatedList>{visible.map((task) => <AnimatedListItem key={task.id} itemKey={task.id}><DataRow primary={task.title} secondary={projects.find((project) => project.id === task.projectId)?.name} completed={task.state === "done"} dragging={draggingTaskId === task.id} onClick={() => { if (suppressClickTaskId.current === task.id) { suppressClickTaskId.current = null; return; } openTask(task); }} onKeyDown={(event) => keyboardMove(event, task)} onPointerDown={(event) => { if (event.button !== 0) return; pointerDrag.current = { taskId: task.id, x: event.clientX, y: event.clientY, active: false }; }} draggable onDragStart={(event) => { pointerDrag.current = null; setDraggingTaskId(task.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={finishDrag} /></AnimatedListItem>)}{!column.length ? <p className="kanban-empty">Vazio</p> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</AnimatedList>
+        <AnimatedList>{visible.map((task) => <AnimatedListItem key={task.id} itemKey={task.id}><DataRow primary={task.title} secondary={projects.find((project) => project.id === task.projectId)?.name} meta={rotuloDeDias(diasParados.get(task.id) ?? 0)} stale={diasParados.has(task.id)} completed={task.state === "done"} dragging={draggingTaskId === task.id} onClick={() => { if (suppressClickTaskId.current === task.id) { suppressClickTaskId.current = null; return; } openTask(task); }} onKeyDown={(event) => keyboardMove(event, task)} onPointerDown={(event) => { if (event.button !== 0) return; pointerDrag.current = { taskId: task.id, x: event.clientX, y: event.clientY, active: false }; }} draggable onDragStart={(event) => { pointerDrag.current = null; setDraggingTaskId(task.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={finishDrag} /></AnimatedListItem>)}{!column.length ? <p className="kanban-empty">Vazio</p> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</AnimatedList>
       </section>;
     })}</div> : null}
   </div>;
@@ -3482,7 +3485,7 @@ function DesktopApp() {
     if (page === "workspaces") return <WorkspacesPage workspaces={workspaces} projects={projects} apps={apps} initialWorkspaceId={selectedWorkspaceId} refresh={refresh} receipt={showReceipt} openProject={openProject} openApp={openRegisteredApp} openHome={(workspace) => { setCurrentWorkspaceId(workspace.id); setPage("home"); }} intent={functionIntent ?? undefined} />;
     if (page === "apps") return <AppsPage apps={apps} initialAppId={selectedAppId} refresh={refresh} receipt={showReceipt} intent={functionIntent ?? undefined} />;
     if (page === "library") return <LibraryPage resources={resources} workspaces={workspaces} resourceWorkspaces={resourceWorkspaces} ingestions={ingestions} currentWorkspace={currentWorkspace} initialResourceId={selectedResourceId} initialResourceKey={resourceOpenKey} refresh={refresh} receipt={showReceipt} openCapture={setViewedCapture} intent={functionIntent ?? undefined} />;
-    if (page === "tasks") return <BoardPage tasks={tasks} projects={projects} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
+    if (page === "tasks") return <BoardPage tasks={tasks} projects={projects} stale={stale} refresh={refresh} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
     return <SettingsPage theme={theme} setTheme={setThemeState} status={status} capturesArchived={archived} capturesTrashed={trashed} projects={projects} tasks={tasks} workspaces={workspaces} apps={apps} resources={resources} trashedResources={trashedResources} refresh={refresh} intent={functionIntent ?? undefined} />;
   // ATENCAO: esta lista e manual e nao ha lint que a verifique. Um estado novo
   // que chegue as paginas por prop e nao entre aqui fica CONGELADO na tela: o

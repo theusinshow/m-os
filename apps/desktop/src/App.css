@@ -4010,6 +4010,22 @@ select {
   border-color: var(--border-strong);
 }
 
+/* Parada: uma barra de sodio na borda de ataque, e o numero de dias na meta.
+   Nao um fundo colorido — o quadro tem seis colunas e um fundo por card
+   transformaria o Kanban num semaforo. A barra marca sem tingir.
+
+   `box-shadow` inset e nao borda mais grossa: borda mudaria a largura do card e
+   empurraria o texto 2px ao ser marcada, e a coluna inteira dancaria a cada
+   arrasto. */
+.kanban-column .data-row[data-stale] {
+  border-left-color: var(--signal-fill);
+  box-shadow: inset 2px 0 0 var(--signal-fill);
+}
+
+.kanban-column .data-row[data-stale] .row-meta {
+  color: var(--signal-fill);
+}
+
 .kanban-column .data-row .row-copy {
   display: block;
 }
