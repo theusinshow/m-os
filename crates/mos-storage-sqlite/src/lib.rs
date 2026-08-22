@@ -29,7 +29,7 @@ use serde::Serialize;
 
 pub use cronocad_import::ImportReport;
 
-const SCHEMA_VERSION: u32 = 29;
+const SCHEMA_VERSION: u32 = 30;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -70,6 +70,7 @@ const MIGRATION_026: &str = include_str!("../migrations/0026_project_paid.sql");
 const MIGRATION_027: &str = include_str!("../migrations/0027_sync_foundation.sql");
 const MIGRATION_028: &str = include_str!("../migrations/0028_daily_session.sql");
 const MIGRATION_029: &str = include_str!("../migrations/0029_weekly_review.sql");
+const MIGRATION_030: &str = include_str!("../migrations/0030_orfas_de_meeting.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -207,6 +208,16 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
     if current > 0 && current < SCHEMA_VERSION {
         create_pre_migration_snapshot(connection, backup_directory, current)?;
     }
+    /* O que ja estava quebrado ANTES de a migration encostar no banco.
+       Sem esta medida a guarda do fim nao sabe de quem e a culpa, e foi assim
+       que em 2026-08-22 o app recusou abrir acusando uma migration inocente:
+       as 50 orfas eram de uma reuniao apagada por fora em 2026-08-21, e o
+       snapshot `pre-migration-v26` prova que elas ja estavam la. */
+    let orfas_antes = if current > 0 && current < SCHEMA_VERSION {
+        contagem_de_orfas(connection)?
+    } else {
+        Vec::new()
+    };
     if current == 0 {
         connection
             .execute_batch(MIGRATION_001)
@@ -352,13 +363,54 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
             .execute_batch(MIGRATION_029)
             .map_err(map_sql_error)?;
     }
+    if current <= 29 {
+        connection
+            .execute_batch(MIGRATION_030)
+            .map_err(map_sql_error)?;
+    }
     if current < SCHEMA_VERSION {
-        verify_foreign_keys(connection)?;
+        verify_foreign_keys(connection, &orfas_antes)?;
     }
     Ok(())
 }
 
-fn verify_foreign_keys(connection: &Connection) -> Result<(), CoreError> {
+/// Quantas referencias orfas existem, POR TABELA.
+///
+/// Por tabela e nao um total: uma migration que criasse uma orfa em `tasks`
+/// enquanto outra limpasse cinquenta de `meeting_transcript_index` faria o total
+/// CAIR, e a regressao passaria em silencio.
+fn contagem_de_orfas(connection: &Connection) -> Result<Vec<(String, i64)>, CoreError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT \"table\", count(*) FROM pragma_foreign_key_check              GROUP BY \"table\" ORDER BY \"table\"",
+        )
+        .map_err(map_sql_error)?;
+    let linhas = statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+        .map_err(map_sql_error)?;
+    linhas
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(map_sql_error)
+}
+
+/// A migration responde pelo que ELA deixou, e nao pelo que encontrou.
+///
+/// # Por que comparativa
+///
+/// A versao anterior contava as orfas depois de migrar e recusava abrir se
+/// houvesse qualquer uma. Em 2026-08-22 isso trancou a porta na maquina do dono
+/// por 50 linhas de indice de reuniao que estavam ali desde o dia 21 — deixadas
+/// por uma limpeza feita FORA do app, onde `PRAGMA foreign_keys` vem desligado
+/// por padrao. A mensagem dizia "A migration deixou 50 referencias orfas", e a
+/// migration nao tinha deixado nenhuma.
+///
+/// Sujeira antiga nao e emergencia: lixo de indice nao corrompe leitura, e a
+/// resposta certa e uma migration de conserto que a conheca — como a 0030 —, e
+/// nao um app que nao abre. Regressao de migration continua sendo erro duro.
+fn verify_foreign_keys(
+    connection: &Connection,
+    antes: &[(String, i64)],
+) -> Result<(), CoreError> {
     let enabled: i64 = connection
         .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
         .map_err(map_sql_error)?;
@@ -369,15 +421,31 @@ fn verify_foreign_keys(connection: &Connection) -> Result<(), CoreError> {
             false,
         ));
     }
-    let orphans: i64 = connection
-        .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
-            row.get(0)
+
+    let depois = contagem_de_orfas(connection)?;
+    let quantas_antes = |tabela: &str| {
+        antes
+            .iter()
+            .find(|(nome, _)| nome == tabela)
+            .map(|(_, quantas)| *quantas)
+            .unwrap_or(0)
+    };
+
+    let novas: Vec<String> = depois
+        .iter()
+        .filter(|(tabela, quantas)| *quantas > quantas_antes(tabela))
+        .map(|(tabela, quantas)| {
+            format!("{tabela} ({} a mais)", quantas - quantas_antes(tabela))
         })
-        .map_err(map_sql_error)?;
-    if orphans != 0 {
+        .collect();
+
+    if !novas.is_empty() {
         return Err(CoreError::new(
             ErrorCode::DataIntegrity,
-            format!("A migration deixou {orphans} referencias orfas no banco local."),
+            format!(
+                "Esta migration deixou referencias orfas em: {}.",
+                novas.join(", ")
+            ),
             false,
         ));
     }
@@ -611,6 +679,241 @@ mod tests {
             ))
             .unwrap();
         assert_eq!(storage.meeting(meeting.id).unwrap().project_id, Some(project.id));
+    }
+
+
+    /// Um banco v29 com o rastro que a limpeza por fora deixa: a reuniao apagada,
+    /// e os dois indices do FTS intactos apontando para o vazio.
+    ///
+    /// # Por que este teste existe
+    ///
+    /// Foi o estado real da maquina do dono em 2026-08-22: 48 linhas em
+    /// `meeting_transcript_index` e 2 em `meeting_search_index` apontando para
+    /// `meetings` que nao existiam mais. Qualquer cliente SQLite — DB Browser,
+    /// o `sqlite3`, um script — abre com `PRAGMA foreign_keys` DESLIGADO, que e
+    /// o padrao do proprio SQLite; so o M/OS liga. Um `DELETE FROM meetings`
+    /// dado ali fora nao cascateia, e o rastro fica.
+    ///
+    /// O sintoma so apareceu meses depois, na migration seguinte: o app recusou
+    /// abrir com "A migration deixou 50 referencias orfas", acusando uma
+    /// migration que nao tinha feito nada.
+    fn banco_com_orfas_de_meeting(connection: &Connection) {
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys = OFF;
+                 INSERT INTO meetings (
+                     id, title, status, lifecycle_state, source, audio_dir,
+                     started_at, created_at, updated_at
+                 ) VALUES (
+                     '01a0224b-3fab-7a43-8fba-70b2cafa5409', 'Apagada por fora',
+                     'ready', 'active', 'manual', 'meetings/01a0224b',
+                     '2026-08-21T03:09:11Z', '2026-08-21T03:09:11Z', '2026-08-21T03:09:11Z'
+                 );
+                 INSERT INTO meeting_search_index (rowid, meeting_id)
+                 VALUES (1, '01a0224b-3fab-7a43-8fba-70b2cafa5409');
+                 INSERT INTO meeting_transcript_index (rowid, meeting_id, segment_id)
+                 VALUES (1, '01a0224b-3fab-7a43-8fba-70b2cafa5409',
+                         '01a0224f-4744-7de2-a199-08b2e86c0c38');
+                 INSERT INTO meeting_search (rowid, title, summary, insights)
+                 VALUES (1, 'Apagada por fora', '', '');
+                 INSERT INTO meeting_transcript_search (rowid, text)
+                 VALUES (1, 'o trecho que sobrou');
+                 DELETE FROM meetings;
+                 PRAGMA foreign_keys = ON;",
+            )
+            .unwrap();
+    }
+
+    fn orfas(connection: &Connection) -> i64 {
+        connection
+            .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    }
+
+    /// A migration 0030 varre o rastro, e leva junto o lixo do FTS.
+    ///
+    /// Apagar so a linha do indice deixaria o texto no `meeting_search`: a busca
+    /// devolveria o titulo de uma reuniao que nao existe, e o clique nao teria
+    /// para onde ir. As duas metades saem juntas ou nenhuma sai.
+    #[test]
+    fn a_0030_limpa_o_rastro_de_meeting_apagada_por_fora() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("mos.db");
+        let backups = directory.path().join("backups");
+        fs::create_dir_all(&backups).unwrap();
+
+        let connection = Connection::open(&database).unwrap();
+        configure_connection(&connection).unwrap();
+        migrate(&connection, &backups).unwrap();
+
+        // Volta para a v29 e planta o rastro: e o banco que chegou aqui.
+        connection.execute_batch("PRAGMA user_version = 29;").unwrap();
+        banco_com_orfas_de_meeting(&connection);
+        assert_eq!(orfas(&connection), 2, "o rastro precisa existir antes");
+
+        migrate(&connection, &backups).unwrap();
+
+        assert_eq!(orfas(&connection), 0, "a 0030 varre o rastro");
+        for tabela in [
+            "meeting_search_index",
+            "meeting_transcript_index",
+            "meeting_search",
+            "meeting_transcript_search",
+        ] {
+            let restante: i64 = connection
+                .query_row(&format!("SELECT count(*) FROM {tabela}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(restante, 0, "{tabela} nao pode guardar o que perdeu o dono");
+        }
+    }
+
+    /// Indice de reuniao que EXISTE nao pode ser varrido junto.
+    ///
+    /// Uma limpeza que leva o valido embora seria pior que a sujeira: a busca
+    /// pararia de achar reuniao nenhuma, e sem erro nenhum.
+    #[test]
+    fn a_0030_nao_encosta_no_indice_de_reuniao_viva() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("mos.db");
+        let backups = directory.path().join("backups");
+        fs::create_dir_all(&backups).unwrap();
+
+        let connection = Connection::open(&database).unwrap();
+        configure_connection(&connection).unwrap();
+        migrate(&connection, &backups).unwrap();
+        connection.execute_batch("PRAGMA user_version = 29;").unwrap();
+
+        connection
+            .execute_batch(
+                "INSERT INTO meetings (
+                     id, title, status, lifecycle_state, source, audio_dir,
+                     started_at, created_at, updated_at
+                 ) VALUES (
+                     '01a0225f-0a7d-7671-8197-b5fa30968e71', 'Viva',
+                     'ready', 'active', 'manual', 'meetings/01a0225f',
+                     '2026-08-21T03:30:49Z', '2026-08-21T03:30:49Z', '2026-08-21T03:30:49Z'
+                 );
+                 INSERT INTO meeting_search_index (rowid, meeting_id)
+                 VALUES (9, '01a0225f-0a7d-7671-8197-b5fa30968e71');
+                 INSERT INTO meeting_search (rowid, title, summary, insights)
+                 VALUES (9, 'Viva', '', '');",
+            )
+            .unwrap();
+
+        migrate(&connection, &backups).unwrap();
+
+        let sobrou: i64 = connection
+            .query_row("SELECT count(*) FROM meeting_search_index", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(sobrou, 1, "a reuniao viva continua indexada");
+        let texto: i64 = connection
+            .query_row("SELECT count(*) FROM meeting_search", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(texto, 1, "e o texto dela tambem");
+    }
+
+
+    /// Sujeira que ja estava no banco NAO pode trancar a porta.
+    ///
+    /// Era o comportamento ate 2026-08-22: `verify_foreign_keys` contava as
+    /// orfas depois de migrar, sem saber quantas havia antes, e qualquer rastro
+    /// antigo virava uma recusa de abrir — acusando "a migration", que nao tinha
+    /// feito nada. O app ficava inutilizavel por lixo de indice que nao afeta
+    /// leitura nenhuma.
+    ///
+    /// A regra certa e comparativa: a migration responde pelo que ELA deixou.
+    #[test]
+    fn orfa_pre_existente_nao_impede_o_app_de_abrir() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("mos.db");
+        let backups = directory.path().join("backups");
+        fs::create_dir_all(&backups).unwrap();
+
+        let connection = Connection::open(&database).unwrap();
+        configure_connection(&connection).unwrap();
+        migrate(&connection, &backups).unwrap();
+
+        // Uma Task apontando para uma Capture que nao existe. E uma orfa que a
+        // 0030 NAO limpa — de proposito: o teste precisa de sujeira que
+        // sobreviva a migracao para provar que ela nao tranca a porta.
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys = OFF;
+                 INSERT INTO captures (
+                     id, content, source_kind, processing_state, lifecycle_state,
+                     captured_at, created_at, updated_at
+                 ) VALUES (
+                     '01a0224b-0000-7000-8000-00000000c001', 'a que sumiu',
+                     'quick_capture', 'processed', 'active',
+                     '2026-08-21T03:09:11Z', '2026-08-21T03:09:11Z', '2026-08-21T03:09:11Z'
+                 );
+                 INSERT INTO tasks (
+                     id, title, description, source_capture_id, work_state,
+                     lifecycle_state, created_at, updated_at
+                 ) VALUES (
+                     '01a0224b-0000-7000-8000-00000000d001', 'orfa de proveniencia', '',
+                     '01a0224b-0000-7000-8000-00000000c001', 'backlog', 'active',
+                     '2026-08-21T03:09:11Z', '2026-08-21T03:09:11Z'
+                 );
+                 DELETE FROM captures;
+                 PRAGMA foreign_keys = ON;",
+            )
+            .unwrap();
+        let antes = orfas(&connection);
+        assert!(antes > 0, "o teste precisa de sujeira pre-existente");
+
+        // Volta uma versao e migra de novo: e o caminho real de quem atualiza o
+        // app com um banco ja sujo.
+        connection.execute_batch("PRAGMA user_version = 29;").unwrap();
+        migrate(&connection, &backups).expect("sujeira antiga nao tranca a porta");
+
+        assert_eq!(
+            orfas(&connection),
+            antes,
+            "e ela continua la, para a migration de conserto que souber trata-la"
+        );
+    }
+
+    /// Orfa que a migration CRIOU continua sendo erro.
+    ///
+    /// E o caso que a guarda existe para pegar, e afrouxa-la seria trocar um
+    /// falso positivo por um falso negativo.
+    #[test]
+    fn orfa_criada_pela_migration_continua_recusada() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("mos.db");
+        let backups = directory.path().join("backups");
+        fs::create_dir_all(&backups).unwrap();
+
+        let connection = Connection::open(&database).unwrap();
+        configure_connection(&connection).unwrap();
+        migrate(&connection, &backups).unwrap();
+
+        let antes = contagem_de_orfas(&connection).unwrap();
+        assert!(antes.is_empty(), "o banco novo nasce limpo");
+
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys = OFF;
+                 INSERT INTO meeting_search_index (rowid, meeting_id)
+                 VALUES (77, '01a0224b-3fab-7a43-8fba-70b2cafa5409');
+                 PRAGMA foreign_keys = ON;",
+            )
+            .unwrap();
+
+        let erro = verify_foreign_keys(&connection, &antes).unwrap_err();
+        assert_eq!(erro.code, ErrorCode::DataIntegrity);
+        assert!(
+            erro.message.contains("meeting_search_index"),
+            "a mensagem precisa nomear a tabela, e nao so contar: {}",
+            erro.message
+        );
     }
 
     /// Sobe um banco v21 POVOADO ate a v22.
