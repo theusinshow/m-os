@@ -110,7 +110,10 @@ pub use service::{
     TrackingService, UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput,
     UpdateWorkspaceInput, VoiceService, WorkService,
 };
-pub use stale::{atividade_do_project, tolerancia, trabalho_aberto, TOLERANCIA_PROJECT};
+pub use stale::{
+    atividade_do_project, compose_stale, tolerancia, trabalho_aberto, Parada, StaleInput,
+    StaleKind, TOLERANCIA_PROJECT,
+};
 pub use voice::{
     apply as apply_voice, heard, is_hallucination, title_from, understand, Heard, NewVoiceNote,
     ProjectSource, Understanding, VoiceAction, VoiceContext, VoiceNote, VoiceNoteId,
