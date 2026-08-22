@@ -1153,6 +1153,15 @@ pub trait AcademicRepository: Send + Sync {
         notes: &str,
     ) -> Result<StudySession, CoreError>;
     fn discard_study(&self, id: StudySessionId) -> Result<(), CoreError>;
+
+    // --- Busca
+    /// Disciplinas, avaliacoes e atividades que casam com o termo.
+    ///
+    /// LIKE e nao FTS, pela mesma razao do `search_objectives`: o volume e
+    /// limitado por disciplinas vezes um punhado de itens — um curso inteiro sao
+    /// centenas de linhas curtas, que cabem num scan. Uma tabela FTS a mais
+    /// custaria uma projecao a manter em toda escrita para ganhar nada.
+    fn search_academic(&self, request: SearchRequest) -> Result<Vec<SearchItem>, CoreError>;
 }
 
 /// Os campos editaveis de uma atividade.

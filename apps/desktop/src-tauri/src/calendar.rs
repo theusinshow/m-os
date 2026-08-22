@@ -52,6 +52,15 @@ pub fn calendar_window<R: Runtime>(
     let session_ids: Vec<_> = sessions.iter().map(|sessao| sessao.id).collect();
     let objectives = state.daily.objectives_of(&session_ids)?;
 
+    // A faculdade entra pelo painel ja composto: quem decide se uma prova conta
+    // e `academic::compose_dashboard`, e reescrever esse filtro aqui daria duas
+    // respostas para a mesma pergunta. O painel ja vem no fuso da tela.
+    let academico = mos_core::AcademicService::new(state.storage.clone()).compromissos_entre(
+        from,
+        to,
+        crate::surface::now_local(&app),
+    )?;
+
     let name_of = |id: mos_core::ProjectId| {
         projects
             .iter()
@@ -70,6 +79,7 @@ pub fn calendar_window<R: Runtime>(
         events: &events,
         sessions: &sessions,
         objectives: &objectives,
+        academic: &academico,
         project_name: &name_of,
     }))
 }

@@ -306,6 +306,15 @@ pub enum EntityKind {
     /// apontar para um — "troca meu segundo objetivo" so resolve se o objetivo
     /// for uma entidade citavel.
     DailyObjective,
+    /// Disciplina, avaliacao e atividade da faculdade.
+    ///
+    /// Entram no vocabulario para o Hermes poder responder "quando e minha
+    /// proxima prova?" apontando para a prova, e nao descrevendo-a. E a
+    /// preparacao que o §19 do pedido do M/Academic pede: o contexto existe e e
+    /// citavel, sem nenhum agente novo.
+    Subject,
+    Exam,
+    Assignment,
 }
 
 impl EntityKind {
@@ -319,6 +328,9 @@ impl EntityKind {
             Self::Meeting => "meeting",
             Self::Reminder => "reminder",
             Self::DailyObjective => "objetivo",
+            Self::Subject => "disciplina",
+            Self::Exam => "prova",
+            Self::Assignment => "atividade",
         }
     }
 
@@ -332,6 +344,9 @@ impl EntityKind {
             "meeting" | "reuniao" | "reunião" => Some(Self::Meeting),
             "reminder" | "lembrete" => Some(Self::Reminder),
             "objetivo" | "objective" | "daily_objective" => Some(Self::DailyObjective),
+            "disciplina" | "subject" | "materia" | "matéria" => Some(Self::Subject),
+            "prova" | "exam" | "avaliacao" | "avaliação" => Some(Self::Exam),
+            "atividade" | "assignment" | "trabalho" => Some(Self::Assignment),
             _ => None,
         }
     }
@@ -519,6 +534,9 @@ pub fn resolution_error<T>(
         EntityKind::Meeting => "Reunião",
         EntityKind::Reminder => "Lembrete",
         EntityKind::DailyObjective => "Objetivo do dia",
+        EntityKind::Subject => "Disciplina",
+        EntityKind::Exam => "Avaliação",
+        EntityKind::Assignment => "Atividade",
     };
     match resolved {
         Resolved::One(_) => None,

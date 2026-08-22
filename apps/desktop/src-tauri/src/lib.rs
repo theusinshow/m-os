@@ -26,6 +26,7 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+mod academic;
 mod calendar;
 mod attention;
 mod daily;
@@ -213,6 +214,17 @@ fn search_all(
             .into_iter()
             .map(|(objective, day)| SearchItem::DailyObjective { objective, day }),
     );
+    // A faculdade entra por ultimo, junto do dia: quem digita no Command procura
+    // coisa para abrir, e disciplina e contexto. Uma prova achada depois da Task
+    // de exercicios e a ordem certa de leitura.
+    items.extend(mos_core::AcademicRepository::search_academic(
+        state.storage.as_ref(),
+        mos_core::SearchRequest {
+            query: query.to_owned(),
+            include_archived,
+            limit: 20,
+        },
+    )?);
     items.truncate(100);
     Ok(items)
 }
@@ -2041,6 +2053,33 @@ pub fn run() {
             meeting::meeting_dismiss_insight,
             jarvis::action_undo,
             calendar::calendar_window,
+            academic::academic_dashboard,
+            academic::academic_today,
+            academic::academic_semesters,
+            academic::academic_create_semester,
+            academic::academic_update_semester,
+            academic::academic_archive_semester,
+            academic::academic_subjects,
+            academic::academic_create_subject,
+            academic::academic_update_subject,
+            academic::academic_archive_subject,
+            academic::academic_assignments,
+            academic::academic_create_assignment,
+            academic::academic_update_assignment,
+            academic::academic_set_assignment_status,
+            academic::academic_archive_assignment,
+            academic::academic_create_task,
+            academic::academic_unlink_task,
+            academic::academic_exams,
+            academic::academic_create_exam,
+            academic::academic_update_exam,
+            academic::academic_archive_exam,
+            academic::academic_materials,
+            academic::academic_link_material,
+            academic::academic_study_sessions,
+            academic::academic_start_study,
+            academic::academic_finish_study,
+            academic::academic_discard_study,
             stale::stale_list,
             tracking::tracking_default_cronocad_path,
             tracking::tracking_import_cronocad,

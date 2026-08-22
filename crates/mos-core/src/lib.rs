@@ -25,7 +25,7 @@ mod weekly;
 mod work;
 
 pub use academic::{
-    compose_dashboard, compose_today, desempenho, horizonte_de, nota_necessaria,
+    compose_compromissos, compose_dashboard, compose_today, desempenho, horizonte_de, nota_necessaria,
     progresso_do_periodo, segundos_na_semana, segundos_no_dia, semestre_corrente, validate_accent,
     AcademicDashboard, AcademicToday, Assignment, AssignmentId, AssignmentStatus, Compromisso,
     DashboardInput, Desempenho, Exam, ExamId, ExamStatus, Horizonte, Nota, Semester, SemesterId,
@@ -114,7 +114,7 @@ pub use resource::{
     ResourceWorkspace,
 };
 pub use service::{
-    AppService, AttentionService, AudioOutcome, CaptureService, ConversationService, CreateAppInput,
+    AcademicService, AppService, AttentionService, AudioOutcome, CaptureService, ConversationService, CreateAppInput,
     DailyService,
     CreateCaptureInput, CreateProjectInput, CreateResourceInput, CreateTaskInput,
     CreateWorkspaceInput, DataService, MeetingService, MemoryService, MonitoringService,

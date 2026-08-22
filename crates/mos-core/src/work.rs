@@ -265,6 +265,27 @@ pub enum SearchItem {
         objective: crate::DailyObjective,
         day: crate::Day,
     },
+    /// Uma disciplina, uma avaliacao ou uma atividade da faculdade.
+    ///
+    /// Entram na busca global pelo mesmo motivo do objetivo do dia: sem isto, o
+    /// M/Academic seria o unico substantivo do M/OS que a busca nao alcanca, e
+    /// silo e o que o `CORE-FOUNDATION.md` §2 recusa. Procurar "Estatica" tem de
+    /// achar a disciplina, a P1 dela e a Task de exercicios — que ja aparece
+    /// como Task.
+    ///
+    /// A avaliacao e a atividade carregam o NOME da disciplina junto: "P1"
+    /// sozinha nao se distingue da P1 de outra materia.
+    Subject {
+        subject: crate::Subject,
+    },
+    Exam {
+        exam: crate::Exam,
+        subject: String,
+    },
+    Assignment {
+        assignment: crate::Assignment,
+        subject: String,
+    },
     /// A REUNIAO, e nunca um segmento de transcricao.
     ///
     /// Uma reuniao de uma hora tem ~600 segmentos; tres reunioes dominariam

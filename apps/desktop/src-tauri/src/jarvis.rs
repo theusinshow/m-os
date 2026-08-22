@@ -1628,6 +1628,34 @@ fn candidate_of(item: &mos_core::SearchItem) -> Option<mos_core::Candidate> {
             label: resumo(&objective.title, 70),
             detail: format!("{} · {}", day, objective.status.as_str()),
         },
+        // A disciplina e citavel porque o Hermes precisa poder responder "como
+        // estou em Estatica?" apontando para ela. A prova leva a DATA no
+        // detalhe, que e o que a pergunta "quando e minha proxima prova?"
+        // procura; a atividade leva o prazo pelo mesmo motivo.
+        mos_core::SearchItem::Subject { subject } => mos_core::Candidate {
+            kind: mos_core::EntityKind::Subject,
+            id: subject.id.to_string(),
+            label: resumo(&subject.name, 70),
+            detail: resumo(&subject.code, 30),
+        },
+        mos_core::SearchItem::Exam { exam, subject } => mos_core::Candidate {
+            kind: mos_core::EntityKind::Exam,
+            id: exam.id.to_string(),
+            label: resumo(&format!("{subject} — {}", exam.name), 70),
+            detail: mos_core::spoken_moment(exam.at),
+        },
+        mos_core::SearchItem::Assignment {
+            assignment,
+            subject,
+        } => mos_core::Candidate {
+            kind: mos_core::EntityKind::Assignment,
+            id: assignment.id.to_string(),
+            label: resumo(&format!("{subject} — {}", assignment.title), 70),
+            detail: assignment
+                .due_at
+                .map(mos_core::spoken_moment)
+                .unwrap_or_else(|| assignment.status.as_str().to_owned()),
+        },
         mos_core::SearchItem::App { .. } => return None,
     })
 }

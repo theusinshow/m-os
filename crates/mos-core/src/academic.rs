@@ -884,6 +884,85 @@ pub fn segundos_na_semana(sessions: &[StudySession], agora_local: OffsetDateTime
         .sum()
 }
 
+/// Todos os compromissos academicos com data numa janela, para o Calendario.
+///
+/// # Por que nao reusa o `upcoming` do painel
+///
+/// O painel responde "o que esta chegando": ele descarta o que ja foi entregue e
+/// corta em [`MAX_UPCOMING`]. O Calendario e retrospectivo — uma prova FEITA na
+/// semana passada e exatamente o material dele, e um teto de doze esconderia
+/// metade do mes. As duas perguntas sao diferentes, e por isso sao duas funcoes.
+///
+/// O que as duas compartilham e o formato: o mesmo [`Compromisso`], para o
+/// Calendario nao precisar conhecer `Exam` nem `Assignment`.
+pub fn compose_compromissos(
+    subjects: &[Subject],
+    assignments: &[Assignment],
+    exams: &[Exam],
+    since: OffsetDateTime,
+    until: OffsetDateTime,
+    agora_local: OffsetDateTime,
+) -> Vec<Compromisso> {
+    let mut itens = Vec::new();
+    let dentro = |quando: OffsetDateTime| quando >= since && quando <= until;
+
+    for subject in subjects {
+        if subject.lifecycle_state != LifecycleState::Active {
+            continue;
+        }
+        for item in assignments {
+            if item.subject_id != subject.id
+                || item.lifecycle_state != LifecycleState::Active
+                // Cancelada nao aconteceu, e nao vai acontecer: ela e a unica
+                // que fica de fora dos dois lados.
+                || item.status == AssignmentStatus::Cancelled
+            {
+                continue;
+            }
+            let Some(due) = item.due_at else { continue };
+            if !dentro(due) {
+                continue;
+            }
+            itens.push(Compromisso {
+                kind: "assignment".to_owned(),
+                id: item.id.to_string(),
+                title: item.title.clone(),
+                subject_id: subject.id.to_string(),
+                subject: subject.name.clone(),
+                subject_accent: subject.accent.clone(),
+                at: due,
+                horizonte: horizonte_de(due, agora_local),
+                task_id: item.task_id.map(|id| id.to_string()),
+                location: String::new(),
+            });
+        }
+        for item in exams {
+            if item.subject_id != subject.id
+                || item.lifecycle_state != LifecycleState::Active
+                || item.status == ExamStatus::Cancelled
+                || !dentro(item.at)
+            {
+                continue;
+            }
+            itens.push(Compromisso {
+                kind: "exam".to_owned(),
+                id: item.id.to_string(),
+                title: item.name.clone(),
+                subject_id: subject.id.to_string(),
+                subject: subject.name.clone(),
+                subject_accent: subject.accent.clone(),
+                at: item.at,
+                horizonte: horizonte_de(item.at, agora_local),
+                task_id: None,
+                location: item.location.clone(),
+            });
+        }
+    }
+
+    itens.sort_by_key(|item| item.at);
+    itens
+}
+
 /// O que a faculdade coloca no dia de hoje.
 ///
 /// Vai para o Start My Day e para o End My Day. Nao e uma tela: e o contexto que

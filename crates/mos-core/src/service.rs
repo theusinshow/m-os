@@ -2343,3 +2343,431 @@ impl DailyService {
         }
     }
 }
+
+/// O M/Academic.
+///
+/// Ele busca e delega: a composicao do painel e de hoje vive em
+/// `mos_core::academic`, pura e testada, e este servico so junta as leituras.
+/// Mesma divisao do `DailyService` com `compose_context`.
+pub struct AcademicService {
+    repository: Arc<dyn crate::AcademicRepository>,
+}
+
+impl AcademicService {
+    pub fn new(repository: Arc<dyn crate::AcademicRepository>) -> Self {
+        Self { repository }
+    }
+
+    // --- Semestre
+
+    pub fn semesters(&self, include_archived: bool) -> Result<Vec<crate::Semester>, CoreError> {
+        self.repository.semesters(include_archived)
+    }
+
+    pub fn create_semester(
+        &self,
+        name: &str,
+        institution: &str,
+        starts_on: &str,
+        ends_on: &str,
+    ) -> Result<crate::Semester, CoreError> {
+        self.repository.create_semester(crate::NewSemester::create(
+            name,
+            institution,
+            starts_on,
+            ends_on,
+        )?)
+    }
+
+    pub fn update_semester(
+        &self,
+        id: &str,
+        name: &str,
+        institution: &str,
+        starts_on: &str,
+        ends_on: &str,
+    ) -> Result<crate::Semester, CoreError> {
+        // Valida pelo mesmo caminho da criacao: um nome vazio ou um intervalo
+        // invertido tem de morrer aqui nos dois casos, e nao so num deles.
+        let validado = crate::NewSemester::create(name, institution, starts_on, ends_on)?;
+        self.repository.update_semester(
+            crate::SemesterId::parse(id)?,
+            &validado.name,
+            &validado.institution,
+            &validado.starts_on,
+            &validado.ends_on,
+        )
+    }
+
+    pub fn set_semester_archived(
+        &self,
+        id: &str,
+        archived: bool,
+    ) -> Result<crate::Semester, CoreError> {
+        self.repository.set_semester_lifecycle(
+            crate::SemesterId::parse(id)?,
+            if archived {
+                crate::LifecycleState::Archived
+            } else {
+                crate::LifecycleState::Active
+            },
+        )
+    }
+
+    // --- Disciplina
+
+    pub fn subjects(&self, include_archived: bool) -> Result<Vec<crate::Subject>, CoreError> {
+        self.repository.subjects(include_archived)
+    }
+
+    pub fn create_subject(
+        &self,
+        semester_id: &str,
+        name: &str,
+        code: &str,
+        teacher: &str,
+        accent: &str,
+        notes: &str,
+    ) -> Result<crate::Subject, CoreError> {
+        self.repository.create_subject(crate::NewSubject::create(
+            crate::SemesterId::parse(semester_id)?,
+            name,
+            code,
+            teacher,
+            accent,
+            notes,
+        )?)
+    }
+
+    pub fn update_subject(
+        &self,
+        id: &str,
+        name: &str,
+        code: &str,
+        teacher: &str,
+        accent: &str,
+        notes: &str,
+    ) -> Result<crate::Subject, CoreError> {
+        let accent = crate::validate_accent(accent)?;
+        if name.trim().is_empty() {
+            return Err(CoreError::new(
+                crate::ErrorCode::InvalidInput,
+                "O nome da disciplina nao pode estar vazio.",
+                false,
+            ));
+        }
+        self.repository.update_subject(
+            crate::SubjectId::parse(id)?,
+            name.trim(),
+            code.trim(),
+            teacher.trim(),
+            &accent,
+            notes.trim(),
+        )
+    }
+
+    pub fn set_subject_archived(
+        &self,
+        id: &str,
+        archived: bool,
+    ) -> Result<crate::Subject, CoreError> {
+        self.repository.set_subject_lifecycle(
+            crate::SubjectId::parse(id)?,
+            if archived {
+                crate::LifecycleState::Archived
+            } else {
+                crate::LifecycleState::Active
+            },
+        )
+    }
+
+    // --- Atividade
+
+    pub fn assignments(&self, include_archived: bool) -> Result<Vec<crate::Assignment>, CoreError> {
+        self.repository.assignments(include_archived)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_assignment(
+        &self,
+        subject_id: &str,
+        title: &str,
+        description: &str,
+        due_at: Option<&str>,
+        priority: &str,
+        weight: f64,
+        score: Option<f64>,
+        max_score: Option<f64>,
+    ) -> Result<crate::Assignment, CoreError> {
+        self.repository
+            .create_assignment(crate::NewAssignment::create(
+                crate::SubjectId::parse(subject_id)?,
+                title,
+                description,
+                due_at.map(crate::parse_moment).transpose()?,
+                crate::Priority::parse(priority)?,
+                weight,
+                score,
+                max_score,
+            )?)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_assignment(
+        &self,
+        id: &str,
+        title: &str,
+        description: &str,
+        due_at: Option<&str>,
+        priority: &str,
+        weight: f64,
+        score: Option<f64>,
+        max_score: Option<f64>,
+        status: &str,
+    ) -> Result<crate::Assignment, CoreError> {
+        if title.trim().is_empty() {
+            return Err(CoreError::new(
+                crate::ErrorCode::InvalidInput,
+                "O titulo da atividade nao pode estar vazio.",
+                false,
+            ));
+        }
+        self.repository.update_assignment(crate::UpdateAssignment {
+            id: crate::AssignmentId::parse(id)?,
+            title: title.trim().to_owned(),
+            description: description.trim().to_owned(),
+            due_at: due_at.map(crate::parse_moment).transpose()?,
+            priority: crate::Priority::parse(priority)?,
+            weight,
+            score,
+            max_score,
+            status: crate::AssignmentStatus::parse(status)?,
+        })
+    }
+
+    pub fn set_assignment_status(
+        &self,
+        id: &str,
+        status: &str,
+    ) -> Result<crate::Assignment, CoreError> {
+        self.repository.set_assignment_status(
+            crate::AssignmentId::parse(id)?,
+            crate::AssignmentStatus::parse(status)?,
+        )
+    }
+
+    pub fn set_assignment_archived(
+        &self,
+        id: &str,
+        archived: bool,
+    ) -> Result<crate::Assignment, CoreError> {
+        self.repository.set_assignment_lifecycle(
+            crate::AssignmentId::parse(id)?,
+            if archived {
+                crate::LifecycleState::Archived
+            } else {
+                crate::LifecycleState::Active
+            },
+        )
+    }
+
+    pub fn create_task_for_assignment(&self, id: &str) -> Result<crate::Task, CoreError> {
+        self.repository
+            .create_task_for_assignment(crate::AssignmentId::parse(id)?)
+    }
+
+    pub fn unlink_assignment_task(&self, id: &str) -> Result<crate::Assignment, CoreError> {
+        self.repository
+            .unlink_assignment_task(crate::AssignmentId::parse(id)?)
+    }
+
+    // --- Avaliacao
+
+    pub fn exams(&self, include_archived: bool) -> Result<Vec<crate::Exam>, CoreError> {
+        self.repository.exams(include_archived)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_exam(
+        &self,
+        subject_id: &str,
+        name: &str,
+        at: &str,
+        location: &str,
+        topics: &str,
+        weight: f64,
+        score: Option<f64>,
+        max_score: Option<f64>,
+    ) -> Result<crate::Exam, CoreError> {
+        self.repository.create_exam(crate::NewExam::create(
+            crate::SubjectId::parse(subject_id)?,
+            name,
+            crate::parse_moment(at)?,
+            location,
+            topics,
+            weight,
+            score,
+            max_score,
+        )?)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_exam(
+        &self,
+        id: &str,
+        name: &str,
+        at: &str,
+        location: &str,
+        topics: &str,
+        weight: f64,
+        score: Option<f64>,
+        max_score: Option<f64>,
+        status: &str,
+    ) -> Result<crate::Exam, CoreError> {
+        if name.trim().is_empty() {
+            return Err(CoreError::new(
+                crate::ErrorCode::InvalidInput,
+                "O nome da avaliacao nao pode estar vazio.",
+                false,
+            ));
+        }
+        self.repository.update_exam(crate::UpdateExam {
+            id: crate::ExamId::parse(id)?,
+            name: name.trim().to_owned(),
+            at: crate::parse_moment(at)?,
+            location: location.trim().to_owned(),
+            topics: topics.trim().to_owned(),
+            weight,
+            score,
+            max_score,
+            status: crate::ExamStatus::parse(status)?,
+        })
+    }
+
+    pub fn set_exam_archived(&self, id: &str, archived: bool) -> Result<crate::Exam, CoreError> {
+        self.repository.set_exam_lifecycle(
+            crate::ExamId::parse(id)?,
+            if archived {
+                crate::LifecycleState::Archived
+            } else {
+                crate::LifecycleState::Active
+            },
+        )
+    }
+
+    // --- Materiais
+
+    pub fn subject_resources(&self, id: &str) -> Result<Vec<crate::Resource>, CoreError> {
+        self.repository
+            .subject_resources(crate::SubjectId::parse(id)?)
+    }
+
+    pub fn link_material(
+        &self,
+        subject_id: &str,
+        resource_id: &str,
+        linked: bool,
+    ) -> Result<(), CoreError> {
+        self.repository.link_material(
+            crate::SubjectId::parse(subject_id)?,
+            crate::ResourceId::parse(resource_id)?,
+            linked,
+        )
+    }
+
+    // --- Estudo
+
+    pub fn study_sessions(&self, limit: usize) -> Result<Vec<crate::StudySession>, CoreError> {
+        self.repository.study_sessions(limit)
+    }
+
+    pub fn start_study(
+        &self,
+        subject_id: &str,
+        topic: &str,
+    ) -> Result<crate::StudySession, CoreError> {
+        self.repository
+            .start_study(crate::SubjectId::parse(subject_id)?, topic)
+    }
+
+    pub fn finish_study(
+        &self,
+        id: &str,
+        seconds: i64,
+        notes: &str,
+    ) -> Result<crate::StudySession, CoreError> {
+        self.repository
+            .finish_study(crate::StudySessionId::parse(id)?, seconds, notes)
+    }
+
+    pub fn discard_study(&self, id: &str) -> Result<(), CoreError> {
+        self.repository
+            .discard_study(crate::StudySessionId::parse(id)?)
+    }
+
+    // --- O painel
+
+    /// Quantas sessoes de estudo o painel le.
+    ///
+    /// Trezentas sao ~dez por semana num semestre inteiro. Alem disso a sessao
+    /// deixou de contar para "esta semana" e para "hoje", que e tudo o que o
+    /// painel pergunta — carregar o historico completo a cada abertura seria o
+    /// N+1 que o §32 do pedido proibe, so que em forma de tabela crescendo.
+    const SESSOES_DO_PAINEL: usize = 300;
+
+    /// O painel inteiro, ja composto.
+    ///
+    /// `now_local` vem da tela: o dia civil e do fuso de quem olha, e decidi-lo
+    /// aqui em UTC jogaria toda madrugada para o dia seguinte.
+    pub fn dashboard(
+        &self,
+        now_local: time::OffsetDateTime,
+    ) -> Result<crate::AcademicDashboard, CoreError> {
+        let semesters = self.repository.semesters(false)?;
+        let subjects = self.repository.subjects(false)?;
+        let assignments = self.repository.assignments(false)?;
+        let exams = self.repository.exams(false)?;
+        let sessions = self.repository.study_sessions(Self::SESSOES_DO_PAINEL)?;
+
+        // A contagem de materiais vem AGREGADA do banco, e nao numa consulta por
+        // disciplina: dez materias fariam dez consultas a cada refresh da Home.
+        let contagens: std::collections::HashMap<_, _> =
+            self.repository.material_counts()?.into_iter().collect();
+        let materials = |id: crate::SubjectId| contagens.get(&id).copied().unwrap_or(0);
+
+        Ok(crate::compose_dashboard(crate::DashboardInput {
+            now_local,
+            semesters: &semesters,
+            subjects: &subjects,
+            assignments: &assignments,
+            exams: &exams,
+            sessions: &sessions,
+            materials: &materials,
+        }))
+    }
+
+    /// Os compromissos academicos numa janela, para o Calendario.
+    ///
+    /// Nao passa pelo painel: ver `compose_compromissos`.
+    pub fn compromissos_entre(
+        &self,
+        since: time::OffsetDateTime,
+        until: time::OffsetDateTime,
+        now_local: time::OffsetDateTime,
+    ) -> Result<Vec<crate::Compromisso>, CoreError> {
+        Ok(crate::compose_compromissos(
+            &self.repository.subjects(false)?,
+            &self.repository.assignments(false)?,
+            &self.repository.exams(false)?,
+            since,
+            until,
+            now_local,
+        ))
+    }
+
+    /// O recorte de hoje, para o Start My Day e o End My Day.
+    pub fn today(&self, now_local: time::OffsetDateTime) -> Result<crate::AcademicToday, CoreError> {
+        let painel = self.dashboard(now_local)?;
+        Ok(crate::compose_today(&painel, now_local))
+    }
+}

@@ -37,6 +37,24 @@ pub enum CalendarKind {
     /// Um objetivo do dia foi concluido. E a marca que faz a linha do tempo
     /// contar a historia do dia, e nao so as bordas dele.
     ObjectiveDone,
+    /// Uma entrega academica com prazo, e uma prova marcada.
+    ///
+    /// # Por que o calendario retrospectivo aceita estas duas
+    ///
+    /// O comentario de `Meeting` acima diz que uma variante de agenda
+    /// "prometeria uma capacidade sem lastro" — porque `Event` nao existia no
+    /// M/OS e nada tinha data futura de verdade.
+    ///
+    /// **O M/Academic deu o lastro.** `academic_exams.at` e
+    /// `academic_assignments.due_at` sao compromissos com instante marcado,
+    /// gravados pela propria pessoa. Nao ha promessa de sincronizar agenda
+    /// externa aqui: e o que ja esta no banco, aparecendo no dia em que cai.
+    ///
+    /// Continua nao havendo um segundo calendario — o §15 do pedido do
+    /// M/Academic pede exatamente isso, e a resposta e esta: o Calendario do
+    /// M/OS ganha duas fontes, e nao um irmao.
+    AssignmentDue,
+    ExamScheduled,
     /// Uma reuniao que aconteceu. Este calendario e retrospectivo por
     /// construcao, e uma reuniao gravada e exatamente o material dele.
     ///
@@ -57,6 +75,8 @@ impl CalendarKind {
             Self::DayStarted => "day_started",
             Self::DayEnded => "day_ended",
             Self::ObjectiveDone => "objective_done",
+            Self::AssignmentDue => "assignment_due",
+            Self::ExamScheduled => "exam_scheduled",
             Self::Meeting => "meeting",
         }
     }
@@ -97,6 +117,13 @@ pub struct ComposeInput<'a> {
     /// so criaria trabalho para desfazer.
     pub sessions: &'a [crate::DailySession],
     pub objectives: &'a [crate::DailyObjective],
+    /// Os compromissos academicos da janela, ja compostos por
+    /// `academic::compose_dashboard`.
+    ///
+    /// Chegam prontos, e nao como `Exam` e `Assignment` crus, porque a regra de
+    /// o que entra (o que ainda nao foi entregue, o que nao foi cancelado) ja
+    /// mora la — reescreve-la aqui daria duas respostas para "esta prova conta?".
+    pub academic: &'a [crate::Compromisso],
     /// Como achar o nome de um Project. Fechamento e nao mapa pronto porque
     /// quem chama ja tem a lista e nao deveria precisar montar um indice.
     pub project_name: &'a dyn Fn(ProjectId) -> String,
@@ -111,6 +138,27 @@ pub struct ComposeInput<'a> {
 pub fn compose(input: ComposeInput<'_>) -> Vec<CalendarItem> {
     let within = |moment: OffsetDateTime| moment >= input.since && moment <= input.until;
     let mut items = Vec::new();
+
+    for compromisso in input.academic {
+        if !within(compromisso.at) {
+            continue;
+        }
+        items.push(CalendarItem {
+            kind: if compromisso.kind == "exam" {
+                CalendarKind::ExamScheduled
+            } else {
+                CalendarKind::AssignmentDue
+            },
+            at: compromisso.at,
+            ends_at: None,
+            // A disciplina vai junto no titulo: no calendario, "P1" sozinha nao
+            // se distingue da P1 de outra materia.
+            title: format!("{} — {}", compromisso.subject, compromisso.title),
+            project_id: None,
+            seconds: 0,
+            amount_cents: 0,
+        });
+    }
 
     for entry in input.entries {
         if !within(entry.started_at) {
@@ -335,6 +383,7 @@ mod tests {
             events,
             sessions: &[],
             objectives: &[],
+            academic: &[],
             project_name: name,
         }
     }

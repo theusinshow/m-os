@@ -689,6 +689,27 @@ mod tests {
     }
 
 
+    /// Um banco parado numa versao anterior, montado migration a migration.
+    ///
+    /// Existe porque a alternativa — criar o banco inteiro e voltar o
+    /// `PRAGMA user_version` na marra — mente: o esquema continua sendo o mais
+    /// novo, e a proxima migration falha tentando criar tabela que ja existe.
+    /// Foi exatamente o que quebrou os testes da 0030 quando a 0031 entrou.
+    fn banco_ate(connection: &Connection, ate: u32) {
+        let migrations = [
+            MIGRATION_001, MIGRATION_002, MIGRATION_003, MIGRATION_004, MIGRATION_005,
+            MIGRATION_006, MIGRATION_007, MIGRATION_008, MIGRATION_009, MIGRATION_010,
+            MIGRATION_011, MIGRATION_012, MIGRATION_013, MIGRATION_014, MIGRATION_015,
+            MIGRATION_016, MIGRATION_017, MIGRATION_018, MIGRATION_019, MIGRATION_020,
+            MIGRATION_021, MIGRATION_022, MIGRATION_023, MIGRATION_024, MIGRATION_025,
+            MIGRATION_026, MIGRATION_027, MIGRATION_028, MIGRATION_029, MIGRATION_030,
+            MIGRATION_031,
+        ];
+        for migration in migrations.into_iter().take(ate as usize) {
+            connection.execute_batch(migration).unwrap();
+        }
+    }
+
     /// Um banco v29 com o rastro que a limpeza por fora deixa: a reuniao apagada,
     /// e os dois indices do FTS intactos apontando para o vazio.
     ///
@@ -753,10 +774,8 @@ mod tests {
 
         let connection = Connection::open(&database).unwrap();
         configure_connection(&connection).unwrap();
-        migrate(&connection, &backups).unwrap();
-
-        // Volta para a v29 e planta o rastro: e o banco que chegou aqui.
-        connection.execute_batch("PRAGMA user_version = 29;").unwrap();
+        // Um banco de verdade parado na v29, e nao um v31 com o numero trocado.
+        banco_ate(&connection, 29);
         banco_com_orfas_de_meeting(&connection);
         assert_eq!(orfas(&connection), 2, "o rastro precisa existir antes");
 
@@ -791,8 +810,7 @@ mod tests {
 
         let connection = Connection::open(&database).unwrap();
         configure_connection(&connection).unwrap();
-        migrate(&connection, &backups).unwrap();
-        connection.execute_batch("PRAGMA user_version = 29;").unwrap();
+        banco_ate(&connection, 29);
 
         connection
             .execute_batch(
@@ -844,7 +862,7 @@ mod tests {
 
         let connection = Connection::open(&database).unwrap();
         configure_connection(&connection).unwrap();
-        migrate(&connection, &backups).unwrap();
+        banco_ate(&connection, 29);
 
         // Uma Task apontando para uma Capture que nao existe. E uma orfa que a
         // 0030 NAO limpa — de proposito: o teste precisa de sujeira que
@@ -875,9 +893,7 @@ mod tests {
         let antes = orfas(&connection);
         assert!(antes > 0, "o teste precisa de sujeira pre-existente");
 
-        // Volta uma versao e migra de novo: e o caminho real de quem atualiza o
-        // app com um banco ja sujo.
-        connection.execute_batch("PRAGMA user_version = 29;").unwrap();
+        // Migra o banco sujo: e o caminho real de quem atualiza o app.
         migrate(&connection, &backups).expect("sujeira antiga nao tranca a porta");
 
         assert_eq!(

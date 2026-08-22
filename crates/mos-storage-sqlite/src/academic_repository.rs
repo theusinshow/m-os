@@ -1189,6 +1189,115 @@ impl AcademicRepository for SqliteStorage {
         one_study(&connection, id)
     }
 
+    fn search_academic(
+        &self,
+        request: mos_core::SearchRequest,
+    ) -> Result<Vec<mos_core::SearchItem>, CoreError> {
+        let termo = request.query.trim();
+        if termo.is_empty() {
+            return Ok(Vec::new());
+        }
+        // O escape e o mesmo do `search_objectives`: sem ele, um `%` digitado
+        // vira curinga e a busca por "50%" devolve tudo.
+        let padrao = format!(
+            "%{}%",
+            termo
+                .replace('\u{5C}', "\u{5C}\u{5C}")
+                .replace('%', "\u{5C}%")
+                .replace('_', "\u{5C}_")
+        );
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let limite = request.limit.max(1);
+
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT {SUBJECT_COLUMNS} FROM academic_subjects
+                 WHERE lifecycle_state = 'active'
+                   AND (name LIKE ?1 ESCAPE '\' OR code LIKE ?1 ESCAPE '\'
+                        OR teacher LIKE ?1 ESCAPE '\')
+                 ORDER BY name LIMIT {limite}"
+            ))
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map(params![padrao], read_subject)
+            .map_err(map_sql_error)?;
+        let mut subjects = Vec::new();
+        for row in rows {
+            subjects.push(row.map_err(map_sql_error)??);
+        }
+        drop(statement);
+
+        // O nome da disciplina vem no JOIN, e nao numa consulta por acerto: dez
+        // provas encontradas fariam dez idas ao banco so para escrever o nome.
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT e.{colunas}, s.name FROM academic_exams e
+                 JOIN academic_subjects s ON s.id = e.subject_id
+                 WHERE e.lifecycle_state = 'active' AND s.lifecycle_state = 'active'
+                   AND (e.name LIKE ?1 ESCAPE '\' OR e.topics LIKE ?1 ESCAPE '\'
+                        OR e.location LIKE ?1 ESCAPE '\')
+                 ORDER BY e.at DESC LIMIT {limite}",
+                colunas = EXAM_COLUMNS.replace(", ", ", e."),
+            ))
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map(params![padrao], |row| {
+                let exam = read_exam(row)?;
+                let subject: String = row.get(13)?;
+                Ok((exam, subject))
+            })
+            .map_err(map_sql_error)?;
+        let mut exams = Vec::new();
+        for row in rows {
+            let (exam, subject) = row.map_err(map_sql_error)?;
+            exams.push((exam?, subject));
+        }
+        drop(statement);
+
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT a.{colunas}, s.name FROM academic_assignments a
+                 JOIN academic_subjects s ON s.id = a.subject_id
+                 WHERE a.lifecycle_state = 'active' AND s.lifecycle_state = 'active'
+                   AND (a.title LIKE ?1 ESCAPE '\' OR a.description LIKE ?1 ESCAPE '\')
+                 ORDER BY a.due_at IS NULL, a.due_at LIMIT {limite}",
+                colunas = ASSIGNMENT_COLUMNS.replace(", ", ", a."),
+            ))
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map(params![padrao], |row| {
+                let assignment = read_assignment(row)?;
+                let subject: String = row.get(14)?;
+                Ok((assignment, subject))
+            })
+            .map_err(map_sql_error)?;
+        let mut assignments = Vec::new();
+        for row in rows {
+            let (assignment, subject) = row.map_err(map_sql_error)?;
+            assignments.push((assignment?, subject));
+        }
+        drop(statement);
+
+        // A disciplina vem primeiro: quem procura "Estatica" quer a materia, e
+        // as provas dela sao o detalhe que vem depois.
+        let mut items: Vec<mos_core::SearchItem> = subjects
+            .into_iter()
+            .map(|subject| mos_core::SearchItem::Subject { subject })
+            .collect();
+        items.extend(
+            exams
+                .into_iter()
+                .map(|(exam, subject)| mos_core::SearchItem::Exam { exam, subject }),
+        );
+        items.extend(assignments.into_iter().map(|(assignment, subject)| {
+            mos_core::SearchItem::Assignment {
+                assignment,
+                subject,
+            }
+        }));
+        Ok(items)
+    }
+
     fn discard_study(&self, id: StudySessionId) -> Result<(), CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
