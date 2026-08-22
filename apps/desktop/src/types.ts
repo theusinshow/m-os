@@ -1149,3 +1149,20 @@ export type WeekSummary = {
   /** Nenhuma sessão na semana. A tela usa isto para NÃO oferecer o fecho. */
   empty: boolean;
 };
+
+/** O que está parado há tempo demais. Vem pronto de `mos-core::stale`. */
+export type Parada = {
+  kind: "task" | "project";
+  id: string;
+  title: string;
+  /** Nome do Project, para Task. "N tasks abertas", para Project. */
+  context: string;
+  /** A coluna do Kanban, para Task. Vazio para Project. */
+  state: string;
+  days: number;
+};
+
+/** Quando um Project foi mexido de verdade — e não quando foi renomeado. */
+export type ProjectActivity = { projectId: string; lastActivity: string };
+
+export type StaleView = { paradas: Parada[]; activity: ProjectActivity[] };

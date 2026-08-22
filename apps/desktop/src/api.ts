@@ -5,7 +5,7 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
   VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
-  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, Task, TaskState, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
+  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, StaleView, Task, TaskState, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -134,6 +134,15 @@ export const api = {
   },
   weeklyClose(week: Week, summary: string) {
     return invoke<WeekSummary>("weekly_close", { week, summary });
+  },
+
+  // ---------------------------------------------------------------- Paradas
+  //
+  // Sem argumento: obsolescencia e sempre "ate agora", e um parametro de data so
+  // ofereceria uma pergunta que ninguem faz.
+
+  staleList() {
+    return invoke<StaleView>("stale_list");
   },
 
   // ===========================================================================
