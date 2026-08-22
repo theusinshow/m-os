@@ -2,6 +2,10 @@
 
 Investigação de 2026-08-22, sobre a conta autenticada de `univirtus.uninter.com`.
 Nada foi alterado no portal: todas as chamadas desta investigação foram GET.
+
+> **Os exemplos JSON são sanitizados.** Ids de registro pessoal e notas foram
+> substituídos por valores ilustrativos; o que ensina — os nomes dos campos e a
+> relação entre `peso` e `pesoMedia` — está intacto. Este repositório é público.
 Protótipo: `scripts/univirtus-investigation/probe-browser.js`.
 
 ---
@@ -124,7 +128,7 @@ Todo corpo de resposta usa o mesmo envelope:
 ### Disciplina inscrita (`usuarioHistoricoCursoOfertas[]`)
 
 ```json
-{ "id": 51125425, "idEscola": 9, "idCurso": 5359,
+{ "id": 11111111, "idEscola": 9, "idCurso": 5359,
   "idSalaVirtual": 60236, "idSalaVirtualOferta": 1161461, "idUsuario": "[REDACTED]",
   "nomeCurso": "BACHARELADO EM ENGENHARIA CIVIL - DISTÂNCIA (5986)",
   "nomeSalaVirtual": "Projeto Arquitetônico",
@@ -158,10 +162,10 @@ Notas: `MD` (média), `RF` (resultado final), `TF`, `ME`, `N1`…`N7`.
 ### Avaliação (`avaliacaoUsuarios[]`) — nota, peso e prazo juntos
 
 ```json
-{ "id": 152558335, "idAvaliacao": 2713956,
+{ "id": 22222222, "idAvaliacao": 2713956,
   "status": "Finalizada", "idAvaliacaoUsuarioStatus": 3, "acao": "Gabarito",
   "dataInicio": "2026-07-13T00:00:00", "dataFim": "2026-08-24T23:59:00",
-  "nota": 100, "notaMedia": 15, "tentativa": 1, "tentativaTotal": 3,
+  "nota": 80, "notaMedia": 12, "tentativa": 1, "tentativaTotal": 3,
   "protocolo": "[REDACTED]",
   "avaliacao": { "id": 2713956, "nome": "APOL Objetiva 1 (Regular)",
                  "nomeAvaliacaoTipo": "APOL Objetiva", "nomeClassificacao": "APOL",
