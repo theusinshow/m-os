@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { UpcomingBillsList } from "@/components/dashboard/upcoming-bills-list";
 import { BalanceDisplay } from "@/components/dashboard/balance-display";
 import { CategoryBreakdownChart } from "@/components/charts/category-breakdown-chart";
+import { MonthWaterfallChart } from "@/components/charts/month-waterfall-chart";
 import { TriangleMark } from "@/components/brand/triangle-mark";
 import { calculateInternalAlerts } from "@/lib/calculations/alerts";
 import { getDashboardSummary } from "@/lib/calculations/dashboard";
@@ -195,6 +196,19 @@ export default async function DashboardPage() {
         <UpcomingBillsList bills={realBills} invoices={realInvoices} />
         <InvoiceSummaryCard invoices={realInvoices} />
       </section>
+
+      {currentMonth ? (
+        <DashboardCard
+          description="De onde veio, para onde foi, e o que sobra."
+          title="O mês em cascata"
+        >
+          <MonthWaterfallChart
+            billsCents={summary.totalBillsCents}
+            incomeCents={summary.totalIncomeCents}
+            invoicesCents={summary.totalInvoicesCents}
+          />
+        </DashboardCard>
+      ) : null}
 
       {categoryData.length > 0 ? (
         <DashboardCard description="Para onde as contas do mês estão indo." title="Por categoria">
