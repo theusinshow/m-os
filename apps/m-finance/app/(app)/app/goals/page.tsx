@@ -1,5 +1,6 @@
 import { DashboardCard } from "@/components/dashboard/dashboard-card";
 import { EmptyState } from "@/components/empty-state";
+import { GoalPriorityMatrix } from "@/components/charts/goal-priority-matrix";
 import { GoalCard } from "@/components/goals/goal-card";
 import { GoalFormDrawer } from "@/components/goals/goal-form-drawer";
 import { PageHeading } from "@/components/page-heading";
@@ -58,6 +59,16 @@ export default async function GoalsPage() {
           <p className="mt-4 text-xs leading-5 text-text-muted">
             Metas são acompanhamento separado: não entram no cálculo de contas nem na sobra do mês.
           </p>
+        </DashboardCard>
+      ) : null}
+
+      {/* Um scatter de um ponto não compara nada. */}
+      {trackedGoals.length > 1 ? (
+        <DashboardCard
+          description="Quanto falta contra quanto tempo resta. Canto superior esquerdo é aperto."
+          title="Metas em risco"
+        >
+          <GoalPriorityMatrix goals={goals} today={new Date().toISOString().slice(0, 10)} />
         </DashboardCard>
       ) : null}
 

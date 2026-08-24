@@ -11,6 +11,9 @@ import { StatusBadge } from "@/components/status-badge";
 import { UpcomingBillsList } from "@/components/dashboard/upcoming-bills-list";
 import { BalanceDisplay } from "@/components/dashboard/balance-display";
 import { CategoryBreakdownChart } from "@/components/charts/category-breakdown-chart";
+import { DueDateHeatmap } from "@/components/charts/due-date-heatmap";
+import { MetricSparkline } from "@/components/charts/metric-sparkline";
+import { MonthWaterfallChart } from "@/components/charts/month-waterfall-chart";
 import { TriangleMark } from "@/components/brand/triangle-mark";
 import { calculateInternalAlerts } from "@/lib/calculations/alerts";
 import { getDashboardSummary } from "@/lib/calculations/dashboard";
@@ -19,6 +22,7 @@ import { formatMonthLabel } from "@/lib/formatters/date";
 import { requireUser } from "@/lib/auth/guard";
 import { getAppUserBySupabaseId } from "@/lib/months";
 import { getActiveMonthForUser, isViewingCurrentMonth } from "@/lib/active-month";
+import { getMonthlySnapshots } from "@/lib/history";
 import { getIncomesByMonth } from "@/lib/incomes";
 import { getBillCategories, getBillsByMonth, getRecurringBillsByMonth } from "@/lib/bills";
 import { getInvoicesByMonth } from "@/lib/cards";
@@ -37,6 +41,10 @@ export default async function DashboardPage() {
   const realInvoices = currentMonth ? await getInvoicesByMonth(currentMonth.id) : [];
   const categories = appUser ? await getBillCategories(appUser.id) : [];
   const settings = appUser ? await getSettingsForUser(appUser.id) : null;
+  const snapshots = appUser ? await getMonthlySnapshots(appUser.id) : [];
+  // Os snapshots vêm do mais novo para o mais antigo; a linha lê da esquerda
+  // para a direita, então a série vai ao contrário.
+  const history = [...snapshots].reverse();
   const summary = getDashboardSummary({
     incomes: realIncomes,
     bills: realBills,
@@ -76,21 +84,32 @@ export default async function DashboardPage() {
       label: "Receita prevista",
       value: summary.totalIncomeCents,
       note: `${realIncomes.length} entrada${realIncomes.length === 1 ? "" : "s"}`,
+      points: history.map((snapshot) => snapshot.totalIncomeCents),
+      tone: "neutral" as const,
     },
     {
       label: "Comprometido",
       value: totalCommittedCents,
       note: "Contas e faturas",
+      points: history.map(
+        (snapshot) => snapshot.totalBillsCents + snapshot.totalInvoicesCents,
+      ),
+      tone: "neutral" as const,
     },
     {
       label: "Pago",
       value: summary.totalPaidCents,
       note: allSettled ? "Mês liquidado" : "Já resolvido",
+      points: history.map((snapshot) => snapshot.totalPaidCents),
+      tone: "neutral" as const,
     },
     {
       label: "Sobra estimada",
       value: summary.estimatedRemainingCents,
       note: "Depois de pagar tudo",
+      points: history.map((snapshot) => snapshot.estimatedRemainingCents),
+      // A sobra é a métrica que a pessoa acompanha; ela ganha o acento.
+      tone: "accent" as const,
     },
   ];
   const attentionItems = [
@@ -187,6 +206,7 @@ export default async function DashboardPage() {
               {formatCurrency(metric.value)}
             </p>
             <p className="mt-1 text-xs text-text-muted">{metric.note}</p>
+            <MetricSparkline points={metric.points} tone={metric.tone} />
           </DashboardCard>
         ))}
       </section>
@@ -195,6 +215,32 @@ export default async function DashboardPage() {
         <UpcomingBillsList bills={realBills} invoices={realInvoices} />
         <InvoiceSummaryCard invoices={realInvoices} />
       </section>
+
+      {currentMonth ? (
+        <DashboardCard
+          description="De onde veio, para onde foi, e o que sobra."
+          title="O mês em cascata"
+        >
+          <MonthWaterfallChart
+            billsCents={summary.totalBillsCents}
+            incomeCents={summary.totalIncomeCents}
+            invoicesCents={summary.totalInvoicesCents}
+          />
+        </DashboardCard>
+      ) : null}
+
+      {currentMonth ? (
+        <DashboardCard description="Onde os vencimentos se concentram." title="Pressão do mês">
+          <DueDateHeatmap
+            items={[...realBills, ...realInvoices].map((item) => ({
+              dueDate: item.dueDate,
+              amountCents: item.amountCents,
+            }))}
+            month={currentMonth.month}
+            year={currentMonth.year}
+          />
+        </DashboardCard>
+      ) : null}
 
       {categoryData.length > 0 ? (
         <DashboardCard description="Para onde as contas do mês estão indo." title="Por categoria">
