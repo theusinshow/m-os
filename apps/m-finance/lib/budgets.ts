@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { billCategories, bills, budgets, creditCardExpenses, creditCardInvoices } from "@/db/schema";
 import type { BudgetType } from "@/db/schema";
@@ -63,13 +63,25 @@ async function getSpentForBudget(
 ): Promise<number> {
   if (!db) return 0;
 
+  // `coalesce(sum(...), 0)::int` é o mesmo padrão de `lib/invoice-sync.ts`:
+  // sem o coalesce, um mês sem lançamento devolve `null` em vez de zero, e
+  // sem o cast o driver entrega a soma como string.
+  //
+  // Antes daqui não havia agregação nenhuma: a projeção era a coluna crua e o
+  // `[row]` pegava a PRIMEIRA linha. Um orçamento com cinco contas mostrava o
+  // valor de uma, e `percentage`, `isOverBudget` e o card "Gasto" desciam
+  // todos desse número.
+  const billsTotal = sql<number>`coalesce(sum(${bills.amountCents}), 0)::int`;
+
   if (type === "total") {
     const [billRow] = await db
-      .select({ total: bills.amountCents })
+      .select({ total: billsTotal })
       .from(bills)
       .where(and(eq(bills.userId, userId), eq(bills.monthId, monthId)));
     const [invoiceRow] = await db
-      .select({ total: creditCardInvoices.amountCents })
+      .select({
+        total: sql<number>`coalesce(sum(${creditCardInvoices.amountCents}), 0)::int`,
+      })
       .from(creditCardInvoices)
       .where(and(eq(creditCardInvoices.userId, userId), eq(creditCardInvoices.monthId, monthId)));
     return (billRow?.total ?? 0) + (invoiceRow?.total ?? 0);
@@ -77,7 +89,7 @@ async function getSpentForBudget(
 
   if (type === "category" && categoryId) {
     const [row] = await db
-      .select({ total: bills.amountCents })
+      .select({ total: billsTotal })
       .from(bills)
       .where(
         and(
@@ -91,7 +103,9 @@ async function getSpentForBudget(
 
   if (type === "card" && cardId) {
     const [row] = await db
-      .select({ total: creditCardExpenses.amountCents })
+      .select({
+        total: sql<number>`coalesce(sum(${creditCardExpenses.amountCents}), 0)::int`,
+      })
       .from(creditCardExpenses)
       .where(
         and(
