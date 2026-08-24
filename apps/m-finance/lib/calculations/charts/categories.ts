@@ -63,3 +63,29 @@ function distributePercents(values: number[], total: number): number[] {
 
   return result;
 }
+
+// Largura média de um caractere do rótulo em 12px, medida no navegador com a
+// fonte do app. Estimar em vez de medir é escolha: medir texto SVG exige montar
+// o nó antes de saber o tamanho da área de desenho, e a conta fica circular.
+const LABEL_CHAR_PX = 6.2;
+// Distância entre o fim da barra e o começo do rótulo, igual à do componente.
+const LABEL_GAP_PX = 8;
+// Folga para o arredondamento da área de desenho não comer o último caractere.
+const LABEL_SLACK_PX = 4;
+
+/**
+ * Espaço à direita que os rótulos de valor precisam.
+ *
+ * O rótulo — `R$ 2.450,00 · 36%` — é desenhado fora da barra, e o gráfico
+ * reservava 96px fixos para ele. Cabia nos valores da tela de quem escreveu, e
+ * cortava o `%` do maior valor a 375px de viewport, onde a área de desenho
+ * encolhe mas o rótulo não. A reserva agora sai do rótulo mais largo da própria
+ * série: em telas largas ela devolve espaço à barra, e em telas estreitas ela
+ * garante que o número inteiro apareça.
+ */
+export function categoryLabelReserve(labels: string[]): number {
+  const longest = labels.reduce((max, label) => Math.max(max, label.length), 0);
+  if (longest === 0) return 0;
+
+  return Math.ceil(longest * LABEL_CHAR_PX) + LABEL_GAP_PX + LABEL_SLACK_PX;
+}

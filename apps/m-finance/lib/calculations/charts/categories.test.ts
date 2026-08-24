@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toCategorySlices } from "@/lib/calculations/charts/categories";
+import { categoryLabelReserve, toCategorySlices } from "@/lib/calculations/charts/categories";
 
 describe("toCategorySlices", () => {
   it("ordena da maior para a menor e descarta valor zero ou negativo", () => {
@@ -63,5 +63,23 @@ describe("toCategorySlices", () => {
     expect(slices).toHaveLength(3);
     expect(slices[2].name).toBe("Outras");
     expect(slices[2].value).toBe(3_000);
+  });
+});
+
+describe("categoryLabelReserve", () => {
+  it("reserva mais espaco para o rotulo mais largo da serie", () => {
+    const curto = categoryLabelReserve(["R$ 89,90 · 1%"]);
+    const largo = categoryLabelReserve(["R$ 89,90 · 1%", "R$ 12.450,00 · 100%"]);
+
+    expect(largo).toBeGreaterThan(curto);
+  });
+
+  it("cabe o rotulo que a margem fixa de 96px cortava a 375px", () => {
+    // `R$ 2.450,00 · 36%` mede ~102px com a folga, e a margem antiga deixava 88.
+    expect(categoryLabelReserve(["R$ 2.450,00 · 36%"])).toBeGreaterThanOrEqual(102);
+  });
+
+  it("nao reserva nada sem rotulo", () => {
+    expect(categoryLabelReserve([])).toBe(0);
   });
 });
