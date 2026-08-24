@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { UpcomingBillsList } from "@/components/dashboard/upcoming-bills-list";
 import { BalanceDisplay } from "@/components/dashboard/balance-display";
 import { CategoryBreakdownChart } from "@/components/charts/category-breakdown-chart";
+import { DueDateHeatmap } from "@/components/charts/due-date-heatmap";
 import { MetricSparkline } from "@/components/charts/metric-sparkline";
 import { MonthWaterfallChart } from "@/components/charts/month-waterfall-chart";
 import { TriangleMark } from "@/components/brand/triangle-mark";
@@ -224,6 +225,19 @@ export default async function DashboardPage() {
             billsCents={summary.totalBillsCents}
             incomeCents={summary.totalIncomeCents}
             invoicesCents={summary.totalInvoicesCents}
+          />
+        </DashboardCard>
+      ) : null}
+
+      {currentMonth ? (
+        <DashboardCard description="Onde os vencimentos se concentram." title="Pressão do mês">
+          <DueDateHeatmap
+            items={[...realBills, ...realInvoices].map((item) => ({
+              dueDate: item.dueDate,
+              amountCents: item.amountCents,
+            }))}
+            month={currentMonth.month}
+            year={currentMonth.year}
           />
         </DashboardCard>
       ) : null}
