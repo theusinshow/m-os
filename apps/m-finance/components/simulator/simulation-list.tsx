@@ -1,5 +1,6 @@
 import { deleteSimulation } from "@/app/actions/simulations";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
+import { SimulationProjectionChart } from "@/components/charts/simulation-projection-chart";
 import { DashboardCard } from "@/components/dashboard/dashboard-card";
 import { RiskBadge } from "@/components/simulator/risk-badge";
 import { StatusBadge } from "@/components/status-badge";
@@ -51,6 +52,7 @@ export function SimulationList({ simulations }: { simulations: StoredSimulation[
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-muted">
               Impacto por mês
             </p>
+            <SimulationProjectionChart months={simulation.result.months} />
             <div className="grid gap-2 sm:grid-cols-2">
               {simulation.result.months.map((month) => (
                 <div
