@@ -47,13 +47,16 @@ export function GoalPriorityMatrix({
             width={width}
           >
             <CartesianGrid stroke={CHART_GRID} />
-            {/* Invertido: prazo curto à esquerda, junto do "falta muito" no
-                topo. O canto superior esquerdo vira o canto do risco. */}
+            {/* Sem `reversed`: o eixo cresce da esquerda para a direita, então
+                o prazo curto — e o já vencido, negativo — fica à esquerda,
+                junto do "falta muito" no topo. O canto superior esquerdo é o
+                canto do risco, que é o que o texto do card promete.
+                `reversed` fazia o oposto: jogava a meta vencida para a direita
+                e o prazo folgado para a esquerda. */}
             <XAxis
               axisLine={false}
               dataKey="daysLeft"
               name="Dias até o prazo"
-              reversed
               tick={{ fill: COLORS.muted, fontSize: 11 }}
               tickLine={false}
               type="number"
