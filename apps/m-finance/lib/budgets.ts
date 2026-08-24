@@ -143,3 +143,65 @@ async function getBudgetLabel(
   }
   return "Orçamento";
 }
+
+/**
+ * Os lançamentos do orçamento com data, para o acumulado dia a dia.
+ *
+ * Separado de `getBudgetsByMonth` de propósito: o card precisa de um número e
+ * a página inteira o chama para cada orçamento. Trazer a lista de lançamentos
+ * junto encareceria todo mundo por causa de um gráfico.
+ */
+export async function getBudgetEntries(
+  userId: string,
+  monthId: string,
+  type: BudgetType,
+  categoryId: string | null,
+  cardId: string | null,
+): Promise<{ dueDate: string; amountCents: number }[]> {
+  if (!db) return [];
+
+  if (type === "card" && cardId) {
+    const rows = await db
+      .select({
+        dueDate: creditCardExpenses.purchaseDate,
+        amountCents: creditCardExpenses.amountCents,
+      })
+      .from(creditCardExpenses)
+      .where(
+        and(
+          eq(creditCardExpenses.userId, userId),
+          eq(creditCardExpenses.cardId, cardId),
+          eq(creditCardExpenses.monthId, monthId),
+        ),
+      );
+
+    // `purchase_date` é nullable no schema. Gasto sem data não tem onde cair na
+    // linha do tempo, então fica de fora do acumulado — ele continua contando
+    // no total que o card já mostra.
+    return rows.flatMap((row) =>
+      row.dueDate ? [{ dueDate: row.dueDate, amountCents: row.amountCents }] : [],
+    );
+  }
+
+  const conditions = [eq(bills.userId, userId), eq(bills.monthId, monthId)];
+  if (type === "category" && categoryId) {
+    conditions.push(eq(bills.categoryId, categoryId));
+  }
+
+  const billRows = await db
+    .select({ dueDate: bills.dueDate, amountCents: bills.amountCents })
+    .from(bills)
+    .where(and(...conditions));
+
+  if (type !== "total") return billRows;
+
+  const invoiceRows = await db
+    .select({
+      dueDate: creditCardInvoices.dueDate,
+      amountCents: creditCardInvoices.amountCents,
+    })
+    .from(creditCardInvoices)
+    .where(and(eq(creditCardInvoices.userId, userId), eq(creditCardInvoices.monthId, monthId)));
+
+  return [...billRows, ...invoiceRows];
+}

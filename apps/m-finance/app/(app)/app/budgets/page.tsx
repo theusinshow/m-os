@@ -1,12 +1,13 @@
 import { DashboardCard } from "@/components/dashboard/dashboard-card";
 import { EmptyState } from "@/components/empty-state";
 import { BudgetCard } from "@/components/budgets/budget-card";
+import { BudgetThresholdBand } from "@/components/charts/budget-threshold-band";
 import { BudgetFormDrawer } from "@/components/budgets/budget-form-drawer";
 import { PageHeading } from "@/components/page-heading";
 import { requireUser } from "@/lib/auth/guard";
 import { getBillCategories } from "@/lib/bills";
 import { getCreditCards } from "@/lib/cards";
-import { getBudgetsByMonth } from "@/lib/budgets";
+import { getBudgetEntries, getBudgetsByMonth } from "@/lib/budgets";
 import { formatCurrency } from "@/lib/formatters/currency";
 import { getAppUserBySupabaseId } from "@/lib/months";
 import { getActiveMonthForUser } from "@/lib/active-month";
@@ -43,6 +44,12 @@ export default async function BudgetsPage() {
   }
 
   const budgetList = await getBudgetsByMonth(month.id, appUser.id);
+  // Só o orçamento total ganha gráfico. Um por card multiplicaria a consulta
+  // pelo número de orçamentos e repetiria a mesma forma na tela inteira.
+  const totalBudget = budgetList.find((budget) => budget.budgetType === "total") ?? null;
+  const totalEntries = totalBudget
+    ? await getBudgetEntries(appUser.id, month.id, "total", null, null)
+    : [];
   const overBudgetCount = budgetList.filter((b) => b.isOverBudget).length;
   const warningCount = budgetList.filter((b) => b.isWarning).length;
   const totalLimit = budgetList.reduce((acc, b) => acc + b.limitCents, 0);
@@ -87,6 +94,20 @@ export default async function BudgetsPage() {
               </p>
             </div>
           </div>
+        </DashboardCard>
+      ) : null}
+
+      {totalBudget ? (
+        <DashboardCard
+          description="Gasto acumulado contra o teto, dia a dia."
+          title="O mês contra o limite"
+        >
+          <BudgetThresholdBand
+            items={totalEntries}
+            limitCents={totalBudget.limitCents}
+            month={month.month}
+            year={month.year}
+          />
         </DashboardCard>
       ) : null}
 
