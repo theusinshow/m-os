@@ -179,7 +179,7 @@ Vitest já está configurado (`vitest.config.ts`, `npm test`), com o padrão de 
 | `toCategorySlices` | ordenação, corte em 8, agrupamento em `Outras`, % soma 100 |
 | `toDueDateBuckets` | dia sem vencimento é zero; meses de 28/30/31 dias; intensidade normalizada |
 | `toBudgetBurndown` | acumulado é monotônico; cruzamento do limite no dia certo |
-| `toGoalMatrixPoints` | meta sem prazo é excluída; prazo vencido é `x` negativo |
+| `toGoalMatrix` | meta sem prazo é excluída; prazo vencido é `x` negativo |
 | `toSimulationSeries` | cruzamento do zero; projeção de um mês só |
 | `formatCurrencyCompact` | milhar, milhão, negativo, zero |
 
@@ -219,7 +219,7 @@ lib/budgets.ts                                 §8
 app/(app)/app/dashboard/page.tsx               §6
 app/(app)/app/budgets/page.tsx                 §7.1
 app/(app)/app/goals/page.tsx                   §7.2
-app/(app)/app/simulator/page.tsx               §7.3
+components/simulator/simulation-list.tsx       §7.3
 ```
 
 ---
