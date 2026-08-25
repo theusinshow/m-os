@@ -2518,14 +2518,14 @@ Nenhum teste deste plano desenha um pixel. O ambiente vitest é `node`, sem DOM,
 
 **Files:** nenhum. Esta task não escreve código — ela decide se o que foi escrito fica.
 
-- [ ] **Step 1: Subir o app**
+- [x] **Step 1: Subir o app**
 
 Run: `cd apps/m-finance && npm run dev`
 Abrir `http://localhost:3000/app/dashboard`.
 
 > Se o app não subir por falta de `.env` (Supabase, `DATABASE_URL`), pare e diga isso ao proprietário em vez de contornar. Sem banco, todas as páginas caem no `EmptyState` e nenhum gráfico aparece — a conferência não teria valor.
 
-- [ ] **Step 2: Percorrer as cinco telas**
+- [x] **Step 2: Percorrer as cinco telas**
 
 Em cada uma, conferir três coisas: o gráfico aparece, o vazio aparece quando não há dado, e nada estoura a largura no viewport estreito (375px, pelo devtools).
 
@@ -2535,20 +2535,55 @@ Em cada uma, conferir três coisas: o gráfico aparece, o vazio aparece quando n
 - `/app/goals` — metas em risco
 - `/app/simulator` — projeção dentro de uma simulação salva
 
-- [ ] **Step 3: Conferir a lei de design**
+- [x] **Step 3: Conferir a lei de design**
 
 Abrir o devtools e procurar, no DOM dos gráficos, por `<linearGradient>` e `<radialGradient>`. Não deve haver nenhum. Conferir que nenhuma série anima ao carregar a página (recarregue e olhe).
 
-- [ ] **Step 4: Rodar a suíte inteira e o build**
+- [x] **Step 4: Rodar a suíte inteira e o build**
 
 Run: `cd apps/m-finance && npm test && npm run lint && npm run build`
 Expected: tudo passando, build sem erro.
 
-- [ ] **Step 5: Relatar**
+- [x] **Step 5: Relatar**
 
 Escrever ao proprietário o que foi visto em cada tela, com o que não deu para conferir e por quê. Não afirmar que está pronto sem ter olhado.
 
 ---
+
+---
+
+### Resultado da conferência — 2026-08-24
+
+**Como foi conferido.** Sem `.env`, `/app/*` cai no `/login` pelo `proxy.ts` e
+nenhuma das cinco telas abre. Em vez de conferir os `EmptyState` e chamar isso
+de conferência, a checagem rodou numa rota de bancada temporária fora do matcher
+(`/bench-charts`), com os nove componentes reais, o `globals.css` real e os
+tokens reais, alimentados por dado de fixture; Chromium headless a 1280px, 375px
+e 320px. A rota foi apagada no fim. **O que isso não cobre:** a ligação de cada
+gráfico ao dado que vem do banco — os componentes foram conferidos, as consultas
+das páginas não.
+
+**Steps 2 e 3 — o que apareceu.**
+
+- Os dez gráficos recharts desenham, e os sete vazios aparecem com o texto certo.
+- Nenhum `<linearGradient>`, nenhum `<radialGradient>`, nenhum gradiente CSS.
+- Nenhuma série anima: zero transição e zero animação dentro dos wrappers.
+- Nenhum elemento estoura a largura em 375px — nem o documento, nem os SVGs.
+
+**Dois defeitos encontrados e corrigidos.**
+
+1. `category-breakdown-chart` cortava o rótulo. A margem direita fixa de 96px
+   cabia nos valores da tela de quem escreveu; a 375px o maior rótulo
+   (`R$ 2.450,00 · 36%`) passava 6px do fim do SVG e perdia o `%` — 9px a 320px.
+   A reserva agora sai do rótulo mais largo da série, por
+   `categoryLabelReserve`, com teste.
+2. `goal-priority-matrix` tinha o eixo X ao contrário do que promete. O `reversed`
+   colocava o prazo folgado à esquerda e a meta vencida à direita, enquanto o
+   comentário do código e o texto do card dizem que o canto superior esquerdo é
+   o do risco. Sem `reversed`, a meta vencida volta para o canto que a tela anuncia.
+
+**Step 4.** `npm test` 107 passando em 13 arquivos, `npm run lint` limpo,
+`npx tsc --noEmit` limpo, `npm run build` sem erro.
 
 ## Notas de execução
 

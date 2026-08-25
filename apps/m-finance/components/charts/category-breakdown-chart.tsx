@@ -4,7 +4,11 @@ import { Bar, BarChart, Cell, LabelList, Tooltip, XAxis, YAxis } from "recharts"
 import { CurrencyTooltip } from "@/components/charts/chart-tooltip";
 import { useChartWidth } from "@/components/charts/use-chart-width";
 import { InlineEmpty } from "@/components/ui/inline-empty";
-import { toCategorySlices, type CategorySlice } from "@/lib/calculations/charts/categories";
+import {
+  categoryLabelReserve,
+  toCategorySlices,
+  type CategorySlice,
+} from "@/lib/calculations/charts/categories";
 import { formatCurrency } from "@/lib/formatters/currency";
 import { CHART_CURSOR_FILL, CHART_PALETTE, COLORS } from "@/lib/ui/colors";
 
@@ -19,6 +23,7 @@ export function CategoryBreakdownChart({ data }: { data: CategoryDatum[] }) {
   }
 
   const height = Math.max(120, slices.length * 44);
+  const labelReserve = categoryLabelReserve(slices.map(sliceLabelText));
 
   return (
     <div className="w-full" ref={ref}>
@@ -28,8 +33,10 @@ export function CategoryBreakdownChart({ data }: { data: CategoryDatum[] }) {
           data={slices}
           height={height}
           layout="vertical"
-          // Espaço à direita para o rótulo de valor não ser cortado.
-          margin={{ left: 0, right: 96, top: 4, bottom: 4 }}
+          // Espaço à direita para o rótulo de valor não ser cortado. A reserva
+          // vem do rótulo mais largo da série: um número fixo cabia no valor de
+          // quem escreveu e cortava o `%` a 375px.
+          margin={{ left: 0, right: labelReserve, top: 4, bottom: 4 }}
           width={width}
         >
           <XAxis hide type="number" />
@@ -56,6 +63,17 @@ export function CategoryBreakdownChart({ data }: { data: CategoryDatum[] }) {
       ) : null}
     </div>
   );
+}
+
+/**
+ * O rótulo como texto corrido, para medir.
+ *
+ * `renderSliceLabel` desenha o mesmo conteúdo em dois tons — e um `<tspan>` não
+ * se mede por `length`. As duas funções precisam concordar: mudando o formato
+ * de uma, mudar a outra, ou a reserva volta a cortar o fim da linha.
+ */
+function sliceLabelText(slice: CategorySlice) {
+  return `${formatCurrency(slice.value)} · ${slice.percent}%`;
 }
 
 type SliceLabelProps = {
