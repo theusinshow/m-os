@@ -11,8 +11,36 @@ use tokio::sync::mpsc;
 use crate::{Channels, ConnectionState, HermesError, HermesEvent, Request};
 
 /// O que a ponte entrega para cima. E o que vira evento Tauri.
+///
+/// # Os dois `rename_all` fazem coisas diferentes, e um deles faltava
+///
+/// `rename_all` renomeia as VARIANTES (`Clarify` -> `"clarify"`, que e o valor
+/// da tag `outcome`). Ele nao encosta nos campos DENTRO da variante — e essa
+/// distincao custou a unica pergunta que o Hermes sabe fazer.
+///
+/// `Clarify` carrega `request_id`, o unico campo de duas palavras do enum
+/// inteiro. Ele chegava a tela como `request_id` enquanto o `hermes.ts` lia
+/// `requestId`, entao `event.requestId` era `undefined` e responder devolvia:
+///
+/// ```text
+/// invalid args `requestId` for command `hermes_clarify`:
+/// command hermes_clarify missing required key requestId
+/// ```
+///
+/// **Em silencio**, ate 2026-08-25: a promessa era rejeitada sem `catch`, e a
+/// tela seguia mostrando a pergunta. Do outro lado, o `_block()` do gateway
+/// segurava a thread do agente por 300 s esperando uma resposta que nunca ia
+/// chegar. Quem descobriu foi o caderno de ocorrencias, na primeira hora de
+/// vida dele.
+///
+/// `rename_all_fields`, e nao um `rename` no campo: o proximo campo de duas
+/// palavras nao pode ter que descobrir isto de novo.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(tag = "outcome", rename_all = "snake_case")]
+#[serde(
+    tag = "outcome",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum Outcome {
     /// Texto da resposta, token a token. Nao reagrupar: o servidor desativa o
     /// algoritmo de Nagle de proposito para preservar a cadencia, e
@@ -693,6 +721,45 @@ mod tests {
                 choices: vec!["Minarum".into()],
             }
         );
+    }
+
+    /// O contrato que a TELA le, e nao o enum que o Rust tem.
+    ///
+    /// O teste acima ja existia e passava enquanto a pergunta do Hermes estava
+    /// quebrada: ele compara `Outcome::Clarify` com `Outcome::Clarify`, e nunca
+    /// atravessa a serializacao — que era exatamente onde o bug morava.
+    /// `request_id` saia em snake_case e o `hermes.ts` lia `requestId`.
+    ///
+    /// As chaves aqui sao copiadas do tipo em `apps/desktop/src/hermes.ts`.
+    /// Se alguem mudar um dos dois lados sem o outro, quebra aqui — que e o
+    /// unico lugar onde os dois se encontram.
+    #[test]
+    fn o_clarify_chega_a_tela_em_camel_case() {
+        let json = serde_json::to_value(Outcome::Clarify {
+            request_id: "a1b2".into(),
+            question: "qual projeto?".into(),
+            choices: vec!["Minarum".into()],
+        })
+        .unwrap();
+
+        assert_eq!(json["outcome"], "clarify");
+        assert_eq!(json["requestId"], "a1b2");
+        assert_eq!(json["question"], "qual projeto?");
+        assert!(
+            json.get("request_id").is_none(),
+            "snake_case nao pode sobrar"
+        );
+    }
+
+    /// A tag da variante continua em snake_case.
+    ///
+    /// `rename_all_fields` e `rename_all` sao coisas diferentes, e foi confundir
+    /// as duas que causou o bug. Este teste guarda o lado que JA estava certo,
+    /// para o conserto de um nao quebrar o outro.
+    #[test]
+    fn a_tag_da_variante_continua_em_snake_case() {
+        let json = serde_json::to_value(Outcome::SudoRefused).unwrap();
+        assert_eq!(json["outcome"], "sudo_refused");
     }
 
     #[tokio::test]

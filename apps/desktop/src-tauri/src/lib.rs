@@ -1762,6 +1762,11 @@ pub fn run() {
             Some(vec![AUTOSTART_FLAG]),
         ))
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            diagnostico::escrever(
+                diagnostico::Nivel::Aviso,
+                "abertura",
+                "segunda instancia pediu para revelar a janela.",
+            );
             reveal_window(app, "main");
         }))
         .plugin(tauri_plugin_dialog::init())
@@ -1809,35 +1814,44 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            // A JANELA APARECE AQUI, e antes de tudo o mais.
+            // A decisao de esconder a janela, o mais cedo possivel.
             //
-            // Ate 2026-08-25 era o contrario: `main` nascia visivel no
-            // `tauri.conf.json` e este bloco a ESCONDIA quando a preferencia
-            // pedia. So que esconder depois de mostrar nao e esconder — e
-            // piscar. Quem liga o PC com "iniciar minimizado" via, todo logon,
-            // o M/OS ABRIR E FECHAR SOZINHO: o Windows ja tinha desenhado o
-            // quadro intermediario, com icone na barra de tarefas e tudo.
+            // # A tentativa que falhou, e por que ela nao volta
             //
-            // Agora a janela nasce invisivel e a decisao de mostra-la e
-            // explicita. Duas consequencias que valem o cuidado:
+            // Em 2026-08-25 isto virou o contrario por um dia: `main` passou a
+            // nascer `visible: false` no `tauri.conf.json`, e aqui ela era
+            // MOSTRADA. A ideia era boa no papel — esconder depois de mostrar
+            // nao e esconder, e piscar — e o resultado foi pior que o problema:
+            // **a janela passou a abrir MINIMIZADA**, todas as vezes. Medido,
+            // com o mesmo teste nos dois binarios:
             //
-            // 1. A decisao vem ANTES de qualquer `?`. Se ela viesse depois, um
-            //    `app_data_dir()` que falhasse deixaria o M/OS de pe e
-            //    invisivel — pior que o pisca-pisca que estamos consertando.
-            // 2. Na duvida, MOSTRA. `should_start_hidden` exige as duas
-            //    condicoes; qualquer leitura que nao deu certo cai no ramo
-            //    visivel, porque um app que nao aparece nao tem como pedir
-            //    ajuda.
+            // ```text
+            // build de 24/08 (visible: true):  1196x799  visivel=True   minimizada=False
+            // build de 25/08 (visible: false):  160x28   visivel=True   minimizada=True
+            // ```
+            //
+            // Mostrar uma janela que nunca foi mostrada, de dentro do `setup` —
+            // antes de o laco de eventos existir —, nao termina onde deveria no
+            // Windows. Nao vale gastar mais tentativas nisso: o pisca-pisca que
+            // se queria remover so acontece com `start_minimized` LIGADO, e
+            // abrir minimizada acontecia sempre.
+            //
+            // O que sobrou de util foi a POSICAO: esconder e a primeira coisa
+            // do `setup`, e nao mais depois do updater e do `app_data_dir`.
+            // Quanto menos codigo entre criar e esconder, menor a piscada.
+            //
+            // Na duvida, DEIXA VISIVEL: qualquer leitura que nao deu certo cai
+            // no ramo que nao esconde, porque um app que nao aparece nao tem
+            // como pedir ajuda.
             let nascer_escondido = app
                 .path()
                 .app_data_dir()
                 .ok()
                 .map(|dir| dir.join("settings.json"))
                 .is_some_and(|path| should_start_hidden(&load_settings(&path)));
-            if !nascer_escondido {
+            if nascer_escondido {
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                    let _ = window.hide();
                 }
             }
 
