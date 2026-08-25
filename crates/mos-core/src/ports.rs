@@ -574,6 +574,25 @@ pub trait MeetingRepository: Send + Sync {
     /// escreveu. Mesma regra do `save_reminder`.
     fn save_meeting(&self, meeting: &crate::Meeting) -> Result<crate::Meeting, CoreError>;
 
+    /// Apaga a reuniao e tudo o que so existia por causa dela.
+    ///
+    /// **A excecao da regra acima.** O resto deste trait nunca apaga — arquiva,
+    /// cancela, marca. Apagar de verdade existe porque arquivar nao serve para o
+    /// caso que motivou isto: a reuniao que nunca deveria ter comecado. Uma
+    /// gravacao aberta por engano, um teste de microfone, uma deteccao que
+    /// pegou o filme errado. Arquivar guarda; aqui a pessoa quer que suma.
+    ///
+    /// Devolve o `audio_dir` que a reuniao tinha, e nao `()`, porque quem chama
+    /// PRECISA dele: os bytes no disco nao pertencem ao banco, e depois deste
+    /// commit ninguem mais sabe onde eles estavam. Devolver `()` criaria audio
+    /// orfao ocupando disco para sempre — exatamente o erro que
+    /// `clean_expired_audio` toma o cuidado de nao cometer.
+    ///
+    /// Implementacao obrigada a limpar os DOIS indices FTS antes das linhas de
+    /// vinculo. A migration 0030 existe porque isso foi feito por fora uma vez,
+    /// na ordem errada, e o banco recusou abrir dois dias depois.
+    fn delete_meeting(&self, id: crate::MeetingId) -> Result<String, CoreError>;
+
     /// As reunioes que o processo anterior deixou em captura.
     ///
     /// E a consulta da reconciliacao de abertura (§9.1). Uma linha em

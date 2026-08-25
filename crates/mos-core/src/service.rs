@@ -1527,6 +1527,40 @@ impl MeetingService {
         self.transition(id, crate::MeetingTransition::Cancel)
     }
 
+    /// Apaga a reuniao de vez. Devolve onde o audio dela estava.
+    ///
+    /// # Por que isto existe ao lado de arquivar
+    ///
+    /// `set_lifecycle(Archived)` guarda; isto some. Sao pedidos diferentes, e
+    /// ate 2026-08-25 so o primeiro tinha resposta — a tela de Reunioes oferecia
+    /// arquivar e descartar, e nenhum dos dois faz o que alguem quer dizer com
+    /// "apaga essa reuniao". `cancel` nem sequer se aplica: ele e uma TRANSICAO
+    /// da maquina de estados, valido so em `interrupted`, e uma reuniao pronta
+    /// que a pessoa quer fora nao passa por ali.
+    ///
+    /// O caso real e a reuniao que nunca deveria ter existido: gravacao aberta
+    /// por engano, teste de microfone, deteccao que pegou o filme errado.
+    /// Arquivar uma dessas e guardar lixo com carinho.
+    ///
+    /// # A unica recusa
+    ///
+    /// **Uma gravacao em curso nao se apaga.** Nao por preciosismo: o gravador
+    /// esta com arquivos abertos naquele diretorio neste instante, e apagar a
+    /// linha do banco por baixo dele deixaria a thread de captura escrevendo
+    /// para uma reuniao que nao existe — o `settle_audio` seguinte falharia sem
+    /// ninguem entender por que. Parar primeiro e uma ordem, e nao um estorvo.
+    pub fn delete(&self, id: &str) -> Result<String, CoreError> {
+        let meeting = self.meeting(id)?;
+        if meeting.status.is_capturing() {
+            return Err(CoreError::new(
+                crate::ErrorCode::InvalidTransition,
+                "Pare a gravacao antes de apagar esta reuniao.",
+                false,
+            ));
+        }
+        self.repository.delete_meeting(meeting.id)
+    }
+
     pub fn start_transcription(&self, id: &str) -> Result<crate::Meeting, CoreError> {
         self.transition(id, crate::MeetingTransition::StartTranscription)
     }

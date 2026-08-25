@@ -528,6 +528,48 @@ button {
 
 /* Sem largura minima: o gatilho abraca o conteudo. Esticado ate a largura da
    sidebar ele viraria uma barra de busca, que e outra coisa. */
+/* O bloco da esquerda: voltar, avancar, e a barra de comando.
+   Eles andam juntos porque o `space-between` da `.topbar` distribui FILHOS — um
+   terceiro bloco solto ali jogaria a barra de comando para o meio da barra, e
+   ela mora na esquerda desde sempre. */
+.topbar-historico {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* Quadrado, do tamanho do gatilho de comando ao lado, sem moldura em repouso.
+   Uma borda permanente em dois botoes que ficam desabilitados a maior parte do
+   tempo desenharia duas caixas vazias no canto mais visivel da tela — §14, quiet
+   UI: eles precisam existir sem chamar. */
+.topbar-passo {
+  display: grid;
+  place-items: center;
+  width: var(--height-control-sm);
+  height: var(--height-control-sm);
+  padding: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius);
+  transition: color var(--dur-instant) var(--ease-state),
+    border-color var(--dur-instant) var(--ease-state);
+}
+
+.topbar-passo:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+/* Desabilitado sem sumir: um par de botoes que aparece e some move a barra de
+   comando de lugar a cada navegacao, e memoria espacial e o que a §41 protege.
+   O `cursor: default` e o que distingue "nao da" de "nao respondeu". */
+.topbar-passo:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
 .command-trigger {
   display: flex;
   align-items: center;
@@ -8056,14 +8098,85 @@ input[type="checkbox"]:disabled {
   gap: var(--space-4);
 }
 
+/* O nome e o menu dividem a linha, e o menu fica no fim dela.
+   Ele nao vira botao visivel no cabecalho porque renomear, arquivar e apagar
+   sao acoes de excecao — a §12 pede que o primario da tela seja o conteudo da
+   reuniao, e tres botoes ao lado do titulo competiriam com ele todo dia para
+   servir num dia. */
+.meeting-head-line {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
 .meeting-head h2 {
   margin: 0;
+}
+
+/* O campo ocupa exatamente o lugar do `h2`, com a mesma tipografia: trocar de
+   ler para editar nao pode mover o texto de lugar. */
+.meeting-title-input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-strong);
+  border-radius: 0;
+}
+
+.meeting-head h2,
+.meeting-title-input {
+  font: var(--text-title);
+}
+
+/* O anel de foco global do M/OS continua valendo aqui — §55 pede foco visivel,
+   e um campo que so se distingue por uma linha de 1px abaixo do texto nao e
+   foco visivel para quem navega por teclado. A borda inferior e o SEGUNDO
+   sinal, nao o unico. */
+.meeting-title-input:focus-visible {
+  border-bottom-color: var(--border-strong);
 }
 
 .meeting-head-meta {
   margin: var(--space-1) 0 0;
   font: var(--text-small);
   color: var(--text-secondary);
+}
+
+/* Estreito de proposito. O seletor de Project e um dado curto ao lado de um
+   titulo longo, e esticado ate a largura do inspetor ele leria como o campo
+   principal da tela — que ele nao e. */
+.meeting-head-project {
+  margin-top: var(--space-2);
+  max-width: 32ch;
+}
+
+/* O interruptor das arquivadas vive no topo da lista, discreto: ele muda o que
+   a lista mostra, e nao e uma acao sobre reuniao nenhuma. */
+.meeting-arquivadas {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+/* A borda vermelha e a unica diferenca visual entre este dialogo e os outros, e
+   e o que a §54 pede: apagar precisa PARECER diferente de arquivar antes de
+   alguem ler o texto. */
+.meeting-apagar {
+  border-color: var(--danger, var(--border-strong));
+}
+
+.meeting-apagar header {
+  display: grid;
+  gap: var(--space-1);
 }
 
 /* So aparece quando algo saiu do normal. Uma linha dizendo "funcionou" em toda

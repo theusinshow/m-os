@@ -143,11 +143,38 @@ pub fn meeting_start(
         ));
     }
 
+    // O titulo automatico nasce AQUI, e nao no dominio, porque so aqui existe
+    // fuso.
+    //
+    // `NewMeeting::start` monta "Reuniao de DD/MM HH:MM" a partir do
+    // `started_at`, que e UTC — `mos-core` nao conhece fuso nenhum, e nao deve
+    // conhecer. Uma reuniao gravada as 15h no Brasil nascia chamada "Reuniao de
+    // 25/08 18:00" enquanto a linha ao lado dela, na mesma tela, dizia 15:00.
+    // Dois horarios para o mesmo evento, um deles errado, no primeiro texto que
+    // a pessoa le sobre a reuniao.
+    //
+    // O fallback do dominio continua onde estava: ele e a garantia de que
+    // nenhuma reuniao nasce sem nome. Isto aqui e a versao BOA do mesmo nome,
+    // para o caminho que tem como saber a hora certa.
+    let escolhido = title.trim().to_owned();
+    let titulo = if escolhido.is_empty() {
+        let agora = crate::surface::now_local(&app);
+        format!(
+            "Reuniao de {:02}/{:02} {:02}:{:02}",
+            agora.day(),
+            agora.month() as u8,
+            agora.hour(),
+            agora.minute()
+        )
+    } else {
+        escolhido
+    };
+
     // O dominio cria a linha PRIMEIRO. Se a captura falhar, existe uma reuniao
     // em `recording` que a proxima abertura recupera — e "uma reuniao que nao
     // gravou nada" e um fato visivel, enquanto uma captura sem linha no banco
     // seria audio que ninguem encontraria.
-    let meeting = state.meetings.start(title, project_id)?;
+    let meeting = state.meetings.start(&titulo, project_id)?;
     let root = audio_root(&app, &meeting)?;
 
     // O instante vem de fora: `mos-audio` nao tem relogio, e nao deve ter. E a
@@ -408,6 +435,60 @@ pub fn meeting_discard(
     let root = audio_root(&app, &cancelled)?;
     mos_audio::delete_session_audio(&root).map_err(audio_error)?;
     state.meetings.mark_audio_deleted(id)
+}
+
+/// O usuario escolheu [Apagar]. A reuniao sai do banco e o audio sai do disco.
+///
+/// # A ordem, e a assimetria dela
+///
+/// Banco primeiro, disco depois. O contrario — apagar os bytes e so entao a
+/// linha — deixaria, se a segunda metade falhasse, uma reuniao no banco
+/// prometendo um audio que ja nao existe: a tela ofereceria [Transcrever] num
+/// arquivo vazio.
+///
+/// Nesta ordem a falha possivel e outra e menor: a linha sai, e a pasta fica.
+/// Ninguem ve, ninguem le, e a proxima chamada de `clean_expired_audio` nao a
+/// procura — e por isso que ela e registrada no caderno de ocorrencias em vez de
+/// virar erro na tela. Um "apaguei, mas nao apaguei tudo" que interrompe a
+/// pessoa nao a ajuda a fazer nada diferente.
+///
+/// Isto e o oposto de `meeting_discard`, e a diferenca importa: descartar
+/// preserva a REUNIAO e apaga so o audio, para a memoria do que aconteceu
+/// continuar existindo. Apagar e para o caso em que ela nunca deveria ter
+/// existido.
+#[tauri::command]
+pub fn meeting_delete(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    id: &str,
+) -> Result<(), CoreError> {
+    // Lido ANTES: `audio_root` precisa do `Meeting`, e depois do delete ele nao
+    // existe mais para ser lido.
+    let meeting = state.meetings.meeting(id)?;
+    let raiz = audio_root(&app, &meeting);
+    state.meetings.delete(id)?;
+    match raiz {
+        Ok(caminho) if caminho.exists() => {
+            if let Err(causa) = std::fs::remove_dir_all(&caminho) {
+                crate::diagnostico::escrever(
+                    crate::diagnostico::Nivel::Aviso,
+                    "reuniao",
+                    &format!(
+                        "reuniao apagada do banco, mas o audio ficou em {}: {causa}",
+                        caminho.display()
+                    ),
+                );
+            }
+        }
+        Ok(_) => {}
+        Err(causa) => crate::diagnostico::escrever(
+            crate::diagnostico::Nivel::Aviso,
+            "reuniao",
+            &format!("reuniao apagada sem localizar o audio: {}", causa.message),
+        ),
+    }
+    let _ = app.emit("meeting-deleted", id);
+    Ok(())
 }
 
 #[tauri::command]

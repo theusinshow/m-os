@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { UndoStep } from "./hermes";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
+import type { Ocorrencia } from "./types";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
   VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
@@ -483,6 +484,21 @@ export const api = {
   /** Descarta a gravacao. Apaga o audio DEPOIS de mudar o estado. */
   meetingDiscard(id: string) {
     return invoke<Meeting>("meeting_discard", { id });
+  },
+  /**
+   * Apaga a reuniao inteira: banco e audio, sem volta.
+   *
+   * NAO e o mesmo que `meetingDiscard`, e a diferenca e a que importa na tela:
+   * descartar preserva a REUNIAO e apaga so o audio, para a memoria do que
+   * aconteceu continuar existindo. Isto aqui e para a reuniao que nunca deveria
+   * ter existido — gravacao aberta por engano, teste de microfone, deteccao que
+   * pegou o filme errado.
+   *
+   * Por nao ter volta, ela nao passa pelo recibo do M/OS (ADR-035): quem chama
+   * confirma antes.
+   */
+  meetingDelete(id: string) {
+    return invoke<void>("meeting_delete", { id });
   },
   meetingTranscribe(id: string) {
     return invoke<Meeting>("meeting_transcribe", { id });
@@ -1074,6 +1090,21 @@ export const api = {
   },
   exportJson(path: string) {
     return invoke<BackupReceipt>("export_json", { path });
+  },
+  /**
+   * As ultimas ocorrencias do caderno local.
+   *
+   * Existe para a pessoa nao precisar abrir o `%APPDATA%` a mao quando algo
+   * quebra. Um log que so o desenvolvedor alcanca e um log que so serve depois
+   * que alguem ja perguntou — e as duas falhas que motivaram isto ("abre e
+   * fecha sozinho", "a janelinha aparece com 404") acontecem no logon, longe de
+   * qualquer terminal aberto.
+   */
+  diagnosticoRecente(limite = 40) {
+    return invoke<Ocorrencia[]>("diagnostico_recente", { limite });
+  },
+  diagnosticoCaminho() {
+    return invoke<string>("diagnostico_caminho");
   },
   async checkForUpdate() {
     const update = await check({ timeout: 30_000 });

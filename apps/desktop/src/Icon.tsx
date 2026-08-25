@@ -41,6 +41,8 @@ export type IconName =
   | "archive"
   | "trash"
   | "attention"
+  | "voltar"
+  | "avancar"
   | "academic";
 
 /** Desenho de 20px, contorno. Coordenadas na grade de .5 para o traco de 1.25
@@ -96,6 +98,12 @@ const OUTLINE_20: Record<IconName, ReactNode> = {
   close: <path d="m5 5 10 10M15 5 5 15" />,
   archive: <><path d="M3.5 7.5h13v9h-13z" /><path d="M2.5 3.5h15v4h-15z" /><path d="M8 11h4" /></>,
   trash: <><path d="M5.5 6.5h9l-.7 10h-7.6z" /><path d="M3.5 6.5h13" /><path d="M8 3.5h4l.6 3" /></>,
+  // Seta com haste, e nao chevron sozinho. O chevron e um sinal de "abre" em
+  // toda a interface — nos `details`, no seletor, no acordeao. Reaproveita-lo
+  // para navegar faria o mesmo desenho significar duas coisas, que e o que a
+  // §47 recusa ao pedir icone que comunica em vez de decorar.
+  voltar: <><path d="M16 10H5" /><path d="m9.5 5.5-4.5 4.5 4.5 4.5" /></>,
+  avancar: <><path d="M4 10h11" /><path d="m10.5 5.5 4.5 4.5-4.5 4.5" /></>,
 };
 
 /**

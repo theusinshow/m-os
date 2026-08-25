@@ -1409,3 +1409,20 @@ export type ProviderSubjectFact = {
   situation: string;
   officialGrade: number | null;
 };
+
+/**
+ * Uma linha do caderno de ocorrencias.
+ *
+ * O M/OS grava panico do Rust, erro nao tratado da interface e janela que abriu
+ * sem montar. Ver `src-tauri/src/diagnostico.rs` para o que ele NAO grava —
+ * nada de conteudo do usuario.
+ */
+export type Ocorrencia = {
+  /** RFC 3339, em UTC. */
+  quando: string;
+  /** `FATAL`, `ERRO` ou `AVISO`. */
+  nivel: string;
+  /** Quem registrou: `rust`, `janela`, ou o rotulo da janela que falhou. */
+  origem: string;
+  mensagem: string;
+};

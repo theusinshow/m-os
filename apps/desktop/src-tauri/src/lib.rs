@@ -31,6 +31,7 @@ mod academic_sync;
 mod calendar;
 mod attention;
 mod daily;
+mod diagnostico;
 mod finance;
 mod hermes;
 mod ingest;
@@ -1358,12 +1359,40 @@ fn autostart_enabled<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<bool
     })
 }
 
+/// Liga ou desliga a entrada do M/OS na inicializacao do Windows.
+///
+/// # A recusa de 2026-08-25
+///
+/// **Um build de desenvolvimento nao pode se registrar no logon.**
+///
+/// O `tauri-plugin-autostart` grava no registro o caminho do executavel EM
+/// EXECUCAO. Ligar o interruptor rodando `npm run tauri dev` grava
+/// `target\debug\mos-desktop.exe` — e esse binario carrega o `devUrl`,
+/// `http://localhost:1420`. No logon o Vite nao existe, entao TODA janela do
+/// M/OS abre com a pagina de erro do WebView2 ("Nao consigo chegar a esta
+/// pagina", `ERR_CONNECTION_REFUSED`), inclusive a janelinha do canto que
+/// aparece sobre o AutoCAD.
+///
+/// Aconteceu de verdade, e ficou assim por dias. O que tornou o estrago
+/// silencioso foi a combinacao com `autostart_enabled`, que pergunta ao SISTEMA
+/// se existe a chave: existia. Settings dizia "ligado", com toda razao, sobre um
+/// caminho que nunca poderia funcionar.
+///
+/// Desligar continua valendo em dev — quem esta com o registro envenenado
+/// precisa de um jeito de limpa-lo, e ele e este.
 #[tauri::command]
 fn autostart_set<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     enabled: bool,
 ) -> Result<bool, CoreError> {
     use tauri_plugin_autostart::ManagerExt;
+    if enabled && tauri::is_dev() {
+        return Err(CoreError::new(
+            mos_core::ErrorCode::InvalidTransition,
+            "Este e um build de desenvolvimento: ele so abre com o servidor do Vite de pe.              Registra-lo no logon faria o M/OS abrir numa tela de erro toda vez que voce              ligasse o computador. Ligue a inicializacao pelo M/OS instalado.",
+            false,
+        ));
+    }
     let manager = app.autolaunch();
     let outcome = if enabled { manager.enable() } else { manager.disable() };
     outcome.map_err(|error| {
@@ -1780,18 +1809,50 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            // A JANELA APARECE AQUI, e antes de tudo o mais.
+            //
+            // Ate 2026-08-25 era o contrario: `main` nascia visivel no
+            // `tauri.conf.json` e este bloco a ESCONDIA quando a preferencia
+            // pedia. So que esconder depois de mostrar nao e esconder — e
+            // piscar. Quem liga o PC com "iniciar minimizado" via, todo logon,
+            // o M/OS ABRIR E FECHAR SOZINHO: o Windows ja tinha desenhado o
+            // quadro intermediario, com icone na barra de tarefas e tudo.
+            //
+            // Agora a janela nasce invisivel e a decisao de mostra-la e
+            // explicita. Duas consequencias que valem o cuidado:
+            //
+            // 1. A decisao vem ANTES de qualquer `?`. Se ela viesse depois, um
+            //    `app_data_dir()` que falhasse deixaria o M/OS de pe e
+            //    invisivel — pior que o pisca-pisca que estamos consertando.
+            // 2. Na duvida, MOSTRA. `should_start_hidden` exige as duas
+            //    condicoes; qualquer leitura que nao deu certo cai no ramo
+            //    visivel, porque um app que nao aparece nao tem como pedir
+            //    ajuda.
+            let nascer_escondido = app
+                .path()
+                .app_data_dir()
+                .ok()
+                .map(|dir| dir.join("settings.json"))
+                .is_some_and(|path| should_start_hidden(&load_settings(&path)));
+            if !nascer_escondido {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
             let data_directory = app.path().app_data_dir()?;
             fs::create_dir_all(&data_directory)?;
+            // O caderno de ocorrencias abre antes do banco de proposito: se a
+            // abertura do banco for o que quebra, o panico precisa ter onde
+            // cair. Ver `diagnostico.rs`.
+            diagnostico::instalar(&data_directory);
+            diagnostico::vigiar_janelas(app.handle());
             let settings_path = data_directory.join("settings.json");
             let configured_shortcut = load_shortcut(&settings_path);
             let configured_voice_shortcut = load_voice_shortcut(&settings_path);
-            if should_start_hidden(&load_settings(&settings_path)) {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.hide();
-                }
-            }
             let storage = Arc::new(
                 SqliteStorage::open(
                     data_directory.join("m-os.db"),
@@ -2047,6 +2108,7 @@ pub fn run() {
             meeting::meeting_set_archived,
             meeting::meeting_process_recovered,
             meeting::meeting_discard,
+            meeting::meeting_delete,
             meeting::meeting_interrupted,
             meeting::meeting_open_commitments,
             meeting::meeting_transcribe,
@@ -2288,9 +2350,26 @@ pub fn run() {
             voice::voice_act,
             surface::surface_set_context,
             surface::surface_set_locale,
+            diagnostico::diagnostico_janela_viva,
+            diagnostico::diagnostico_registrar,
+            diagnostico::diagnostico_recente,
+            diagnostico::diagnostico_caminho,
             ]);
             move |invoke| {
-                if invoke.message.webview_ref().try_state::<AppState>().is_none() {
+                // O caderno de ocorrencias atravessa o portao.
+                //
+                // Ele existe justamente para os instantes em que o `AppState`
+                // ainda nao subiu — ou nunca vai subir. Barra-lo aqui seria
+                // apagar a luz exatamente onde esta escuro: a janela que morre
+                // antes do `manage()` e a que mais precisa deixar rastro.
+                //
+                // Seguro porque nenhum comando de `diagnostico.rs` toca banco,
+                // cofre ou estado gerenciado: os quatro leem e escrevem um
+                // arquivo de texto cujo caminho vive num `OnceLock` proprio.
+                let do_diagnostico = invoke.message.command().starts_with("diagnostico_");
+                if !do_diagnostico
+                    && invoke.message.webview_ref().try_state::<AppState>().is_none()
+                {
                     // Erro ESTRUTURADO, e nao string crua. Sem o `retryable`, a
                     // tela nao conseguia separar "cheguei cedo demais" — que
                     // passa sozinho em menos de um segundo — de "o banco

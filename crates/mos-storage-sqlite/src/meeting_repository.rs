@@ -289,6 +289,89 @@ impl MeetingRepository for SqliteStorage {
         self.meeting_by_id(&connection, meeting.id)
     }
 
+    /// Apaga a reuniao inteira, e devolve onde o audio dela estava.
+    ///
+    /// # A ordem nao e preferencia
+    ///
+    /// Os dois FTS5 daqui sao SEM `content=`: eles nao sabem se apagar sozinhos,
+    /// e o unico vinculo entre o texto indexado e a reuniao vive em
+    /// `meeting_search_index` / `meeting_transcript_index`. Essas duas tabelas
+    /// tem `ON DELETE CASCADE` para `meetings` — ou seja, no instante em que a
+    /// linha da reuniao sai, o vinculo evapora e o texto no FTS vira lixo que
+    /// ninguem mais consegue enderecar.
+    ///
+    /// Por isso: **FTS primeiro, indice depois, reuniao por ultimo.** Nao e
+    /// hipotese. A migration 0030 existe porque duas reunioes foram apagadas por
+    /// fora do M/OS (onde `PRAGMA foreign_keys` vem DESLIGADO), e cinquenta
+    /// linhas orfas ficaram no banco ate a migration seguinte recusar abrir o
+    /// app dois dias depois.
+    ///
+    /// Tudo numa transacao. Meia reuniao apagada seria pior que nenhuma: a
+    /// busca acharia um titulo cujo clique nao tem para onde ir.
+    ///
+    /// `meeting_segments`, `meeting_analyses`, `meeting_insights` e
+    /// `meeting_evidence` saem por CASCADE — a cadeia esta declarada na 0020 e
+    /// repeti-la aqui a mao seria uma segunda fonte de verdade sobre a mesma
+    /// coisa.
+    fn delete_meeting(&self, id: MeetingId) -> Result<String, CoreError> {
+        let mut connection = self.connection.lock().map_err(map_lock_error)?;
+        let key = id.to_string();
+        let transacao = connection.transaction().map_err(map_sql_error)?;
+
+        // Lido ANTES de apagar: depois do commit ninguem mais sabe onde os bytes
+        // estavam, e um audio orfao ocupa disco para sempre porque nenhuma
+        // consulta volta a procura-lo.
+        let audio_dir: String = transacao
+            .query_row(
+                "SELECT audio_dir FROM meetings WHERE id = ?1",
+                params![key],
+                |row| row.get(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    CoreError::new(ErrorCode::NotFound, "Esta reuniao nao existe mais.", false)
+                }
+                outro => map_sql_error(outro),
+            })?;
+
+        // 1. O texto dos dois indices de busca, enquanto o vinculo ainda existe.
+        transacao
+            .execute(
+                "DELETE FROM meeting_search WHERE rowid IN                  (SELECT rowid FROM meeting_search_index WHERE meeting_id = ?1)",
+                params![key],
+            )
+            .map_err(map_sql_error)?;
+        transacao
+            .execute(
+                "DELETE FROM meeting_transcript_search WHERE rowid IN                  (SELECT rowid FROM meeting_transcript_index WHERE meeting_id = ?1)",
+                params![key],
+            )
+            .map_err(map_sql_error)?;
+
+        // 2. O vinculo.
+        transacao
+            .execute(
+                "DELETE FROM meeting_search_index WHERE meeting_id = ?1",
+                params![key],
+            )
+            .map_err(map_sql_error)?;
+        transacao
+            .execute(
+                "DELETE FROM meeting_transcript_index WHERE meeting_id = ?1",
+                params![key],
+            )
+            .map_err(map_sql_error)?;
+
+        // 3. A reuniao. O CASCADE da 0020 leva segmentos, analise, itens e
+        //    evidencias junto.
+        transacao
+            .execute("DELETE FROM meetings WHERE id = ?1", params![key])
+            .map_err(map_sql_error)?;
+
+        transacao.commit().map_err(map_sql_error)?;
+        Ok(audio_dir)
+    }
+
     fn capturing_meetings(&self) -> Result<Vec<Meeting>, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         collect_meetings(
@@ -2446,6 +2529,84 @@ mod tests {
         let meeting = start_meeting(&storage, "NexoDoc");
         let error = storage.set_meeting_title(meeting.id, "   ").unwrap_err();
         assert_eq!(error.code, ErrorCode::InvalidInput);
+    }
+
+    /// Apagar leva TUDO, incluindo o que so o FTS enxerga.
+    ///
+    /// Este teste existe por causa da migration 0030: quando duas reunioes foram
+    /// apagadas por fora do M/OS, as tabelas que alguem nomearia sumiram e as
+    /// duas que sao detalhe interno do FTS ficaram — cinquenta linhas orfas que
+    /// so apareceram dois dias depois, trancando a abertura do app. As
+    /// assercoes sobre `meeting_search_index` e `meeting_transcript_index` sao
+    /// o motivo deste teste existir; as outras sao companhia.
+    #[test]
+    fn apagar_a_reuniao_nao_deixa_orfao_em_lugar_nenhum() {
+        let (_dir, storage) = storage();
+        let meeting = start_meeting(&storage, "NexoDoc");
+        let segments = transcribe(&storage, &meeting);
+        storage
+            .replace_analysis(
+                analysis(&meeting),
+                vec![insight(
+                    &meeting,
+                    InsightKind::MyAction,
+                    "Terminar os slides",
+                    vec![MeetingEvidence {
+                        segment_id: segments[0].id,
+                        seq: 0,
+                        char_start: None,
+                        char_end: None,
+                    }],
+                )],
+            )
+            .unwrap();
+
+        // Antes: a reuniao esta nos dois indices de busca.
+        let procura = |query: &str| SearchRequest {
+            query: query.into(),
+            include_archived: true,
+            limit: 20,
+        };
+        assert_eq!(storage.search_meetings(procura("NexoDoc")).unwrap().len(), 1);
+        assert_eq!(
+            storage.search_transcripts(procura("slides")).unwrap().len(),
+            1
+        );
+
+        let audio_dir = storage.delete_meeting(meeting.id).unwrap();
+        // O caminho do audio volta porque so quem chamou pode apagar os bytes.
+        assert!(!audio_dir.is_empty());
+
+        assert_eq!(storage.meeting(meeting.id).unwrap_err().code, ErrorCode::NotFound);
+        assert!(storage.search_meetings(procura("NexoDoc")).unwrap().is_empty());
+        assert!(storage.search_transcripts(procura("slides")).unwrap().is_empty());
+        assert!(storage.transcript(meeting.id).unwrap().is_empty());
+        assert!(storage.analysis(meeting.id).unwrap().is_none());
+        assert!(storage.insights(meeting.id).unwrap().is_empty());
+
+        // O rastro invisivel — o que a 0030 teve de varrer.
+        let connection = storage.connection.lock().unwrap();
+        let contar = |tabela: &str| -> i64 {
+            connection
+                .query_row(
+                    &format!("SELECT count(*) FROM {tabela}"),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(contar("meeting_search_index"), 0);
+        assert_eq!(contar("meeting_transcript_index"), 0);
+        assert_eq!(contar("meeting_search"), 0);
+        assert_eq!(contar("meeting_transcript_search"), 0);
+        assert_eq!(contar("meeting_evidence"), 0);
+    }
+
+    #[test]
+    fn apagar_reuniao_inexistente_devolve_not_found() {
+        let (_dir, storage) = storage();
+        let error = storage.delete_meeting(MeetingId::new()).unwrap_err();
+        assert_eq!(error.code, ErrorCode::NotFound);
     }
 
     #[test]

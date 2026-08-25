@@ -7,7 +7,8 @@ import { CardGravacao } from "./CardGravacao";
 import { formatMeetingClock } from "./RecordingBar";
 import { proximoPasso, rotuloDoEstado } from "./meetingEstado";
 import { EVENTOS_DE_REUNIAO, selecaoAoFocar } from "./meetingsSync";
-import { EmptyState, Inspector, PageHeader, PaneHeader, Panel, StateMessage } from "./Surface";
+import { ActionMenu, EmptyState, Inspector, PageHeader, PaneHeader, Panel, StateMessage } from "./Surface";
+import { Icon } from "./Icon";
 import type {
   Confidence, InsightKind, Meeting, MeetingAnalysis, MeetingInsight,
   Project, TranscriptSegment,
@@ -324,19 +325,30 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
   const [carregandoLista, setCarregandoLista] = useState(true);
   const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
   const [askConsent, setAskConsent] = useState(false);
+  /* A identidade da reuniao — nome, Project, arquivo, existencia.
+     Ate 2026-08-25 o backend sabia fazer as quatro coisas e a tela nao oferecia
+     nenhuma: `meetingSetTitle`, `meetingSetProject` e `meetingSetArchived`
+     existiam em `api.ts` sem um unico chamador. O dominio ate justifica o nome
+     automatico dizendo que "o titulo e editavel depois" — e nao era. */
+  const [renomeando, setRenomeando] = useState(false);
+  const [rascunhoDoTitulo, setRascunhoDoTitulo] = useState("");
+  /** A reuniao que espera confirmacao de exclusao. Nunca `true`: o nome dela
+   *  precisa aparecer no aviso, e um booleano nao carrega nome. */
+  const [apagando, setApagando] = useState<Meeting | null>(null);
+  const [mostrarArquivadas, setMostrarArquivadas] = useState(false);
   const inspector = useRef<HTMLElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
 
   const loadList = useCallback(async () => {
     setCarregandoLista(true);
     try {
-      setMeetings(await api.meetings(false));
+      setMeetings(await api.meetings(mostrarArquivadas));
     } catch (error) {
       setNote(error instanceof Error ? error.message : String(error));
     } finally {
       setCarregandoLista(false);
     }
-  }, []);
+  }, [mostrarArquivadas]);
 
   useEffect(() => { void loadList(); }, [loadList]);
 
@@ -435,6 +447,47 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
     }
   };
 
+  /* Renomear grava no `blur` e no Enter, e nao num botao Salvar: o titulo e um
+     campo so, e um formulario de um campo com botao proprio e cerimonia. Esc
+     desiste — sem isso, comecar a editar por engano nao teria saida que nao
+     fosse gravar. */
+  const gravarTitulo = async () => {
+    if (!chosen) return;
+    const limpo = rascunhoDoTitulo.trim();
+    setRenomeando(false);
+    if (!limpo || limpo === chosen.title) return;
+    await act(() => api.meetingSetTitle(chosen.id, limpo));
+  };
+
+  /* NAO passa pelo `act`.
+     `act` recarrega lista E DETALHE, e o detalhe aqui e o da reuniao que acabou
+     de ser apagada: a leitura devolveria NotFound e a tela pintaria "Nao foi
+     possivel concluir" logo depois de a exclusao ter dado certo. Soltar o
+     `chosenId` antes nao resolve — o `loadDetail` que o `act` chama e o do
+     render anterior, e ele ainda carrega o id antigo na closure.
+
+     Sem recibo, tambem de proposito: o recibo do M/OS **e** o desfazer
+     (ADR-035), e oferecer um que nao desfaz seria a pior das duas opcoes — a
+     promessa de volta sem a volta. A confirmacao veio antes; o que sobra depois
+     e uma linha de estado que some sozinha. */
+  const apagar = async (meeting: Meeting) => {
+    setApagando(null);
+    setNote("");
+    try {
+      await api.meetingDelete(meeting.id);
+      if (chosenId === meeting.id) {
+        setChosenId(null);
+        setNarrowPane("list");
+      }
+      await loadList();
+      setFlash(`“${meeting.title}” foi apagada.`);
+      window.setTimeout(() => setFlash(""), 4000);
+      await refresh();
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const jump = (segmentId: string) => {
     setView("transcript");
     // O salto acontece depois do render da outra view.
@@ -502,6 +555,19 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
       <div className="split-page inspector-page meetings-split">
         <section className="list-pane">
           <PaneHeader segments={["Reuniões"]} meta={`${meetings.length}`} />
+          {/* O interruptor mora na LISTA, e nao em Settings: arquivar acontece
+              aqui, e o unico caminho de volta precisa estar onde a pessoa
+              percebe que a reuniao sumiu. Ate 2026-08-25 nao havia caminho
+              nenhum — `api.meetings(false)` era fixo, e uma reuniao arquivada
+              saia da tela para sempre. */}
+          <label className="meeting-arquivadas">
+            <input
+              type="checkbox"
+              checked={mostrarArquivadas}
+              onChange={(event) => setMostrarArquivadas(event.currentTarget.checked)}
+            />
+            <span className="micro-label">MOSTRAR ARQUIVADAS</span>
+          </label>
           {carregandoLista && meetings.length === 0 ? (
             <div className="meeting-carregando" role="status">
               <span className="processing-trilha" data-indeterminado>
@@ -551,13 +617,78 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
           ) : (
             <div className="meeting-detail">
               <header className="meeting-head">
-                <h2>{chosen.title}</h2>
+                <div className="meeting-head-line">
+                  {renomeando ? (
+                    <input
+                      className="meeting-title-input"
+                      aria-label="Nome da reunião"
+                      autoFocus
+                      value={rascunhoDoTitulo}
+                      onChange={(event) => setRascunhoDoTitulo(event.currentTarget.value)}
+                      onBlur={() => void gravarTitulo()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") { event.preventDefault(); void gravarTitulo(); }
+                        if (event.key === "Escape") { event.preventDefault(); setRenomeando(false); }
+                      }}
+                    />
+                  ) : (
+                    <h2>{chosen.title}</h2>
+                  )}
+                  <ActionMenu
+                    trigger={<Icon name="more" />}
+                    label="Ações da reunião"
+                    items={[
+                      {
+                        label: "Renomear",
+                        onSelect: () => { setRascunhoDoTitulo(chosen.title); setRenomeando(true); },
+                      },
+                      {
+                        label: chosen.lifecycleState === "archived" ? "Desarquivar" : "Arquivar",
+                        onSelect: () => void act(
+                          () => api.meetingSetArchived(chosen.id, chosen.lifecycleState !== "archived"),
+                          chosen.lifecycleState === "archived" ? "Reunião desarquivada" : "Reunião arquivada",
+                        ),
+                      },
+                      {
+                        label: "Apagar reunião",
+                        danger: true,
+                        // Uma gravação em curso não se apaga: o gravador está com
+                        // arquivos abertos naquele diretório neste instante. O
+                        // backend recusa; desabilitar aqui evita ensinar que o
+                        // item às vezes não faz nada (§23).
+                        disabled: chosen.status === "recording" || chosen.status === "paused" || chosen.status === "stopping",
+                        onSelect: () => setApagando(chosen),
+                      },
+                    ]}
+                  />
+                </div>
                 <p className="meeting-head-meta">
                   {new Date(chosen.startedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
                   {" · "}{hourOf(chosen.startedAt)}
                   {" · "}{durationLabel(chosen.durationMs)}
-                  {chosen.projectId ? ` · ${projects.find((p) => p.id === chosen.projectId)?.name ?? "Project"}` : ""}
+                  {chosen.lifecycleState === "archived" ? " · arquivada" : ""}
                 </p>
+                {/* O Project vive numa linha propria e SEMPRE visivel, mesmo sem
+                    vinculo. Escondido quando vazio, ele so seria descoberto por
+                    quem ja soubesse que existe — e uma reuniao sem Project e
+                    justamente a que precisa do seletor. */}
+                <label className="meeting-field meeting-head-project">
+                  <span className="micro-label">PROJECT</span>
+                  <select
+                    value={chosen.projectId ?? ""}
+                    onChange={(event) => {
+                      const escolhido = event.currentTarget.value;
+                      void act(() => api.meetingSetProject(chosen.id, escolhido || null));
+                    }}
+                  >
+                    <option value="">Sem Project</option>
+                    {projects
+                      .filter((project) => project.lifecycleState === "active" || project.id === chosen.projectId)
+                      .map((project) => (
+                        <option key={project.id} value={project.id}>{project.name}</option>
+                      ))}
+                  </select>
+                </label>
                 <ChannelHealth meeting={chosen} />
                 {/* O que FALTA, e nao so onde a coisa esta. Em 20/08 a tela
                     dizia "gravada" e era verdade — mas quem leu entendeu que
@@ -719,6 +850,39 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
           close={() => setAskConsent(false)}
           granted={() => { setAskConsent(false); void start(); }}
         />
+      ) : null}
+
+      {apagando ? (
+        /* O padrao de exclusao definitiva do M/OS, o mesmo de Settings: rotulo
+           que nomeia a gravidade, o nome do que vai sumir, o que exatamente se
+           perde, e o unico caminho de volta que ainda existe. §54 pede que
+           apagar pareca diferente de arquivar — as duas saidas ficam lado a
+           lado no menu, e so uma abre isto. */
+        <div className="meeting-scrim" onClick={() => setApagando(null)}>
+          <div
+            className="meeting-dialog meeting-apagar"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="apagar-reuniao"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <span className="micro-label">EXCLUSÃO DEFINITIVA</span>
+              <h2 id="apagar-reuniao">Apagar “{apagando.title}”?</h2>
+            </header>
+            <p>
+              Isto apaga a reunião, a transcrição, a análise e o áudio do disco. Não há
+              Desfazer: o único caminho de volta é restaurar um backup anterior a esta ação.
+            </p>
+            <p className="support-copy">
+              Para guardar sem que ela apareça na lista, use <b>Arquivar</b>.
+            </p>
+            <footer className="form-actions">
+              <Button variant="ghost" onClick={() => setApagando(null)}>Cancelar</Button>
+              <Button variant="danger" onClick={() => void apagar(apagando)}>Apagar</Button>
+            </footer>
+          </div>
+        </div>
       ) : null}
 
       {accepting ? (
