@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import type { UndoStep } from "./hermes";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -1106,6 +1107,18 @@ export const api = {
   diagnosticoCaminho() {
     return invoke<string>("diagnostico_caminho");
   },
+  /**
+   * A versao que esta instalada agora.
+   *
+   * Existe separada do `checkForUpdate` porque o `check()` devolve `null`
+   * quando o app ja esta em dia — e junto com o `null` ia embora o
+   * `currentVersion`, que era a unica fonte de "em que versao eu estou". O
+   * resultado era um painel que, no caso MAIS comum, nao sabia responder a
+   * pergunta mais basica dele.
+   */
+  appVersion() {
+    return getVersion();
+  },
   async checkForUpdate() {
     const update = await check({ timeout: 30_000 });
     pendingUpdate = update;
@@ -1117,6 +1130,19 @@ export const api = {
       body: update.body ?? "",
     } satisfies UpdateInfo;
   },
+  /**
+   * Baixa, instala e reinicia.
+   *
+   * O retorno distingue os dois finais possiveis, e a distincao importa: o
+   * `relaunch` podia falhar DEPOIS de a atualizacao ja estar instalada, e o
+   * `catch` de quem chama traduzia isso para "erro" — a tela dizia que a
+   * atualizacao falhou quando ela tinha dado certo, e o proximo clique
+   * esbarrava em "nenhuma atualizacao pendente". Instalado sem reiniciar nao e
+   * um erro, e um passo que sobrou para o usuario.
+   *
+   * No Windows o instalador encerra o M/OS, entao o caminho comum e nem
+   * retornar.
+   */
   async installUpdate(onProgress: (progress: UpdateProgress) => void) {
     if (!pendingUpdate) throw new Error("Nenhuma atualizacao pendente.");
     let downloaded = 0;
@@ -1131,7 +1157,12 @@ export const api = {
       onProgress({ downloaded, total });
     });
     pendingUpdate = null;
-    await relaunch();
+    try {
+      await relaunch();
+      return "reiniciando" as const;
+    } catch {
+      return "instalada" as const;
+    }
   },
 };
 
