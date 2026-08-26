@@ -62,6 +62,14 @@ pub struct Rodada {
     pub recebidas: usize,
     pub conflitos: usize,
     pub pendentes: usize,
+    /// O outro lado ainda tem mais depois deste lote.
+    ///
+    /// Vem do `Lote`, e nao de `recebidas == limite`. O atalho erra justamente
+    /// quando o lote acaba exato: quem chama pediria mais uma rodada para
+    /// receber vazio — e no celular uma ida a toa e radio ligado a toa. Quem
+    /// esvazia a fila em varias rodadas precisa desta resposta para saber
+    /// quando parar.
+    pub tem_mais: bool,
     /// Preenchido quando a rodada parou por erro. O que ja foi feito ate ali
     /// permanece feito — sincronizacao parcial e melhor que nenhuma.
     pub erro: Option<String>,
@@ -136,6 +144,7 @@ pub fn sincronizar(
         match transporte.pull(CONTRACT_VERSION, &cursor, limite) {
             Ok(lote) => {
                 rodada.recebidas = lote.ops.len();
+                rodada.tem_mais = lote.tem_mais;
 
                 // Agrupa por entidade: reconciliar uma entidade de cada vez e o
                 // que permite gravar estado e conflito juntos, sem meio-termo.

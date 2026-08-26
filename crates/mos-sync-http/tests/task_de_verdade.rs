@@ -62,9 +62,17 @@ impl Aparelho {
     /// que estava tudo bem. Um teste que constroi o proprio caminho testa o
     /// caminho que ele construiu.
     fn sincronizar(&mut self, transporte: &HttpTransport) -> mos_sync::Rodada {
+        self.sincronizar_com_limite(transporte, 100)
+    }
+
+    fn sincronizar_com_limite(
+        &mut self,
+        transporte: &HttpTransport,
+        limite: usize,
+    ) -> mos_sync::Rodada {
         self.hora += 10;
         self.storage
-            .sincronizar_agora(transporte, self.hora, 100)
+            .sincronizar_agora(transporte, self.hora, limite)
             .unwrap()
     }
 }
@@ -333,6 +341,51 @@ async fn o_vinculo_atravessa_e_o_ultimo_gesto_vence() {
                 "{quem}: religar tinha que terminar ligado — o ultimo gesto vence"
             );
         }
+    })
+    .await
+    .unwrap();
+}
+
+/// Um clique esvazia a fila, e nao manda so um lote.
+///
+/// O botao diz "sincronizar". Uma passada do motor empurra UM lote e puxa UM
+/// lote — com 370 na fila e limite 100, um clique deixava 270 para tras e a tela
+/// mostrava o numero certo com a impressao errada: parecia que tinha acabado.
+///
+/// O limite aqui e 3 de proposito, para o laco precisar de varias passadas com
+/// poucas entidades. O que se prova nao e o numero, e o fim: fila zerada de um
+/// lado, tudo materializado do outro.
+#[tokio::test(flavor = "multi_thread")]
+async fn um_clique_esvazia_a_fila_inteira() {
+    use mos_core::{NewTask, WorkRepository};
+
+    let endereco = servir().await;
+
+    tokio::task::spawn_blocking(move || {
+        let rede = HttpTransport::novo(format!("http://{endereco}"), TOKEN).unwrap();
+        let mut pc = Aparelho::novo("PC");
+        let mut outro = Aparelho::novo("Outro");
+
+        for i in 0..10 {
+            let tarefa = NewTask::create(&format!("Tarefa {i}"), "", None).unwrap();
+            pc.storage.create_task(tarefa).unwrap();
+        }
+        assert_eq!(
+            pc.storage.quantidade_pendente().unwrap(),
+            10,
+            "as dez operacoes entraram na fila"
+        );
+
+        let subida = pc.sincronizar_com_limite(&rede, 3);
+        assert!(subida.erro.is_none(), "subida falhou: {:?}", subida.erro);
+        assert_eq!(subida.enviadas, 10, "o clique mandou tudo, e nao um lote");
+        assert_eq!(subida.pendentes, 0, "a fila ficou vazia");
+
+        let descida = outro.sincronizar_com_limite(&rede, 3);
+        assert!(descida.erro.is_none(), "descida falhou: {:?}", descida.erro);
+        assert_eq!(descida.recebidas, 10, "o clique trouxe tudo");
+        assert!(!descida.tem_mais, "e sabe que acabou");
+        assert_eq!(outro.storage.tasks(false).unwrap().len(), 10);
     })
     .await
     .unwrap();

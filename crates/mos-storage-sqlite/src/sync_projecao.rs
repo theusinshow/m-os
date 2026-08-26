@@ -250,6 +250,15 @@ fn juncao_de(kind: &str) -> Option<(&'static str, &'static str, &'static str)> {
     }
 }
 
+/// Quantas passadas do motor uma rodada faz, no maximo.
+///
+/// Teto e nao promessa: com limite de 100 por passada, isto cobre dez mil
+/// operacoes num clique — mais do que qualquer fila real deste M/OS. Ele existe
+/// para o laco ter fim mesmo se o outro lado passar a responder algo que o
+/// motor nao consegue drenar, e nesse caso a rodada DIZ que parou pelo teto em
+/// vez de fingir que terminou.
+const MAX_PASSADAS: usize = 100;
+
 fn falha(causa: CoreError) -> SyncError {
     SyncError::novo(causa.message, causa.retryable)
 }
@@ -721,14 +730,58 @@ impl SqliteStorage {
             relogio: self,
             dispositivos: self,
         };
-        let mut rodada = mos_sync::sincronizar(
-            &deposito,
-            transporte,
-            relogio,
-            &mut projecao,
-            agora_ms,
-            limite,
-        );
+
+        // O botao diz "sincronizar", entao ele sincroniza — e nao "manda ate
+        // cem".
+        //
+        // Uma passada do motor empurra um lote e puxa um lote. Com 370 na fila e
+        // limite 100, um clique deixava 270 para tras e a tela mostrava o numero
+        // certo com a impressao errada: parecia que tinha acabado. Quem sabe se
+        // acabou e o proprio motor — `pendentes` de um lado, `tem_mais` do
+        // outro.
+        let mut rodada = mos_sync::Rodada::default();
+        let mut passadas = 0;
+        loop {
+            let passada = mos_sync::sincronizar(
+                &deposito,
+                transporte,
+                relogio,
+                &mut projecao,
+                agora_ms,
+                limite,
+            );
+            passadas += 1;
+            rodada.enviadas += passada.enviadas;
+            rodada.recebidas += passada.recebidas;
+            rodada.conflitos += passada.conflitos;
+            rodada.pendentes = passada.pendentes;
+            rodada.tem_mais = passada.tem_mais;
+
+            if passada.erro.is_some() {
+                // O que ja subiu e desceu nas passadas anteriores permanece
+                // feito. Continuar depois de um erro seria bater na mesma
+                // parede com a mesma pedra.
+                rodada.erro = passada.erro;
+                break;
+            }
+            if passada.pendentes == 0 && !passada.tem_mais {
+                break;
+            }
+            // Nada saiu e nada entrou, mas ainda ha o que fazer: insistir
+            // repetiria a mesma passada para sempre. Acontece quando a fila tem
+            // uma operacao que o outro lado nao aceita.
+            if passada.enviadas == 0 && passada.recebidas == 0 {
+                break;
+            }
+            if passadas >= MAX_PASSADAS {
+                rodada.erro = Some(format!(
+                    "Parei em {MAX_PASSADAS} passadas com {} ainda na fila. \
+                     Sincronize de novo.",
+                    passada.pendentes
+                ));
+                break;
+            }
+        }
 
         // O que nao virou linha por dependencia ainda ausente, agora vira.
         //
