@@ -15,6 +15,24 @@ export type Payable = {
   status: PayableStatus;
 };
 
+/**
+ * A identidade de um pagável na lista.
+ *
+ * Mora AQUI, e não no componente da lista, porque os dois lados da fronteira
+ * precisam dela: o servidor monta o mapa de formulários de edição chaveado por
+ * ela, e o cliente usa a mesma chave para casar a linha com o formulário.
+ *
+ * Ela nasceu dentro de `payable-list.tsx`, que é `"use client"`, e o servidor a
+ * importava de lá. Tudo que sai de um módulo `"use client"` chega ao Server
+ * Component como REFERÊNCIA de cliente, não como função — chamar lança no
+ * render. E o defeito era invisível na maior parte do tempo: a chamada acontece
+ * dentro de `bills.map`, então um mês sem contas renderizava normalmente e um
+ * mês com uma conta derrubava a página inteira.
+ */
+export function payableKey(item: Pick<Payable, "id" | "type">) {
+  return `${item.type}:${item.id}`;
+}
+
 export type PayableGroupKey = "overdue" | "today" | "week" | "later";
 
 export type PayableGroup<T extends Payable> = {

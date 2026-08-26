@@ -7,13 +7,13 @@ import { QuickAddExpense } from "@/components/bills/quick-add-expense";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { DashboardCard } from "@/components/dashboard/dashboard-card";
 import { FormSubmitButton } from "@/components/form-submit-button";
-import { PayableList, payableKey, type PayableItem } from "@/components/payable/payable-list";
+import { PayableList, type PayableItem } from "@/components/payable/payable-list";
 import { ToastForm } from "@/components/toast-form";
 import { ValidatedForm, ValidatedInput, ValidatedSelect } from "@/components/ui/validated-form";
 import { formatShortDate } from "@/lib/formatters/date";
 import { dayFromIsoDate } from "@/lib/due-date";
 import { centsToInput } from "@/lib/money";
-import { payableProgress } from "@/lib/payables";
+import { payableKey, payableProgress } from "@/lib/payables";
 
 type Category = {
   id: string;

@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { groupPayables, payableProgress, type Payable } from "@/lib/payables";
+import { groupPayables, payableKey, payableProgress, type Payable } from "@/lib/payables";
 
 const today = new Date(2026, 7, 20); // 20 de agosto de 2026
 
@@ -113,5 +115,45 @@ describe("payableProgress", () => {
       paidCents: 0,
       remainingCents: 0,
     });
+  });
+});
+
+describe("payableKey", () => {
+  it("distingue conta de fatura com o mesmo id", () => {
+    expect(payableKey({ id: "abc", type: "bill" })).toBe("bill:abc");
+    expect(payableKey({ id: "abc", type: "invoice" })).toBe("invoice:abc");
+  });
+});
+
+/*
+ * A regressão que este bloco tranca.
+ *
+ * `payableKey` morava em `components/payable/payable-list.tsx`, que é
+ * `"use client"`, e o Server Component das Contas a importava de lá. Do outro
+ * lado da fronteira, um export de módulo cliente chega como REFERÊNCIA — chamar
+ * lança no render. A página de Contas caía inteira, mas só nos meses com pelo
+ * menos uma conta: a chamada vive dentro de `bills.map`, então um mês vazio
+ * renderizava normal e escondia o defeito.
+ *
+ * O teste olha o texto do arquivo porque é a única camada que enxerga a
+ * fronteira: `vitest` roda tudo no mesmo processo Node, sem cliente e sem
+ * servidor, e por isso NUNCA reproduziria o erro chamando a função.
+ */
+describe("fronteira servidor/cliente", () => {
+  const read = (relativo: string) =>
+    readFileSync(fileURLToPath(new URL(relativo, import.meta.url)), "utf8");
+
+  it("mantem payableKey fora do modulo 'use client'", () => {
+    const lista = read("../components/payable/payable-list.tsx");
+    expect(lista).toContain('"use client"');
+    expect(lista).not.toMatch(/export\s+function\s+payableKey/);
+  });
+
+  it("faz o Server Component das Contas importar payableKey da lib", () => {
+    const card = read("../components/bills/bill-form-card.tsx");
+    expect(card).toMatch(/import\s*\{[^}]*payableKey[^}]*\}\s*from\s*"@\/lib\/payables"/);
+    expect(card).not.toMatch(
+      /import\s*\{[^}]*payableKey[^}]*\}\s*from\s*"@\/components\/payable\/payable-list"/,
+    );
   });
 });

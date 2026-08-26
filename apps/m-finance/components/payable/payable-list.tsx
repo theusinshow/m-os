@@ -10,7 +10,13 @@ import { InlineEmpty } from "@/components/ui/inline-empty";
 import { StatusBadge } from "@/components/status-badge";
 import { useToast } from "@/components/ui/toast";
 import { formatCurrency } from "@/lib/formatters/currency";
-import { groupPayables, payableProgress, type Payable, type PayableStatus } from "@/lib/payables";
+import {
+  groupPayables,
+  payableKey,
+  payableProgress,
+  type Payable,
+  type PayableStatus,
+} from "@/lib/payables";
 import { cn } from "@/lib/utils";
 
 export type PayableItem = Payable & {
@@ -18,9 +24,10 @@ export type PayableItem = Payable & {
   detail: string;
 };
 
-export function payableKey(item: Pick<Payable, "id" | "type">) {
-  return `${item.type}:${item.id}`;
-}
+/* `payableKey` vive em `@/lib/payables`, e não é reexportada daqui de
+   propósito: reexportar devolveria ao servidor o mesmo caminho de import que
+   quebrou a página de Contas — de um módulo `"use client"`, o que chega do
+   outro lado é uma referência, não a função. */
 
 export function PayableList({
   items,
