@@ -1,0 +1,74 @@
+# O binario do hub, para Linux.
+#
+# Por que no CI e nao na VPS: compilar la exigiria Rust instalado num servidor
+# que so precisa EXECUTAR o hub, e uma toolchain a mais e uma superficie a mais
+# num lugar exposto. Aqui sai um executavel unico, sem dependencia de runtime —
+# o `rusqlite` entra com `bundled-full`, entao nem SQLite o servidor precisa ter.
+#
+# `musl` e nao `gnu`: o binario `gnu` amarra o `glibc` da imagem do runner, e uma
+# VPS com glibc mais antigo recusa a executa-lo com um erro que nao explica nada.
+# O estatico roda em qualquer Linux x86_64.
+
+name: Sync server
+
+# Sem gatilho por tag: o binario do hub nao acompanha a versao do app. Quem o
+# quer, pede — e o `paths` garante que ele seja reconstruido quando o codigo
+# dele muda, sem gastar runner nas outras mudancas do monorepo.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - "crates/mos-sync-server/**"
+      - "crates/mos-sync/**"
+      - ".github/workflows/sync-server.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Linux x86_64 (musl)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@v2
+
+      # O `bundled-full` do rusqlite compila o SQLite junto, e para o alvo musl
+      # isso precisa do compilador C correspondente.
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Test
+        run: cargo test -p mos-sync-server --locked
+
+      - name: Build
+        run: cargo build -p mos-sync-server --release --locked --target x86_64-unknown-linux-musl
+
+      # Prova que o binario e mesmo estatico. Sem isto, uma mudanca de
+      # dependencia poderia reintroduzir o vinculo dinamico em silencio, e o
+      # defeito so apareceria na VPS.
+      - name: Verify it is static
+        run: |
+          arquivo="target/x86_64-unknown-linux-musl/release/mos-sync-server"
+          file "$arquivo"
+          if ldd "$arquivo" 2>&1 | grep -qv "not a dynamic executable"; then
+            echo "O binario ficou dinamico — ele precisa rodar numa VPS qualquer."
+            ldd "$arquivo"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mos-sync-server-linux-x86_64
+          path: target/x86_64-unknown-linux-musl/release/mos-sync-server
+          if-no-files-found: error

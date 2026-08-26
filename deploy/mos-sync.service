@@ -1,0 +1,51 @@
+# O hub de sincronizacao do M/OS, como servico da VPS.
+#
+# Instalar em /etc/systemd/system/mos-sync.service.
+#
+# O segredo NAO fica aqui. Um `Environment=MOS_SYNC_TOKEN=...` nesta unidade
+# apareceria em `systemctl show`, no journal e em qualquer backup de /etc — o
+# arquivo de ambiente fica em /etc/mos-sync.env com modo 600.
+
+[Unit]
+Description=M/OS sync hub
+Documentation=https://github.com/theusinshow/m-os/blob/master/docs/SYNC.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mos-sync
+Group=mos-sync
+EnvironmentFile=/etc/mos-sync.env
+ExecStart=/usr/local/bin/mos-sync-server
+WorkingDirectory=/var/lib/mos-sync
+
+Restart=always
+RestartSec=3
+
+# O hub NAO abre porta publica por padrao, e este arquivo mantem a decisao:
+# `MOS_SYNC_BIND` fica em 127.0.0.1 no env, e quem chega vem pelo tunel SSH —
+# o mesmo caminho que o Hermes ja usa. Expor pede TLS e uma decisao consciente,
+# nao um descuido de configuracao.
+
+# --- Contencao -------------------------------------------------------------
+# O hub le e escreve UM arquivo e escuta UMA porta. Tudo alem disso e superficie
+# que ele nao precisa, e num servico exposto a rede o que ele nao precisa e o
+# que pode ser usado contra ele.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+# O unico lugar onde ele pode escrever: o banco do log de operacoes.
+ReadWritePaths=/var/lib/mos-sync
+
+[Install]
+WantedBy=multi-user.target
