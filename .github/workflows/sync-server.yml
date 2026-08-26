@@ -57,15 +57,22 @@ jobs:
       # Prova que o binario e mesmo estatico. Sem isto, uma mudanca de
       # dependencia poderia reintroduzir o vinculo dinamico em silencio, e o
       # defeito so apareceria na VPS.
+      # A pergunta certa e "ele depende de alguma biblioteca?", e nao "o ldd
+      # disse a frase que eu esperava". A primeira versao procurava
+      # "not a dynamic executable" e reprovava um binario perfeitamente
+      # estatico, porque o ldd moderno responde "statically linked" para um
+      # `static-pie`. Uma linha com `=>` e uma dependencia de verdade; e isso, e
+      # so isso, que impede o binario de rodar numa VPS qualquer.
       - name: Verify it is static
         run: |
           arquivo="target/x86_64-unknown-linux-musl/release/mos-sync-server"
           file "$arquivo"
-          if ldd "$arquivo" 2>&1 | grep -qv "not a dynamic executable"; then
-            echo "O binario ficou dinamico — ele precisa rodar numa VPS qualquer."
+          if ldd "$arquivo" 2>&1 | grep -q '=>'; then
+            echo "O binario depende de bibliotecas do sistema:"
             ldd "$arquivo"
             exit 1
           fi
+          echo "Sem dependencias dinamicas."
 
       - uses: actions/upload-artifact@v4
         with:
