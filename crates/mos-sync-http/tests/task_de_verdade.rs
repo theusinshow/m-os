@@ -13,10 +13,8 @@
 use std::net::SocketAddr;
 
 use mos_core::{NewTask, WorkRepository};
-use mos_storage_sqlite::{ProjecaoSqlite, SqliteStorage};
-use mos_sync::{
-    carregar_relogio, sincronizar, Deposito, DeviceRepository, HlcClock, OutboxRepository,
-};
+use mos_storage_sqlite::SqliteStorage;
+use mos_sync::{DeviceRepository, OutboxRepository};
 use mos_sync_http::HttpTransport;
 use mos_sync_server::{Estado, Hub};
 
@@ -36,7 +34,6 @@ async fn servir() -> SocketAddr {
 struct Aparelho {
     _dir: tempfile::TempDir,
     storage: SqliteStorage,
-    relogio: HlcClock,
     hora: i64,
 }
 
@@ -50,32 +47,25 @@ impl Aparelho {
         // Sem isto o M/OS funciona igual e nao emite nada — a sincronizacao e
         // uma camada por cima, e nao um requisito para o sistema existir.
         storage.habilitar_sync(device.id).unwrap();
-        let relogio = carregar_relogio(&storage, device.id).unwrap();
         Self {
             _dir: dir,
             storage,
-            relogio,
             hora: 1_000,
         }
     }
 
+    /// A MESMA porta que o app usa.
+    ///
+    /// Montar o `Deposito` e a `Projecao` a mao aqui foi um erro real: o teste
+    /// passava por um caminho que o M/OS nao usa, e por isso nao exercitava a
+    /// retentativa de materializacao — a prova ficava invisivel e o teste dizia
+    /// que estava tudo bem. Um teste que constroi o proprio caminho testa o
+    /// caminho que ele construiu.
     fn sincronizar(&mut self, transporte: &HttpTransport) -> mos_sync::Rodada {
         self.hora += 10;
-        let mut projecao = ProjecaoSqlite::nova(&self.storage);
-        let deposito = Deposito {
-            outbox: &self.storage,
-            conflitos: &self.storage,
-            relogio: &self.storage,
-            dispositivos: &self.storage,
-        };
-        sincronizar(
-            &deposito,
-            transporte,
-            &mut self.relogio,
-            &mut projecao,
-            self.hora,
-            100,
-        )
+        self.storage
+            .sincronizar_agora(transporte, self.hora, 100)
+            .unwrap()
     }
 }
 
@@ -164,6 +154,108 @@ async fn mover_num_aparelho_e_renomear_no_outro_convivem() {
                 "{quem} perdeu o movimento no Kanban"
             );
         }
+    })
+    .await
+    .unwrap();
+}
+
+/// Os outros tipos, e nao so Task.
+///
+/// Cada um destes cobre uma armadilha diferente:
+///
+/// - **Capture** tem `CHECK (length(trim(content)) > 0)`. Um provisorio vazio
+///   faria o `INSERT` ser recusado, e a Capture sumiria em vez de aparecer
+///   incompleta.
+/// - **Resource** e o unico que chega com `url` e `kind` decididos pelo
+///   dominio, e nao digitados.
+/// - **Prova** tem colunas NUMERICAS (`weight`, `score`, `max_score`) numa
+///   tabela `STRICT`. Mandar `"5"` como texto para uma coluna `REAL` nao
+///   arredonda: derruba a rodada inteira.
+#[tokio::test(flavor = "multi_thread")]
+async fn capture_resource_e_prova_atravessam_inteiros() {
+    use mos_core::{
+        AcademicRepository, CaptureRepository, CaptureSource, LifecycleState, NewCapture, NewExam,
+        NewResource, NewSemester, NewSubject, ResourceKind, ResourceRepository,
+    };
+
+    let endereco = servir().await;
+
+    tokio::task::spawn_blocking(move || {
+        let rede = HttpTransport::novo(format!("http://{endereco}"), TOKEN).unwrap();
+        let mut pc = Aparelho::novo("PC");
+        let mut outro = Aparelho::novo("Outro");
+
+        // ---- Capture
+        let captura = NewCapture::create("tirar isso da cabeca", CaptureSource::Home).unwrap();
+        let captura_id = captura.id;
+        CaptureRepository::create(&pc.storage, captura).unwrap();
+
+        // ---- Resource
+        let recurso = NewResource::create(
+            ResourceKind::Site,
+            "Referencia de Web Design",
+            "https://example.com/ref",
+            "guardar para o Escadas Minarum",
+            None,
+        )
+        .unwrap();
+        let recurso_id = recurso.id;
+        pc.storage.create_resource(recurso).unwrap();
+
+        // ---- Prova, com os numeros
+        let semestre =
+            NewSemester::create("2026B2", "UNINTER", "2026-07-01", "2026-08-31").unwrap();
+        let semestre_id = semestre.id;
+        pc.storage.create_semester(semestre).unwrap();
+        let disciplina =
+            NewSubject::create(semestre_id, "Estatica dos Corpos", "906216", "", "", "").unwrap();
+        let disciplina_id = disciplina.id;
+        pc.storage.create_subject(disciplina).unwrap();
+        let prova = NewExam::create(
+            disciplina_id,
+            "Prova 2",
+            time::OffsetDateTime::now_utc(),
+            "Sala 3",
+            "treliças, cortante",
+            2.5,
+            Some(9.5),
+            Some(10.0),
+        )
+        .unwrap();
+        let prova_id = prova.id;
+        pc.storage.create_exam(prova).unwrap();
+
+        // Uma rodada leva tudo; outra traz tudo.
+        let subida = pc.sincronizar(&rede);
+        assert!(subida.erro.is_none(), "subida falhou: {:?}", subida.erro);
+        let descida = outro.sincronizar(&rede);
+        assert!(descida.erro.is_none(), "descida falhou: {:?}", descida.erro);
+
+        let capturas = outro
+            .storage
+            .by_lifecycle(LifecycleState::Active, 50)
+            .unwrap();
+        assert_eq!(capturas.len(), 1, "a Capture nao materializou");
+        assert_eq!(capturas[0].id, captura_id);
+        assert_eq!(
+            capturas[0].content, "tirar isso da cabeca",
+            "o provisorio nao foi substituido pelo conteudo real"
+        );
+
+        let recursos = outro.storage.resources(false).unwrap();
+        assert_eq!(recursos.len(), 1);
+        assert_eq!(recursos[0].id, recurso_id);
+        assert_eq!(recursos[0].title, "Referencia de Web Design");
+        assert_eq!(recursos[0].url, "https://example.com/ref");
+
+        let provas = outro.storage.exams(false).unwrap();
+        assert_eq!(provas.len(), 1, "a Prova nao materializou");
+        assert_eq!(provas[0].id, prova_id);
+        assert_eq!(provas[0].name, "Prova 2");
+        // Os numeros chegaram como NUMEROS.
+        assert_eq!(provas[0].weight, 2.5);
+        assert_eq!(provas[0].score, Some(9.5));
+        assert_eq!(provas[0].max_score, Some(10.0));
     })
     .await
     .unwrap();

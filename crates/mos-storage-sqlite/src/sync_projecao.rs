@@ -29,7 +29,7 @@
 
 use mos_core::CoreError;
 use mos_sync::{EstadoDaEntidade, Op, Projecao, Resultado, SyncError};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use time::OffsetDateTime;
 
 use crate::{map_sql_error, SqliteStorage};
@@ -63,8 +63,10 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("title", "title"),
                 ("description", "description"),
                 ("projectId", "project_id"),
+                ("sourceCaptureId", "source_capture_id"),
                 ("workState", "work_state"),
                 ("lifecycleState", "lifecycle_state"),
+                ("createdAt", "created_at"),
             ],
             obrigatorias: &[("title", "'(sem titulo)'"), ("description", "''")],
         }),
@@ -73,10 +75,157 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
             colunas: &[
                 ("name", "name"),
                 ("description", "description"),
+                ("repository", "repository"),
                 ("lifecycleState", "lifecycle_state"),
+                ("createdAt", "created_at"),
             ],
             obrigatorias: &[("name", "'(sem nome)'"), ("description", "''")],
         }),
+        "capture" => Some(Mapa {
+            tabela: "captures",
+            colunas: &[
+                ("content", "content"),
+                ("source", "source_kind"),
+                ("capturedAt", "captured_at"),
+                ("processingState", "processing_state"),
+                ("lifecycleState", "lifecycle_state"),
+            ],
+            // `content` tem `CHECK (length(trim(content)) > 0)`: o provisorio
+            // precisa ser NAO-VAZIO, senao o `INSERT` e recusado e a Capture
+            // desaparece em vez de aparecer incompleta.
+            obrigatorias: &[
+                ("content", "'(sincronizando)'"),
+                ("source_kind", "'home'"),
+                ("captured_at", "?2"),
+            ],
+        }),
+        "resource" => Some(Mapa {
+            tabela: "resources",
+            colunas: &[
+                ("kind", "kind"),
+                ("title", "title"),
+                ("url", "url"),
+                ("note", "note"),
+                ("sourceCaptureId", "source_capture_id"),
+                ("lifecycleState", "lifecycle_state"),
+                ("createdAt", "created_at"),
+            ],
+            obrigatorias: &[("kind", "'link'"), ("title", "'(sem titulo)'")],
+        }),
+        "reminder" => Some(Mapa {
+            tabela: "reminders",
+            colunas: &[
+                ("title", "title"),
+                ("body", "body"),
+                ("targetType", "target_type"),
+                ("targetId", "target_id"),
+                ("triggerKind", "trigger_kind"),
+                ("trigger", "trigger"),
+                ("priority", "priority"),
+                ("status", "status"),
+                ("snoozeAllowed", "snooze_allowed"),
+                ("privacy", "privacy"),
+                ("nextDueAt", "next_due_at"),
+                ("snoozeCount", "snooze_count"),
+                ("completedAt", "completed_at"),
+                ("lifecycleState", "lifecycle_state"),
+            ],
+            obrigatorias: &[
+                ("title", "'(sincronizando)'"),
+                ("trigger_kind", "'at'"),
+                ("trigger", "'{}'"),
+                ("priority", "'normal'"),
+                ("status", "'scheduled'"),
+                ("source", "'system'"),
+            ],
+        }),
+        "academic_semester" => Some(Mapa {
+            tabela: "academic_semesters",
+            colunas: &[
+                ("name", "name"),
+                ("institution", "institution"),
+                ("startsOn", "starts_on"),
+                ("endsOn", "ends_on"),
+                ("lifecycleState", "lifecycle_state"),
+                ("createdAt", "created_at"),
+            ],
+            obrigatorias: &[
+                ("name", "'(sincronizando)'"),
+                ("starts_on", "''"),
+                ("ends_on", "''"),
+            ],
+        }),
+        "academic_subject" => Some(Mapa {
+            tabela: "academic_subjects",
+            colunas: &[
+                ("semesterId", "semester_id"),
+                ("name", "name"),
+                ("code", "code"),
+                ("teacher", "teacher"),
+                ("accent", "accent"),
+                ("notes", "notes"),
+                ("lifecycleState", "lifecycle_state"),
+                ("createdAt", "created_at"),
+            ],
+            obrigatorias: &[("semester_id", "''"), ("name", "'(sincronizando)'")],
+        }),
+        "academic_assignment" => Some(Mapa {
+            tabela: "academic_assignments",
+            colunas: &[
+                ("subjectId", "subject_id"),
+                ("title", "title"),
+                ("description", "description"),
+                ("dueAt", "due_at"),
+                ("status", "status"),
+                ("priority", "priority"),
+                ("weight", "weight"),
+                ("maxScore", "max_score"),
+                ("score", "score"),
+                ("taskId", "task_id"),
+                ("lifecycleState", "lifecycle_state"),
+                ("createdAt", "created_at"),
+            ],
+            obrigatorias: &[("subject_id", "''"), ("title", "'(sincronizando)'")],
+        }),
+        "academic_exam" => Some(Mapa {
+            tabela: "academic_exams",
+            colunas: &[
+                ("subjectId", "subject_id"),
+                ("name", "name"),
+                ("at", "at"),
+                ("location", "location"),
+                ("topics", "topics"),
+                ("weight", "weight"),
+                ("maxScore", "max_score"),
+                ("score", "score"),
+                ("status", "status"),
+                ("lifecycleState", "lifecycle_state"),
+                ("createdAt", "created_at"),
+            ],
+            obrigatorias: &[
+                ("subject_id", "''"),
+                ("name", "'(sincronizando)'"),
+                ("at", "''"),
+            ],
+        }),
+        "academic_study_session" => Some(Mapa {
+            tabela: "academic_study_sessions",
+            colunas: &[
+                ("subjectId", "subject_id"),
+                ("topic", "topic"),
+                ("notes", "notes"),
+                ("startedAt", "started_at"),
+                ("endedAt", "ended_at"),
+                ("seconds", "seconds"),
+                ("createdAt", "created_at"),
+            ],
+            obrigatorias: &[("subject_id", "''"), ("started_at", "''")],
+        }),
+        // `relation` fica de fora, e nao por esquecimento: uma relacao do
+        // Knowledge Graph nao e linha de tabela propria — ela e uma aresta com
+        // id DERIVADO do par (ver `mos_sync::Relacao`), e cada tipo de vinculo
+        // mora numa tabela diferente. Materializa-la exige um caminho proprio,
+        // e enfia-la neste mapa daria a impressao de resolvido.
         _ => None,
     }
 }
@@ -162,32 +311,81 @@ impl SqliteStorage {
             return Ok(());
         }
 
-        // Garante a linha antes de escrever nela.
+        // O `INSERT` ja leva os valores REAIS que o estado tem.
         //
-        // `INSERT OR IGNORE`: a linha ja existe quando a entidade nasceu neste
-        // dispositivo, e sobrescreve-la com os provisorios apagaria o que o
-        // usuario acabou de digitar.
-        let colunas: String = mapa
-            .obrigatorias
-            .iter()
-            .map(|(coluna, _)| format!(", {coluna}"))
-            .collect();
-        let literais: String = mapa
-            .obrigatorias
-            .iter()
-            .map(|(_, literal)| format!(", {literal}"))
-            .collect();
-        transacao
-            .execute(
-                &format!(
-                    "INSERT OR IGNORE INTO {} (id, created_at, updated_at{colunas}) \
-                     VALUES (?1, ?2, ?2{literais})",
-                    mapa.tabela
-                ),
-                params![id.to_string(), momento],
-            )
-            .map_err(map_sql_error)?;
+        // Antes ele gravava so os provisorios e deixava o `UPDATE` corrigir, e
+        // isso quebrava de verdade: `academic_subjects.semester_id` e chave
+        // ESTRANGEIRA, e um `''` provisorio nao aponta para semestre nenhum —
+        // a linha era recusada antes de o `UPDATE` ter chance de acertar. O
+        // provisorio existe para o campo que AINDA NAO CHEGOU, e nao para
+        // substituir o que ja esta na mao.
+        let mut nomes: Vec<&str> = vec!["id", "created_at", "updated_at"];
+        let mut marcadores: Vec<String> = vec!["?1".into(), "?2".into(), "?2".into()];
+        let mut valores: Vec<rusqlite::types::Value> = vec![
+            rusqlite::types::Value::Text(id.to_string()),
+            rusqlite::types::Value::Text(momento.clone()),
+        ];
+        for (campo, coluna) in mapa.colunas {
+            // `created_at` ja entrou como o instante de agora; sobrescrever
+            // aqui duplicaria a coluna no `INSERT`. O `UPDATE` abaixo poe o
+            // original no lugar.
+            if *coluna == "created_at" || *coluna == "updated_at" {
+                continue;
+            }
+            let Some(resolvido) = estado.campos.get(*campo) else {
+                continue;
+            };
+            nomes.push(coluna);
+            valores.push(valor_sql(&resolvido.valor));
+            marcadores.push(format!("?{}", valores.len()));
+        }
+        // O que o estado nao tem, e a coluna exige, entra provisorio.
+        for (coluna, literal) in mapa.obrigatorias {
+            if nomes.contains(coluna) {
+                continue;
+            }
+            nomes.push(coluna);
+            marcadores.push((*literal).to_owned());
+        }
 
+        // A pergunta "ja existe?" e feita explicitamente, e o `INSERT` e nu.
+        //
+        // Era `INSERT OR IGNORE`, e isso escondia o defeito em vez de evitar: o
+        // `OR IGNORE` engole QUALQUER violacao de restricao, chave estrangeira
+        // inclusive. Uma prova cuja disciplina ainda nao tinha chegado nao era
+        // inserida, o `UPDATE` seguinte nao encontrava linha, e a rodada
+        // terminava dizendo que deu tudo certo — o estado de sincronizacao tinha
+        // a prova, a tabela nao tinha, e nada na tela indicava a diferenca.
+        //
+        // Nu, a violacao sobe, a entidade entra na fila de pendentes e a
+        // retentativa a resolve quando o pai chegar. Erro que aparece e erro que
+        // pode ser corrigido.
+        let ja_existe: bool = transacao
+            .query_row(
+                &format!("SELECT 1 FROM {} WHERE id = ?1", mapa.tabela),
+                params![id.to_string()],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(map_sql_error)?
+            .is_some();
+
+        if !ja_existe {
+            transacao
+                .execute(
+                    &format!(
+                        "INSERT INTO {} ({}) VALUES ({})",
+                        mapa.tabela,
+                        nomes.join(", "),
+                        marcadores.join(", ")
+                    ),
+                    rusqlite::params_from_iter(valores.iter()),
+                )
+                .map_err(map_sql_error)?;
+        }
+
+        // E agora o `UPDATE`, que e o caminho da linha que JA existia — criada
+        // aqui, ou criada por uma operacao anterior deste mesmo lote.
         for (campo, coluna) in mapa.colunas {
             let Some(resolvido) = estado.campos.get(*campo) else {
                 continue;
@@ -221,25 +419,113 @@ impl SqliteStorage {
 
 /// Traduz o JSON do campo para o que a coluna aceita.
 ///
-/// `null` continua `null`; o resto vira texto. As colunas do M/OS sao TEXT com
-/// `STRICT`, e um numero indo como inteiro numa coluna de texto e um erro de
-/// tipo em vez de um valor.
-fn valor_sql(valor: &serde_json::Value) -> Option<String> {
+/// # Por que nao basta "vira texto"
+///
+/// As tabelas do M/OS sao `STRICT`, e nelas o tipo e conferido na gravacao.
+/// `academic_exams.weight`, `.score`, `academic_study_sessions.seconds` e
+/// `reminders.snooze_count` sao numericas — mandar `"5"` como texto para uma
+/// coluna `INTEGER` nao e um valor arredondado, e um erro que derruba a rodada
+/// inteira. E `snoozeAllowed` viaja como booleano, que em SQLite e 0 ou 1.
+///
+/// Objeto e lista viram texto de proposito: o `trigger` do Reminder ja e
+/// guardado como JSON numa coluna `TEXT` (ver a migration dos lembretes), e
+/// serializar de volta e exatamente o que a coluna espera.
+fn valor_sql(valor: &serde_json::Value) -> rusqlite::types::Value {
+    use rusqlite::types::Value;
     match valor {
-        serde_json::Value::Null => None,
-        serde_json::Value::String(texto) => Some(texto.clone()),
-        outro => Some(outro.to_string()),
+        serde_json::Value::Null => Value::Null,
+        serde_json::Value::String(texto) => Value::Text(texto.clone()),
+        serde_json::Value::Bool(sim) => Value::Integer(i64::from(*sim)),
+        serde_json::Value::Number(numero) => match numero.as_i64() {
+            Some(inteiro) => Value::Integer(inteiro),
+            None => match numero.as_f64() {
+                Some(real) => Value::Real(real),
+                // Numero que nao cabe em i64 nem f64 e patologico; guardar o
+                // texto preserva o dado em vez de perde-lo por nao caber.
+                None => Value::Text(numero.to_string()),
+            },
+        },
+        outro => Value::Text(outro.to_string()),
     }
 }
 
 /// A `Projecao` do motor, sobre o banco de verdade.
-pub struct ProjecaoSqlite<'a> {
+///
+/// **Deliberadamente nao publica.** Ela sozinha nao completa uma rodada: quem
+/// nao chamar `resolver_pendentes` depois deixa entidades guardadas no estado e
+/// invisiveis na tela, sem erro nenhum. Foi exatamente isso que aconteceu num
+/// teste que montava o caminho a mao — ele passava por um caminho que o M/OS nao
+/// usa. A unica porta e `SqliteStorage::sincronizar_agora`, que faz as duas
+/// metades.
+pub(crate) struct ProjecaoSqlite<'a> {
     pub(crate) storage: &'a SqliteStorage,
+    /// Entidades cujo estado foi gravado mas que ainda nao viraram linha.
+    ///
+    /// Existe por causa de uma ordem que o motor nao promete e nao deveria: ele
+    /// agrupa as operacoes por `(kind, id)` num `BTreeMap`, e itera em ordem
+    /// ALFABETICA. `academic_exam` vem antes de `academic_semester`, entao a
+    /// prova era materializada antes de a disciplina e o semestre existirem —
+    /// `FOREIGN KEY constraint failed`, de forma deterministica.
+    ///
+    /// A saida NAO e uma tabela de profundidades mantida a mao: ela envelhece
+    /// mal, e a primeira coluna nova com chave estrangeira que alguem esquecer
+    /// de declarar vira o mesmo defeito de volta. E uma retentativa ate parar de
+    /// progredir — quem sabe quem depende de quem e o banco, e ele ja responde
+    /// isso recusando a linha.
+    pendentes: Vec<(String, uuid::Uuid)>,
 }
 
 impl<'a> ProjecaoSqlite<'a> {
-    pub fn nova(storage: &'a SqliteStorage) -> Self {
-        Self { storage }
+    pub(crate) fn nova(storage: &'a SqliteStorage) -> Self {
+        Self {
+            storage,
+            pendentes: Vec::new(),
+        }
+    }
+
+    /// Tenta materializar de novo o que ficou pendente, ate parar de progredir.
+    ///
+    /// Ponto fixo, e nao um numero de passadas: a profundidade da arvore de
+    /// dependencias e do esquema, nao deste laco. Ele para quando uma rodada
+    /// inteira nao resolve nada — e o que sobra continua guardado no estado, que
+    /// e a fonte da verdade para reconciliar.
+    fn resolver_pendentes(&mut self) -> Vec<String> {
+        while !self.pendentes.is_empty() {
+            let tentativa = std::mem::take(&mut self.pendentes);
+            let antes = tentativa.len();
+            let mut faltas = Vec::new();
+            for (kind, id) in tentativa {
+                if let Err(causa) = self.materializar_um(&kind, id) {
+                    faltas.push((kind, id, causa));
+                }
+            }
+            if faltas.len() == antes {
+                // Ninguem avancou: o que falta depende de algo que nao chegou.
+                return faltas
+                    .into_iter()
+                    .map(|(kind, id, causa)| format!("{kind} {id}: {causa}"))
+                    .collect();
+            }
+            self.pendentes = faltas.into_iter().map(|(k, i, _)| (k, i)).collect();
+        }
+        Vec::new()
+    }
+
+    /// Materializa uma entidade a partir do estado ja guardado.
+    fn materializar_um(&self, kind: &str, id: uuid::Uuid) -> Result<(), String> {
+        let conexao = self
+            .storage
+            .connection
+            .lock()
+            .map_err(|_| String::from("Banco local ocupado."))?;
+        let estado = SqliteStorage::estado_guardado(&conexao, kind, id)
+            .map_err(|causa| causa.message.clone())?;
+        let transacao = conexao
+            .unchecked_transaction()
+            .map_err(|causa| causa.to_string())?;
+        SqliteStorage::materializar(&transacao, kind, id, &estado)
+            .map_err(|causa| causa.message.clone())?;
+        transacao.commit().map_err(|causa| causa.to_string())
     }
 }
 
@@ -264,13 +550,24 @@ impl Projecao for ProjecaoSqlite<'_> {
             .map_err(falha)?;
         let kind = op.entity.kind.as_str();
 
-        // Estado e dominio commitam JUNTOS. Gravar o estado e falhar ao
-        // materializar deixaria a tela mostrando o valor antigo enquanto a
-        // reconciliacao ja considera o novo — e a proxima operacao nao
-        // corrigiria, porque para ela o assunto ja esta resolvido.
+        // O ESTADO commita sempre; a materializacao pode esperar.
+        //
+        // Eram uma transacao so, e a razao era boa: gravar um e falhar no outro
+        // deixaria a tela mostrando o valor antigo enquanto a reconciliacao ja
+        // considera o novo. O que essa razao nao previa e que a materializacao
+        // falha por um motivo LEGITIMO e temporario — o pai ainda nao chegou —,
+        // e ai derrubar a rodada inteira e a resposta errada.
+        //
+        // A invariante que fica de pe: o estado e a fonte da verdade, e a
+        // materializacao converge. `resolver_pendentes` fecha o ciclo antes de a
+        // rodada terminar.
         SqliteStorage::guardar_estado(&transacao, kind, op.entity.id, estado).map_err(falha)?;
-        SqliteStorage::materializar(&transacao, kind, op.entity.id, estado).map_err(falha)?;
         transacao.commit().map_err(map_sql_error).map_err(falha)?;
+        drop(conexao);
+
+        if self.materializar_um(kind, op.entity.id).is_err() {
+            self.pendentes.push((kind.to_owned(), op.entity.id));
+        }
         Ok(())
     }
 }
@@ -308,13 +605,31 @@ impl SqliteStorage {
             relogio: self,
             dispositivos: self,
         };
-        Ok(mos_sync::sincronizar(
+        let mut rodada = mos_sync::sincronizar(
             &deposito,
             transporte,
             relogio,
             &mut projecao,
             agora_ms,
             limite,
-        ))
+        );
+
+        // O que nao virou linha por dependencia ainda ausente, agora vira.
+        //
+        // O que sobrar depois disto depende de algo que nao chegou nesta rodada
+        // — e continua guardado no estado, inteiro. A rodada NAO mente sobre
+        // isso: a falha vai no `erro`, porque uma entidade que existe no banco
+        // de sincronizacao e nao aparece na tela e exatamente o tipo de coisa
+        // que o usuario precisa saber antes de concluir que o M/OS perdeu algo.
+        let faltando = projecao.resolver_pendentes();
+        if !faltando.is_empty() && rodada.erro.is_none() {
+            rodada.erro = Some(format!(
+                "{} entidade(s) chegaram mas ainda nao aparecem: dependem de algo \
+                 que nao veio nesta rodada. Sincronize de novo. [{}]",
+                faltando.len(),
+                faltando.join("; ")
+            ));
+        }
+        Ok(rodada)
     }
 }

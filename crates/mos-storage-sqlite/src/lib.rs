@@ -32,7 +32,6 @@ use serde::Serialize;
 
 pub use academic_provider_repository::{AcademicProviderRepository, ProviderSubjectFact};
 pub use cronocad_import::ImportReport;
-pub use sync_projecao::ProjecaoSqlite;
 
 const SCHEMA_VERSION: u32 = 35;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
