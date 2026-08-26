@@ -23,7 +23,14 @@ members = [
 # outras versoes. Vira-lo membro agora forcaria resolucao compartilhada e
 # quebraria um dos dois lados por um ganho que so existe depois da absorcao
 # (ADR-032, fase 3).
-exclude = ["apps/cronocad/src-tauri"]
+# O `mos-web` entra em `exclude`, e nao em `members`, e a razao e concreta: o
+# `webauthn-rs` depende de OpenSSL, que nao existe nesta maquina de
+# desenvolvimento. Membro do workspace, ele quebraria `cargo build --workspace`
+# para todo mundo por causa de um crate que so vai rodar na VPS, em Linux.
+#
+# Ele volta para `members` no dia em que a porta compilar aqui — seja com
+# OpenSSL instalado, seja com outra biblioteca de passkey.
+exclude = ["apps/cronocad/src-tauri", "apps/mos-web"]
 
 [workspace.package]
 version = "0.3.1"
