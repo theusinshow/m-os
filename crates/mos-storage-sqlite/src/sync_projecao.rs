@@ -230,6 +230,26 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
     }
 }
 
+/// A tabela de juncao de cada tipo de vinculo: (tabela, coluna de `from`,
+/// coluna de `to`).
+///
+/// A ordem de `from` e `to` FAZ PARTE da identidade da relacao (ver
+/// `mos_sync::Relacao::id`), entao mapear a ponta errada aqui nao daria erro —
+/// daria um vinculo silenciosamente invertido.
+fn juncao_de(kind: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    match kind {
+        "resourceProject" => Some(("resource_projects", "resource_id", "project_id")),
+        "resourceWorkspace" => Some(("resource_workspaces", "resource_id", "workspace_id")),
+        "projectWorkspace" => Some(("project_workspaces", "project_id", "workspace_id")),
+        "academic_subject_resource" => {
+            Some(("academic_subject_resources", "subject_id", "resource_id"))
+        }
+        // Vinculo de um tipo que este M/OS ainda nao conhece. Guardar e
+        // reenviar, sem materializar — a mesma regra dos outros tipos.
+        _ => None,
+    }
+}
+
 fn falha(causa: CoreError) -> SyncError {
     SyncError::novo(causa.message, causa.retryable)
 }
@@ -288,6 +308,9 @@ impl SqliteStorage {
         id: uuid::Uuid,
         estado: &EstadoDaEntidade,
     ) -> Result<(), CoreError> {
+        if kind == "relation" {
+            return Self::materializar_relacao(transacao, estado);
+        }
         let Some(mapa) = mapa_de(kind) else {
             return Ok(());
         };
@@ -398,6 +421,99 @@ impl SqliteStorage {
                         mapa.tabela
                     ),
                     params![valor, momento, id.to_string()],
+                )
+                .map_err(map_sql_error)?;
+        }
+        Ok(())
+    }
+
+    /// Uma aresta do Knowledge Graph vira (ou deixa de ser) linha de juncao.
+    ///
+    /// # Por que a relacao nao cabe no mapa dos outros tipos
+    ///
+    /// Ela nao tem tabela propria nem id na tabela: `resource_projects` sao duas
+    /// colunas e uma chave primaria composta. O id da operacao e um UUID v5
+    /// DERIVADO do par — ele existe para os dois dispositivos chegarem ao mesmo
+    /// id sem se falarem, e nao para virar coluna.
+    ///
+    /// # Ligar e desligar, e nao criar e apagar
+    ///
+    /// `linked` e um campo, e o merge por campo decide pelo instante: desvincular
+    /// as 10:00 e revincular as 10:05 termina VINCULADO. Se desligar fosse
+    /// `Delete`, a semantica de "apagar ganha de editar" faria o contrario —
+    /// certa para uma Task, errada para um interruptor.
+    ///
+    /// Por isso o `false` apaga a linha da juncao e nao deixa rastro: o rastro
+    /// mora no estado de sync, com o instante, que e onde a proxima operacao vai
+    /// olhar para decidir.
+    fn materializar_relacao(
+        transacao: &Connection,
+        estado: &EstadoDaEntidade,
+    ) -> Result<(), CoreError> {
+        let texto = |campo: &str| {
+            estado
+                .campos
+                .get(campo)
+                .and_then(|resolvido| resolvido.valor.as_str())
+                .map(str::to_owned)
+        };
+        // Sem os tres, nao da para saber O QUE foi ligado — o id sozinho e um
+        // hash. Eles viajam junto justamente para o dispositivo que ve a relacao
+        // pela primeira vez conseguir materializa-la.
+        let (Some(kind), Some(de), Some(para)) = (texto("kind"), texto("from"), texto("to")) else {
+            return Ok(());
+        };
+        let Some((tabela, coluna_de, coluna_para)) = juncao_de(&kind) else {
+            return Ok(());
+        };
+        let ligado = estado
+            .campos
+            .get("linked")
+            .and_then(|resolvido| resolvido.valor.as_bool())
+            .unwrap_or(false);
+
+        if ligado {
+            let momento = crate::repository::format_time(OffsetDateTime::now_utc())?;
+            // `OR IGNORE` porque ligar duas vezes e o mesmo vinculo: a chave
+            // primaria composta recusa a segunda, e essa e a idempotencia que o
+            // id derivado do par promete.
+            //
+            // Mas ele engole a chave ESTRANGEIRA junto — foi assim que a prova
+            // sumia em silencio. Por isso a linha e conferida logo abaixo.
+            transacao
+                .execute(
+                    &format!(
+                        "INSERT OR IGNORE INTO {tabela} ({coluna_de}, {coluna_para}, created_at) \
+                         VALUES (?1, ?2, ?3)"
+                    ),
+                    params![de, para, momento],
+                )
+                .map_err(map_sql_error)?;
+
+            // Uma aresta cuja ponta ainda nao chegou seria "inserida" sem erro e
+            // sem linha. O erro precisa subir para ela entrar na fila de
+            // pendentes e ser tentada de novo quando a ponta chegar.
+            let existe: bool = transacao
+                .query_row(
+                    &format!(
+                        "SELECT 1 FROM {tabela} WHERE {coluna_de} = ?1 AND {coluna_para} = ?2"
+                    ),
+                    params![de, para],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map_err(map_sql_error)?
+                .is_some();
+            if !existe {
+                return Err(crate::sync_emit::erro_de_sync(format!(
+                    "O vinculo {kind} nao pode ser criado: uma das pontas ainda nao chegou."
+                )));
+            }
+        } else {
+            transacao
+                .execute(
+                    &format!("DELETE FROM {tabela} WHERE {coluna_de} = ?1 AND {coluna_para} = ?2"),
+                    params![de, para],
                 )
                 .map_err(map_sql_error)?;
         }

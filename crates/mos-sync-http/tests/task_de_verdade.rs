@@ -260,3 +260,80 @@ async fn capture_resource_e_prova_atravessam_inteiros() {
     .await
     .unwrap();
 }
+
+/// A aresta do Knowledge Graph, que nao e linha de tabela propria.
+///
+/// Duas coisas sao provadas aqui, e a segunda e a que justifica o desenho:
+///
+/// 1. ligar um Resource a um Project num aparelho liga no outro;
+/// 2. **desligar e religar termina LIGADO**. `linked` e um campo, e o merge por
+///    campo decide pelo instante. Se desligar fosse `OpBody::Delete`, a
+///    semantica de "apagar ganha de editar" faria o contrario — certa para uma
+///    Task, errada para um interruptor.
+#[tokio::test(flavor = "multi_thread")]
+async fn o_vinculo_atravessa_e_o_ultimo_gesto_vence() {
+    use mos_core::{NewProject, NewResource, ResourceKind, ResourceRepository, WorkRepository};
+
+    let endereco = servir().await;
+
+    tokio::task::spawn_blocking(move || {
+        let rede = HttpTransport::novo(format!("http://{endereco}"), TOKEN).unwrap();
+        let mut pc = Aparelho::novo("PC");
+        let mut outro = Aparelho::novo("Outro");
+
+        let projeto = NewProject::create("Escadas Minarum", "", "").unwrap();
+        let projeto_id = projeto.id;
+        pc.storage.create_project(projeto).unwrap();
+        let recurso = NewResource::create(
+            ResourceKind::Site,
+            "Memorial descritivo",
+            "https://example.com/memorial",
+            "",
+            None,
+        )
+        .unwrap();
+        let recurso_id = recurso.id;
+        pc.storage.create_resource(recurso).unwrap();
+        pc.storage
+            .set_resource_project(recurso_id, projeto_id, true)
+            .unwrap();
+
+        let subida = pc.sincronizar(&rede);
+        assert!(subida.erro.is_none(), "subida falhou: {:?}", subida.erro);
+        let descida = outro.sincronizar(&rede);
+        assert!(descida.erro.is_none(), "descida falhou: {:?}", descida.erro);
+
+        let vinculos = outro.storage.resource_projects().unwrap();
+        assert_eq!(vinculos.len(), 1, "o vinculo nao atravessou");
+        assert_eq!(vinculos[0].resource_id, recurso_id);
+        assert_eq!(vinculos[0].project_id, projeto_id);
+
+        // O interruptor: desliga num aparelho, religa no outro DEPOIS.
+        outro
+            .storage
+            .set_resource_project(recurso_id, projeto_id, false)
+            .unwrap();
+        outro.sincronizar(&rede);
+        pc.sincronizar(&rede);
+        assert!(
+            pc.storage.resource_projects().unwrap().is_empty(),
+            "desligar nao atravessou"
+        );
+
+        pc.storage
+            .set_resource_project(recurso_id, projeto_id, true)
+            .unwrap();
+        pc.sincronizar(&rede);
+        outro.sincronizar(&rede);
+
+        for (quem, aparelho) in [("pc", &pc), ("outro", &outro)] {
+            assert_eq!(
+                aparelho.storage.resource_projects().unwrap().len(),
+                1,
+                "{quem}: religar tinha que terminar ligado — o ultimo gesto vence"
+            );
+        }
+    })
+    .await
+    .unwrap();
+}
