@@ -8,6 +8,7 @@ members = [
     "crates/mos-ingest",
     "crates/mos-storage-sqlite",
     "crates/mos-sync",
+    "crates/mos-sync-http",
     "crates/mos-sync-server",
     "crates/mos-transcribe",
 ]

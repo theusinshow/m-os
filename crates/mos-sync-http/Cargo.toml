@@ -1,0 +1,29 @@
+[package]
+name = "mos-sync-http"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# O `Transport` sobre HTTP. Crate separado de `mos-sync` de proposito: aquele
+# nao pode ganhar dependencia de rede, porque precisa compilar identico no
+# Windows e no iOS. Aqui pode — `reqwest` com rustls e portatil, e e o mesmo que
+# o `mos-hermes` ja usa.
+[dependencies]
+mos-sync = { path = "../mos-sync" }
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls",
+] }
+serde.workspace = true
+serde_json = "1"
+uuid.workspace = true
+
+[dev-dependencies]
+mos-sync-server = { path = "../mos-sync-server" }
+mos-storage-sqlite = { path = "../mos-storage-sqlite" }
+axum = "0.8"
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
