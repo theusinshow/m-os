@@ -1426,3 +1426,31 @@ export type Ocorrencia = {
   origem: string;
   mensagem: string;
 };
+
+/**
+ * O estado da sincronizacao entre dispositivos.
+ *
+ * `hasToken` e um booleano de proposito: o segredo mora no Credential Manager
+ * e NUNCA volta para a interface. Um segredo que a tela pode ler e um segredo
+ * que aparece num screenshot.
+ */
+export type SyncStatus = {
+  /** Onde o hub esta. Vazio significa nao configurado — e o estado normal. */
+  endpoint: string;
+  hasToken: boolean;
+  /** Mudancas locais esperando para subir. */
+  pending: number;
+  enabled: boolean;
+};
+
+export type SyncRound = {
+  sent: number;
+  received: number;
+  conflicts: number;
+  pending: number;
+  /**
+   * A rodada parou por erro. O que ja foi feito ate ali PERMANECE feito —
+   * sincronizacao parcial e melhor que nenhuma.
+   */
+  error: string | null;
+};

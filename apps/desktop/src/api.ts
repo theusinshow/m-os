@@ -7,7 +7,7 @@ import type { Ocorrencia } from "./types";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
   VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
-  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, AcademicDashboard, AcademicToday, Assignment, AssignmentStatus, Exam, ExamStatus, ReminderPriority, Semester, StaleView, StudySession, Subject, Task, TaskState, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace, UnivirtusStatus, SyncReport, ProviderSubjectFact, Decision } from "./types";
+  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, AcademicDashboard, AcademicToday, Assignment, AssignmentStatus, Exam, ExamStatus, ReminderPriority, Semester, StaleView, SyncRound, SyncStatus, StudySession, Subject, Task, TaskState, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace, UnivirtusStatus, SyncReport, ProviderSubjectFact, Decision } from "./types";
 
 let pendingUpdate: Update | null = null;
 
@@ -1079,6 +1079,27 @@ export const api = {
   /** Caminho de mão única, roda uma vez. A origem é aberta só para leitura. */
   importCronocad(path: string) {
     return invoke<ImportReport>("tracking_import_cronocad", { path });
+  },
+
+  // ---------------------------------------------------------------- sync
+  /** Onde o hub está, se há segredo e quanto espera para subir. */
+  syncStatus() {
+    return invoke<SyncStatus>("sync_status");
+  },
+  /** Vazio desliga a sincronização sem apagar o segredo nem a fila. */
+  syncSetEndpoint(url: string) {
+    return invoke<void>("sync_set_endpoint", { url });
+  },
+  /** Vai para o Credential Manager. Não há como ler de volta. */
+  syncSetToken(token: string) {
+    return invoke<void>("sync_set_token", { token });
+  },
+  syncClearToken() {
+    return invoke<void>("sync_clear_token");
+  },
+  /** Uma rodada agora: empurra a fila, puxa o que mudou, reconcilia. */
+  syncNow() {
+    return invoke<SyncRound>("sync_now");
   },
   createBackup(path: string) {
     return invoke<BackupReceipt>("create_backup", { path });

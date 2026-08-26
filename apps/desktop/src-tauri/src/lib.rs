@@ -41,6 +41,7 @@ mod microfone;
 mod monitor;
 mod pdf;
 mod stale;
+mod sync;
 mod surface;
 mod tracking;
 mod univirtus;
@@ -68,7 +69,7 @@ const DEFAULT_CAPTURE_SHORTCUT: &str = "Ctrl+Shift+Space";
 ///   ergonomia ruim justamente no gesto que precisa ser rapido.
 const DEFAULT_VOICE_SHORTCUT: &str = "Ctrl+Alt+G";
 
-struct AppState {
+pub(crate) struct AppState {
     captures: CaptureService,
     work: WorkService,
     apps: AppService,
@@ -100,7 +101,7 @@ struct AppState {
 
 #[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct UserSettings {
+pub(crate) struct UserSettings {
     capture_shortcut: String,
     /// O atalho da voz. Vazio significa o padrao.
     #[serde(default)]
@@ -129,6 +130,14 @@ struct UserSettings {
     /// autorizou faz parte dessa resposta.
     #[serde(default)]
     analysis_consent_at: String,
+    /// Onde o hub de sincronizacao esta. Vazio significa "nao configurado", e
+    /// e o estado normal ate alguem ligar isto — o M/OS funciona inteiro sem.
+    ///
+    /// O ENDERECO mora aqui; o SEGREDO mora no Credential Manager. Guardar os
+    /// dois juntos poria um token em texto claro num arquivo que o backup
+    /// carrega e o export copia.
+    #[serde(default)]
+    sync_endpoint: String,
 }
 
 #[derive(Serialize)]
@@ -1475,7 +1484,7 @@ fn reset_widget_layout(
 ) -> Result<Vec<mos_core::WidgetPlacement>, CoreError> {
     state.work.reset_widget_layout(workspace_id.as_deref())
 }
-fn load_settings(path: &std::path::Path) -> UserSettings {
+pub(crate) fn load_settings(path: &std::path::Path) -> UserSettings {
     let mut settings = fs::read_to_string(path)
         .ok()
         .and_then(|json| serde_json::from_str::<UserSettings>(&json).ok())
@@ -1502,7 +1511,7 @@ fn load_voice_shortcut(path: &std::path::Path) -> String {
 /// Ler-modificar-gravar e nao reconstruir do zero: uma versao anterior desta
 /// funcao montava `UserSettings` so com o atalho, e qualquer campo novo seria
 /// apagado no proximo clique em Aplicar — sem erro nenhum.
-fn save_settings(path: &std::path::Path, settings: &UserSettings) -> Result<(), CoreError> {
+pub(crate) fn save_settings(path: &std::path::Path, settings: &UserSettings) -> Result<(), CoreError> {
     let json = serde_json::to_vec_pretty(settings).map_err(|error| {
         CoreError::new(
             mos_core::ErrorCode::Io,
@@ -2097,6 +2106,11 @@ pub fn run() {
             finance::finance_clear_action_secret,
             finance::finance_action_secret_configured,
             hermes::hermes_status,
+            sync::sync_status,
+            sync::sync_set_endpoint,
+            sync::sync_set_token,
+            sync::sync_clear_token,
+            sync::sync_now,
             hermes::hermes_set_credentials,
             hermes::hermes_clear_credentials,
             hermes::hermes_set_base_url,

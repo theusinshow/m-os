@@ -35,6 +35,7 @@ mos-ingest = { path = "../../../crates/mos-ingest" }
 mos-transcribe = { path = "../../../crates/mos-transcribe" }
 mos-hermes = { path = "../../../crates/mos-hermes" }
 mos-storage-sqlite = { path = "../../../crates/mos-storage-sqlite" }
+mos-sync-http = { path = "../../../crates/mos-sync-http" }
 # A identidade do dispositivo e o motor de sincronizacao. Ver `docs/SYNC.md`.
 mos-sync = { path = "../../../crates/mos-sync" }
 tokio = { version = "1", features = ["rt", "sync", "macros"] }

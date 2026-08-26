@@ -274,3 +274,47 @@ impl Projecao for ProjecaoSqlite<'_> {
         Ok(())
     }
 }
+
+impl SqliteStorage {
+    /// Uma rodada de sincronizacao, com o relogio DESTE dispositivo.
+    ///
+    /// # Por que o motor e chamado daqui, e nao do app
+    ///
+    /// O `sincronizar()` precisa de `&mut HlcClock`, e o relogio ja mora aqui
+    /// dentro, ligado por `habilitar_sync`. Se o app criasse o proprio, este
+    /// dispositivo teria DOIS relogios emitindo instantes — e duas operacoes
+    /// diferentes com o mesmo instante e o mesmo dispositivo quebram a ordem
+    /// total, que e a unica coisa que a reconciliacao tem para desempatar.
+    ///
+    /// O mutex do relogio fica preso durante a rodada inteira. E de proposito:
+    /// uma mutacao local no meio dela espera, em vez de emitir um instante que
+    /// o motor ja passou. Rodadas sao curtas; ordem total nao se recupera.
+    pub fn sincronizar_agora(
+        &self,
+        transporte: &dyn mos_sync::Transport,
+        agora_ms: i64,
+        limite: usize,
+    ) -> Result<mos_sync::Rodada, CoreError> {
+        let mut slot = self.sync.lock().map_err(crate::map_lock_error)?;
+        let Some(relogio) = slot.as_mut() else {
+            return Err(crate::sync_emit::erro_de_sync(
+                "A sincronizacao ainda nao foi ligada neste dispositivo.",
+            ));
+        };
+        let mut projecao = ProjecaoSqlite::nova(self);
+        let deposito = mos_sync::Deposito {
+            outbox: self,
+            conflitos: self,
+            relogio: self,
+            dispositivos: self,
+        };
+        Ok(mos_sync::sincronizar(
+            &deposito,
+            transporte,
+            relogio,
+            &mut projecao,
+            agora_ms,
+            limite,
+        ))
+    }
+}

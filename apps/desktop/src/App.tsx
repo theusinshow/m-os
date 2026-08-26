@@ -55,7 +55,7 @@ import {
   visitar as visitarNaTrilha, voltar as voltarNaTrilha, type Trilha,
 } from "./navegacao";
 import type { Ocorrencia } from "./types";
-import type { AcademicDashboard, AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, DailyContext, DailyToday, FunctionDefinition, HiddenWidget, Ingestion, ObjectiveLink, Week, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, Parada, SearchItem, StaleView, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent, UnivirtusStatus, SyncReport } from "./types";
+import type { AcademicDashboard, AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, Capture, DailyContext, DailyToday, FunctionDefinition, HiddenWidget, Ingestion, ObjectiveLink, Week, WidgetPlacement, RadialPin, Page, ImportReport, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, Parada, SearchItem, StaleView, Task, TaskState, UpdateInfo, UpdateProgress, Workspace , DeliveryEvent, UnivirtusStatus, SyncReport, SyncStatus } from "./types";
 import { SCREEN_LABEL } from "./types";
 import "./App.css";
 
@@ -2780,6 +2780,87 @@ function HermesSettings() {
   </Panel>;
 }
 
+/**
+ * A sincronizacao entre dispositivos.
+ *
+ * O ENDERECO e visivel e editavel; o SEGREDO entra e nunca volta. Ele mora no
+ * Credential Manager do Windows, pelo mesmo caminho da credencial do Hermes —
+ * um segredo que a tela pode ler e um segredo que aparece num screenshot.
+ *
+ * O botao de sincronizar existe porque hoje a rodada e MANUAL, e dizer isso na
+ * tela e mais honesto que um automatico que ninguem pediu: o M/OS funciona
+ * inteiro sem sincronizar, e ligar isto e uma decisao, nao um padrao.
+ */
+function SyncSettings() {
+  const [status, setStatus] = useState<SyncStatus | null>(null);
+  const [endpoint, setEndpoint] = useState("");
+  const [token, setToken] = useState("");
+  const [message, setMessage] = useState("");
+  const [messageState, setMessageState] = useState<"saving" | "saved" | "error">("saved");
+  const [running, setRunning] = useState(false);
+
+  const refresh = useCallback(async () => {
+    const next = await api.syncStatus();
+    setStatus(next);
+    setEndpoint(next.endpoint);
+  }, []);
+  useEffect(() => { void refresh().catch(() => undefined); }, [refresh]);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setMessageState("saving");
+    setMessage("Salvando...");
+    try {
+      await api.syncSetEndpoint(endpoint);
+      // Campo vazio significa "nao mexi no segredo", e nao "apague o segredo":
+      // quem quer apagar tem o botao ao lado, e trocar so o endereco nao pode
+      // custar a credencial.
+      if (token.trim()) { await api.syncSetToken(token); setToken(""); }
+      await refresh();
+      setMessageState("saved");
+      setMessage("Salvo.");
+    } catch (error) { setMessageState("error"); setMessage(appError(error).message); }
+  }
+
+  async function run() {
+    setRunning(true);
+    setMessageState("saving");
+    setMessage("Sincronizando...");
+    try {
+      const round = await api.syncNow();
+      await refresh();
+      // O erro parcial NAO vira sucesso. O que ja foi feito permanece feito, e
+      // a linha conta as duas coisas — esconder a falha faria o proximo clique
+      // parecer o primeiro.
+      setMessageState(round.error ? "error" : "saved");
+      const feito = `${round.sent} enviadas · ${round.received} recebidas`;
+      const conflitos = round.conflicts ? ` · ${round.conflicts} em conflito` : "";
+      setMessage(round.error ? `${feito}${conflitos}. Parou em: ${round.error}` : `${feito}${conflitos}.`);
+    } catch (error) { setMessageState("error"); setMessage(appError(error).message); }
+    setRunning(false);
+  }
+
+  return <Panel label="SINCRONIZAÇÃO">
+    <p className="support-copy">O M/OS guarda tudo aqui e funciona inteiro sem isto. O hub só serve para dois aparelhos se alcançarem quando não estão na mesma rede — ele não decide nada, apenas guarda em ordem e devolve.</p>
+    <form className="stack-form" onSubmit={save}>
+      <label><span>ENDEREÇO DO HUB</span><input className="mono-input" value={endpoint} onChange={(event) => setEndpoint(event.currentTarget.value)} placeholder="http://127.0.0.1:9120" /></label>
+      <label><span>SEGREDO</span><input type="password" value={token} onChange={(event) => setToken(event.currentTarget.value)} autoComplete="off" placeholder={status?.hasToken ? "Guardado — digite para trocar" : "Ao menos 32 caracteres"} /></label>
+      <div className="form-actions">
+        <Button variant="ghost" onClick={() => void api.syncClearToken().then(refresh).catch(() => undefined)}>Remover segredo</Button>
+        <Button variant="primary" type="submit">Salvar</Button>
+      </div>
+    </form>
+    <dl className="fact-grid">
+      <div><dt>SEGREDO</dt><dd>{status?.hasToken ? "Guardado" : <span className="fact-empty">Não configurado</span>}</dd></div>
+      <div><dt>NA FILA</dt><dd>{status ? `${status.pending}` : "—"}</dd></div>
+    </dl>
+    <div className="button-line">
+      <Button variant="secondary" disabled={running || !status?.endpoint || !status?.hasToken} onClick={() => void run()}>{running ? "Sincronizando" : "Sincronizar agora"}</Button>
+    </div>
+    {message ? <StateMessage state={messageState} label={message} /> : null}
+  </Panel>;
+}
+
 function FinanceActionSettings() {
   const [configured, setConfigured] = useState(false);
   const [secret, setSecret] = useState("");
@@ -3140,7 +3221,7 @@ function SettingsPage({ theme, setTheme, status, capturesArchived, capturesTrash
   const archivedResources = resources.filter((resource) => resource.lifecycleState === "archived");
   const archivedWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "archived");
   const functionsByCategory = functionCategories.map((category) => ({ category, items: functions.filter((item) => item.category === category) })).filter((group) => group.items.length);
-  return <div className="page settings-page"><PaneHeader segments={["M", "SETTINGS"]} meta="SISTEMA" /><section className="settings-section" aria-labelledby="settings-connection"><h2 id="settings-connection" className="settings-section-title">Conexão e aparência</h2><HermesSettings /><UnivirtusSettings /><FinanceActionSettings /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" aria-label="Tema claro" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel></section><section className="settings-section" aria-labelledby="settings-updates"><h2 id="settings-updates" className="settings-section-title">Atualizações e entrada</h2><StartupSettings /><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong>{/* A versao instalada esta sempre na tela, e nao so quando existe
+  return <div className="page settings-page"><PaneHeader segments={["M", "SETTINGS"]} meta="SISTEMA" /><section className="settings-section" aria-labelledby="settings-connection"><h2 id="settings-connection" className="settings-section-title">Conexão e aparência</h2><HermesSettings /><UnivirtusSettings /><SyncSettings /><FinanceActionSettings /><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" aria-label="Tema claro" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel></section><section className="settings-section" aria-labelledby="settings-updates"><h2 id="settings-updates" className="settings-section-title">Atualizações e entrada</h2><StartupSettings /><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong>{/* A versao instalada esta sempre na tela, e nao so quando existe
      atualizacao. Antes ela vinha do resultado da verificacao, que e `null`
      quando o app ja esta em dia — o painel respondia "em que versao eu estou?"
      exatamente nos casos em que a pergunta nao era urgente, e ficava mudo no
