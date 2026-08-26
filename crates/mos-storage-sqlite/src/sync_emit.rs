@@ -42,6 +42,11 @@ fn erro(mensagem: impl Into<String>) -> CoreError {
     CoreError::new(ErrorCode::StorageUnavailable, mensagem, false)
 }
 
+/// O mesmo erro, visivel para a projecao — que falha pelas mesmas razoes.
+pub(crate) fn erro_de_sync(mensagem: impl Into<String>) -> CoreError {
+    erro(mensagem)
+}
+
 impl SqliteStorage {
     /// Liga a emissao de operacoes para este dispositivo.
     ///
@@ -95,6 +100,17 @@ impl SqliteStorage {
 
         gravar_op(transacao, &op)?;
         gravar_relogio(transacao, instante)?;
+        // A mudanca local entra na tabela sombra AGORA, e nao quando voltar do
+        // servidor. Sem isto a reconciliacao so conheceria o que veio de fora, e
+        // uma operacao remota antiga venceria uma edicao local recente que ela
+        // nunca viu — perda silenciosa, que e exatamente o que este arquivo
+        // existe para impedir.
+        //
+        // O `slot` e solto antes: `absorver_local` nao toca no relogio, mas
+        // segurar o mutex por mais tempo que o necessario e como se cria o
+        // deadlock que so aparece com dois caminhos concorrentes.
+        drop(slot);
+        self.absorver_local(transacao, &op)?;
         Ok(())
     }
 

@@ -2580,6 +2580,7 @@ name = "mos-sync-http"
 version = "0.3.1"
 dependencies = [
  "axum",
+ "mos-core",
  "mos-storage-sqlite",
  "mos-sync",
  "mos-sync-server",

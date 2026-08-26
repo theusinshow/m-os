@@ -23,6 +23,7 @@ uuid.workspace = true
 
 [dev-dependencies]
 mos-sync-server = { path = "../mos-sync-server" }
+mos-core = { path = "../mos-core" }
 mos-storage-sqlite = { path = "../mos-storage-sqlite" }
 axum = "0.8"
 tempfile = "3"

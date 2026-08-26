@@ -4,15 +4,16 @@ mod app_repository;
 mod attention_repository;
 mod backup;
 mod conversation_repository;
+mod cronocad_import;
 mod daily_repository;
 mod device_repository;
-mod cronocad_import;
 mod ingestion_repository;
 mod meeting_repository;
 mod monitoring_repository;
 mod repository;
 mod resource_repository;
 mod sync_emit;
+mod sync_projecao;
 mod sync_repository;
 mod tracking_repository;
 mod voice_repository;
@@ -31,8 +32,9 @@ use serde::Serialize;
 
 pub use academic_provider_repository::{AcademicProviderRepository, ProviderSubjectFact};
 pub use cronocad_import::ImportReport;
+pub use sync_projecao::ProjecaoSqlite;
 
-const SCHEMA_VERSION: u32 = 34;
+const SCHEMA_VERSION: u32 = 35;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -81,6 +83,7 @@ const MIGRATION_031: &str = include_str!("../migrations/0031_academic.sql");
 const MIGRATION_032: &str = include_str!("../migrations/0032_academic_provider.sql");
 const MIGRATION_033: &str = include_str!("../migrations/0033_academic_provider_grades.sql");
 const MIGRATION_034: &str = include_str!("../migrations/0034_academic_decision.sql");
+const MIGRATION_035: &str = include_str!("../migrations/0035_sync_state.sql");
 
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
@@ -219,10 +222,10 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
         create_pre_migration_snapshot(connection, backup_directory, current)?;
     }
     /* O que ja estava quebrado ANTES de a migration encostar no banco.
-       Sem esta medida a guarda do fim nao sabe de quem e a culpa, e foi assim
-       que em 2026-08-22 o app recusou abrir acusando uma migration inocente:
-       as 50 orfas eram de uma reuniao apagada por fora em 2026-08-21, e o
-       snapshot `pre-migration-v26` prova que elas ja estavam la. */
+    Sem esta medida a guarda do fim nao sabe de quem e a culpa, e foi assim
+    que em 2026-08-22 o app recusou abrir acusando uma migration inocente:
+    as 50 orfas eram de uma reuniao apagada por fora em 2026-08-21, e o
+    snapshot `pre-migration-v26` prova que elas ja estavam la. */
     let orfas_antes = if current > 0 && current < SCHEMA_VERSION {
         contagem_de_orfas(connection)?
     } else {
@@ -398,6 +401,11 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
             .execute_batch(MIGRATION_034)
             .map_err(map_sql_error)?;
     }
+    if current <= 34 {
+        connection
+            .execute_batch(MIGRATION_035)
+            .map_err(map_sql_error)?;
+    }
     if current < SCHEMA_VERSION {
         verify_foreign_keys(connection, &orfas_antes)?;
     }
@@ -416,7 +424,9 @@ fn contagem_de_orfas(connection: &Connection) -> Result<Vec<(String, i64)>, Core
         )
         .map_err(map_sql_error)?;
     let linhas = statement
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
         .map_err(map_sql_error)?;
     linhas
         .collect::<rusqlite::Result<Vec<_>>>()
@@ -437,10 +447,7 @@ fn contagem_de_orfas(connection: &Connection) -> Result<Vec<(String, i64)>, Core
 /// Sujeira antiga nao e emergencia: lixo de indice nao corrompe leitura, e a
 /// resposta certa e uma migration de conserto que a conheca — como a 0030 —, e
 /// nao um app que nao abre. Regressao de migration continua sendo erro duro.
-fn verify_foreign_keys(
-    connection: &Connection,
-    antes: &[(String, i64)],
-) -> Result<(), CoreError> {
+fn verify_foreign_keys(connection: &Connection, antes: &[(String, i64)]) -> Result<(), CoreError> {
     let enabled: i64 = connection
         .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
         .map_err(map_sql_error)?;
@@ -464,9 +471,7 @@ fn verify_foreign_keys(
     let novas: Vec<String> = depois
         .iter()
         .filter(|(tabela, quantas)| *quantas > quantas_antes(tabela))
-        .map(|(tabela, quantas)| {
-            format!("{tabela} ({} a mais)", quantas - quantas_antes(tabela))
-        })
+        .map(|(tabela, quantas)| format!("{tabela} ({} a mais)", quantas - quantas_antes(tabela)))
         .collect();
 
     if !novas.is_empty() {
@@ -708,9 +713,11 @@ mod tests {
                 time::macros::datetime!(2026-08-18 14:00:00 UTC),
             ))
             .unwrap();
-        assert_eq!(storage.meeting(meeting.id).unwrap().project_id, Some(project.id));
+        assert_eq!(
+            storage.meeting(meeting.id).unwrap().project_id,
+            Some(project.id)
+        );
     }
-
 
     /// Um banco parado numa versao anterior, montado migration a migration.
     ///
@@ -720,13 +727,41 @@ mod tests {
     /// Foi exatamente o que quebrou os testes da 0030 quando a 0031 entrou.
     fn banco_ate(connection: &Connection, ate: u32) {
         let migrations = [
-            MIGRATION_001, MIGRATION_002, MIGRATION_003, MIGRATION_004, MIGRATION_005,
-            MIGRATION_006, MIGRATION_007, MIGRATION_008, MIGRATION_009, MIGRATION_010,
-            MIGRATION_011, MIGRATION_012, MIGRATION_013, MIGRATION_014, MIGRATION_015,
-            MIGRATION_016, MIGRATION_017, MIGRATION_018, MIGRATION_019, MIGRATION_020,
-            MIGRATION_021, MIGRATION_022, MIGRATION_023, MIGRATION_024, MIGRATION_025,
-            MIGRATION_026, MIGRATION_027, MIGRATION_028, MIGRATION_029, MIGRATION_030,
-            MIGRATION_031, MIGRATION_032, MIGRATION_033, MIGRATION_034,
+            MIGRATION_001,
+            MIGRATION_002,
+            MIGRATION_003,
+            MIGRATION_004,
+            MIGRATION_005,
+            MIGRATION_006,
+            MIGRATION_007,
+            MIGRATION_008,
+            MIGRATION_009,
+            MIGRATION_010,
+            MIGRATION_011,
+            MIGRATION_012,
+            MIGRATION_013,
+            MIGRATION_014,
+            MIGRATION_015,
+            MIGRATION_016,
+            MIGRATION_017,
+            MIGRATION_018,
+            MIGRATION_019,
+            MIGRATION_020,
+            MIGRATION_021,
+            MIGRATION_022,
+            MIGRATION_023,
+            MIGRATION_024,
+            MIGRATION_025,
+            MIGRATION_026,
+            MIGRATION_027,
+            MIGRATION_028,
+            MIGRATION_029,
+            MIGRATION_030,
+            MIGRATION_031,
+            MIGRATION_032,
+            MIGRATION_033,
+            MIGRATION_034,
+            MIGRATION_035,
         ];
         for migration in migrations.into_iter().take(ate as usize) {
             connection.execute_batch(migration).unwrap();
@@ -866,7 +901,6 @@ mod tests {
         assert_eq!(texto, 1, "e o texto dela tambem");
     }
 
-
     /// Sujeira que ja estava no banco NAO pode trancar a porta.
     ///
     /// Era o comportamento ate 2026-08-22: `verify_foreign_keys` contava as
@@ -994,10 +1028,26 @@ mod tests {
         let connection = Connection::open(&database).unwrap();
         configure_connection(&connection).unwrap();
         for migration in [
-            MIGRATION_001, MIGRATION_002, MIGRATION_003, MIGRATION_004, MIGRATION_005,
-            MIGRATION_006, MIGRATION_007, MIGRATION_008, MIGRATION_009, MIGRATION_010,
-            MIGRATION_011, MIGRATION_012, MIGRATION_013, MIGRATION_014, MIGRATION_015,
-            MIGRATION_016, MIGRATION_017, MIGRATION_018, MIGRATION_019, MIGRATION_020,
+            MIGRATION_001,
+            MIGRATION_002,
+            MIGRATION_003,
+            MIGRATION_004,
+            MIGRATION_005,
+            MIGRATION_006,
+            MIGRATION_007,
+            MIGRATION_008,
+            MIGRATION_009,
+            MIGRATION_010,
+            MIGRATION_011,
+            MIGRATION_012,
+            MIGRATION_013,
+            MIGRATION_014,
+            MIGRATION_015,
+            MIGRATION_016,
+            MIGRATION_017,
+            MIGRATION_018,
+            MIGRATION_019,
+            MIGRATION_020,
             MIGRATION_021,
         ] {
             connection.execute_batch(migration).unwrap();
@@ -1006,8 +1056,14 @@ mod tests {
         // DUAS Captures, e a que interessa e a SEGUNDA: com uma so, qualquer
         // desalinhamento de rowid ainda devolveria a linha certa por acidente.
         for (id, content) in [
-            ("0198a7d5-a64e-7000-8000-0000000000b1", "a primeira, sobre orcamento"),
-            ("0198a7d5-a64e-7000-8000-0000000000b2", "a segunda, sobre memorial"),
+            (
+                "0198a7d5-a64e-7000-8000-0000000000b1",
+                "a primeira, sobre orcamento",
+            ),
+            (
+                "0198a7d5-a64e-7000-8000-0000000000b2",
+                "a segunda, sobre memorial",
+            ),
         ] {
             connection
                 .execute(
@@ -1635,11 +1691,9 @@ mod tests {
         // A origem é aberta SOMENTE LEITURA. Este ensaio nunca escreve no banco
         // de verdade, nem para migrar.
         {
-            let fonte = Connection::open_with_flags(
-                &origem,
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap();
+            let fonte =
+                Connection::open_with_flags(&origem, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                    .unwrap();
             fonte.backup(MAIN_DB, &database, None).unwrap();
         }
 
