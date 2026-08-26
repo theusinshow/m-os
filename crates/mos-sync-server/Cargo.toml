@@ -1,0 +1,31 @@
+[package]
+name = "mos-sync-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# O outro lado do `Transport`. Depende de `mos-sync` pelos TIPOS que viajam
+# (`Op`, `Lote`, `CONTRACT_VERSION`) e por nada alem disso: o servidor nao
+# reconcilia, nao projeta e nao conhece Task nem Project. Ele guarda em ordem,
+# devolve a partir de um cursor e aceita reenvio sem duplicar — o contrato
+# inteiro, e so ele.
+[dependencies]
+mos-sync = { path = "../mos-sync" }
+axum = "0.8"
+rusqlite = { version = "0.40", features = ["bundled-full"] }
+serde.workspace = true
+serde_json = "1"
+thiserror.workspace = true
+time.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "net", "signal", "macros"] }
+uuid.workspace = true
+
+[dev-dependencies]
+# O teste sobe o servidor de verdade numa porta efemera e fala com ele por HTTP.
+# Chamar os handlers direto pularia justamente o que pode estar errado: o
+# cabecalho de autorizacao, o parse da query e o codigo de status.
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
