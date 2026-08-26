@@ -167,6 +167,22 @@ impl WorkRepository for SqliteStorage {
             .map_err(map_sql_error)?;
         let rowid = transaction.last_insert_rowid();
         insert_workspace_search(&transaction, rowid)?;
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("workspace", workspace.id.as_uuid()),
+            mos_sync::OpBody::Create {
+                fields: [
+                    ("name".to_owned(), serde_json::json!(workspace.name)),
+                    (
+                        "description".to_owned(),
+                        serde_json::json!(workspace.description),
+                    ),
+                    ("createdAt".to_owned(), serde_json::json!(now)),
+                ]
+                .into_iter()
+                .collect(),
+            },
+        )?;
         transaction.commit().map_err(map_sql_error)?;
         query_workspace(&connection, workspace.id)
     }
@@ -196,6 +212,15 @@ impl WorkRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
         insert_workspace_search(&transaction, rowid)?;
+        self.emitir_update(
+            &transaction,
+            "workspace",
+            id.as_uuid(),
+            &[
+                ("name", serde_json::json!(name)),
+                ("description", serde_json::json!(description)),
+            ],
+        )?;
         transaction.commit().map_err(map_sql_error)?;
         query_workspace(&connection, id)
     }
@@ -228,7 +253,12 @@ impl WorkRepository for SqliteStorage {
         let now = format_time(OffsetDateTime::now_utc())?;
         let archived_at = (lifecycle == LifecycleState::Archived).then_some(now.as_str());
         let connection = self.connection.lock().map_err(map_lock_error)?;
-        let changed = connection
+        // Transacao, e nao `execute` solto como era antes: a operacao de
+        // sincronizacao precisa entrar JUNTO com a mudanca. Arquivar e falhar ao
+        // enfileirar deixaria um Workspace arquivado que nunca sai deste
+        // aparelho, sem ninguem ficar sabendo.
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let changed = transaction
             .execute(
                 "UPDATE workspaces SET lifecycle_state = ?1, updated_at = ?2, archived_at = ?3
                  WHERE id = ?4",
@@ -236,6 +266,13 @@ impl WorkRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
         ensure_changed(changed)?;
+        self.emitir_update(
+            &transaction,
+            "workspace",
+            id.as_uuid(),
+            &[("lifecycleState", serde_json::json!(lifecycle.as_str()))],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         query_workspace(&connection, id)
     }
 
@@ -496,7 +533,10 @@ impl WorkRepository for SqliteStorage {
             let (workspace_id, widget_id) = row.map_err(map_sql_error)?;
             hidden.push(HiddenWidget {
                 // Nulo e a visao "Todos", e nao um dado faltando (migration 0019).
-                workspace_id: workspace_id.as_deref().map(WorkspaceId::parse).transpose()?,
+                workspace_id: workspace_id
+                    .as_deref()
+                    .map(WorkspaceId::parse)
+                    .transpose()?,
                 widget_id,
             });
         }
@@ -532,7 +572,10 @@ impl WorkRepository for SqliteStorage {
             let (workspace_id, widget_id, position, section, span) = row.map_err(map_sql_error)?;
             found.push(mos_core::WidgetPlacement {
                 // Nulo e a visao "Todos", e nao um dado faltando (migration 0018).
-                workspace_id: workspace_id.as_deref().map(WorkspaceId::parse).transpose()?,
+                workspace_id: workspace_id
+                    .as_deref()
+                    .map(WorkspaceId::parse)
+                    .transpose()?,
                 widget_id,
                 position,
                 section,
@@ -647,7 +690,10 @@ impl WorkRepository for SqliteStorage {
             let (workspace_id, slot, kind, target) = row.map_err(map_sql_error)?;
             found.push(mos_core::RadialPin {
                 // Nulo e a visao "Todos", e nao um dado faltando (migration 0021).
-                workspace_id: workspace_id.as_deref().map(WorkspaceId::parse).transpose()?,
+                workspace_id: workspace_id
+                    .as_deref()
+                    .map(WorkspaceId::parse)
+                    .transpose()?,
                 slot,
                 kind,
                 target,
@@ -748,8 +794,14 @@ impl WorkRepository for SqliteStorage {
             mos_sync::OpBody::Create {
                 fields: [
                     ("name".to_owned(), serde_json::json!(project.name)),
-                    ("description".to_owned(), serde_json::json!(project.description)),
-                    ("repository".to_owned(), serde_json::json!(project.repository)),
+                    (
+                        "description".to_owned(),
+                        serde_json::json!(project.description),
+                    ),
+                    (
+                        "repository".to_owned(),
+                        serde_json::json!(project.repository),
+                    ),
                     ("createdAt".to_owned(), serde_json::json!(now)),
                 ]
                 .into_iter()
@@ -943,7 +995,10 @@ impl WorkRepository for SqliteStorage {
             .execute(
                 "UPDATE captures SET processing_state = 'processed', updated_at = ?1
                  WHERE id = ?2 AND processing_state = 'inbox' AND lifecycle_state = 'active'",
-                params![format_time(OffsetDateTime::now_utc())?, capture_id.to_string()],
+                params![
+                    format_time(OffsetDateTime::now_utc())?,
+                    capture_id.to_string()
+                ],
             )
             .map_err(map_sql_error)?;
         if changed != 1 {
@@ -1065,12 +1120,7 @@ impl WorkRepository for SqliteStorage {
         // QUEM DECIDE nao e este arquivo. A regra ("so o objetivo que E aquela
         // Task fecha junto") vive em `mos_core::completes_with_task`, com teste;
         // o filtro `link_kind = 'task'` la dentro e a traducao dela para SQL.
-        self.sync_objectives_with_task(
-            &transaction,
-            id.as_uuid(),
-            state == TaskState::Done,
-            &now,
-        )?;
+        self.sync_objectives_with_task(&transaction, id.as_uuid(), state == TaskState::Done, &now)?;
         transaction.commit().map_err(map_sql_error)?;
         query_task(&connection, id)
     }
@@ -1607,7 +1657,12 @@ mod tests {
         );
         assert_eq!(reminder.source, ReminderSource::Capture);
         // E o lembrete esta de verdade no banco, e nao so no valor devolvido.
-        assert_eq!(AttentionRepository::reminder(&storage, reminder.id).unwrap().id, reminder.id);
+        assert_eq!(
+            AttentionRepository::reminder(&storage, reminder.id)
+                .unwrap()
+                .id,
+            reminder.id
+        );
         // A Capture saiu da Inbox pela mesma transacao.
         assert_eq!(
             storage.get(capture.id).unwrap().processing_state,
@@ -1651,7 +1706,9 @@ mod tests {
             .unwrap_err();
         assert_eq!(erro.code, ErrorCode::InvalidTransition);
         // A transacao inteira voltou atras: nenhum lembrete ficou agendado.
-        assert!(AttentionRepository::open_reminders(&storage).unwrap().is_empty());
+        assert!(AttentionRepository::open_reminders(&storage)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -1871,15 +1928,25 @@ mod tests {
     fn the_home_without_a_workspace_hides_its_own_widgets() {
         let (_directory, storage) = storage();
 
-        storage.set_widget_hidden(None, "inbox_pulse", true).unwrap();
+        storage
+            .set_widget_hidden(None, "inbox_pulse", true)
+            .unwrap();
         let hidden = storage.hidden_widgets().unwrap();
 
         assert_eq!(hidden.len(), 1);
-        assert_eq!(hidden[0].workspace_id, None, "nao pertence a Workspace nenhum");
+        assert_eq!(
+            hidden[0].workspace_id, None,
+            "nao pertence a Workspace nenhum"
+        );
         assert_eq!(hidden[0].widget_id, "inbox_pulse");
 
-        storage.set_widget_hidden(None, "inbox_pulse", false).unwrap();
-        assert!(storage.hidden_widgets().unwrap().is_empty(), "e volta a aparecer");
+        storage
+            .set_widget_hidden(None, "inbox_pulse", false)
+            .unwrap();
+        assert!(
+            storage.hidden_widgets().unwrap().is_empty(),
+            "e volta a aparecer"
+        );
     }
 
     /// A armadilha que o indice unico da 0019 fecha: no SQLite, coluna de
@@ -1891,10 +1958,16 @@ mod tests {
         let (_directory, storage) = storage();
 
         for _ in 0..3 {
-            storage.set_widget_hidden(None, "system_health", true).unwrap();
+            storage
+                .set_widget_hidden(None, "system_health", true)
+                .unwrap();
         }
 
-        assert_eq!(storage.hidden_widgets().unwrap().len(), 1, "uma linha, nao tres");
+        assert_eq!(
+            storage.hidden_widgets().unwrap().len(),
+            1,
+            "uma linha, nao tres"
+        );
     }
 
     /// "Todos" e um escopo como outro qualquer: esconder la nao esconde no
@@ -2032,7 +2105,10 @@ mod tests {
 
         assert_eq!(saved.len(), 3);
         assert_eq!(
-            saved.iter().map(|p| p.widget_id.as_str()).collect::<Vec<_>>(),
+            saved
+                .iter()
+                .map(|p| p.widget_id.as_str())
+                .collect::<Vec<_>>(),
             ["inbox_pulse", "timer", "now"]
         );
         assert_eq!(saved[0].position, 0);
@@ -2158,7 +2234,10 @@ mod tests {
         let mudou_de_faixa = storage
             .set_widget_layout(Some(workspace.id), &faixa("agora", &["now", "timer"]))
             .unwrap();
-        let timer = mudou_de_faixa.iter().find(|p| p.widget_id == "timer").unwrap();
+        let timer = mudou_de_faixa
+            .iter()
+            .find(|p| p.widget_id == "timer")
+            .unwrap();
         assert_eq!(timer.position, 1);
         assert_eq!(timer.section.as_deref(), Some("agora"), "voltou de faixa");
         assert_eq!(timer.span, None, "e a largura voltou ao desenho");
@@ -2276,7 +2355,10 @@ mod tests {
             "o arranjo do Workspace some por inteiro"
         );
         assert_eq!(
-            restante.iter().filter(|p| p.workspace_id == Some(outro.id)).count(),
+            restante
+                .iter()
+                .filter(|p| p.workspace_id == Some(outro.id))
+                .count(),
             2,
             "e o do vizinho fica intacto"
         );
@@ -2394,7 +2476,9 @@ mod tests {
             .unwrap();
 
         let apos_todos = storage.reset_widget_layout(None).unwrap();
-        assert!(apos_todos.iter().all(|p| p.workspace_id == Some(estudio.id)));
+        assert!(apos_todos
+            .iter()
+            .all(|p| p.workspace_id == Some(estudio.id)));
         assert_eq!(apos_todos.len(), 2);
 
         let apos_estudio = storage.reset_widget_layout(Some(estudio.id)).unwrap();
@@ -2420,7 +2504,10 @@ mod tests {
         let saved = storage.set_widget_layout(None, &carga).unwrap();
         assert_eq!(saved.len(), 3);
         assert_eq!(
-            saved.iter().find(|p| p.widget_id == "now").and_then(|p| p.span),
+            saved
+                .iter()
+                .find(|p| p.widget_id == "now")
+                .and_then(|p| p.span),
             Some(8)
         );
     }

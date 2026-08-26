@@ -81,6 +81,17 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
             ],
             obrigatorias: &[("name", "'(sem nome)'"), ("description", "''")],
         }),
+        "workspace" => Some(Mapa {
+            tabela: "workspaces",
+            colunas: &[
+                ("name", "name"),
+                ("description", "description"),
+                ("lifecycleState", "lifecycle_state"),
+                ("createdAt", "created_at"),
+            ],
+            // `name` tem `CHECK (length(trim(name)) > 0)`.
+            obrigatorias: &[("name", "'(sincronizando)'"), ("description", "''")],
+        }),
         "capture" => Some(Mapa {
             tabela: "captures",
             colunas: &[

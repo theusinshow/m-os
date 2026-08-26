@@ -390,3 +390,61 @@ async fn um_clique_esvazia_a_fila_inteira() {
     .await
     .unwrap();
 }
+
+/// Workspace atravessa — e com ele a aresta que dependia dele.
+///
+/// Este e o teste que fecha um buraco que os commits anteriores deixaram
+/// aberto e anotado: `resourceWorkspace` e `projectWorkspace` chegavam ao outro
+/// aparelho e nao viravam linha, porque a ponta Workspace nunca chegava. A
+/// aresta ficava guardada no estado, inteira e invisivel.
+///
+/// Por isso o vinculo esta aqui junto: emitir Workspace sozinho seria metade da
+/// correcao, e a metade que nao se ve.
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_atravessa_e_destrava_a_aresta_que_dependia_dele() {
+    use mos_core::{NewProject, NewWorkspace, WorkRepository};
+
+    let endereco = servir().await;
+
+    tokio::task::spawn_blocking(move || {
+        let rede = HttpTransport::novo(format!("http://{endereco}"), TOKEN).unwrap();
+        let mut pc = Aparelho::novo("PC");
+        let mut outro = Aparelho::novo("Outro");
+
+        let workspace = NewWorkspace::create("Web Design", "referencias e clientes").unwrap();
+        let workspace_id = workspace.id;
+        pc.storage.create_workspace(workspace).unwrap();
+
+        let projeto = NewProject::create("Escadas Minarum", "", "").unwrap();
+        let projeto_id = projeto.id;
+        pc.storage.create_project(projeto).unwrap();
+        pc.storage
+            .set_project_workspace(projeto_id, workspace_id, true)
+            .unwrap();
+
+        let subida = pc.sincronizar(&rede);
+        assert!(subida.erro.is_none(), "subida falhou: {:?}", subida.erro);
+        let descida = outro.sincronizar(&rede);
+        assert!(
+            descida.erro.is_none(),
+            "a aresta ficou pendente: {:?}",
+            descida.erro
+        );
+
+        let workspaces = outro.storage.workspaces(false).unwrap();
+        assert_eq!(workspaces.len(), 1, "o Workspace nao materializou");
+        assert_eq!(workspaces[0].id, workspace_id);
+        assert_eq!(workspaces[0].name, "Web Design");
+        assert_eq!(workspaces[0].description, "referencias e clientes");
+
+        // E a aresta, que era o motivo real de fazer isto agora.
+        let projetos = outro
+            .storage
+            .workspace_projects(workspace_id, false)
+            .unwrap();
+        assert_eq!(projetos.len(), 1, "o vinculo com o Workspace nao apareceu");
+        assert_eq!(projetos[0].id, projeto_id);
+    })
+    .await
+    .unwrap();
+}
