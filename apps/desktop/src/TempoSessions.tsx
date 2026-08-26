@@ -174,7 +174,21 @@ export function TempoSessions({ entries, projects, onChanged, receipt, onError, 
           return (
             <div className="tempo-session" key={entry.id}>
               <span>
-                <strong>{named(entry.projectId)?.name ?? "Project removido"}</strong>
+                {/* O selo mora DENTRO do bloco do nome, e nao ao lado dele.
+                    Como irmao dos outros filhos do flex ele era um quarto item
+                    na linha, e numa sessao marcada a soma passava da largura do
+                    card: o "Corrigir" caia sozinho para uma segunda altura e
+                    aquela linha ficava com o dobro do tamanho das vizinhas. A
+                    lista inteira perdia a varredura por causa de um selo. */}
+                <span className="tempo-session-title">
+                  <strong>{named(entry.projectId)?.name ?? "Project removido"}</strong>
+                  {/* O selo não bloqueia nada e não altera o registro: uma sessão
+                      de dez horas pode ser real. Ele só põe o olho em cima antes
+                      de a hora virar fatura. */}
+                  {suspicion.length ? (
+                    <span className="tempo-flag" title={suspicionText(suspicion)}>Conferir?</span>
+                  ) : null}
+                </span>
                 {/* A origem só aparece quando NÃO é o cronômetro. */}
                 <small>
                   {dayOf(entry.startedAt)} · {ACTIVITY_LABEL[entry.activityType] ?? entry.activityType}
@@ -184,12 +198,6 @@ export function TempoSessions({ entries, projects, onChanged, receipt, onError, 
                   {entry.description ? ` · ${entry.description}` : ""}
                 </small>
               </span>
-              {/* O selo não bloqueia nada e não altera o registro: uma sessão de
-                  dez horas pode ser real. Ele só põe o olho em cima antes de a
-                  hora virar fatura. */}
-              {suspicion.length ? (
-                <span className="tempo-flag" title={suspicionText(suspicion)}>Conferir?</span>
-              ) : null}
               <span className="tempo-session-duration">{durationOf(entry.durationSeconds)}</span>
               {/* UMA acao na coluna estreita, e nao duas.
                   Cabem duas no Historico, que e largo; aqui elas empurravam a

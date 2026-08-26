@@ -258,13 +258,32 @@ export function TempoPage({ projects, openProject, receipt }: {
 
       {view === "painel" ? (
         <>
-          <PageHeader
-            title="Painel"
-            subtitle="Cronômetro atual, resumo do dia e sessões recentes."
-          />
+          {/* O título visível saiu, e o `h1` ficou.
+              O caminho ("M / CRONOCAD / PAINEL") e a aba acesa já diziam onde
+              você está; um `<h1>Painel</h1>` logo abaixo era a terceira camada a
+              dizer a mesma palavra em 130px de altura, e o subtítulo descrevia o
+              LAYOUT ("cronômetro, resumo do dia e sessões recentes") em vez de
+              dizer alguma coisa. O leitor de tela continua recebendo o título. */}
+          <h1 className="visually-hidden">Painel</h1>
 
-          {/* Duas colunas de peso diferente: o cronômetro é o que se usa, os
-              números são o que se confere. Empilham numa janela estreita. */}
+          {/* Os três números que mudam uma decisão, e só eles.
+              "Sessões registradas" e "Projects ativos" saíram: nenhum dos dois
+              muda o que se faz a seguir, e eram eles que faziam a coluna de
+              números ficar tão alta quanto o cronômetro ao lado. Em faixa, e não
+              em coluna, o olho compara os três sem descer. */}
+          <Card className="tempo-summary">
+            <div className="tempo-stat-row">
+              <Stat label="TRABALHADO HOJE" value={durationOf(todaySeconds)} />
+              <Stat label="A RECEBER" value={moneyOf(aReceber)} hint={`${hoursOf(trackedTotal)} rastreadas`} />
+              {/* So aparece quando ha: um "R$ 0,00 pago" fixo ocuparia a
+                  faixa todo dia para dizer nada. */}
+              {jaPago ? <Stat label="JÁ PAGO" value={moneyOf(jaPago)} /> : null}
+            </div>
+          </Card>
+
+          {/* Duas colunas de peso diferente: o cronômetro é o que se usa, o
+              acumulado por Project é o que se confere. Empilham numa janela
+              estreita. */}
           <div className="tempo-cols" data-cols="main">
             <Card label="INICIAR TRABALHO">
               <Timer projects={projects} entries={entries} onChanged={() => void load()} />
@@ -293,26 +312,15 @@ export function TempoPage({ projects, openProject, receipt }: {
               ) : null}
             </Card>
 
-            <Card>
-              <div className="tempo-stat-column">
-                <Stat label="TRABALHADO HOJE" value={durationOf(todaySeconds)} />
-                <Stat label="A RECEBER" value={moneyOf(aReceber)} hint={`${hoursOf(trackedTotal)} rastreadas`} />
-                {/* So aparece quando ha: um "R$ 0,00 pago" fixo ocuparia a
-                    coluna todo dia para dizer nada. */}
-                {jaPago ? <Stat label="JÁ PAGO" value={moneyOf(jaPago)} /> : null}
-                <Stat label="SESSÕES REGISTRADAS" value={String(entries.length)} />
-                {/* "Projects" e o vocabulario do M/OS, e ele fica: renomear para
-                    "Projetos" so aqui criaria dois nomes para a mesma entidade
-                    dentro da mesma tela — o rail, a pagina vizinha e o resto
-                    desta pagina dizem Project. */}
-                <Stat label="PROJECTS ATIVOS" value={String(active.length)} />
-              </div>
-            </Card>
-          </div>
-
-          {/* Três colunas: por Project, últimas sessões, e o convite da linha do
-              tempo. Nenhuma pede decisão — são as três leituras de relance. */}
-          <div className="tempo-cols" data-cols="3">
+            {/* "Projects" e o vocabulario do M/OS, e ele fica: renomear para
+                "Projetos" so aqui criaria dois nomes para a mesma entidade
+                dentro da mesma tela — o rail, a pagina vizinha e o resto desta
+                pagina dizem Project. */}
+            {/* Sem `flush`: as celulas do card `flush` levam 24px de cada lado,
+                e numa coluna de duas colunas isso custa 96px dos ~260 que a
+                janela estreita da — o nome do Project truncava cedo e "16.1 h"
+                caia para uma segunda linha. O respiro vem do corpo do card, uma
+                vez so, e as celulas ficam com a largura toda. */}
             <Card label="POR PROJECT" count={trackedTotal ? hoursOf(trackedTotal) : undefined}>
               {ranked.length ? (
                 <table className="tempo-table tempo-table-compact">
@@ -341,35 +349,45 @@ export function TempoPage({ projects, openProject, receipt }: {
                 <EmptyState>Nenhuma hora registrada ainda.</EmptyState>
               )}
             </Card>
-
-            <Card
-              label="SESSÕES RECENTES"
-              action={
-                entries.length > RECENT ? (
-                  <Button variant="ghost" size="sm" onClick={() => setView("historico")}>Ver todas</Button>
-                ) : undefined
-              }
-            >
-              {entries.length ? (
-                <TempoSessions
-                  entries={entries.slice(0, RECENT)}
-                  projects={projects}
-                  onChanged={() => void load()}
-                  receipt={receipt}
-                  onError={setNote}
-                />
-              ) : (
-                <EmptyState>As sessões encerradas aparecem aqui.</EmptyState>
-              )}
-            </Card>
-
-            <Card label="LINHA DO TEMPO DETECTADA">
-              <p className="support-copy">
-                Veja os programas monitorados abertos hoje e transforme períodos sem registro em sessões.
-              </p>
-              <Button variant="ghost" size="sm" onClick={() => setView("linha")}>Abrir linha do tempo</Button>
-            </Card>
           </div>
+
+          {/* A lista ocupa a largura toda, e nao um terco dela.
+              Espremida numa coluna de ~300px, cada sessao gastava duas alturas
+              (nome em cima, apoio embaixo) e a lista virava a peca mais alta da
+              tela ao lado de duas colunas que acabavam muito antes — era isso
+              que fazia o rodape da pagina parecer desmontado. Larga, cada sessao
+              cabe numa linha e a mesma quantidade de informacao ocupa metade da
+              altura. */}
+          <Card
+            label="SESSÕES RECENTES"
+            action={
+              entries.length > RECENT ? (
+                <Button variant="ghost" size="sm" onClick={() => setView("historico")}>Ver todas</Button>
+              ) : undefined
+            }
+          >
+            {entries.length ? (
+              <TempoSessions
+                entries={entries.slice(0, RECENT)}
+                projects={projects}
+                onChanged={() => void load()}
+                receipt={receipt}
+                onError={setNote}
+              />
+            ) : (
+              <EmptyState>As sessões encerradas aparecem aqui.</EmptyState>
+            )}
+          </Card>
+
+          {/* Era um card de um terco de largura com uma frase e um botao dentro:
+              uma moldura em volta de um link. Como linha de rodape ele devolve a
+              coluna a pagina e continua encontrando quem chegou ao fim da lista
+              — que e exatamente onde a pergunta "faltou registrar alguma coisa?"
+              aparece. */}
+          <p className="tempo-timeline-cta">
+            <span>Programas monitorados abertos hoje viram sessões: períodos sem registro podem ser lançados na linha do tempo.</span>
+            <Button variant="ghost" size="sm" onClick={() => setView("linha")}>Abrir linha do tempo</Button>
+          </p>
         </>
       ) : null}
 

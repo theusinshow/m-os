@@ -1460,6 +1460,27 @@ textarea::placeholder {
   min-width: 0;
 }
 
+/* Nome e selo na MESMA linha, dividindo a largura do bloco de nome.
+
+   O selo "Conferir?" era irmao do bloco de nome, da duracao e da acao — um
+   quarto item competindo pela largura da linha. Numa sessao marcada a soma
+   passava do card e o `wrap` mandava o "Corrigir" para uma segunda altura, o
+   que dobrava aquela linha e quebrava a varredura da lista inteira. Aqui ele
+   divide a largura do NOME, que e o unico texto elastico da linha: o nome
+   trunca antes, e a linha continua com uma altura so. */
+.tempo-session-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* O par obrigatorio do truncamento: um item flex nao encolhe abaixo do proprio
+   conteudo sem isto, e o `text-overflow` nunca chega a acontecer. */
+.tempo-session-title strong {
+  min-width: 0;
+}
+
 /* Nome e apoio truncam em vez de quebrar em tres linhas: a lista e para ler de
    relance, e uma linha de altura variavel destroi a varredura vertical. */
 .tempo-session > span:first-child strong,
@@ -1621,6 +1642,67 @@ textarea::placeholder {
   .tempo-cols[data-cols="main"] {
     grid-template-columns: 1fr;
   }
+}
+
+/* Um card sozinho na largura da pagina precisa do mesmo vao que a `.tempo-cols`
+   ja tem embaixo. Sem isto a faixa de numeros e a lista de sessoes encostavam no
+   que vinha depois, e a pagina lia como um bloco so. */
+.tempo-page > .tempo-card {
+  margin-bottom: var(--space-3);
+}
+
+/* A faixa de numeros do Painel: sem rotulo, so os tres valores. O respiro
+   vertical e menor que o de um card de conteudo — ela e uma regua de leitura, e
+   nao um painel para ficar dentro. */
+.tempo-summary .tempo-card-body {
+  padding: var(--space-4) var(--space-loose);
+}
+
+/* O convite da linha do tempo como RODAPE, e nao como card.
+   Regua em cima porque ele fecha a pagina: sem ela, uma frase solta depois da
+   ultima sessao parece sobra da lista. */
+.tempo-timeline-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0;
+  padding-top: var(--space-3);
+  border-top: var(--line) solid var(--border);
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.tempo-timeline-cta > span {
+  min-width: 0;
+  flex: 1 1 24rem;
+}
+
+/* O `padding-top` do cronometro existe para o `Panel` da Home, que separa por ar
+   e nao por moldura. Dentro de um card com 24px de respiro proprio ele virava
+   36px de vazio entre a regua do rotulo e a primeira linha de texto. */
+.tempo-card-body > .timer-idle,
+.tempo-card-body > .timer-live {
+  padding-top: 0;
+}
+
+/* A lista e a tabela ja estao dentro do respiro do card: o `margin-top` delas
+   somava um segundo vao logo abaixo da regua do cabecalho. E a ultima sessao nao
+   desenha regua, porque a moldura do card fecha ali. */
+.tempo-card-body > .tempo-sessions,
+.tempo-card-body > .tempo-table {
+  margin-top: 0;
+}
+
+.tempo-card-body > .tempo-table tbody tr:last-child th,
+.tempo-card-body > .tempo-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.tempo-card-body > .tempo-sessions > .tempo-session:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 
 /* Numeros grandes. Empilhados quando estao numa coluna estreita, lado a lado
@@ -1992,6 +2074,17 @@ textarea::placeholder {
 .tempo-table-compact th[scope="row"] {
   width: 58%;
   overflow: hidden;
+}
+
+/* "16.1 h" nao quebra em duas linhas.
+
+   Sao 42% de uma coluna que numa janela de 900px sobra com ~76px, e o espaco
+   entre o numero e a unidade e um ponto de quebra legitimo para o navegador. Ele
+   quebrava, a celula ficava com o dobro da altura e a linha da tabela deixava de
+   ter a mesma altura das vizinhas. */
+.tempo-table-compact td strong,
+.tempo-table-compact td small {
+  white-space: nowrap;
 }
 
 .tempo-table-compact th[scope="row"] button {
