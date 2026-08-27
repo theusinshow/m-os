@@ -225,7 +225,9 @@ pub async fn registro_inicio(
     }
     let apelido = pedido.apelido.trim();
     if apelido.is_empty() {
-        return Err(AuthError::Recusado("Diga como chamar este aparelho.".into()));
+        return Err(AuthError::Recusado(
+            "Diga como chamar este aparelho.".into(),
+        ));
     }
 
     let banco = estado.banco.lock().map_err(|_| interno("banco ocupado"))?;
@@ -281,9 +283,7 @@ pub async fn registro_fim(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-pub async fn login_inicio(
-    State(estado): State<Estado>,
-) -> Resultado<Json<DesafioResposta>> {
+pub async fn login_inicio(State(estado): State<Estado>) -> Resultado<Json<DesafioResposta>> {
     let banco = estado.banco.lock().map_err(|_| interno("banco ocupado"))?;
     let passkeys = todas_as_passkeys(&banco)?;
     if passkeys.is_empty() {
@@ -375,17 +375,21 @@ fn usuario_unico(banco: &Connection) -> Resultado<Uuid> {
     // como mais um aparelho do MESMO dono. Id sorteado a cada registro faria o
     // segundo aparelho virar outra pessoa.
     let existente: Option<String> = banco
-        .query_row(
-            "SELECT passkey FROM credenciais LIMIT 1",
-            [],
-            |linha| linha.get(0),
-        )
+        .query_row("SELECT passkey FROM credenciais LIMIT 1", [], |linha| {
+            linha.get(0)
+        })
         .optional()
         .map_err(interno)?;
     match existente {
         Some(json) => {
             let passkey: Passkey = serde_json::from_str(&json).map_err(interno)?;
-            Ok(Uuid::from_bytes(*passkey.cred_id().as_ref().first_chunk::<16>().unwrap_or(&[0; 16])))
+            Ok(Uuid::from_bytes(
+                *passkey
+                    .cred_id()
+                    .as_ref()
+                    .first_chunk::<16>()
+                    .unwrap_or(&[0; 16]),
+            ))
         }
         None => Ok(Uuid::now_v7()),
     }

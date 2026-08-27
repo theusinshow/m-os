@@ -33,11 +33,31 @@ time.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "net", "signal", "macros", "time"] }
 tower-http = { version = "0.6", features = ["fs", "compression-gzip"] }
 uuid.workspace = true
-# 0.5 e a estavel; a 0.6 ainda e `-dev`. Um segredo nao entra em pre-release.
-webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
 getrandom = "0.3"
+# 0.5 e a estavel; a 0.6 ainda e `-dev`. Um segredo nao entra em pre-release.
+#
+# OPCIONAL, e a razao e concreta: ele depende de OpenSSL, que nao existe na
+# maquina de desenvolvimento. Como dependencia obrigatoria, ele impediria de
+# compilar TODO o resto do `mos-web` — o servidor, o sync, a superficie — por
+# causa da porta. Com feature, o resto anda aqui e a porta e conferida onde
+# OpenSSL existe: no CI e na VPS, que e onde ela vai rodar.
+webauthn-rs = { version = "0.5", features = [
+    "danger-allow-state-serialisation",
+], optional = true }
+
+[features]
+default = []
+# A porta de verdade. Ligada no CI e na VPS.
+passkey = ["dep:webauthn-rs"]
+# A porta ABERTA, para desenvolvimento.
+#
+# Ela nao entra em `default` e o binario RECUSA a subir com ela ligada se o bind
+# nao for localhost — uma porta de desenvolvimento que chega em producao e como
+# a maioria dos vazamentos comeca.
+porta-aberta = []
 
 [dev-dependencies]
+axum = "0.8"
 mos-sync-server = { path = "../../crates/mos-sync-server" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "cookies"] }
 tempfile = "3"
