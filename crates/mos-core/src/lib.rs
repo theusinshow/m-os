@@ -139,7 +139,7 @@ pub use service::{
     DailyService,
     CreateCaptureInput, CreateProjectInput, CreateResourceInput, CreateTaskInput,
     CreateWorkspaceInput, DataService, MeetingService, MemoryService, MonitoringService,
-    TrackingService, UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput,
+    Servicos, TrackingService, UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput,
     UpdateWorkspaceInput, VoiceService, WorkService,
 };
 pub use stale::{

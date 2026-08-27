@@ -293,13 +293,13 @@ impl TrackingService {
 /// os repositorios sao dois: observacao nao vira hora sozinha, e manter os dois
 /// separados torna essa fronteira visivel na assinatura em vez de depender de
 /// alguem lembrar dela.
-#[derive(Clone)]
 /// O Attention System, do lado do dominio.
 ///
 /// Toda mudanca de estado passa por aqui, e nunca pelo repositorio direto: e
 /// este servico que garante a ordem "validar, persistir, so entao agendar" do
 /// `ATTENTION-SYSTEM.md` §7.5. Um Reminder que existe no agendador e nao no
 /// banco e um Reminder que o proximo restart apaga.
+#[derive(Clone)]
 pub struct AttentionService {
     repository: Arc<dyn crate::AttentionRepository>,
     clock: Arc<dyn crate::Clock>,
@@ -1384,6 +1384,7 @@ impl ConversationService {
 /// Whisper nem o Hermes**. As tres portas dos estagios chegam nas fases delas;
 /// o que existe aqui e o que sobrevive a todas: a reuniao, o estado dela e a
 /// regra de quem pode transitar para onde.
+#[derive(Clone)]
 pub struct MeetingService {
     repository: Arc<dyn crate::MeetingRepository>,
     clock: Arc<dyn crate::Clock>,
@@ -1961,6 +1962,7 @@ impl VoiceService {
 /// para instanciar sem o sistema inteiro. Quem le e o comando do desktop, que
 /// chama a funcao pura `daily::compose_context` — o mesmo desenho do
 /// `calendar::compose`.
+#[derive(Clone)]
 pub struct DailyService {
     repository: Arc<dyn crate::DailyRepository>,
     clock: Arc<dyn crate::Clock>,
@@ -2804,4 +2806,32 @@ impl AcademicService {
         let painel = self.dashboard(now_local)?;
         Ok(crate::compose_today(&painel, now_local))
     }
+}
+
+/// Os servicos que a camada de acao do agente usa.
+///
+/// # Por que este tipo existe
+///
+/// O executor do Hermes vivia dentro do shell do desktop e pegava os servicos
+/// de `app.state::<AppState>()` — um tipo do Tauri. Isso amarrava 2.388 linhas
+/// de logica de dominio a uma janela, e a superficie de bolso nao tinha como
+/// reaproveita-las sem arrastar o Tauri junto.
+///
+/// Nada aqui e novo: sao os mesmos oito servicos que a interface ja usa. O que
+/// muda e que agora eles cabem num parametro, e quem executa uma acao do agente
+/// nao precisa saber se existe uma janela do outro lado.
+///
+/// **A invariante que isto protege continua sendo a de sempre:** a acao do
+/// agente passa pelos MESMOS servicos que a acao do usuario. Nunca SQL proprio,
+/// nunca um atalho (ADR-024, ADR-032).
+#[derive(Clone)]
+pub struct Servicos {
+    pub captures: CaptureService,
+    pub work: WorkService,
+    pub memory: MemoryService,
+    pub conversations: ConversationService,
+    pub tracking: TrackingService,
+    pub meetings: MeetingService,
+    pub attention: AttentionService,
+    pub daily: DailyService,
 }

@@ -79,3 +79,39 @@ Uma das duas:
 não funciona em outro endereço, e é isso que torna phishing impossível. No
 celular, isso quer dizer um **domínio de verdade com TLS** — não um IP, não um
 túnel SSH.
+
+## O Hermes: o que a medição mostrou
+
+A camada de ação **não** é código novo a escrever — é código existente a
+libertar. O executor mora em `apps/desktop/src-tauri/src/jarvis.rs`, 2.388
+linhas, e apenas **54 delas tocam o Tauri**. O miolo é domínio puro.
+
+O acoplamento tem forma conhecida, e foi medido:
+
+| o que ele pede do hospedeiro | quantas vezes | resolvido? |
+|---|---|---|
+| os oito serviços (`app.state::<AppState>()`) | por toda parte | **sim** — `mos_core::Servicos` |
+| `app.emit(...)` para avisar a janela | 7 | falta |
+| `attention::poke` (acorda o agendador) | 2 | falta |
+| `surface::now_local` (o fuso do usuário) | 1 | falta |
+| `daily::hoje/iniciar/encerrar/resolver_objetivo` | 6 | falta — `daily.rs` também é do desktop |
+| `finance::execute_create_bill` | 1 | **já é portável** — não usa `AppHandle` |
+
+### O que já está feito
+
+`mos_core::Servicos` reúne os oito serviços num tipo só, e `AppState::servicos()`
+o produz. Era o maior dos acoplamentos, e o único espalhado por todo o arquivo.
+
+### O que falta, e a forma que ele tem
+
+Um trait `Ambiente` com três métodos — `agora_local`, `avisar`,
+`cutucar_lembretes` —, implementado pelo desktop com `AppHandle` e pelo `mos-web`
+com fuso configurado e avisos silenciosos. Mais portar `daily.rs` (~450 linhas),
+que hoje é a única razão de `run_action` ainda precisar de uma janela.
+
+### Por que parou aqui
+
+Mover 500 linhas de código que funciona — agendador de lembretes e sessão do dia
+— sem poder abrir o desktop e clicar é como se quebra algo em silêncio. A
+fronteira acima está medida e o caminho é mecânico; o que falta é executá-lo com
+o app na mão para conferir.

@@ -99,6 +99,29 @@ pub(crate) struct AppState {
     settings_path: PathBuf,
 }
 
+impl AppState {
+    /// Os servicos que a camada de acao do agente usa, num tipo so.
+    ///
+    /// Existe para o executor do Hermes NAO precisar de `AppHandle`: ele pedia
+    /// os servicos via `app.state::<AppState>()`, e isso amarrava a logica de
+    /// dominio a uma janela do Tauri — a superficie de bolso nao tinha como
+    /// reaproveita-la sem arrastar o Tauri junto.
+    ///
+    /// Sao clones baratos: cada servico guarda `Arc`, e nada e duplicado.
+    pub(crate) fn servicos(&self) -> mos_core::Servicos {
+        mos_core::Servicos {
+            captures: self.captures.clone(),
+            work: self.work.clone(),
+            memory: self.memory.clone(),
+            conversations: self.conversations.clone(),
+            tracking: self.tracking.clone(),
+            meetings: self.meetings.clone(),
+            attention: self.attention.clone(),
+            daily: self.daily.clone(),
+        }
+    }
+}
+
 #[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UserSettings {
