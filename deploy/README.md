@@ -164,3 +164,85 @@ Isso é uma decisão separada, com consequências próprias: um endereço públi
 existe para o mundo inteiro, e a partir daí o segredo compartilhado passa a ser
 a única coisa entre a internet e o seu banco. Vale fazer no dia em que o app iOS
 existir — antes disso, é superfície exposta sem cliente para usá-la.
+
+---
+
+# A superfície de bolso (`mos-web`)
+
+O hub acima faz dois aparelhos se alcançarem. Isto é o aparelho que você carrega
+no bolso: um M/OS pequeno, com banco próprio, que sincroniza pelo mesmo hub.
+
+## 1. O binário
+
+Workflow `M/OS web` no Actions. Ele constrói a PWA **antes** do Rust — o
+`rust-embed` lê a pasta `static/` em tempo de compilação, e a ordem invertida
+produz um binário que sobe, responde à API e serve uma **página em branco**.
+
+```bash
+gh run download --name mos-web-linux-x86_64
+sudo install -m 755 mos-web /usr/local/bin/mos-web
+```
+
+## 2. O usuário
+
+```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin mos-web
+sudo mkdir -p /var/lib/mos-web
+sudo chown mos-web:mos-web /var/lib/mos-web
+sudo chmod 700 /var/lib/mos-web
+```
+
+## 3. O ambiente
+
+```bash
+sudo tee /etc/mos-web.env >/dev/null <<'ENV'
+MOS_WEB_BIND=127.0.0.1
+MOS_WEB_PORT=9130
+MOS_WEB_DB=/var/lib/mos-web/mos-web.db
+MOS_WEB_BACKUPS=/var/lib/mos-web/backups
+MOS_WEB_HUB=http://127.0.0.1:9120
+MOS_WEB_TOKEN=O_MESMO_SEGREDO_DO_HUB
+MOS_WEB_INVITE=UM_SEGUNDO_SEGREDO_SO_PARA_REGISTRAR_APARELHO
+ENV
+sudo chmod 600 /etc/mos-web.env
+```
+
+`MOS_WEB_HUB` aponta para `127.0.0.1:9120` porque o hub roda **na mesma VPS**.
+Os dois conversam por localhost, e nada disso sai da máquina.
+
+`MOS_WEB_INVITE` é o que passkey **não** resolve: ele autentica quem já é
+conhecido, mas não decide quem passa a ser. Sem essa trava, a primeira pessoa
+que achasse a URL viraria a dona da casa.
+
+## 4. O serviço
+
+```bash
+sudo cp deploy/mos-web.service /etc/systemd/system/mos-web.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now mos-web
+curl -s http://127.0.0.1:9130/api/estado
+```
+
+## 5. O proxy com TLS — e por que ele não é opcional
+
+**Passkey exige origem HTTPS estável**, e o cookie de sessão é `Secure`: em HTTP
+ele nem é enviado, e o login pareceria não funcionar sem dizer por quê.
+
+Com Caddy, é uma linha:
+
+```
+mos.seudominio.com {
+    reverse_proxy 127.0.0.1:9130
+}
+```
+
+O `MOS_WEB_BIND` continua em `127.0.0.1`: quem fala com a internet é o proxy.
+
+**Um aviso que não cabe em nota de rodapé:** a partir daqui existe um endereço
+público, e atrás dele está o seu cérebro inteiro. O que separa os dois é a
+passkey e o convite. Vale conferir os dois antes de apontar o DNS.
+
+## 6. No iPhone
+
+Safari → o endereço → Compartilhar → **Adicionar à Tela de Início**. Ele abre em
+tela cheia, sem barra do navegador, com o ícone do M/OS.

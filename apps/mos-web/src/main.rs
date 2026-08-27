@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    let rotas = api::rotas().with_state(estado);
+    let rotas = api::rotas_com_pagina().with_state(estado);
     let endereco: SocketAddr = format!("{bind}:{porta}").parse()?;
     println!("[web] {banco}, ouvindo {endereco}");
 

@@ -1,0 +1,16 @@
+{
+  "name": "M/OS",
+  "short_name": "M/OS",
+  "description": "Capturar, inbox e tasks — a superfície de bolso do M/OS.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "pt-BR",
+  "background_color": "#0A0C0E",
+  "theme_color": "#0A0C0E",
+  "icons": [
+    { "src": "/icone.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icone-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

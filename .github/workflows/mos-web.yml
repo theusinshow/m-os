@@ -1,0 +1,91 @@
+# O binário do M/OS de bolso, para Linux.
+#
+# Duas etapas, e a ORDEM importa: `npm run build` na `ui/` produz `static/`, e o
+# `rust-embed` lê essa pasta em tempo de COMPILAÇÃO. Compilar o Rust primeiro
+# gera um binário que sobe, responde à API e serve uma página em branco — o pior
+# sintoma possível, porque nada indica onde procurar.
+#
+# `musl` e não `gnu`, pela mesma razão do hub: o binário `gnu` amarra o glibc da
+# imagem do runner, e uma VPS mais antiga recusa a executá-lo com um erro que
+# não explica nada.
+#
+# A feature `passkey` entra AQUI, e não no build local: ela depende de OpenSSL,
+# que não existe na máquina de desenvolvimento. Este workflow é onde a porta é
+# de fato compilada e testada.
+
+name: M/OS web
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - "apps/mos-web/**"
+      - "crates/mos-core/**"
+      - "crates/mos-storage-sqlite/**"
+      - "crates/mos-sync/**"
+      - "crates/mos-sync-http/**"
+      - ".github/workflows/mos-web.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Linux x86_64 (musl)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/mos-web/ui/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      # A interface PRIMEIRO. Ver o comentário no topo.
+      - name: Build the PWA
+        working-directory: apps/mos-web/ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Test
+        run: cargo test -p mos-web --locked
+
+      # A porta só compila onde OpenSSL existe, e é aqui.
+      - name: Compile the passkey door
+        run: cargo check -p mos-web --features passkey --locked
+
+      - name: Build
+        run: cargo build -p mos-web --release --locked --target x86_64-unknown-linux-musl --features passkey
+
+      - name: Verify it is static
+        run: |
+          arquivo="target/x86_64-unknown-linux-musl/release/mos-web"
+          file "$arquivo"
+          if ldd "$arquivo" 2>&1 | grep -q '=>'; then
+            echo "O binario depende de bibliotecas do sistema:"
+            ldd "$arquivo"
+            exit 1
+          fi
+          echo "Sem dependencias dinamicas."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mos-web-linux-x86_64
+          path: target/x86_64-unknown-linux-musl/release/mos-web
+          if-no-files-found: error

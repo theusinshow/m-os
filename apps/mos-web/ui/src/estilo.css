@@ -1,0 +1,311 @@
+/* A superfície de bolso, na linguagem do M/OS.
+ *
+ * Os tokens são os mesmos do desktop, copiados e não importados: o `mos-web` é
+ * servido pela VPS e não pode depender do repositório do desktop em tempo de
+ * execução. Copiar tem um preço — os dois podem divergir —, e o preço da
+ * alternativa era o front do bolso quebrar quando alguém mexesse no pacote de
+ * design do desktop.
+ *
+ * O que muda aqui, e por quê: nada é hover. O dedo não tem hover, e um estado
+ * que só existe no mouse é um estado que não existe no celular.
+ */
+
+:root {
+  --font-product: "Schibsted Grotesk", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-system: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --canvas: #0a0c0e;
+  --surface: #101316;
+  --surface-raised: #171b1f;
+  --surface-active: #252c31;
+  --border: #1e2429;
+  --border-strong: #2a3136;
+  --text: #e7eaec;
+  --text-secondary: #8c949a;
+  --text-system: #7c858d;
+  --signal: #e7c24e;
+  --signal-wash: rgba(231, 194, 78, 0.16);
+  --signal-press: #d0ac3c;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 20px;
+  --space-5: 32px;
+
+  --radius: 3px;
+  --radius-lg: 8px;
+
+  /* O alvo de toque não é decisão de estilo: abaixo de 44px o dedo erra, e
+     errar aqui significa marcar a task errada como feita. */
+  --toque: 44px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#raiz {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--canvas);
+  color: var(--text);
+  font: 400 16px/1.55 var(--font-product);
+  letter-spacing: -0.008em;
+  /* O iOS aumenta o texto sozinho em landscape; num app de captura isso
+     reposiciona tudo debaixo do dedo no meio de uma frase. */
+  -webkit-text-size-adjust: 100%;
+  /* Cinza de toque do iOS: ele pisca um retângulo em cada elemento, e num
+     layout de listas isso parece defeito. O foco visível cuida do feedback. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* A área segura do iPhone. Sem isto, a barra inferior come o último item da
+   lista e o botão de capturar fica atrás do gesto de home. */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* ---------------------------------------------------------------- topo */
+
+.topo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.marca {
+  font: 500 14px/1.45 var(--font-product);
+  letter-spacing: -0.008em;
+}
+
+/* A fila é o único sinal honesto de que a sincronização está acontecendo. Ela
+   fica sempre visível, e não escondida num menu: se o número não baixa, algo
+   está errado, e quem está com o celular na mão precisa poder ver isso. */
+.fila {
+  color: var(--text-system);
+  font: 500 12px/1.4 var(--font-system);
+  letter-spacing: 0.05em;
+}
+
+.fila[data-pendente="sim"] {
+  color: var(--signal);
+}
+
+/* -------------------------------------------------------------- abas */
+
+.abas {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.abas button {
+  flex: 1;
+  min-height: var(--toque);
+  padding: var(--space-3) var(--space-2);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-system);
+  font: 500 12px/1.4 var(--font-system);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.abas button[aria-current="page"] {
+  border-bottom-color: var(--signal);
+  color: var(--signal);
+}
+
+/* ------------------------------------------------------------ conteúdo */
+
+.conteudo {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Rolagem com inércia dentro do container, no iOS. */
+  -webkit-overflow-scrolling: touch;
+  padding: var(--space-4);
+}
+
+.vazio {
+  padding: var(--space-5) var(--space-4);
+  color: var(--text-system);
+  font: 400 13px/1.5 var(--font-product);
+  text-align: center;
+}
+
+/* --------------------------------------------------------------- lista */
+
+.lista {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-height: var(--toque);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.item p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.item small {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--text-system);
+  font: 500 12px/1.4 var(--font-system);
+  letter-spacing: 0.05em;
+}
+
+/* A caixa de marcar é o alvo mais tocado da tela, então ela é grande de
+   verdade — o quadrado desenhado é pequeno, a área que aceita o dedo não. */
+.marcar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--toque);
+  height: var(--toque);
+  margin: calc(var(--space-3) * -1) 0 0 calc(var(--space-3) * -1);
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.marcar span {
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-sm, 2px);
+}
+
+.marcar[aria-pressed="true"] span {
+  border-color: var(--signal);
+  background: var(--signal);
+}
+
+/* -------------------------------------------------------------- captura */
+
+/* A caixa de captura mora embaixo, no alcance do polegar. É a decisão de
+   layout mais importante desta tela: no topo, ela fica onde a mão não chega
+   sem reposicionar o aparelho — e reposicionar é atrito na única coisa que
+   este app existe para fazer sem atrito. */
+.compositor {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.compositor textarea {
+  width: 100%;
+  min-height: 88px;
+  padding: var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--canvas);
+  color: var(--text);
+  /* 16px não é escolha estética: abaixo disso o iOS dá zoom no campo ao focar,
+     e a tela inteira salta. */
+  font: 400 16px/1.5 var(--font-product);
+  resize: none;
+}
+
+.compositor textarea::placeholder {
+  color: var(--text-secondary);
+}
+
+.botao {
+  min-height: var(--toque);
+  padding: 0 var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--signal);
+  color: var(--canvas);
+  font: 500 14px/1.45 var(--font-product);
+  cursor: pointer;
+}
+
+.botao:active {
+  background: var(--signal-press);
+}
+
+.botao:disabled {
+  background: var(--surface-active);
+  color: var(--text-system);
+  cursor: default;
+}
+
+.botao[data-variante="quieto"] {
+  border-color: var(--border-strong);
+  background: none;
+  color: var(--text);
+}
+
+.linha-de-botoes {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* O recado da última ação, ao lado do botão que a provocou. */
+.recado {
+  min-height: 18px;
+  color: var(--text-system);
+  font: 500 12px/1.4 var(--font-system);
+  letter-spacing: 0.05em;
+}
+
+.recado[data-estado="erro"] {
+  color: var(--signal);
+}
+
+/* --------------------------------------------------------------- foco */
+
+/* Nada de `outline: none`. O teclado do iPad e o Bluetooth existem, e um foco
+   invisível transforma navegação por teclado em adivinhação. */
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* O rótulo de uma seção curta dentro do conteúdo. Micro e maiúsculo, como o
+   resto do M/OS nomeia painel — o tracking positivo é o que impede a caixa
+   alta de virar um bloco só. */
+.rotulo {
+  margin: 0 0 var(--space-2);
+  color: var(--text-system);
+  font: 500 11px/1.4 var(--font-system);
+  letter-spacing: 0.08em;
+}

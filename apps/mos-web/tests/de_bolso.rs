@@ -148,3 +148,55 @@ async fn a_task_do_pc_aparece_no_bolso() {
     }
     assert!(encontrada, "a Task do PC nao apareceu no bolso");
 }
+
+/// A PWA sai de dentro do binario.
+///
+/// Sem isto o servidor sobe, a API responde e a pessoa ve uma pagina em branco —
+/// o pior sintoma possivel, porque nada indica onde procurar. O teste falha na
+/// compilacao se a pasta `static/` nao existir, e falha aqui se ela existir
+/// vazia.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pagina_vem_embutida() {
+    let hub = servir_hub().await;
+    let pasta = tempfile::tempdir().unwrap();
+    let backups = pasta.path().join("backups");
+    std::fs::create_dir_all(&backups).unwrap();
+    let estado = mos_web::estado::Estado::abrir(
+        pasta.path().join("web.db").to_str().unwrap(),
+        backups.to_str().unwrap(),
+        Some(mos_web::estado::Hub {
+            url: format!("http://{hub}"),
+            token: TOKEN.to_owned(),
+        }),
+    )
+    .unwrap();
+
+    let ouvinte = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endereco = ouvinte.local_addr().unwrap();
+    let rotas = mos_web::api::rotas_com_pagina().with_state(estado);
+    tokio::spawn(async move {
+        axum::serve(ouvinte, rotas).await.unwrap();
+    });
+
+    let raiz = reqwest::get(format!("http://{endereco}/")).await.unwrap();
+    assert!(raiz.status().is_success());
+    let html = raiz.text().await.unwrap();
+    assert!(html.contains("<div id=\"raiz\">"), "o index.html nao veio");
+    assert!(
+        html.contains("manifest.webmanifest"),
+        "sem manifest nao ha 'Adicionar a Tela de Inicio'"
+    );
+
+    // Um caminho que nao existe devolve a pagina, e nao 404: a PWA e uma pagina
+    // so, e um app instalado recarrega numa rota interna o tempo todo.
+    let interna = reqwest::get(format!("http://{endereco}/tasks"))
+        .await
+        .unwrap();
+    assert!(interna.status().is_success(), "rota interna deu 404");
+
+    let manifest = reqwest::get(format!("http://{endereco}/manifest.webmanifest"))
+        .await
+        .unwrap();
+    assert!(manifest.status().is_success());
+    assert!(manifest.text().await.unwrap().contains("standalone"));
+}

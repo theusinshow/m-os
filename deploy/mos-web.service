@@ -1,0 +1,46 @@
+# O M/OS de bolso, como serviço da VPS.
+#
+# Instalar em /etc/systemd/system/mos-web.service.
+#
+# Ele fica ATRÁS de um proxy com TLS. Duas razões independentes: passkey exige
+# origem HTTPS estável, e o cookie de sessão é `Secure` — em HTTP ele
+# simplesmente não é enviado, e o login pareceria não funcionar sem dizer por
+# quê.
+
+[Unit]
+Description=M/OS web (superficie de bolso)
+Documentation=https://github.com/theusinshow/m-os/blob/master/apps/mos-web/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mos-web
+Group=mos-web
+EnvironmentFile=/etc/mos-web.env
+ExecStart=/usr/local/bin/mos-web
+WorkingDirectory=/var/lib/mos-web
+
+Restart=always
+RestartSec=3
+
+# --- Contencao -------------------------------------------------------------
+# Ele lê e escreve um banco e escuta uma porta. O resto é superfície que não
+# precisa — e num serviço alcançável pela internet, o que não precisa é o que
+# pode ser usado contra ele.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ReadWritePaths=/var/lib/mos-web
+
+[Install]
+WantedBy=multi-user.target

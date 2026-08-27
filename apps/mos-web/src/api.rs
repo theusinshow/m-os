@@ -39,6 +39,53 @@ pub fn rotas() -> Router<Estado> {
         .route("/api/estado", get(estado_do_aparelho))
 }
 
+/// As rotas mais a pagina.
+pub fn rotas_com_pagina() -> Router<Estado> {
+    rotas().fallback(get(pagina))
+}
+
+// ----------------------------------------------------------------- pagina
+
+/// Os arquivos que o `vite build` produziu, dentro do binario.
+///
+/// Embutidos, e nao lidos do disco: um servico que depende de uma pasta ao lado
+/// do executavel quebra quando alguem move o executavel, e o `systemd` roda com
+/// um `WorkingDirectory` que nem sempre e o que se imagina.
+///
+/// A pasta precisa existir no momento da COMPILACAO — `npm run build` na `ui/`
+/// vem antes de `cargo build`. O Cargo nao sabe disso sozinho, e por isso esta
+/// escrito no README e no workflow.
+#[derive(rust_embed::Embed)]
+#[folder = "static/"]
+struct Estaticos;
+
+/// Qualquer caminho desconhecido devolve o `index.html`, e nao 404: a PWA e uma
+/// pagina so, e um app instalado na tela de inicio recarrega numa rota interna o
+/// tempo todo.
+async fn pagina(uri: axum::http::Uri) -> Response {
+    let caminho = uri.path().trim_start_matches('/');
+    let (nome, arquivo) = match Estaticos::get(caminho) {
+        Some(encontrado) => (caminho, Some(encontrado)),
+        None => ("index.html", Estaticos::get("index.html")),
+    };
+    match arquivo {
+        Some(conteudo) => {
+            let tipo = mime_guess::from_path(nome).first_or_octet_stream();
+            (
+                StatusCode::OK,
+                [(axum::http::header::CONTENT_TYPE, tipo.as_ref().to_owned())],
+                conteudo.data,
+            )
+                .into_response()
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            "A interface nao foi embutida neste binario.",
+        )
+            .into_response(),
+    }
+}
+
 // ------------------------------------------------------------------ erros
 
 struct Erro(StatusCode, String);

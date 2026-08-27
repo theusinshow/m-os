@@ -1,0 +1,3 @@
+# A saída do `vite build`. Ela é gerada, e o binário a embute em tempo de
+# compilação — versioná-la poria artefato no diff de toda mudança de front.
+static/

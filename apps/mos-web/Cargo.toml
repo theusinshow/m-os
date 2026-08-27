@@ -25,6 +25,11 @@ mos-sync-http = { path = "../../crates/mos-sync-http" }
 axum = { version = "0.8", features = ["macros"] }
 axum-extra = { version = "0.10", features = ["cookie"] }
 rusqlite = { version = "0.40", features = ["bundled-full"] }
+# A PWA vai DENTRO do binario. Um servico que depende de uma pasta ao lado do
+# executavel quebra quando alguem move o executavel — e o `systemd` roda com um
+# `WorkingDirectory` que nem sempre e o que se imagina.
+rust-embed = "8"
+mime_guess = "2"
 serde.workspace = true
 serde_json = "1"
 sha2 = "0.10"
