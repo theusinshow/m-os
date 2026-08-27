@@ -49,11 +49,19 @@ getrandom = "0.3"
 webauthn-rs = { version = "0.5", features = [
     "danger-allow-state-serialisation",
 ], optional = true }
+# O OpenSSL que o `webauthn-rs` exige, compilado JUNTO em vez de pego do
+# sistema.
+#
+# Duas razoes, e as duas sao de build e nao de gosto: cruzando para `musl`, o
+# OpenSSL do Ubuntu e glibc e nao serve; e na VPS isto remove a dependencia da
+# versao que a distro tiver. Ele fica preso a feature `passkey` — sem ela, nada
+# de OpenSSL entra, e e por isso que o Windows continua compilando.
+openssl = { version = "0.10", features = ["vendored"], optional = true }
 
 [features]
 default = []
 # A porta de verdade. Ligada no CI e na VPS.
-passkey = ["dep:webauthn-rs"]
+passkey = ["dep:webauthn-rs", "dep:openssl"]
 # A porta ABERTA, para desenvolvimento.
 #
 # Ela nao entra em `default` e o binario RECUSA a subir com ela ligada se o bind
