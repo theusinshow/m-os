@@ -46,6 +46,21 @@ jobs:
         working-directory: apps/desktop
         run: npm ci
 
+      # A PWA do `mos-web` ANTES de qualquer passo de Rust, e nao por capricho
+      # de ordem: o crate embute `apps/mos-web/static/` com `rust-embed`, que le
+      # a pasta em tempo de COMPILACAO. Sem ela, `cargo clippy --workspace` e
+      # `cargo test --workspace` nem chegam a rodar — quebram em
+      # "folder does not exist", e o job morre antes de conferir qualquer coisa.
+      #
+      # Isso ficou escondido por meses atras do `cargo fmt --all --check`, que
+      # falhava antes e derrubava o job primeiro. Destravada a formatacao, este
+      # apareceu na hora.
+      - name: Build the pocket PWA
+        working-directory: apps/mos-web/ui
+        run: |
+          npm ci
+          npm run build
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
