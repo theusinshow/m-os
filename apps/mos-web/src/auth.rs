@@ -22,28 +22,21 @@
 //! entregar sessoes vivas, pela mesma razao que uma senha nao se guarda em
 //! claro.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use axum::{
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
+    routing::post,
+    Json, Router,
 };
-use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
+use axum_extra::extract::cookie::CookieJar;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use webauthn_rs::prelude::*;
 
-/// Quanto tempo uma sessao vale sem uso.
-///
-/// Trinta dias: o celular fica no bolso e a captura precisa ser instantanea —
-/// uma sessao que expira toda semana transformaria "tirar da cabeca agora" em
-/// "autenticar primeiro", que e o atrito que este app existe para remover. O
-/// aparelho ja e protegido pelo proprio desbloqueio.
-const SESSAO_DIAS: i64 = 30;
-
-const COOKIE: &str = "mos_web_sessao";
+use crate::porta::{self, Sessoes};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
@@ -78,43 +71,10 @@ fn interno(causa: impl std::fmt::Display) -> AuthError {
     AuthError::Interno(causa.to_string())
 }
 
-/// As tabelas da porta, separadas do banco de dominio.
+/// As tabelas moram no `porta.rs`, que nao depende de OpenSSL.
 ///
-/// Arquivo proprio de proposito: credencial e sessao nao sao entidades do M/OS,
-/// nao sincronizam e nao devem viajar para dispositivo nenhum. Misturar as duas
-/// coisas poria chave publica de passkey dentro do banco que o backup exporta e
-/// o sync carrega.
-pub fn preparar(conexao: &Connection) -> Result<(), rusqlite::Error> {
-    conexao.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS credenciais (
-            id          TEXT PRIMARY KEY NOT NULL,
-            apelido     TEXT NOT NULL,
-            passkey     TEXT NOT NULL,
-            criada_em   TEXT NOT NULL,
-            usada_em    TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS sessoes (
-            -- O hash do token, nunca o token.
-            hash        TEXT PRIMARY KEY NOT NULL,
-            credencial  TEXT NOT NULL,
-            criada_em   TEXT NOT NULL,
-            expira_em   TEXT NOT NULL
-        );
-
-        -- O estado intermediario do WebAuthn: o desafio que o navegador tem que
-        -- assinar. Vive no servidor, e nao no cliente, porque quem verifica a
-        -- resposta precisa ter guardado a pergunta — devolver o desafio para o
-        -- cliente guardar seria deixa-lo escolher a pergunta.
-        CREATE TABLE IF NOT EXISTS desafios (
-            id        TEXT PRIMARY KEY NOT NULL,
-            estado    TEXT NOT NULL,
-            criado_em TEXT NOT NULL
-        );
-        "#,
-    )
-}
+/// A divisao nao e arrumacao: a metade que decide QUEM PASSA tem que ser
+/// testavel onde este arquivo nao compila. Ver o topo de `porta.rs`.
 
 pub struct Porta {
     pub webauthn: Webauthn,
@@ -153,29 +113,6 @@ fn iso(momento: time::OffsetDateTime) -> String {
         .unwrap_or_default()
 }
 
-/// Bytes aleatorios do sistema. Sessao sorteada com gerador previsivel e sessao
-/// adivinhavel.
-fn sorteio(bytes: usize) -> Resultado<String> {
-    let mut buffer = vec![0u8; bytes];
-    getrandom::fill(&mut buffer).map_err(|causa| interno(format!("sem entropia: {causa}")))?;
-    Ok(buffer.iter().map(|b| format!("{b:02x}")).collect())
-}
-
-/// SHA-256 do token, em hex.
-///
-/// O token do cookie e guardado assim, e nunca em claro: um vazamento da tabela
-/// de sessoes nao deve entregar sessoes vivas, pela mesma razao que uma senha
-/// nao se guarda legivel.
-fn hash(token: &str) -> String {
-    use sha2::{Digest, Sha256};
-    use std::fmt::Write;
-    let digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-    digest.iter().fold(String::new(), |mut saida, byte| {
-        let _ = write!(saida, "{byte:02x}");
-        saida
-    })
-}
-
 // ------------------------------------------------------------------- rotas
 
 #[derive(Deserialize)]
@@ -204,16 +141,37 @@ fn confere_convite(recebido: &str, esperado: &str) -> bool {
 
 pub struct Estado {
     pub porta: Arc<Porta>,
-    pub banco: Arc<std::sync::Mutex<Connection>>,
+    pub sessoes: Arc<Sessoes>,
+    pub banco: Arc<Mutex<Connection>>,
 }
 
 impl Clone for Estado {
     fn clone(&self) -> Self {
         Self {
             porta: Arc::clone(&self.porta),
+            sessoes: Arc::clone(&self.sessoes),
             banco: Arc::clone(&self.banco),
         }
     }
+}
+
+/// A cerimonia, como rotas.
+///
+/// Todas sob `/api/porta/`, que e o unico prefixo que o guardiao do `porta.rs`
+/// deixa passar sem sessao — e tem que ser assim: quem ainda nao entrou nao tem
+/// como pedir para entrar por uma rota que exige ter entrado.
+pub fn rotas(porta: Arc<Porta>, sessoes: Arc<Sessoes>) -> Router {
+    let estado = Estado {
+        porta,
+        banco: sessoes.conexao(),
+        sessoes,
+    };
+    Router::new()
+        .route("/api/porta/registro/inicio", post(registro_inicio))
+        .route("/api/porta/registro/fim", post(registro_fim))
+        .route("/api/porta/login/inicio", post(login_inicio))
+        .route("/api/porta/login/fim", post(login_fim))
+        .with_state(estado)
 }
 
 pub async fn registro_inicio(
@@ -323,49 +281,21 @@ pub async fn login_fim(
         .map_err(|causa| AuthError::Recusado(format!("Nao reconheci: {causa}")))?;
 
     let credencial_id = format!("{:?}", autenticado.cred_id());
-    let token = sorteio(32)?;
-    let expira = agora() + time::Duration::days(SESSAO_DIAS);
-    banco
-        .execute(
-            "INSERT INTO sessoes (hash, credencial, criada_em, expira_em) VALUES (?1, ?2, ?3, ?4)",
-            params![hash(&token), credencial_id, iso(agora()), iso(expira)],
-        )
+    // A sessao e o cookie sao do `porta.rs`. Este arquivo prova quem e o dono; o
+    // que acontece depois disso e a mesma coisa para qualquer forma de provar.
+    //
+    // O `banco` e solto ANTES: `criar` toma o mesmo mutex, e mante-lo aqui
+    // travaria o processo contra si mesmo.
+    drop(banco);
+    let token = estado
+        .sessoes
+        .criar(&credencial_id, agora())
         .map_err(interno)?;
 
-    // `Secure` + `HttpOnly` + `SameSite=Strict`: o cookie nunca sai em HTTP, o
-    // JavaScript da pagina nao o le (entao um XSS nao o rouba), e ele nao
-    // acompanha requisicao vinda de outro site.
-    let cookie = Cookie::build((COOKIE, token))
-        .path("/")
-        .http_only(true)
-        .secure(true)
-        .same_site(SameSite::Strict)
-        .max_age(time::Duration::days(SESSAO_DIAS))
-        .build();
-
-    Ok((jar.add(cookie), Json(serde_json::json!({ "ok": true }))))
-}
-
-/// Quem esta pedindo, se e que alguem esta.
-pub fn sessao_valida(banco: &Connection, jar: &CookieJar) -> bool {
-    let Some(token) = jar.get(COOKIE).map(|c| c.value().to_owned()) else {
-        return false;
-    };
-    let encontrada: Option<String> = banco
-        .query_row(
-            "SELECT expira_em FROM sessoes WHERE hash = ?1",
-            params![hash(&token)],
-            |linha| linha.get(0),
-        )
-        .optional()
-        .ok()
-        .flatten();
-    let Some(expira) = encontrada else {
-        return false;
-    };
-    time::OffsetDateTime::parse(&expira, &time::format_description::well_known::Rfc3339)
-        .map(|quando| quando > agora())
-        .unwrap_or(false)
+    Ok((
+        jar.add(porta::cookie_de(token)),
+        Json(serde_json::json!({ "ok": true })),
+    ))
 }
 
 // ------------------------------------------------------------------ apoio
@@ -418,7 +348,7 @@ fn todas_as_passkeys(banco: &Connection) -> Resultado<Vec<Passkey>> {
 }
 
 fn guardar_desafio<T: Serialize>(banco: &Connection, estado: &T) -> Resultado<String> {
-    let id = sorteio(16)?;
+    let id = porta::sorteio(16).map_err(interno)?;
     banco
         .execute(
             "INSERT INTO desafios (id, estado, criado_em) VALUES (?1, ?2, ?3)",

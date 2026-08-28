@@ -19,7 +19,7 @@ use std::net::SocketAddr;
 
 use mos_web::api;
 use mos_web::avisos;
-use mos_web::estado::{Estado, Hub, Push};
+use mos_web::estado::{Estado, Hub, Porta, Push};
 use mos_web::push::Vapid;
 use mos_web::sync;
 
@@ -43,7 +43,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(9130);
 
-    if let Err(motivo) = conferir_a_porta(&bind) {
+    // A porta existe quando ha uma origem publica e um convite. As duas juntas,
+    // e nao uma ou outra: sem origem o WebAuthn nao tem a que amarrar a
+    // credencial, e sem convite qualquer um que achasse a URL viraria o dono.
+    let porta_de_entrada = match (
+        std::env::var("MOS_WEB_ORIGEM"),
+        std::env::var("MOS_WEB_INVITE"),
+    ) {
+        (Ok(origem), Ok(convite)) if !origem.is_empty() && !convite.is_empty() => Some(Porta {
+            banco: std::env::var("MOS_WEB_PORTA_DB").unwrap_or_else(|_| String::from("porta.db")),
+            origem,
+            convite,
+        }),
+        _ => None,
+    };
+
+    if let Err(motivo) = conferir_a_porta(&bind, porta_de_entrada.is_some()) {
         eprintln!(
             "
 [web] RECUSADO A SUBIR
@@ -84,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => None,
     };
 
-    let estado = Estado::abrir(&banco, &backups, hub, push)?;
+    let estado = Estado::abrir(&banco, &backups, hub, push, porta_de_entrada)?;
 
     if let Some(hub) = &estado.hub {
         sync::iniciar(
@@ -108,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    let rotas = api::rotas_com_pagina().with_state(estado);
+    let rotas = api::servidor(estado);
     let endereco: SocketAddr = format!("{bind}:{porta}").parse()?;
     println!("[web] {banco}, ouvindo {endereco}");
 
@@ -124,14 +139,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// A porta interna esta LIGADA?
 ///
-/// Nao e o mesmo que "compilada". O `auth.rs` existe, compila com a feature
-/// `passkey` — e nao esta montado em rota nenhuma: nao ha `Router` de auth e
-/// nao ha middleware conferindo sessao. Enquanto isso for verdade, a feature
-/// nao protege coisa alguma, e um guardiao que confiasse nela daria a resposta
-/// mais perigosa possivel: "estou protegido" para um servidor aberto.
+/// Nao e o mesmo que "compilada", e a distincao ja custou caro: por semanas o
+/// `auth.rs` existiu, compilou com a feature `passkey` e nao estava montado em
+/// rota nenhuma. Um guardiao que confiasse na feature teria dado a resposta mais
+/// perigosa que existe — "estou protegido" — para um servidor aberto.
 ///
-/// Vira `true` no commit que montar as rotas de `auth`, e nao antes.
-const PORTA_INTERNA_LIGADA: bool = false;
+/// Hoje a cerimonia esta montada (`api::servidor` faz o `merge`) e o guardiao
+/// esta montado (`porta::guarda`), e as duas coisas tem teste. Entao a feature
+/// passou a ser resposta honesta — mas so ela: sem `MOS_WEB_INVITE` nao ha porta
+/// configurada, e e por isso que quem chama passa `porta_configurada` tambem.
+const PORTA_INTERNA_LIGADA: bool = cfg!(feature = "passkey");
 
 /// Recusa combinacoes que nao deveriam existir.
 ///
@@ -143,14 +160,14 @@ const PORTA_INTERNA_LIGADA: bool = false;
 /// faltava nao esta no bind: esta em EXISTIR um endereco publico.
 ///
 /// Entao `MOS_WEB_ORIGEM` passa a ser a declaracao de que este servidor e
-/// alcancavel de fora. Com ela, alguma porta precisa existir: a interna (quando
-/// ligada) ou uma externa que o operador afirma ter posto na frente
-/// (`MOS_WEB_PORTA_EXTERNA=1` — Basic Auth no Caddy, mTLS, o que for).
+/// alcancavel de fora. Com ela, alguma porta precisa existir: a interna
+/// (compilada E configurada) ou uma externa que o operador afirma ter posto na
+/// frente (`MOS_WEB_PORTA_EXTERNA=1` — Basic Auth no Caddy, mTLS, o que for).
 ///
 /// Afirmar e o ponto. Um servidor nao consegue enxergar o proxy que esta na
 /// frente dele; o que ele consegue e exigir que alguem tenha pensado no assunto
 /// e escrito a resposta. "Eu configuro depois" e como toda porta aberta comeca.
-fn conferir_a_porta(bind: &str) -> Result<(), String> {
+fn conferir_a_porta(bind: &str, porta_configurada: bool) -> Result<(), String> {
     let local = bind == "127.0.0.1" || bind == "localhost" || bind == "::1";
     let publicado = std::env::var("MOS_WEB_ORIGEM")
         .map(|origem| !origem.trim().is_empty())
@@ -159,7 +176,13 @@ fn conferir_a_porta(bind: &str) -> Result<(), String> {
         .map(|valor| valor == "1")
         .unwrap_or(false);
 
-    if publicado && !PORTA_INTERNA_LIGADA && !porta_externa {
+    // As DUAS coisas: compilada e configurada. Com a feature ligada e sem
+    // `MOS_WEB_INVITE`, `Estado::abrir` nao monta sessao nenhuma, o guardiao
+    // fica inerte e a API abre inteira — exatamente o caso que este guardiao
+    // existe para nao deixar acontecer em silencio.
+    let interna = PORTA_INTERNA_LIGADA && porta_configurada;
+
+    if publicado && !interna && !porta_externa {
         // Linhas num array, e nao uma string com `\` no fim de cada linha: a
         // continuacao de string do Rust nao come a indentacao de forma
         // confiavel, e o resultado sai com um degrau de espacos no meio de uma
@@ -168,9 +191,9 @@ fn conferir_a_porta(bind: &str) -> Result<(), String> {
             "MOS_WEB_ORIGEM esta definida, entao este servidor e alcancavel de fora —",
             "e nao ha porta nenhuma na frente dele.",
             "",
-            "A porta interna (passkey) esta escrita mas ainda NAO montada nas rotas.",
-            "Ponha autenticacao no proxy (Basic Auth no Caddy, por exemplo) e declare",
-            "isso com MOS_WEB_PORTA_EXTERNA=1.",
+            "Para a porta interna: compile com `--features passkey` e defina",
+            "MOS_WEB_INVITE. Para uma externa: ponha autenticacao no proxy (Basic Auth",
+            "no Caddy, por exemplo) e declare isso com MOS_WEB_PORTA_EXTERNA=1.",
             "",
             "Atras desta URL esta o seu M/OS inteiro.",
         ]

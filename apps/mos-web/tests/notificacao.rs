@@ -174,6 +174,7 @@ async fn servir_web(pasta: &std::path::Path) -> SocketAddr {
             privada,
             contato: String::from("mailto:eu@exemplo.com"),
         }),
+        None,
     )
     .unwrap();
 
@@ -325,6 +326,7 @@ async fn sem_chave_vapid_a_tela_sabe_que_nao_ha_push() {
     let estado = mos_web::estado::Estado::abrir(
         pasta.path().join("web.db").to_str().unwrap(),
         backups.to_str().unwrap(),
+        None,
         None,
         None,
     )

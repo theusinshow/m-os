@@ -42,6 +42,9 @@ async fn servir_web(pasta: &Path, hub: SocketAddr) -> SocketAddr {
         // Sem push: estes testes conferem o laco de dados, e uma chave VAPID
         // aqui so acrescentaria uma ida a rede que nao tem para onde ir.
         None,
+        // Sem porta: quem confere a porta e o `tests/a_porta.rs`, e exigir
+        // sessao aqui obrigaria todo teste de dados a fazer login antes.
+        None,
     )
     .unwrap();
 
@@ -173,6 +176,9 @@ async fn a_pagina_vem_embutida() {
         }),
         // Sem push: estes testes conferem o laco de dados, e uma chave VAPID
         // aqui so acrescentaria uma ida a rede que nao tem para onde ir.
+        None,
+        // Sem porta: quem confere a porta e o `tests/a_porta.rs`, e exigir
+        // sessao aqui obrigaria todo teste de dados a fazer login antes.
         None,
     )
     .unwrap();

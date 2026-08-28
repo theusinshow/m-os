@@ -43,7 +43,80 @@ pub fn rotas() -> Router<Estado> {
 
 /// As rotas mais a pagina.
 pub fn rotas_com_pagina() -> Router<Estado> {
-    rotas().fallback(get(pagina))
+    rotas()
+        .route("/api/porta/estado", get(porta_estado))
+        .route("/api/porta/sair", post(sair))
+        .fallback(get(pagina))
+}
+
+/// O servidor pronto: rotas, estado e o GUARDIAO.
+///
+/// Existe como funcao separada porque o guardiao precisa do estado ja
+/// resolvido, e porque montar a porta a mao em cada lugar que sobe o servidor e
+/// exatamente como uma delas fica sem porta. Quem sobe o `mos-web` de verdade
+/// chama isto — o `main.rs` e o teste da porta.
+pub fn servidor(estado: Estado) -> Router {
+    let sessoes = estado.sessoes.clone();
+
+    // A cerimonia entra ANTES do guardiao, e por isso ela e um `merge` e nao um
+    // sub-router qualquer: as rotas dela vivem sob `/api/porta/`, que e o unico
+    // prefixo livre. Fora dele, quem ainda nao entrou nao consegue nem pedir
+    // para entrar.
+    #[cfg(feature = "passkey")]
+    let cerimonia = match (&estado.webauthn, &estado.sessoes) {
+        (Some(webauthn), Some(sessoes)) => crate::auth::rotas(
+            std::sync::Arc::clone(webauthn),
+            std::sync::Arc::clone(sessoes),
+        ),
+        _ => Router::new(),
+    };
+
+    let servidor = rotas_com_pagina().with_state(estado);
+
+    #[cfg(feature = "passkey")]
+    let servidor = servidor.merge(cerimonia);
+
+    servidor.layer(axum::middleware::from_fn_with_state(
+        sessoes,
+        crate::porta::guarda,
+    ))
+}
+
+// ------------------------------------------------------------------- porta
+
+/// O que a tela precisa saber ANTES de qualquer login.
+///
+/// Rota livre, e a unica informacao que ela entrega e se ha porta e se ja existe
+/// aparelho registrado — o suficiente para a tela escolher entre "registrar" e
+/// "entrar", e nada alem disso.
+async fn porta_estado(State(estado): State<Estado>) -> Json<serde_json::Value> {
+    let (tem_porta, registrado) = match &estado.sessoes {
+        Some(sessoes) => (true, sessoes.ha_credencial().unwrap_or(false)),
+        None => (false, false),
+    };
+    Json(serde_json::json!({
+        "porta": tem_porta,
+        "registrado": registrado,
+        // A cerimonia WebAuthn so existe com a feature compilada. Sem ela, a
+        // tela nao deve oferecer um botao que nao tem servidor do outro lado.
+        "passkey": cfg!(feature = "passkey"),
+    }))
+}
+
+async fn sair(
+    State(estado): State<Estado>,
+    jar: axum_extra::extract::cookie::CookieJar,
+) -> (
+    axum_extra::extract::cookie::CookieJar,
+    Json<serde_json::Value>,
+) {
+    if let Some(sessoes) = &estado.sessoes {
+        let _ = sessoes.encerrar(&jar);
+    }
+    (
+        jar.add(crate::porta::cookie_vazio()),
+        Json(serde_json::json!({ "ok": true })),
+    )
 }
 
 // ----------------------------------------------------------------- pagina
