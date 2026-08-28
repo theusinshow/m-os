@@ -18,11 +18,25 @@
 use std::net::SocketAddr;
 
 use mos_web::api;
-use mos_web::estado::{Estado, Hub};
+use mos_web::avisos;
+use mos_web::estado::{Estado, Hub, Push};
+use mos_web::push::Vapid;
 use mos_web::sync;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Um subcomando, e nao uma geracao automatica na subida: um servidor que
+    // sorteia a chave VAPID ao subir e um servidor que fica mudo a cada
+    // reinicio, porque as assinaturas do aparelho ficam presas a chave antiga.
+    // Ela nasce uma vez, a mao, e vai para o arquivo de ambiente.
+    if std::env::args().any(|arg| arg == "--gerar-vapid") {
+        let (privada, publica) = Vapid::gerar();
+        println!("MOS_WEB_VAPID_PRIVADA={privada}");
+        println!("# a publica e derivada da privada; esta linha e so para conferencia");
+        println!("# publica={publica}");
+        return Ok(());
+    }
+
     let bind = std::env::var("MOS_WEB_BIND").unwrap_or_else(|_| String::from("127.0.0.1"));
     let porta: u16 = std::env::var("MOS_WEB_PORT")
         .ok()
@@ -48,12 +62,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let estado = Estado::abrir(&banco, &backups, hub)?;
+    // O push tambem e opcional, e pela mesma logica do hub: sem chave o
+    // `mos-web` sobe igual, so que mudo — e a tela DIZ isso, em vez de mostrar
+    // um botao que nao faz nada.
+    let push = match std::env::var("MOS_WEB_VAPID_PRIVADA") {
+        Ok(privada) if !privada.is_empty() => Some(Push {
+            banco: std::env::var("MOS_WEB_PUSH_DB").unwrap_or_else(|_| String::from("push.db")),
+            privada,
+            contato: std::env::var("MOS_WEB_VAPID_CONTATO")
+                .unwrap_or_else(|_| String::from("mailto:mos@localhost")),
+        }),
+        _ => None,
+    };
+
+    let estado = Estado::abrir(&banco, &backups, hub, push)?;
 
     if let Some(hub) = &estado.hub {
         sync::iniciar(
             std::sync::Arc::clone(&estado.storage),
             std::sync::Arc::clone(hub),
+            estado
+                .push
+                .as_ref()
+                .map(|push| std::sync::Arc::clone(&push.avisador)),
+        );
+    }
+
+    // O laco dos lembretes. Separado do sync de proposito: um lembrete vence na
+    // hora dele mesmo que a rede esteja fora, e amarrar o aviso a uma rodada de
+    // sync bem-sucedida faria o celular ficar quieto justamente no dia em que a
+    // VPS estivesse com problema de rede.
+    if let Some(push) = &estado.push {
+        avisos::iniciar(
+            std::sync::Arc::clone(&push.avisador),
+            std::sync::Arc::clone(&estado.attention),
         );
     }
 

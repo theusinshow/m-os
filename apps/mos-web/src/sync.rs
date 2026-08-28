@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use mos_storage_sqlite::SqliteStorage;
 
+use crate::avisos::{self, Avisador};
 use crate::estado::Hub;
 
 /// De quanto em quanto tempo uma rodada acontece sozinha.
@@ -38,26 +39,34 @@ const LIMITE: usize = 100;
 /// consequencia. Fazer o contrario ligaria "tirar da cabeca" a ter sinal.
 pub fn agora(storage: Arc<SqliteStorage>, hub: Arc<Hub>) {
     tokio::task::spawn_blocking(move || {
-        rodar(&storage, &hub);
+        // Sem avisador: esta rodada nasce de uma escrita FEITA NESTE APARELHO, e
+        // notificar o celular sobre o que a pessoa acabou de digitar nele seria
+        // o app avisando o dono do que o dono fez.
+        rodar(&storage, &hub, None);
     });
 }
 
 /// O laco de fundo.
-pub fn iniciar(storage: Arc<SqliteStorage>, hub: Arc<Hub>) {
+///
+/// `avisador` e o que transforma "chegou coisa do PC" em vibracao no bolso.
+/// Vazio quando nao ha chave VAPID — e ai o laco continua sincronizando, calado.
+pub fn iniciar(storage: Arc<SqliteStorage>, hub: Arc<Hub>, avisador: Option<Arc<Avisador>>) {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(INTERVALO).await;
             let storage = Arc::clone(&storage);
             let hub = Arc::clone(&hub);
+            let avisador = avisador.clone();
             // `spawn_blocking` porque o transporte e bloqueante — chamar de
             // dentro de um worker do tokio derruba o processo na hora. Ver o
             // topo do `mos-sync-http`.
-            let _ = tokio::task::spawn_blocking(move || rodar(&storage, &hub)).await;
+            let _ = tokio::task::spawn_blocking(move || rodar(&storage, &hub, avisador.as_deref()))
+                .await;
         }
     });
 }
 
-fn rodar(storage: &SqliteStorage, hub: &Hub) {
+fn rodar(storage: &SqliteStorage, hub: &Hub, avisador: Option<&Avisador>) {
     let transporte = match mos_sync_http::HttpTransport::novo(&hub.url, &hub.token) {
         Ok(transporte) => transporte,
         Err(causa) => {
@@ -78,6 +87,13 @@ fn rodar(storage: &SqliteStorage, hub: &Hub) {
                     "[web] sync: {} enviadas, {} recebidas",
                     rodada.enviadas, rodada.recebidas
                 );
+                // So o que DESCEU vira notificacao. O que subiu foi a pessoa que
+                // escreveu aqui, e avisa-la disso seria ruido.
+                if rodada.recebidas > 0 {
+                    if let Some(avisador) = avisador {
+                        avisador.disparar(&avisos::chegou_do_pc(rodada.recebidas));
+                    }
+                }
             }
         }
         Err(causa) => eprintln!("[web] sync: {}", causa.message),

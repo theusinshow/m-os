@@ -21,6 +21,16 @@ export type Task = {
 export type EstadoDoAparelho = {
   pendentes: number;
   sincroniza: boolean;
+  /** A chave pública VAPID, ou `null` quando este servidor não notifica. */
+  chavePush: string | null;
+  /** Quantos aparelhos já assinaram. É a prova de que "ativar" funcionou. */
+  aparelhosAvisados: number;
+};
+
+/** O `PushSubscription.toJSON()` do navegador, repassado inteiro. */
+export type AssinaturaPush = {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
 };
 
 /**
@@ -72,5 +82,22 @@ export const api = {
   },
   estado() {
     return pedir<EstadoDoAparelho>("/api/estado");
+  },
+  assinarPush(assinatura: AssinaturaPush) {
+    // O servidor espera os três campos rasos; o navegador entrega as chaves
+    // aninhadas em `keys`. Achatar aqui e não lá mantém o formato do servidor
+    // igual ao que os testes usam, sem um nível de objeto que só existe porque
+    // a API do navegador é assim.
+    return pedir<{ ok: boolean }>("/api/push/assinar", {
+      method: "POST",
+      body: JSON.stringify({
+        endpoint: assinatura.endpoint,
+        p256dh: assinatura.keys.p256dh,
+        auth: assinatura.keys.auth,
+      }),
+    });
+  },
+  testarPush() {
+    return pedir<{ enviadas: number }>("/api/push/testar", { method: "POST" });
   },
 };

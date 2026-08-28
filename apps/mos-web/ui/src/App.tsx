@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, type Capture, type EstadoDoAparelho, type Task } from "./api";
+import { ativar, situacao, type Situacao } from "./notificacoes";
 
-type Aba = "capturar" | "inbox" | "tasks";
+type Aba = "capturar" | "inbox" | "tasks" | "avisos";
 
 /**
  * O M/OS de bolso.
@@ -27,6 +28,7 @@ export function App() {
   const [recado, setRecado] = useState("");
   const [erro, setErro] = useState(false);
   const [ocupado, setOcupado] = useState(false);
+  const [avisos, setAvisos] = useState<Situacao | null>(null);
 
   const atualizar = useCallback(async () => {
     const [proximoEstado, proximaInbox, proximasTasks] = await Promise.all([
@@ -37,6 +39,10 @@ export function App() {
     if (proximoEstado) setEstado(proximoEstado);
     setCapturas(proximaInbox);
     setTasks(proximasTasks);
+    // A situação das notificações é recalculada junto: ela muda por fora do app
+    // — instalar na tela de início, mexer em Ajustes —, e uma tela que só olha
+    // uma vez ficaria dizendo "instale" depois de você já ter instalado.
+    setAvisos(await situacao(proximoEstado?.chavePush ?? null));
   }, []);
 
   useEffect(() => {
@@ -103,6 +109,35 @@ export function App() {
     }
   }
 
+  async function ativarAvisos() {
+    if (!estado?.chavePush) return;
+    setOcupado(true);
+    try {
+      await ativar(estado.chavePush);
+      contar("Notificações ativadas.");
+      await atualizar();
+    } catch (causa) {
+      contar(causa instanceof Error ? causa.message : String(causa), true);
+    }
+    setOcupado(false);
+  }
+
+  async function testarAvisos() {
+    setOcupado(true);
+    try {
+      const { enviadas } = await api.testarPush();
+      contar(
+        enviadas > 0
+          ? "Mandei. Se não chegar em alguns segundos, algo está errado."
+          : "Nenhum aparelho assinado para receber.",
+        enviadas === 0,
+      );
+    } catch (causa) {
+      contar(causa instanceof Error ? causa.message : String(causa), true);
+    }
+    setOcupado(false);
+  }
+
   const pendentes = estado?.pendentes ?? 0;
 
   return (
@@ -124,6 +159,7 @@ export function App() {
             ["capturar", "Capturar"],
             ["inbox", `Inbox${capturas.length ? ` ${capturas.length}` : ""}`],
             ["tasks", `Tasks${tasks.length ? ` ${tasks.length}` : ""}`],
+            ["avisos", "Avisos"],
           ] as const
         ).map(([valor, rotulo]) => (
           <button
@@ -211,8 +247,69 @@ export function App() {
             </ul>
           )
         ) : null}
+        {aba === "avisos" ? (
+          <div className="avisos">
+            {/* A frase vem antes do botão de propósito: no iPhone o botão só
+                funciona depois de instalar na tela de início, e um botão que
+                falha calado é pior que um botão ausente. */}
+            <p className="explicacao">
+              {avisos?.estado === "ativo"
+                ? "Este aparelho recebe os lembretes que vencem e avisa quando o computador manda coisa nova."
+                : avisos?.estado === "pronto"
+                  ? "Ative para receber aqui os lembretes que vencerem, mesmo com o app fechado."
+                  : (avisos?.motivo ?? "Conferindo…")}
+            </p>
+
+            {/* O que ele vai avisar, dito antes de você decidir ativar.
+                Permissão de notificação é um sim ou não sem volta fácil no
+                iPhone, e concedê-la sem saber o que vai chegar é o começo do
+                app que a pessoa silencia na semana seguinte. */}
+            {avisos?.estado === "impossivel" ? null : (
+              <ul className="promessas">
+                <li>Lembretes, na hora em que vencerem.</li>
+                <li>Quando o computador mandar coisa nova.</li>
+              </ul>
+            )}
+
+            {avisos?.estado === "pronto" ? (
+              <button
+                className="botao"
+                type="button"
+                disabled={ocupado}
+                onClick={() => void ativarAvisos()}
+              >
+                Ativar notificações
+              </button>
+            ) : null}
+
+            {avisos?.estado === "ativo" ? (
+              <>
+                <button
+                  className="botao"
+                  type="button"
+                  disabled={ocupado}
+                  onClick={() => void testarAvisos()}
+                >
+                  Enviar um teste agora
+                </button>
+                <p className="rotulo">
+                  {estado?.aparelhosAvisados === 1
+                    ? "1 APARELHO AVISADO"
+                    : `${estado?.aparelhosAvisados ?? 0} APARELHOS AVISADOS`}
+                </p>
+              </>
+            ) : null}
+          </div>
+        ) : null}
       </main>
 
+      {/* Sem compositor na aba de avisos: não há nada para escrever ali, e um
+          campo de texto sob um botão de configuração convida ao engano. */}
+      {aba === "avisos" ? (
+        <p className="recado" data-estado={erro ? "erro" : "ok"} aria-live="polite">
+          {recado}
+        </p>
+      ) : (
       <form
         className="compositor"
         onSubmit={aba === "tasks" ? novaTask : capturar}
@@ -234,6 +331,7 @@ export function App() {
           {recado}
         </p>
       </form>
+      )}
     </div>
   );
 }

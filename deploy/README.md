@@ -194,18 +194,38 @@ sudo chmod 700 /var/lib/mos-web
 
 ## 3. O ambiente
 
+A chave de notificação nasce primeiro, do próprio binário:
+
+```bash
+/usr/local/bin/mos-web --gerar-vapid
+# MOS_WEB_VAPID_PRIVADA=...
+```
+
 ```bash
 sudo tee /etc/mos-web.env >/dev/null <<'ENV'
 MOS_WEB_BIND=127.0.0.1
 MOS_WEB_PORT=9130
 MOS_WEB_DB=/var/lib/mos-web/mos-web.db
 MOS_WEB_BACKUPS=/var/lib/mos-web/backups
+MOS_WEB_PUSH_DB=/var/lib/mos-web/push.db
 MOS_WEB_HUB=http://127.0.0.1:9120
 MOS_WEB_TOKEN=O_MESMO_SEGREDO_DO_HUB
 MOS_WEB_INVITE=UM_SEGUNDO_SEGREDO_SO_PARA_REGISTRAR_APARELHO
+MOS_WEB_VAPID_PRIVADA=A_CHAVE_QUE_O_COMANDO_ACIMA_IMPRIMIU
+MOS_WEB_VAPID_CONTATO=mailto:voce@seudominio.com
 ENV
 sudo chmod 600 /etc/mos-web.env
 ```
+
+**A chave VAPID nasce uma vez e não se troca.** Trocá-la mata todas as
+assinaturas: o iPhone assinou com a pública antiga, e o serviço da Apple recusa
+o que a nova assinar. O sintoma é o pior possível — tudo parece funcionar e nada
+chega. Se um dia ela precisar mudar, é preciso reativar a notificação no
+aparelho, e isso não avisa sozinho.
+
+`MOS_WEB_VAPID_CONTATO` precisa começar com `mailto:` ou `https:`. A RFC 8292
+exige, a Apple recusa sem, e o binário recusa a subir sem — de propósito, para o
+erro aparecer na hora e não no primeiro lembrete que não tocar.
 
 `MOS_WEB_HUB` aponta para `127.0.0.1:9120` porque o hub roda **na mesma VPS**.
 Os dois conversam por localhost, e nada disso sai da máquina.
@@ -236,6 +256,32 @@ mos.seudominio.com {
 }
 ```
 
+### Sem domínio próprio: `sslip.io`
+
+`167-233-43-1.sslip.io` já resolve para `167.233.43.1` — o serviço devolve o IP
+que está no próprio nome, sem cadastro e sem DNS para configurar. O Let's
+Encrypt emite certificado para ele normalmente (o `sslip.io` está na Public
+Suffix List, então cada subdomínio conta como um domínio próprio nos limites de
+emissão).
+
+```
+167-233-43-1.sslip.io {
+    reverse_proxy 127.0.0.1:9130
+}
+```
+
+O que isso custa, e vale saber antes: **a passkey nasce presa a esse endereço**.
+WebAuthn amarra a credencial à origem — é isso que torna phishing impossível —,
+então migrar depois para um domínio de verdade exige recadastrar o aparelho. A
+assinatura de push também: ela vive no escopo da origem.
+
+O Caddy precisa das portas 80 e 443: a 80 é onde o desafio do Let's Encrypt
+acontece, e sem ela não há certificado.
+
+```bash
+sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
+```
+
 O `MOS_WEB_BIND` continua em `127.0.0.1`: quem fala com a internet é o proxy.
 
 **Um aviso que não cabe em nota de rodapé:** a partir daqui existe um endereço
@@ -246,3 +292,21 @@ passkey e o convite. Vale conferir os dois antes de apontar o DNS.
 
 Safari → o endereço → Compartilhar → **Adicionar à Tela de Início**. Ele abre em
 tela cheia, sem barra do navegador, com o ícone do M/OS.
+
+**Esse passo não é cosmético.** O iOS só entrega Web Push para uma PWA instalada
+na Tela de Início: no Safari comum não chega notificação nenhuma, e o pedido de
+permissão nem aparece. Abra o app **pelo ícone**, vá na aba **Avisos** e toque em
+**Ativar notificações** — de dentro do app, e não do Safari.
+
+Depois, **Enviar um teste agora**. Se a notificação não chegar em alguns
+segundos, o log diz onde parou:
+
+```bash
+sudo journalctl -u mos-web -f | grep push
+```
+
+| o que o log diz | o que é |
+|---|---|
+| `[push] falhou: o servico de push recusou: 403` | o `MOS_WEB_VAPID_CONTATO` não serve, ou a chave mudou |
+| `[push] assinatura morta, removendo` | o app foi desinstalado, ou a permissão foi revogada |
+| nada, e `enviadas: 0` na tela | nenhum aparelho assinou — a ativação não completou |

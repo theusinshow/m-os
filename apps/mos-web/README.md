@@ -28,8 +28,9 @@ recusa em toda linha.
 | Servidor, banco, identidade | pronto |
 | Sync contra o hub (fundo + a cada escrita) | pronto |
 | API: capturar, inbox, tasks | pronto |
-| Porta (passkey) | **escrita, não compilada** — ver abaixo |
-| PWA em React | falta |
+| Porta (passkey) | **escrita, não compilada** aqui — ver abaixo |
+| PWA em React | pronto |
+| Notificação (Web Push) | pronto |
 | Hermes com camada de ação | falta |
 
 Dois testes de ponta a ponta, com hub de verdade, `mos-web` de verdade e um
@@ -72,6 +73,60 @@ Uma das duas:
 | `MOS_WEB_HUB` | — | URL do hub. Vazio: funciona sozinho, e **avisa** |
 | `MOS_WEB_TOKEN` | — | o segredo do hub |
 | `MOS_WEB_INVITE` | — | convite para registrar um aparelho (com `passkey`) |
+| `MOS_WEB_VAPID_PRIVADA` | — | a chave do push. Vazio: sobe igual, e **não notifica** |
+| `MOS_WEB_VAPID_CONTATO` | `mailto:mos@localhost` | `mailto:`/`https:`. A Apple recusa sem |
+| `MOS_WEB_PUSH_DB` | `push.db` | as assinaturas de push, **fora** do banco de domínio |
+
+A chave nasce uma vez:
+
+```bash
+mos-web --gerar-vapid
+```
+
+**Trocá-la mata todas as assinaturas** — o aparelho assinou com a pública
+antiga, e o serviço de push recusa o que a nova assinar. O sintoma é o pior
+possível: tudo parece funcionar e nada chega.
+
+## A notificação
+
+Web Push são duas RFCs — a 8292 (assinatura VAPID) e a 8291 (payload cifrado) —
+e as duas estão em `push.rs`, escritas à mão. O crate `web-push` foi medido e
+recusado: ele traz `http ^0.2` para uma árvore que usa `http` 1.x no `axum`, e
+puxa OpenSSL pelo `ece` — que aqui vive preso à feature `passkey` justamente
+para o resto compilar nesta máquina.
+
+O que torna isso seguro é que **a RFC 8291 publica vetores de teste completos**.
+`cargo test -p mos-web` cifra a mensagem da RFC com as chaves da RFC e confere o
+corpo byte a byte, no Windows, sem VPS e sem iPhone. E o `tests/notificacao.rs`
+faz o papel do aparelho: gera o próprio par de chaves, assina, e **decifra** o
+que o servidor mandou. Um push que não chega nunca diz por quê — esses dois
+testes são o que diz.
+
+O conteúdo viaja cifrado ponta a ponta: o serviço de push da Apple encaminha o
+pacote sem poder ler uma palavra dele.
+
+### O que avisa
+
+| | |
+|---|---|
+| Lembrete que venceu | um laço de 60s lê `attention.waiting()` e avisa uma vez cada |
+| Coisa nova vinda do PC | quando uma rodada de sync desce algo, diz **quantos** |
+
+O `mos-web` **lê** lembretes e **não escreve** nenhum. Marcar um Reminder como
+entregue sincronizaria para o PC, e o desktop tem o próprio agendador olhando os
+mesmos lembretes — dois aparelhos disputando o mesmo estado produziriam o
+lembrete que some do PC porque o celular achou que já tinha dado conta. O que já
+foi avisado mora no `push.db`, que é local e não sincroniza.
+
+### O que o iPhone exige, e que nada no código resolve
+
+**Web Push no iOS só funciona para uma PWA instalada na Tela de Início.** No
+Safari comum não chega nada, e o `Notification.requestPermission()` nem existe.
+A aba **Avisos** detecta isso e mostra o passo, porque a alternativa é um botão
+que falha calado.
+
+Também exige **HTTPS num domínio estável** — a mesma exigência da passkey, e
+pela mesma razão.
 
 ## O que falta decidir antes do celular
 

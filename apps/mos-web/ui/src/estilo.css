@@ -284,6 +284,56 @@ body {
   color: var(--signal);
 }
 
+/* ------------------------------------------------------------- avisos */
+
+/* A aba de notificações é a única sem compositor embaixo, então ela tem o
+   conteúdo todo aqui — e é uma coluna, e não uma lista: o que ela mostra é uma
+   frase e, no máximo, dois botões. */
+.avisos {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: start;
+}
+
+/* A frase que explica o que fazer.
+   Ela tem largura máxima em `ch` e não em `%`: o que decide legibilidade é
+   quantos CARACTERES cabem na linha, e num iPhone deitado uma porcentagem
+   produziria linhas longas demais para ler de relance. */
+.explicacao {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--text-secondary);
+  font: 400 14px/1.55 var(--font-product);
+}
+
+/* As duas coisas que a notificação vai trazer.
+   Sem marcador de lista: são duas linhas, e um bullet aqui pesaria mais que o
+   conteúdo. O recuo do traço já separa o suficiente. */
+.promessas {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font: 400 14px/1.5 var(--font-product);
+}
+
+.promessas li::before {
+  content: "— ";
+  color: var(--text-system);
+}
+
+.avisos .botao {
+  /* No polegar: um botão que ocupa a largura é um alvo que não se erra, e
+     errar aqui significa não ativar a notificação e não saber por quê. */
+  width: 100%;
+}
+
+.avisos .rotulo {
+  margin: 0;
+}
+
 /* --------------------------------------------------------------- foco */
 
 /* Nada de `outline: none`. O teclado do iPad e o Bluetooth existem, e um foco

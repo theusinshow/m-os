@@ -13,5 +13,8 @@
 pub mod auth;
 
 pub mod api;
+pub mod assinaturas;
+pub mod avisos;
 pub mod estado;
+pub mod push;
 pub mod sync;

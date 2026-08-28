@@ -37,6 +37,8 @@ pub fn rotas() -> Router<Estado> {
         .route("/api/tasks", get(tasks).post(criar_task))
         .route("/api/tasks/{id}/estado", post(mudar_estado))
         .route("/api/estado", get(estado_do_aparelho))
+        .route("/api/push/assinar", post(assinar_push))
+        .route("/api/push/testar", post(testar_push))
 }
 
 /// As rotas mais a pagina.
@@ -205,6 +207,64 @@ async fn mudar_estado(
     Ok(Json(serde_json::to_value(task).unwrap_or_default()))
 }
 
+// -------------------------------------------------------------------- push
+
+/// O push, ou o erro que explica a ausencia dele.
+///
+/// 501 e nao 500: nao ha defeito aqui, ha uma configuracao ausente. A tela
+/// mostra a diferenca, e quem le o log tambem.
+fn sem_push(estado: &Estado) -> Resultado<&crate::estado::PushLigado> {
+    estado.push.as_ref().ok_or_else(|| {
+        Erro(
+            StatusCode::NOT_IMPLEMENTED,
+            String::from(
+                "este servidor nao tem chave VAPID configurada, entao nao manda                  notificacao nenhuma",
+            ),
+        )
+    })
+}
+
+/// A tela assina.
+///
+/// O corpo e o `PushSubscription.toJSON()` do navegador, repassado inteiro. O
+/// servidor nao interpreta nada dele — ver `push.rs`.
+async fn assinar_push(
+    State(estado): State<Estado>,
+    Json(assinatura): Json<crate::push::Assinatura>,
+) -> Resultado<Json<serde_json::Value>> {
+    let push = sem_push(&estado)?;
+
+    let agora_ms = (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as i64;
+    push.assinaturas
+        .salvar(&assinatura, agora_ms)
+        .map_err(|causa| Erro(StatusCode::INTERNAL_SERVER_ERROR, causa.to_string()))?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+/// Manda uma notificacao agora, para conferir.
+///
+/// Existe porque a alternativa para saber se o push funciona seria criar um
+/// lembrete e ESPERAR ele vencer. Depois de instalar na tela de inicio, esta e a
+/// unica pergunta que importa — chega ou nao chega? —, e ela merece resposta em
+/// dois segundos.
+async fn testar_push(State(estado): State<Estado>) -> Resultado<Json<serde_json::Value>> {
+    let push = sem_push(&estado)?;
+
+    let avisador = std::sync::Arc::clone(&push.avisador);
+    let aviso = crate::avisos::Aviso {
+        titulo: String::from("M/OS"),
+        corpo: String::from("Se voce esta lendo isto, a notificacao funciona."),
+        tag: String::from("teste"),
+        url: String::from("/"),
+    };
+    // `spawn_blocking` porque o envio e bloqueante — ver `push::enviar`.
+    let aceitos = tokio::task::spawn_blocking(move || avisador.disparar(&aviso))
+        .await
+        .unwrap_or(0);
+
+    Ok(Json(serde_json::json!({ "enviadas": aceitos })))
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EstadoDoAparelho {
@@ -214,6 +274,13 @@ struct EstadoDoAparelho {
     pendentes: usize,
     /// Se ha hub configurado. Sem ele o `mos-web` funciona — sozinho.
     sincroniza: bool,
+    /// A chave publica VAPID, ou vazio quando este servidor nao manda
+    /// notificacao. A tela decide o que mostrar a partir disto: com chave, o
+    /// botao de ativar; sem chave, a frase que explica por que ele nao existe.
+    chave_push: Option<String>,
+    /// Quantos aparelhos ja assinaram. Serve para voce saber que ativou — sem
+    /// isso, "ativar" e um botao que muda de cor e nao prova nada.
+    aparelhos_avisados: usize,
 }
 
 async fn estado_do_aparelho(State(estado): State<Estado>) -> Json<EstadoDoAparelho> {
@@ -221,5 +288,11 @@ async fn estado_do_aparelho(State(estado): State<Estado>) -> Json<EstadoDoAparel
     Json(EstadoDoAparelho {
         pendentes: estado.storage.quantidade_pendente().unwrap_or(0),
         sincroniza: estado.hub.is_some(),
+        chave_push: estado.push.as_ref().map(|push| push.chave_publica.clone()),
+        aparelhos_avisados: estado
+            .push
+            .as_ref()
+            .and_then(|push| push.assinaturas.quantas().ok())
+            .unwrap_or(0),
     })
 }

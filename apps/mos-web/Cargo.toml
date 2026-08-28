@@ -30,6 +30,35 @@ rusqlite = { version = "0.40", features = ["bundled-full"] }
 # `WorkingDirectory` que nem sempre e o que se imagina.
 rust-embed = "8"
 mime_guess = "2"
+
+# ------------------------------------------------------------------ push
+#
+# Web Push sao duas RFCs — a 8292 (assinatura VAPID) e a 8291 (o payload
+# cifrado) — e as duas cabem em `push.rs`, escritas a mao. O crate `web-push`
+# foi medido e recusado por duas razoes concretas:
+#
+# 1. Ele depende de `http ^0.2` e `hyper 0.14`; o `axum` 0.8 daqui usa `http`
+#    1.x. Seriam duas versoes de `http` na mesma arvore.
+# 2. Ele puxa `ece`, cujo backend padrao e OpenSSL — que nesta maquina nao
+#    existe, e que este `Cargo.toml` mantem preso a feature `passkey`
+#    justamente para o resto continuar compilando aqui.
+#
+# O que torna a troca segura e que a RFC 8291 publica vetores de teste
+# completos: chaves de entrada e o corpo cifrado esperado, byte a byte. A cifra
+# e provada por `cargo test` no Windows, sem VPS e sem iPhone — e um push que
+# nao chega nunca diz por que.
+p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
+hkdf = "0.12"
+aes-gcm = "0.10"
+base64 = "0.22"
+rand_core = { version = "0.6", features = ["getrandom"] }
+# O mesmo cliente bloqueante do `mos-sync-http`, pela mesma razao: o envio
+# acontece dentro de `spawn_blocking`, ao lado da rodada de sync.
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls",
+] }
 serde.workspace = true
 serde_json = "1"
 sha2 = "0.10"
@@ -71,6 +100,16 @@ porta-aberta = []
 
 [dev-dependencies]
 axum = "0.8"
+# O teste de notificacao faz o papel do APARELHO: ele gera o proprio par de
+# chaves, assina, e DECIFRA o que o servidor mandou. Sem decifrar, o teste
+# provaria apenas que um POST saiu — e um POST que sai com o conteudo errado e
+# exatamente o defeito que so o iPhone perceberia.
+p256 = { version = "0.13", features = ["ecdh"] }
+hkdf = "0.12"
+aes-gcm = "0.10"
+base64 = "0.22"
+sha2 = "0.10"
+rand_core = { version = "0.6", features = ["getrandom"] }
 mos-sync-server = { path = "../../crates/mos-sync-server" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "cookies"] }
 tempfile = "3"

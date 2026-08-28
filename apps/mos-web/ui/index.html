@@ -15,7 +15,10 @@
     <meta name="apple-mobile-web-app-title" content="M/OS" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icone.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/icone.svg" />
+    <!-- PNG, e nao SVG: o iOS ignora SVG aqui, e sem um PNG o icone da tela de
+         inicio vira um print da propria pagina. 180x180 e o tamanho que ele
+         pede. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/icone-180.png" />
     <title>M/OS</title>
   </head>
   <body>
