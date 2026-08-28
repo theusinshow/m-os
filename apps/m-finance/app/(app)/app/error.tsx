@@ -30,7 +30,7 @@ export default function AppError({
         ) : null}
         <div className="mt-5 flex flex-wrap gap-3">
           <button
-            className="clip-notch sheen group focus-ring relative inline-flex min-h-11 items-center justify-center gap-2 bg-accent-strong px-4 text-sm font-semibold tracking-tight text-text-primary shadow-lg shadow-accent/25 transition duration-200 hover:bg-accent-strong-hover active:scale-[0.985]"
+            className="clip-notch sheen group focus-ring relative inline-flex min-h-11 items-center justify-center gap-2 bg-accent-strong px-4 text-sm font-semibold tracking-tight text-text-inverse shadow-lg shadow-accent/25 transition duration-200 hover:bg-accent-strong-hover active:scale-[0.985]"
             onClick={reset}
             type="button"
           >

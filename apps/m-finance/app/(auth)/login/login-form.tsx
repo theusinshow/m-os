@@ -11,7 +11,7 @@ const campo =
   "clip-notch focus-ring h-12 w-full border border-border-default bg-background-primary px-4 text-sm text-text-primary placeholder:text-text-muted";
 
 const botao =
-  "clip-notch sheen group focus-ring flex h-12 w-full items-center justify-center gap-2 bg-accent-strong px-4 text-sm font-semibold tracking-tight text-text-primary transition duration-200 hover:bg-accent-strong-hover active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50";
+  "clip-notch sheen group focus-ring flex h-12 w-full items-center justify-center gap-2 bg-accent-strong px-4 text-sm font-semibold tracking-tight text-text-inverse transition duration-200 hover:bg-accent-strong-hover active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50";
 
 export function LoginForm({ configured }: { configured: boolean }) {
   const [state, enviar, pendente] = useActionState(continuarLogin, INICIAL);

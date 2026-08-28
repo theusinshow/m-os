@@ -21,7 +21,7 @@ export function FormSubmitButton({
       className={cn(
         "clip-notch sheen group focus-ring relative inline-flex min-h-11 w-full items-center justify-center gap-2 px-4 text-sm font-semibold tracking-tight transition duration-200 disabled:cursor-wait disabled:opacity-75 sm:w-auto",
         variant === "primary" &&
-          "bg-accent-strong text-text-primary shadow-lg shadow-accent/25 hover:bg-accent-strong-hover active:scale-[0.985]",
+          "bg-accent-strong text-text-inverse shadow-lg shadow-accent/25 hover:bg-accent-strong-hover active:scale-[0.985]",
         variant === "secondary" &&
           "border border-border-default bg-background-elevated text-text-secondary hover:border-border-strong hover:bg-background-hover hover:text-text-primary active:scale-[0.985]",
         variant === "danger" &&

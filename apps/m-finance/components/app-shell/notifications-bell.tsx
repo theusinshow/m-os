@@ -64,7 +64,7 @@ export function NotificationsBell({
       >
         <Bell size={18} aria-hidden="true" />
         {unreadCount > 0 ? (
-          <span className="num absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-text-primary">
+          <span className="num absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-strong px-1 text-[10px] font-bold text-text-inverse">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         ) : null}

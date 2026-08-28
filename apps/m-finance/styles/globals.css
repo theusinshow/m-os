@@ -243,11 +243,13 @@ select.field-input {
 }
 
 /* clip-path also clips the outer focus ring, so clipped controls get an
-   inset ring that stays visible inside the notched shape. */
+   inset ring that stays visible inside the notched shape. O anel segue
+   `currentColor`: o primario e sodio, e um anel quase branco fixo dava 1,5:1
+   sobre o preenchimento — o foco sumia no controle mais importante da tela. */
 .clip-notch:focus-visible,
 .clip-notch-lg:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 2px rgba(245, 242, 237, 0.85);
+  box-shadow: inset 0 0 0 2px currentColor;
 }
 
 /* Sheen sweep — a single diagonal light pass on hover/confirm. */

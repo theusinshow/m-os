@@ -17,7 +17,7 @@ export function QuickActionButton({
       className={cn(
         "clip-notch sheen group focus-ring flex min-h-11 items-center justify-between gap-3 px-3.5 text-sm font-semibold tracking-tight transition duration-200 active:scale-[0.985]",
         variant === "primary"
-          ? "bg-accent-strong text-text-primary shadow-lg shadow-accent/25 hover:bg-accent-strong-hover"
+          ? "bg-accent-strong text-text-inverse shadow-lg shadow-accent/25 hover:bg-accent-strong-hover"
           : "border border-border-default bg-background-elevated text-text-secondary hover:border-border-strong hover:bg-background-hover hover:text-text-primary",
       )}
       href={href}

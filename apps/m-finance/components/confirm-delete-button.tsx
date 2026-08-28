@@ -10,7 +10,7 @@ function ConfirmSubmit() {
   return (
     <button
       aria-busy={pending}
-      className="clip-notch focus-ring inline-flex min-h-10 items-center gap-2 bg-accent-strong px-3 text-xs font-semibold text-text-primary transition duration-200 hover:bg-accent-strong-hover active:scale-[0.985] disabled:cursor-wait disabled:opacity-70"
+      className="clip-notch focus-ring inline-flex min-h-10 items-center gap-2 bg-accent-strong px-3 text-xs font-semibold text-text-inverse transition duration-200 hover:bg-accent-strong-hover active:scale-[0.985] disabled:cursor-wait disabled:opacity-70"
       disabled={pending}
       type="submit"
     >
