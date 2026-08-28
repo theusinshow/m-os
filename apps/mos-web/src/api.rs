@@ -134,6 +134,36 @@ async fn sair(
 #[folder = "static/"]
 struct Estaticos;
 
+/// Por quanto tempo o navegador pode guardar cada arquivo.
+///
+/// # Sem isto, todo deploy podia deixar a tela em branco
+///
+/// O `vite` poe um hash no nome de cada bundle, entao o JS de hoje se chama
+/// diferente do de ontem. O `index.html` e quem aponta para o nome certo — e,
+/// sem cabecalho nenhum, o Safari aplica cache heuristico e pode servir o
+/// `index.html` VELHO, que aponta para um arquivo que este binario nao tem mais.
+/// Resultado: 404 no bundle e uma pagina em branco, num app instalado na tela de
+/// inicio, sem nada indicando o que houve.
+///
+/// Entao:
+///
+/// - o que tem hash no nome pode ser guardado para sempre — um nome novo e um
+///   arquivo novo, e o velho nunca mais e pedido;
+/// - o `index.html`, o `sw.js` e o manifest sao revalidados SEMPRE. Sao os tres
+///   arquivos cujo nome nao muda, e por isso os tres unicos que podem envelhecer
+///   sem ninguem notar.
+fn cache_de(nome: &str) -> String {
+    if nome.starts_with("assets/") {
+        // Um ano, e `immutable`: o navegador nem pergunta.
+        String::from("public, max-age=31536000, immutable")
+    } else {
+        // `no-cache` NAO e "nao guarde": e "guarde, mas pergunte antes de usar".
+        // Com `no-store` a PWA baixaria tudo de novo a cada abertura, inclusive
+        // no 4G.
+        String::from("no-cache")
+    }
+}
+
 /// Qualquer caminho desconhecido devolve o `index.html`, e nao 404: a PWA e uma
 /// pagina so, e um app instalado na tela de inicio recarrega numa rota interna o
 /// tempo todo.
@@ -148,7 +178,10 @@ async fn pagina(uri: axum::http::Uri) -> Response {
             let tipo = mime_guess::from_path(nome).first_or_octet_stream();
             (
                 StatusCode::OK,
-                [(axum::http::header::CONTENT_TYPE, tipo.as_ref().to_owned())],
+                [
+                    (axum::http::header::CONTENT_TYPE, tipo.as_ref().to_owned()),
+                    (axum::http::header::CACHE_CONTROL, cache_de(nome)),
+                ],
                 conteudo.data,
             )
                 .into_response()

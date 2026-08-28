@@ -139,6 +139,59 @@ async fn a_pagina_carrega_sem_sessao() {
     assert!(resposta.text().await.unwrap().contains("<div id=\"raiz\">"));
 }
 
+/// O `index.html` tem que ser revalidado, e o bundle com hash pode ser eterno.
+///
+/// Sem isto, um `index.html` guardado pelo Safari aponta para um bundle que o
+/// binario novo nao tem mais — e a PWA instalada abre em branco, sem nada
+/// dizendo o que houve.
+#[tokio::test]
+async fn o_cache_deixa_o_html_envelhecer_e_o_bundle_nao() {
+    let pasta = tempfile::tempdir().unwrap();
+    let (web, _) = servir(pasta.path()).await;
+    let cliente = reqwest::Client::new();
+
+    for caminho in ["/", "/index.html", "/sw.js", "/manifest.webmanifest"] {
+        let resposta = cliente
+            .get(format!("http://{web}{caminho}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resposta.headers()["cache-control"],
+            "no-cache",
+            "{caminho} tem nome fixo: ele PRECISA ser revalidado"
+        );
+    }
+
+    // O nome do bundle muda a cada build, entao guardar para sempre e seguro.
+    let html = cliente
+        .get(format!("http://{web}/"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let bundle = html
+        .split("/assets/")
+        .nth(1)
+        .and_then(|resto| resto.split('"').next())
+        .expect("o index.html referencia um bundle em /assets/");
+    let resposta = cliente
+        .get(format!("http://{web}/assets/{bundle}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resposta.status(), 200, "/assets/{bundle}");
+    assert!(
+        resposta.headers()["cache-control"]
+            .to_str()
+            .unwrap()
+            .contains("immutable"),
+        "o bundle com hash pode ser guardado para sempre"
+    );
+}
+
 /// A rota que a tela consulta antes de qualquer login precisa ser livre — e
 /// precisa dizer o mínimo.
 #[tokio::test]
