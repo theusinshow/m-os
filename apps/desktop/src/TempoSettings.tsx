@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import { Card, EmptyState } from "./Surface";
+import { EmptyState, Region } from "./Surface";
 import type { Issuer, MonitoredApp, MonitoringSettings, SilencedApp, TrackingSettings } from "./types";
 
 /** `3h20` de silêncio restante — a pergunta é "até quando", não "até que hora". */
@@ -74,7 +74,7 @@ export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
 
   return (
     <>
-      <Card label="ARREDONDAMENTO">
+      <Region label="ARREDONDAMENTO">
         {settings ? (
           <div className="tempo-form">
             {/* `tempo-check-governa`: esta caixa LIGA os dois campos ao lado, e
@@ -139,9 +139,9 @@ export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
         ) : (
           <EmptyState>Configuração indisponível.</EmptyState>
         )}
-      </Card>
+      </Region>
 
-      <Card label="OBSERVAÇÃO">
+      <Region label="OBSERVAÇÃO">
         {/* Dito de forma verificável, e não como promessa de marketing: o que
             é lido são nomes de executável e o tempo desde o último toque. Sem
             título de janela, sem conteúdo de arquivo, sem captura de tela. */}
@@ -219,9 +219,9 @@ export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
         ) : (
           <EmptyState>Configuração indisponível.</EmptyState>
         )}
-      </Card>
+      </Region>
 
-      <Card label="EMISSOR DA FATURA">
+      <Region label="EMISSOR DA FATURA">
         {/* Só a fatura lê isto. Dito na tela para o campo não parecer um cadastro
             de perfil que vai aparecer em outro lugar. */}
         <p className="support-copy">
@@ -266,9 +266,9 @@ export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
         ) : (
           <EmptyState>Configuração indisponível.</EmptyState>
         )}
-      </Card>
+      </Region>
 
-      <Card label="PROGRAMAS MONITORADOS" count={apps.length ? String(apps.length) : undefined}>
+      <Region label="PROGRAMAS MONITORADOS" count={apps.length ? String(apps.length) : undefined}>
         {/* Observar não é cronometrar: o programa aberto vira um evento na Linha
             do Tempo, e continua sendo você quem decide se aquilo foi trabalho. */}
         <p className="support-copy">
@@ -358,7 +358,7 @@ export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
           <Button variant="secondary" size="sm" type="submit" disabled={!process.trim()}>Adicionar</Button>
         </form>
         {note ? <p className="support-copy" aria-live="polite">{note}</p> : null}
-      </Card>
+      </Region>
     </>
   );
 }

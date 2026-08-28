@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import { Card, ContextPath, EmptyState, PageHeader, Panel, Stat } from "./Surface";
+import { Card, ContextPath, EmptyState, PageHeader, Region, StatBand, Stat } from "./Surface";
 import { TempoClients } from "./TempoClients";
 import { TempoHistory } from "./TempoHistory";
 import { TempoProjects } from "./TempoProjects";
@@ -229,31 +229,31 @@ export function TempoPage({ projects, openProject, receipt }: {
           rodapé de uma página longa é um recado que não existe. */}
       {note ? <p className="settings-message" aria-live="polite">{note}</p> : null}
 
+      {/* Faixa, e nao painel.
+          O convite abria TODA sessao de trabalho com um bloco de tres paragrafos
+          sobre migracao de banco — o assunto mais secundario que esta pagina
+          tem, ocupando o lugar mais nobre dela. Como faixa de uma linha ele
+          continua sendo impossivel de nao ver, e para de ser a primeira coisa
+          que se le. O detalhe inteiro segue em Settings, onde quem quer ler
+          sobre importacao vai procurar. */}
       {pendingImport ? (
-        <Panel label="CRONOCAD ENCONTRADO" rule>
-          <div className="tempo-invite">
-            <div>
-              <p>Existe um banco do CronoCAD nesta máquina, e as horas dele ainda não estão aqui.</p>
-              <p className="support-copy">
-                Vêm projetos, sessões, pendências, programas monitorados, o histórico observado pelo sistema e a
-                sua configuração de arredondamento. O banco de origem é aberto <strong>somente para leitura</strong> —
-                o CronoCAD continua intacto, e você compara o total antes de desinstalar. Roda uma vez.
-              </p>
-              {importNote ? <p className="support-copy" aria-live="polite">{importNote}</p> : null}
-            </div>
-            <Button variant="primary" size="sm" disabled={importing} onClick={() => void runImport()}>
-              {importing ? "Importando" : "Importar agora"}
-            </Button>
-          </div>
-        </Panel>
-      ) : importNote ? (
-        // O convite sumiu no meio da ação — importou, ou descobriu-se que já
-        // estava importado. O recibo sobrevive ao painel que o gerou: sem isto,
-        // o resultado desapareceria junto com o botão e o clique pareceria não
-        // ter feito nada.
-        <Panel label="CRONOCAD">
-          <p className="support-copy" aria-live="polite">{importNote}</p>
-        </Panel>
+        <div className="tempo-invite">
+          <span className="micro-label">CRONOCAD ENCONTRADO</span>
+          <span>
+            Existe um banco do CronoCAD nesta máquina com horas que ainda não estão aqui. Ele é aberto{" "}
+            <strong>somente para leitura</strong>, e a importação roda uma vez.
+          </span>
+          <Button variant="secondary" size="sm" disabled={importing} onClick={() => void runImport()}>
+            {importing ? "Importando" : "Importar"}
+          </Button>
+        </div>
+      ) : null}
+
+      {/* O recibo sobrevive ao convite que o gerou: sem isto, o resultado
+          desapareceria junto com o botao e o clique pareceria nao ter feito
+          nada. */}
+      {importNote ? (
+        <p className="tempo-invite-note" aria-live="polite">{importNote}</p>
       ) : null}
 
       {view === "painel" ? (
@@ -271,22 +271,31 @@ export function TempoPage({ projects, openProject, receipt }: {
               muda o que se faz a seguir, e eram eles que faziam a coluna de
               números ficar tão alta quanto o cronômetro ao lado. Em faixa, e não
               em coluna, o olho compara os três sem descer. */}
-          <Card className="tempo-summary">
-            <div className="tempo-stat-row">
-              <Stat label="TRABALHADO HOJE" value={durationOf(todaySeconds)} />
-              <Stat label="A RECEBER" value={moneyOf(aReceber)} hint={`${hoursOf(trackedTotal)} rastreadas`} />
-              {/* So aparece quando ha: um "R$ 0,00 pago" fixo ocuparia a
-                  faixa todo dia para dizer nada. */}
-              {jaPago ? <Stat label="JÁ PAGO" value={moneyOf(jaPago)} /> : null}
-            </div>
-          </Card>
+          {/* Faixa, e nao card. A moldura em volta de tres numeros era uma
+              caixa cujo unico conteudo era uma regua de leitura — e cardizar a
+              regua foi o que a auditoria chamou pelo nome. As reguas verticais
+              entre eles separam melhor do que a borda em volta dos tres. */}
+          <StatBand>
+            <Stat label="TRABALHADO HOJE" value={durationOf(todaySeconds)} />
+            <Stat label="A RECEBER" value={moneyOf(aReceber)} hint={`${hoursOf(trackedTotal)} rastreadas`} />
+            {/* So aparece quando ha: um "R$ 0,00 pago" fixo ocuparia a
+                faixa todo dia para dizer nada. */}
+            {jaPago ? <Stat label="JÁ PAGO" value={moneyOf(jaPago)} settled /> : null}
+          </StatBand>
 
           {/* Duas colunas de peso diferente: o cronômetro é o que se usa, o
               acumulado por Project é o que se confere. Empilham numa janela
               estreita. */}
           <div className="tempo-cols" data-cols="main">
-            <Card label="INICIAR TRABALHO">
-              <Timer projects={projects} entries={entries} onChanged={() => void load()} />
+            {/* A UNICA superficie elevada do Painel, e e por isso que ela
+                significa alguma coisa. Quando toda peca da tela tinha moldura,
+                estar dentro de uma nao dizia nada; agora dizer "isto e o que
+                voce veio fazer aqui" custa exatamente uma borda. */}
+            {/* Sem rotulo no Card: quem rotula e o proprio cronometro, porque a
+                palavra muda com o estado. "INICIAR TRABALHO" sobre uma sessao
+                em curso seria a moldura contradizendo o conteudo. */}
+            <Card>
+              <Timer projects={projects} entries={entries} onChanged={() => void load()} detailed />
 
               {active.length ? (
                 <details className="tempo-forgot">
@@ -321,7 +330,7 @@ export function TempoPage({ projects, openProject, receipt }: {
                 janela estreita da — o nome do Project truncava cedo e "16.1 h"
                 caia para uma segunda linha. O respiro vem do corpo do card, uma
                 vez so, e as celulas ficam com a largura toda. */}
-            <Card label="POR PROJECT" count={trackedTotal ? hoursOf(trackedTotal) : undefined}>
+            <Region label="POR PROJECT" count={trackedTotal ? hoursOf(trackedTotal) : undefined}>
               {ranked.length ? (
                 <table className="tempo-table tempo-table-compact">
                   <tbody>
@@ -348,7 +357,7 @@ export function TempoPage({ projects, openProject, receipt }: {
               ) : (
                 <EmptyState>Nenhuma hora registrada ainda.</EmptyState>
               )}
-            </Card>
+            </Region>
           </div>
 
           {/* A lista ocupa a largura toda, e nao um terco dela.
@@ -358,8 +367,10 @@ export function TempoPage({ projects, openProject, receipt }: {
               que fazia o rodape da pagina parecer desmontado. Larga, cada sessao
               cabe numa linha e a mesma quantidade de informacao ocupa metade da
               altura. */}
-          <Card
+          <Region
+            className="tempo-recent"
             label="SESSÕES RECENTES"
+            count={entries.length > RECENT ? `${RECENT} de ${entries.length}` : undefined}
             action={
               entries.length > RECENT ? (
                 <Button variant="ghost" size="sm" onClick={() => setView("historico")}>Ver todas</Button>
@@ -377,7 +388,7 @@ export function TempoPage({ projects, openProject, receipt }: {
             ) : (
               <EmptyState>As sessões encerradas aparecem aqui.</EmptyState>
             )}
-          </Card>
+          </Region>
 
           {/* Era um card de um terco de largura com uma frase e um botao dentro:
               uma moldura em volta de um link. Como linha de rodape ele devolve a

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import { Card, EmptyState, PageHeader } from "./Surface";
+import { EmptyState, FilterBand, PageHeader, Region } from "./Surface";
 import {
   ACTIVITY,
   dateInputOf,
@@ -168,7 +168,7 @@ export function TempoHistory({ projects, entries, onChanged, receipt }: {
         }
       />
 
-      <Card>
+      <FilterBand>
         <div className="tempo-filters">
           <div className="tempo-field">
             <label htmlFor="hist-from">De</label>
@@ -241,9 +241,9 @@ export function TempoHistory({ projects, entries, onChanged, receipt }: {
             </button>
           ))}
         </div>
-      </Card>
+      </FilterBand>
 
-      <Card
+      <Region
         label={trashOpen ? "LIXEIRA" : "SESSÕES"}
         count={
           trashOpen
@@ -282,7 +282,7 @@ export function TempoHistory({ projects, entries, onChanged, receipt }: {
             onError={setNote}
           />
         )}
-      </Card>
+      </Region>
     </>
   );
 }

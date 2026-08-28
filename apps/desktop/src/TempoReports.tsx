@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import { Card, EmptyState, PageHeader, Stat } from "./Surface";
+import { EmptyState, FilterBand, PageHeader, Region, Share, Stat, StatBand } from "./Surface";
 import {
   ACTIVITY_LABEL,
   dateInputOf,
@@ -123,6 +123,10 @@ export function TempoReports({ projects }: { projects: Project[] }) {
   const [projectId, setProjectId] = useState("");
   const [clientId, setClientId] = useState("");
   const [adjust, setAdjust] = useState("0");
+  /* Qual atalho de periodo esta aceso. Comeca em "Este mes" porque e o recorte
+     que `from`/`to` ja carregam na primeira abertura — sem isso a tela abriria
+     num periodo que nenhum atalho reivindica. */
+  const [preset, setPreset] = useState<string | null>("Este mês");
   const [lines, setLines] = useState<ReportLine[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [tracking, setTracking] = useState<ProjectTracking[]>([]);
@@ -180,6 +184,19 @@ export function TempoReports({ projects }: { projects: Project[] }) {
   const named = (id: string) => projects.find((project) => project.id === id)?.name ?? "Project removido";
   const byProject = groupBy(filtered, (line) => line.projectId);
   const byActivity = groupBy(filtered, (line) => line.activityType);
+
+  /**
+   * A fatia de um grupo dentro do periodo, em horas FATURAVEIS.
+   *
+   * Faturaveis e nao brutas de proposito: as duas quebras vivem ao lado do
+   * numero que vai para a fatura, e uma barra medida em horas brutas mostraria
+   * uma proporcao que nao e a do dinheiro ali do lado.
+   *
+   * Denominador zero devolve zero — um periodo sem hora faturavel nao tem
+   * proporcao para exibir, e `0/0` viraria `NaN%` na tela.
+   */
+  const shareOf = (seconds: number) =>
+    totals.billableSeconds > 0 ? seconds / totals.billableSeconds : 0;
 
   const period = from || to
     ? `${from ? fullDay(startOfDay(from)) : "início"} a ${to ? fullDay(endOfDay(to)) : "hoje"}`
@@ -299,15 +316,15 @@ export function TempoReports({ projects }: { projects: Project[] }) {
         }
       />
 
-      <Card>
+      <FilterBand>
         <div className="tempo-filters">
           <div className="tempo-field">
             <label htmlFor="rep-from">De</label>
-            <input id="rep-from" type="date" value={from} onChange={(event) => setFrom(event.currentTarget.value)} />
+            <input id="rep-from" type="date" value={from} onChange={(event) => { setFrom(event.currentTarget.value); setPreset(null); }} />
           </div>
           <div className="tempo-field">
             <label htmlFor="rep-to">Até</label>
-            <input id="rep-to" type="date" value={to} onChange={(event) => setTo(event.currentTarget.value)} />
+            <input id="rep-to" type="date" value={to} onChange={(event) => { setTo(event.currentTarget.value); setPreset(null); }} />
           </div>
           <div className="tempo-field">
             <label htmlFor="rep-client">Cliente</label>
@@ -336,9 +353,23 @@ export function TempoReports({ projects }: { projects: Project[] }) {
           </div>
         </div>
 
+        {/* O atalho aceso, e nao quatro rotulos iguais.
+            O Historico ja marcava o periodo escolhido com `aria-pressed`, e aqui
+            os quatro ficavam apagados o tempo todo — a mesma peca dizia o estado
+            numa tela e nao dizia na outra. Quem volta ao relatorio depois de
+            mexer nas datas nao tinha como saber de que recorte estava olhando
+            sem reler as duas datas.
+
+            Escolher um atalho preenche as datas; editar uma data a mao apaga o
+            atalho, porque a partir dali o recorte deixou de ser aquele. */}
         <div className="tempo-presets">
           {PRESETS.map((item) => (
-            <button key={item.label} type="button" onClick={() => item.apply(setFrom, setTo)}>
+            <button
+              key={item.label}
+              type="button"
+              aria-pressed={preset === item.label}
+              onClick={() => { item.apply(setFrom, setTo); setPreset(item.label); }}
+            >
               {item.label}
             </button>
           ))}
@@ -347,14 +378,18 @@ export function TempoReports({ projects }: { projects: Project[] }) {
         {!clientId ? (
           <p className="support-copy">A fatura sai por cliente — escolha um acima para habilitá-la.</p>
         ) : null}
-      </Card>
+      </FilterBand>
 
       {filtered.length ? (
-        <Card count={period}>
+        <>
+          {/* O recorte vira legenda da faixa, e nao contagem de card: ele diz
+              de QUE periodo sao os numeros logo abaixo, e essa e a primeira
+              pergunta de quem olha um relatorio. */}
+          <p className="tempo-period">{period}</p>
           {/* A linha de números é a resposta inteira do relatório: quem abre
               esta tela quer saber quanto vale o período, e o resto é detalhe de
               conferência. Por isso ela vem antes das tabelas, e não depois. */}
-          <div className="tempo-stat-row">
+          <StatBand>
             <Stat label="HORAS REAIS" value={hoursOf(totals.grossSeconds)} />
             <Stat label="HORAS INATIVAS" value={hoursOf(totals.idleSeconds)} />
             <Stat label="HORAS FATURÁVEIS" value={hoursOf(totals.billableSeconds)} />
@@ -371,52 +406,54 @@ export function TempoReports({ projects }: { projects: Project[] }) {
                 value={moneyOf(finalAmount)}
               />
             ) : null}
-          </div>
-        </Card>
+          </StatBand>
+        </>
       ) : (
-        <Card count={period}>
+        <>
+          <p className="tempo-period">{period}</p>
           <EmptyState>Nenhuma sessão neste recorte.</EmptyState>
-        </Card>
+        </>
       )}
 
       {filtered.length ? (
         <>
           <div className="tempo-cols" data-cols="2">
             <div className="tempo-stack">
-              <Card label="POR PROJECT" className="flush">
-                <table className="tempo-table tempo-table-compact">
-                  <tbody>
-                    {byProject.map((group) => (
-                      <tr key={group.key}>
-                        <th scope="row">{named(group.key)}</th>
-                        <td>
-                          <strong>{moneyOf(group.totals.amountCents)}</strong>
-                          <small>{hoursOf(group.totals.billableSeconds)}</small>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </Card>
+              {/* Barra de proporcao, e nao so o numero.
+                  "R$ 247,50" e "R$ 52,50" exigem uma subtracao mental para virar
+                  "a maior parte do mes foi outro, nao desenho" — que e a unica
+                  coisa que esta quebra existe para responder. A barra entrega a
+                  comparacao antes da leitura.
 
-              <Card label="POR TIPO DE ATIVIDADE" className="flush">
-                <table className="tempo-table tempo-table-compact">
-                  <tbody>
-                    {byActivity.map((group) => (
-                      <tr key={group.key}>
-                        <th scope="row">{ACTIVITY_LABEL[group.key] ?? group.key}</th>
-                        <td>
-                          <strong>{moneyOf(group.totals.amountCents)}</strong>
-                          <small>{hoursOf(group.totals.billableSeconds)}</small>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </Card>
+                  Ela e NEUTRA de proposito: proporcao e quantidade, e quantidade
+                  nao e sinal. Em sodio, ela seria a segunda cor de sinal da tela
+                  e disputaria com o botao que emite a fatura. */}
+              <Region label="POR PROJECT" count={String(byProject.length)}>
+                {byProject.map((group) => (
+                  <Share
+                    key={group.key}
+                    name={named(group.key)}
+                    value={moneyOf(group.totals.amountCents)}
+                    hours={hoursOf(group.totals.billableSeconds)}
+                    share={shareOf(group.totals.billableSeconds)}
+                  />
+                ))}
+              </Region>
+
+              <Region label="POR TIPO DE ATIVIDADE" count={String(byActivity.length)}>
+                {byActivity.map((group) => (
+                  <Share
+                    key={group.key}
+                    name={ACTIVITY_LABEL[group.key] ?? group.key}
+                    value={moneyOf(group.totals.amountCents)}
+                    hours={hoursOf(group.totals.billableSeconds)}
+                    share={shareOf(group.totals.billableSeconds)}
+                  />
+                ))}
+              </Region>
             </div>
 
-            <Card label="SESSÕES DETALHADAS" count={String(filtered.length)} className="flush">
+            <Region label="SESSÕES DETALHADAS" count={String(filtered.length)}>
               <table className="tempo-table tempo-table-lines">
                 <thead>
                   <tr>
@@ -437,7 +474,7 @@ export function TempoReports({ projects }: { projects: Project[] }) {
                   ))}
                 </tbody>
               </table>
-            </Card>
+            </Region>
           </div>
 
         </>

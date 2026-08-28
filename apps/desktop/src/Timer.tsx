@@ -41,11 +41,21 @@ function clockOf(seconds: number) {
  * Só existe quando há Project: cronometrar exige saber para onde vai a hora, e
  * um seletor vazio prometeria uma função que não pode ser cumprida.
  */
-export function Timer({ projects, entries = [], onChanged }: {
+export function Timer({ projects, entries = [], onChanged, detailed = false }: {
   projects: Project[];
   /** As sessões recentes, para o começo em um clique saber o que oferecer. */
   entries?: TimeEntry[];
   onChanged: () => void;
+  /**
+   * A anatomia inteira do cronômetro, e não só o relógio.
+   *
+   * No Painel do CronoCAD ele é a intenção dominante da tela — a única
+   * superfície elevada dela — e ganha rótulo, hora de início, relógio em corpo
+   * de display e a linha de atividade. Na Home ele é UM widget entre vários, e
+   * a mesma anatomia gastaria metade da altura da coluna para dizer o que o
+   * número sozinho já diz.
+   */
+  detailed?: boolean;
 }) {
   const [timer, setTimer] = useState<ActiveTimer | null>(null);
   const [choice, setChoice] = useState("");
@@ -128,12 +138,20 @@ export function Timer({ projects, entries = [], onChanged }: {
     return (
       <form
         className="timer-idle"
+        data-detailed={detailed || undefined}
         onSubmit={(event) => {
           event.preventDefault();
           void act(() => api.timerStart(choice, description.trim(), activity));
         }}
       >
-        <p className="support-copy">Escolha o projeto e comece a registrar as horas.</p>
+        {detailed ? (
+          <header className="timer-live-head">
+            <span className="micro-label">INICIAR TRABALHO</span>
+            <span className="timer-since">O CRONÔMETRO CORRE COM O M/OS FECHADO</span>
+          </header>
+        ) : (
+          <p className="support-copy">Escolha o projeto e comece a registrar as horas.</p>
+        )}
 
         {/* Começar em um clique: o atrito entre "vou trabalhar" e "estou
             contando" é exatamente onde o registro se perde. Só aparece com
@@ -197,9 +215,30 @@ export function Timer({ projects, entries = [], onChanged }: {
   }
 
   const seconds = elapsedOf(timer, now);
+  const startedAt = new Date(timer.lastResumedAt);
+  const startedLabel = Number.isNaN(startedAt.getTime())
+    ? null
+    : `${String(startedAt.getHours()).padStart(2, "0")}:${String(startedAt.getMinutes()).padStart(2, "0")}`;
+
   return (
-    <div className="timer-live" data-status={timer.status}>
-      <p className="timer-clock" aria-live="off">{clockOf(seconds)}</p>
+    <div className="timer-live" data-status={timer.status} data-detailed={detailed || undefined}>
+      {detailed ? (
+        <header className="timer-live-head">
+          <span className="micro-label">
+            {timer.status === "running" ? "SESSÃO EM CURSO" : "SESSÃO PAUSADA"}
+          </span>
+          {startedLabel ? <span className="timer-since">DESDE {startedLabel}</span> : null}
+        </header>
+      ) : null}
+
+      <p className="timer-clock" aria-live="off">
+        {clockOf(seconds)}
+        {/* O caret só pisca enquanto o cronômetro corre. Pausado, ele para —
+            um cursor piscando sobre um número parado prometeria movimento que
+            não existe. `aria-hidden` porque ele não é texto: o estado já é
+            anunciado pela região viva mais abaixo. */}
+        {detailed ? <span className="timer-caret" aria-hidden="true" /> : null}
+      </p>
       <p className="timer-project">{projectName}</p>
       <div className="button-line">
         <Button

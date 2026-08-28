@@ -1,0 +1,15 @@
+# Fim de linha, e por que este arquivo existe.
+#
+# O `core.autocrlf=true` desta maquina converte para CRLF no checkout. Para
+# codigo que so o Windows le, tanto faz. Para um script que vai rodar num
+# servidor Linux, nao: o `bash` le o `\r` como parte do comando e responde
+#
+#     line 21: $'\r': command not found
+#     set: pipefail: invalid option name
+#
+# — uma mensagem que nao menciona fim de linha em lugar nenhum, e que ja custou
+# uma ida e volta ao servidor.
+#
+# `text eol=lf` obriga esses arquivos a ficarem LF no disco, mesmo aqui.
+*.sh text eol=lf
+*.service text eol=lf

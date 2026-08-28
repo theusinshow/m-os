@@ -1565,6 +1565,173 @@ textarea::placeholder {
 /* Card com moldura. A borda e de 1px e o cabecalho leva regua propria: e ela
    que faz duas colunas lado a lado se lerem como duas coisas, e nao como um
    paragrafo desalinhado. */
+/* REGIAO — o que substituiu a moldura na maior parte do CronoCAD.
+   O cabecalho e uma regua de 28px com rotulo micro a esquerda e a contagem a
+   direita; o conteudo encosta nela. Sem borda, sem fundo, sem padding: a
+   separacao vem da regua e do vao, e nao de uma caixa. */
+.tempo-region {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.tempo-region-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-height: 28px;
+  border-bottom: var(--line) solid var(--border);
+}
+
+.tempo-region-head h2 {
+  flex: 1;
+  margin: 0;
+  color: var(--text-system);
+}
+
+.tempo-region-count {
+  color: var(--text-system);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-meta);
+}
+
+/* A acao do cabecalho e um link, e nao um botao: numa regua de 28px um botao
+   com fundo seria a peca mais pesada de uma faixa que so rotula. */
+.tempo-region-head .btn-ghost {
+  height: auto;
+  padding: 0;
+  color: var(--text-secondary);
+}
+
+.tempo-region-head .btn-ghost:hover {
+  background: none;
+  color: var(--signal-ink);
+}
+
+/* Uma regiao seguida de outra precisa do vao que o card dava pela moldura. */
+.tempo-region + .tempo-region {
+  margin-top: var(--space-5);
+}
+
+/* Lista encosta na regua; formulario e estado vazio nao.
+   Uma tabela ou lista de linhas ja comeca com a propria borda superior, e o vao
+   entre ela e a regua criaria uma faixa morta. Um formulario, sem o vao, nasce
+   colado no rotulo. */
+.tempo-region > .tempo-form,
+.tempo-region > .empty-state,
+.tempo-region > .support-copy,
+.tempo-region > .setting-row,
+.tempo-region > .button-line {
+  margin-top: var(--space-4);
+}
+
+/* A tabela de Projetos, agora sem moldura em volta. */
+.tempo-projects {
+  min-width: 0;
+}
+
+/* FAIXA DE NUMEROS — regua horizontal, nao card.
+   `flex` com `1 1 200px` e nao `grid`: o empilhamento acontece por medida
+   quando a janela aperta, e nao numa largura decidida a mao. */
+.tempo-band {
+  display: flex;
+  flex-wrap: wrap;
+  padding: var(--space-4) 0;
+  border-top: var(--line) solid var(--border);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.tempo-band > * {
+  flex: 1 1 200px;
+  min-width: 180px;
+}
+
+/* A regua vertical separa numero de numero, e some no primeiro — que nao tem
+   nada a esquerda para ser separado de. */
+.tempo-band > * + * {
+  padding-left: var(--space-5);
+  border-left: var(--line) solid var(--border);
+}
+
+/* O recorte do relatorio, como legenda da faixa de numeros. */
+.tempo-period {
+  margin: 0 0 var(--space-3);
+  color: var(--text-system);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-meta);
+}
+
+/* FAIXA DE FILTROS. Delimitada em cima e embaixo: o controle acima, a resposta
+   abaixo. Dentro de um card os dois tinham o mesmo peso. */
+.tempo-filter-band {
+  padding: var(--space-inset) 0;
+  border-top: var(--line) solid var(--border);
+  border-bottom: var(--line) solid var(--border);
+  margin-bottom: var(--space-4);
+}
+
+.tempo-filter-band > .micro-label {
+  display: block;
+  color: var(--text-system);
+}
+
+/* Linha de proporcao: nome e valor na mesma linha de base, barra embaixo. */
+.tempo-share {
+  padding: var(--space-3) 0;
+  border-bottom: var(--line) solid var(--border);
+}
+
+.tempo-share-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.tempo-share-head span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font: var(--text-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tempo-share-head strong {
+  color: var(--text);
+  font: var(--text-ui);
+  font-family: var(--font-system);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.tempo-share .micro-label {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--text-system);
+}
+
+/* BARRA DE PROPORCAO. Neutra de proposito: quantidade nao e sinal. */
+.tempo-meter {
+  height: var(--meter-height);
+  margin-top: var(--space-2);
+  background: var(--meter-track);
+}
+
+.tempo-meter > span {
+  display: block;
+  height: var(--meter-height);
+  background: var(--meter-fill);
+}
+
+/* Estouro de orcamento e a unica excecao: ai deixou de ser quantidade e passou
+   a ser aviso de que a conta nao fecha. */
+.tempo-meter[data-over] > span {
+  background: var(--danger);
+}
+
 .tempo-card {
   display: flex;
   flex-direction: column;
@@ -1573,12 +1740,16 @@ textarea::placeholder {
   background: var(--surface-raised);
 }
 
+/* `--border-strong`, e nao `--border`.
+   Dentro de uma superficie ELEVADA a regua some: #1E2429 sobre #171B1F sao dois
+   valores quase iguais, e a divisao existia no CSS sem existir na tela. Sobre o
+   canvas (#0A0C0E) o mesmo token le bem — o problema e o fundo, nao o token. */
 .tempo-card-head {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-loose);
-  border-bottom: var(--line) solid var(--border);
+  border-bottom: var(--line) solid var(--border-strong);
 }
 
 .tempo-card-head h2 {
@@ -1611,12 +1782,17 @@ textarea::placeholder {
 
 /* Colunas. `auto-fit` com minimo real: numa janela estreita a faixa vira uma
    coluna sozinha em vez de espremer tres cards ate o texto quebrar em cada
-   palavra. */
+   palavra.
+
+   O vao subiu de 12 para 32px junto com a saida das molduras. Com borda, 12px
+   bastavam: a moldura ja dizia onde uma coluna acabava. Sem ela, quem separa e
+   o vao — e 12px entre duas listas de reguas horizontais lia como uma tabela
+   so, partida no meio. */
 .tempo-cols {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-5);
   align-items: start;
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 
 /* Item de grade nao encolhe abaixo do proprio conteudo sem isto, e o card volta
@@ -1633,15 +1809,28 @@ textarea::placeholder {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
-/* Duas colunas de peso diferente: o cronometro manda, os numeros acompanham. */
+/* Duas colunas de peso diferente: o cronometro manda, os numeros acompanham.
+
+   `flex` com base, e nao `grid` com `@media`.
+
+   A media query media a VIEWPORT, e quem decide se as duas colunas cabem e a
+   largura do CONTEUDO — que muda tambem com o rail expandido (60px viram 224).
+   Em 1024 com o rail aberto sobram ~740px: as colunas espremiam e a regra de
+   860px nao disparava, porque a janela tinha 1024. Com `flex-wrap`, quem
+   empilha e a falta de espaco real, e o mesmo CSS serve para a janela estreita
+   e para o rail aberto sem saber da existencia de nenhum dos dois. */
 .tempo-cols[data-cols="main"] {
-  grid-template-columns: minmax(320px, 2fr) minmax(200px, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
 }
 
-@media (max-width: 860px) {
-  .tempo-cols[data-cols="main"] {
-    grid-template-columns: 1fr;
-  }
+.tempo-cols[data-cols="main"] > :first-child {
+  flex: 1 1 520px;
+}
+
+.tempo-cols[data-cols="main"] > :last-child {
+  flex: 1 1 280px;
 }
 
 /* Um card sozinho na largura da pagina precisa do mesmo vao que a `.tempo-cols`
@@ -1715,8 +1904,15 @@ textarea::placeholder {
 
 .tempo-stat strong {
   color: var(--text);
-  font: var(--text-capture);
+  font: var(--text-number);
+  letter-spacing: var(--tracking-number);
   font-variant-numeric: tabular-nums;
+}
+
+/* Numero que ja foi liquidado recua para secundario: ele nao muda mais nenhuma
+   decisao, e no mesmo peso do "a receber" competia com ele. */
+.tempo-stat[data-settled] strong {
+  color: var(--text-secondary);
 }
 
 .tempo-stat small {
@@ -1738,12 +1934,15 @@ textarea::placeholder {
 
 /* Atalhos de periodo. Texto com regua embaixo do ativo, e nao botao com fundo:
    sao filtros e nao acoes, e um bloco de quatro botoes solidos competiria com o
-   botao que de fato executa alguma coisa na tela. */
+   botao que de fato executa alguma coisa na tela.
+
+   20px de vao, e nao 12: sao rotulos em MAIUSCULA mono com tracking aberto, e
+   com 12px "MES PASSADO" e "TUDO" liam como uma frase so. */
 .tempo-presets {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-3);
-  padding-top: var(--space-2);
+  gap: var(--space-4);
+  padding-top: var(--space-3);
 }
 
 .tempo-presets button {
@@ -2196,15 +2395,39 @@ textarea::placeholder {
 .tempo-nav {
   display: flex;
   flex-wrap: wrap;
+  align-items: stretch;
   gap: var(--space-4);
   margin-top: var(--space-3);
-  padding-bottom: var(--space-2);
   border-bottom: var(--line) solid var(--border);
 }
 
+/* A marca de escopo, e o unico lugar onde ela aparece.
+   "Projects" global do M/OS e "Projetos" do CronoCAD tem propositos distintos e
+   o mesmo nome. Nada muda de lugar: e a faixa de abas que passa a dizer de qual
+   dos dois esta se falando. */
+.tempo-nav::before {
+  content: "C";
+  flex: 0 0 16px;
+  align-self: center;
+  width: 16px;
+  height: 16px;
+  margin-right: var(--space-1);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-system);
+  font: 500 9px/1 var(--font-system);
+  text-align: center;
+  line-height: 14px;
+}
+
+/* A regua do ativo vive SOBRE a borda da faixa, e nao abaixo dela: o
+   `margin-bottom` negativo faz os dois 1px ocuparem a mesma linha. Sem isto a
+   aba acesa empurra a propria faixa 1px para baixo. */
 .tempo-nav button {
-  padding: 0;
+  padding: 9px 0 8px;
+  margin-bottom: calc(var(--line) * -1);
   border: 0;
+  border-bottom: var(--stroke-20) solid transparent;
   background: none;
   color: var(--text-system);
   font: var(--text-meta);
@@ -2218,8 +2441,13 @@ textarea::placeholder {
   color: var(--text);
 }
 
+/* Posicao atual = sublinhado em sodio + rotulo em `--text`.
+   O rotulo INTEIRO em sodio era a leitura antiga, e ela gastava a cor de acao
+   para dizer "voce esta aqui" na mesma tela em que o botao Iniciar precisa
+   dela. A regua diz a posicao; o peso do texto confirma. */
 .tempo-nav button.current {
-  color: var(--signal-ink);
+  border-bottom-color: var(--signal-fill);
+  color: var(--text);
 }
 
 /* Filtros em grade e nao em linha unica: sao ate sete campos, e uma fileira que
@@ -2324,23 +2552,26 @@ textarea::placeholder {
 }
 
 .tempo-budget-track {
-  height: 3px;
-  background: var(--border);
+  height: var(--meter-height);
+  background: var(--meter-track);
 }
 
+/* Neutra, e nao em sodio.
+   Orcamento consumido e QUANTIDADE. Em sodio, cada linha da tabela de Projetos
+   acendia uma barra da cor de acao — cinco delas de uma vez, competindo com o
+   unico botao que a tela executa. Era a segunda cor de sinal entrando pela
+   porta dos fundos. */
 .tempo-budget-fill {
   height: 100%;
-  background: var(--signal-fill);
+  background: var(--meter-fill);
 }
 
-/* Estourou a meta: a barra vira contorno em vez de ganhar vermelho. O M/OS tem
-   um acento so, e "passou do previsto" nao e erro — e informacao. */
+/* Estourou a meta: agora ela ganha `--danger`, e a razao mudou junto com a cor.
+   Enquanto a barra era sodio, vermelho seria a TERCEIRA cor da mesma peca e a
+   hachura era a saida. Neutra, o vermelho volta a ser o que sempre foi no
+   sistema: a excecao, aqui reservada a "a conta nao fecha". */
 .tempo-budget-fill[data-over] {
-  background: repeating-linear-gradient(
-    90deg,
-    var(--signal-fill) 0 2px,
-    transparent 2px 4px
-  );
+  background: var(--danger);
 }
 
 .tempo-budget-plain {
@@ -2350,15 +2581,28 @@ textarea::placeholder {
 }
 
 /* "Conferir?" nao alarma e nao bloqueia: uma sessao de dez horas pode ser real.
-   Fica em sodio porque e a cor de "olhe aqui" no M/OS, e sem caixa porque nao e
-   um botao — nao ha nada a clicar. */
+   E aviso, e o design system e explicito sobre isso: WARNING NAO TEM COR — use
+   `--text` mais icone mais `--text-system` na borda.
+
+   Estava em sodio pelo argumento de que sodio e a cor de "olhe aqui". O
+   argumento cai porque na mesma lista o sodio ja e a cor de acao: um aviso
+   aceso na cor do botao ensina que as duas coisas sao a mesma, e o dia em que
+   forem diferentes ninguem vai notar. A forma passa a carregar a informacao —
+   contorno e triangulo, e nao cor. */
 .tempo-flag {
   flex: none;
-  color: var(--signal-ink);
-  font: var(--text-meta);
-  letter-spacing: var(--tracking-meta);
+  padding: 1px 5px;
+  border: var(--line) solid var(--text-system);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
   text-transform: uppercase;
   cursor: help;
+}
+
+.tempo-flag::before {
+  content: "\25B3 ";
 }
 
 /* Um a quatro Projects, ocupando a largura toda. `auto-fit` em vez de um número
@@ -2388,12 +2632,39 @@ textarea::placeholder {
   gap: var(--space-2);
 }
 
+/* O convite de importacao, em UMA linha.
+   O rotulo em sodio e legitimo aqui: e sinal de sistema — apareceu uma coisa
+   que voce nao pediu e precisa decidir sobre ela — e nao competicao com acao,
+   porque a acao desta faixa e secundaria de proposito. */
 .tempo-invite {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding-top: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: var(--line) solid var(--border);
+}
+
+.tempo-invite .micro-label {
+  color: var(--signal-ink);
+}
+
+.tempo-invite > span:not(.micro-label) {
+  flex: 1;
+  min-width: 240px;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.tempo-invite strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.tempo-invite-note {
+  margin: var(--space-3) 0 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
 }
 
 /* O relatorio no papel.
@@ -2492,13 +2763,6 @@ textarea::placeholder {
   }
 }
 
-.tempo-invite p {
-  margin: 0 0 var(--space-2);
-}
-
-.tempo-invite .support-copy {
-  margin-bottom: 0;
-}
 
 /* Arquivado desce para o cinza e continua legivel. Nao some e nao ganha cor
    propria: a informacao de que ele existe importa, e a de que esta fora do uso
@@ -2597,6 +2861,90 @@ textarea::placeholder {
   margin: 0;
   color: var(--text-secondary);
   font: var(--text-small);
+}
+
+/* ---------- O cronometro detalhado, so no Painel do CronoCAD ----------
+
+   Ele e a intencao dominante daquela tela e a unica superficie elevada dela.
+   Na Home a mesma anatomia gastaria metade da coluna, e por isto tudo aqui
+   depende de `[data-detailed]` em vez de valer para todo `.timer-live`. */
+.timer-live[data-detailed] {
+  justify-items: stretch;
+  gap: var(--space-3);
+  padding-top: 0;
+}
+
+.timer-live-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.timer-live-head .micro-label {
+  color: var(--signal-ink);
+}
+
+/* Pausado, o rotulo perde o sodio junto com o relogio: sodio ali diria "algo
+   esta acontecendo agora", e nao esta. */
+.timer-live[data-status="paused"] .timer-live-head .micro-label {
+  color: var(--text-secondary);
+}
+
+.timer-since {
+  color: var(--text-system);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-meta);
+}
+
+.timer-live[data-detailed] .timer-clock {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  font: var(--text-display);
+  font-family: var(--font-system);
+  letter-spacing: var(--tracking-display);
+}
+
+.timer-live[data-detailed] .timer-project {
+  color: var(--text);
+  font: var(--text-capture);
+  letter-spacing: var(--tracking-capture);
+}
+
+/* O bloco de sodio que pisca: o mesmo caret do Capture, aqui dizendo que o
+   numero a esquerda ainda esta subindo. */
+/* A altura acompanha o RELOGIO, e nao o `--caret-height` do Capture.
+   Aquele token vale 20px porque foi medido contra texto de 21px; ao lado de um
+   numero de 48px ele vira um tracinho. 0.7em da a mesma proporcao contra o
+   corpo que o caret do Capture tem contra o dele. */
+.timer-caret {
+  width: var(--caret-width);
+  height: 0.7em;
+  margin-bottom: 0.12em;
+  background: var(--signal-fill);
+  animation: timer-caret 1.1s steps(1) infinite;
+}
+
+.timer-live[data-status="paused"] .timer-caret {
+  background: var(--text-disabled);
+  animation: none;
+}
+
+@keyframes timer-caret {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* A linha de acoes ganha regua propria: ela fecha o bloco, e sem a separacao os
+   botoes encostavam no nome do Project como se fossem parte dele.
+
+   `--border-strong` pelo mesmo motivo do cabecalho do card: aqui o fundo e
+   elevado, e sobre ele `--border` nao aparece. */
+.timer-live[data-detailed] .button-line {
+  padding-top: var(--space-4);
+  border-top: var(--line) solid var(--border-strong);
 }
 
 .quick-actions {

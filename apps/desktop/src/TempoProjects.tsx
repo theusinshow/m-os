@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import { Card, EmptyState, PageHeader } from "./Surface";
+import { EmptyState, PageHeader } from "./Surface";
 import { durationOf, hoursOf, moneyOf } from "./TempoShared";
 import type { Client, Project, ProjectTracking, Totals, TrackingStatus } from "./types";
 
@@ -173,7 +173,10 @@ export function TempoProjects({ projects, totals, openProject, openClients }: {
         }
       />
 
-      <Card className="flush">
+      {/* Sem moldura: a tabela ocupa a largura da pagina e ja e delimitada
+          pelas proprias reguas de linha. A borda em volta so acrescentava uma
+          segunda parede a 24px da primeira. */}
+      <div className="tempo-projects">
         {listed.length ? (
           <table className="tempo-table tempo-table-projects">
             <thead>
@@ -255,7 +258,7 @@ export function TempoProjects({ projects, totals, openProject, openClients }: {
               : "Projects nascem na página de Projects — aqui eles ganham valor/hora, cliente e meta."}
           </EmptyState>
         )}
-      </Card>
+      </div>
 
       <dialog ref={dialog} className="restore-dialog" onCancel={() => { dialog.current?.close(); setEditing(null); }}>
         <span className="micro-label">COBRANÇA</span>

@@ -279,17 +279,115 @@ export function Card({ label, count, action, children, className = "" }: {
 }
 
 /**
+ * Uma região: o mesmo cabeçalho do `Card`, SEM a moldura.
+ *
+ * O `Card` acima defende que borda é o que separa duas colunas que precisam ser
+ * lidas como coisas distintas. O argumento vale — mas foi aplicado a tudo, e
+ * quando toda peça da tela tem moldura, moldura para de separar coisa alguma e
+ * vira só o barulho que a auditoria chamou de cardização.
+ *
+ * A regra que substitui: UMA superfície elevada por tela, reservada à intenção
+ * dominante. No Painel é o cronômetro; em Projetos é o inspector de cobrança.
+ * Todo o resto é região — rótulo, régua de 1px e o conteúdo encostado nela.
+ *
+ * Separação continua existindo: ela passa a vir da régua e do vão, que é o que
+ * o design system pede quando diz que dado temporal não precisa virar card.
+ */
+export function Region({ label, count, action, children, className = "" }: {
+  label: string;
+  count?: string;
+  action?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={`tempo-region ${className}`}>
+      <header className="tempo-region-head">
+        <h2 className="micro-label">{label}</h2>
+        {count ? <span className="tempo-region-count">{count}</span> : null}
+        {action}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Uma linha de proporção: nome, valor, barra e a fração que ela representa.
+ *
+ * A barra é neutra por decisão, não por falta de cor: proporção é quantidade, e
+ * quantidade não é sinal. Em sódio ela seria a segunda cor de sinal do sistema,
+ * que é o que a ADR-034 não autoriza — e disputaria com o botão que de fato faz
+ * alguma coisa na mesma tela.
+ */
+export function Share({ name, value, hours, share }: {
+  name: string;
+  value: string;
+  hours: string;
+  /** 0 a 1. Fora da faixa, a barra satura em vez de vazar da régua. */
+  share: number;
+}) {
+  const pct = Math.max(0, Math.min(1, share));
+  return (
+    <div className="tempo-share">
+      <div className="tempo-share-head">
+        <span>{name}</span>
+        <strong>{value}</strong>
+      </div>
+      <div className="tempo-meter" aria-hidden="true">
+        <span style={{ width: `${(pct * 100).toFixed(1)}%` }} />
+      </div>
+      <span className="micro-label">{hours} · {Math.round(pct * 100)}%</span>
+    </div>
+  );
+}
+
+/**
+ * A faixa de filtros: rótulo, campos e atalhos de período.
+ *
+ * Não é região nem card. Ela é delimitada em cima E embaixo porque é a única
+ * peça da tela que não se lê — se opera, e depois se esquece. A régua dupla diz
+ * "isto é o controle, o que vem abaixo é a resposta", que é a leitura que o
+ * card não dava: dentro de uma moldura, filtro e resultado tinham o mesmo peso.
+ */
+export function FilterBand({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <section className={`tempo-filter-band ${className}`}>
+      <span className="micro-label">FILTRO</span>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Uma faixa de leitura: números lado a lado, separados por régua vertical.
+ *
+ * Não é card e não é região — não tem rótulo próprio porque cada número já
+ * carrega o dele. Existe para o olho comparar três ou quatro valores sem
+ * descer, que é a única razão de pô-los lado a lado.
+ */
+export function StatBand({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`tempo-band ${className}`}>{children}</div>;
+}
+
+/**
  * Um número grande com rótulo micro.
  *
  * A forma antes da palavra: o número é o que se lê em meio segundo, e o rótulo
  * só existe para dizer de que ele é.
  */
-export function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+export function Stat({ label, value, hint, settled = false }: {
+  label: string;
+  value: string;
+  hint?: string;
+  /** Dinheiro que já entrou. Recua para secundário: não muda mais decisão nenhuma. */
+  settled?: boolean;
+}) {
   const numericVal = Number(value);
   const isPureNumber = !Number.isNaN(numericVal) && /^-?\d+(\.\d+)?$/.test(value.trim());
 
   return (
-    <div className="tempo-stat">
+    <div className="tempo-stat" data-settled={settled || undefined}>
       <span className="micro-label">{label}</span>
       <strong>
         {isPureNumber ? <AnimatedNumber value={numericVal} /> : value}

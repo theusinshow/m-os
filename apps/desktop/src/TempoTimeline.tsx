@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import { Card, EmptyState, PageHeader } from "./Surface";
+import { EmptyState, PageHeader, Region } from "./Surface";
 import type { ActivityEvent, ActivityType, Period, Project } from "./types";
 
 /**
@@ -119,7 +119,7 @@ export function TempoTimeline({ projects, onChanged }: {
       />
 
       <div className="tempo-cols" data-cols="2">
-        <Card label="LACUNAS DETECTADAS" count={gaps.length ? durationOf(total) : undefined}>
+        <Region label="LACUNAS DETECTADAS" count={gaps.length ? durationOf(total) : undefined}>
       <p className="support-copy">
         Períodos com um programa monitorado aberto e <strong>sem sessão registrada</strong>. Nada vira hora sozinho —
         o sistema observou, e quem decide se foi trabalho é você.
@@ -191,12 +191,12 @@ export function TempoTimeline({ projects, onChanged }: {
         </EmptyState>
       )}
       {note ? <p className="support-copy" aria-live="polite">{note}</p> : null}
-        </Card>
+        </Region>
 
         {/* O que o sistema VIU, sem interpretação. A coluna da esquerda propõe
             trabalho; esta só presta contas — e é ela que permite conferir por
             que uma lacuna existe, ou por que nenhuma apareceu. */}
-        <Card label="EVENTOS DO DIA" count={events.length ? String(events.length) : undefined}>
+        <Region label="EVENTOS DO DIA" count={events.length ? String(events.length) : undefined}>
           {events.length ? (
             <ul className="tempo-events">
               {events.map((event) => (
@@ -212,7 +212,7 @@ export function TempoTimeline({ projects, onChanged }: {
           ) : (
             <EmptyState>Nada observado neste dia.</EmptyState>
           )}
-        </Card>
+        </Region>
       </div>
     </>
   );

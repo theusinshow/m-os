@@ -188,6 +188,28 @@
   --command-footer: 34px;
   --fillet: 3px;
 
+  /* O numero de faixa.
+     As faixas de leitura tem tres ou quatro numeros lado a lado, e nenhum dos
+     dois tamanhos existentes serve: `--text-display` (48px) nao cabe em quatro
+     colunas, e `--text-title` tem tracking de prosa e nao e mono — entao os
+     digitos nao alinham de uma coluna para a outra, que e o unico motivo de
+     por numeros lado a lado. */
+  --text-number: 500 26px/1.15 var(--font-system);
+  --tracking-number: -0.01em;
+
+  /* Barra de proporcao: orcamento consumido, fatia por Project, fatia por
+     atividade. Quantidade NAO e sinal — sem um par neutro proprio a barra
+     puxaria o sodio e criaria a segunda cor de sinal por acidente, que e o que
+     a ADR-034 nao autoriza. Estouro de orcamento usa `--danger`. */
+  --meter-track: rgba(140, 148, 154, 0.18);
+  --meter-fill: #8C949A;
+  --meter-height: 3px;
+
+  /* O grid pontilhado ja existia como materialidade, reimplementado a mao em
+     cada superficie que o quis. Como token ele para de divergir. */
+  --grid-dot: rgba(140, 148, 154, 0.11);
+  --grid-size: 32px;
+
   /* Tile da Library sem imagem. Hachura, nunca ilustracao nem icone gigante. */
   --hatch: repeating-linear-gradient(
     135deg,
@@ -197,6 +219,13 @@
   --marker-height: 16px;
   --marker-offset: 12px;
   --focus-ring: 3px;
+
+  /* A TINTA do foco, e nao a medida dele — o `--focus-ring` acima e espessura.
+     O foco precisava de um canal proprio: sem esta cor ele volta a pedir o
+     sodio emprestado, e e exatamente ai que ele passa a ser lido como selecao.
+     Neutro por definicao, portanto nunca confundivel com dado. */
+  --focus-ink: #E7EAEC;
+
   --target-min: 24px;
   --content-max: 1100px;
   --measure: 70ch;
@@ -244,6 +273,16 @@
   --border-control: #868E93;
   --overlay-backdrop: rgba(20, 24, 26, 0.28);
 
+  /* Paridade do canal de foco e das barras de proporcao. Os tres resolvidos
+     contra o claro: tinta escura no lugar da clara, e os neutros da barra
+     derivados de `--text-secondary` para manterem a mesma relacao com o fundo
+     que tinham no escuro. `--text-number` e `--grid-size` nao aparecem aqui
+     porque tamanho nao muda com o tema. */
+  --focus-ink: #14181A;
+  --meter-track: rgba(89, 97, 102, 0.20);
+  --meter-fill: #596166;
+  --grid-dot: rgba(89, 97, 102, 0.13);
+
   /* A hachura precisa da própria definição aqui.
      No claro, --surface e --surface-raised são ambos #FFFFFF, então a versão
      do dark viraria branco sobre branco e o tile da Library ficaria um
@@ -268,13 +307,20 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Focus é um estado transitório, não uma seleção. Um único outline de 2px
-   permanece visível em qualquer surface e sobrevive a forced colors sem somar
+/* Focus é um estado transitório, não uma seleção. Um único outline permanece
+   visível em qualquer surface e sobrevive a forced colors sem somar
    border + ring + sombra. Componentes com focus-within próprio podem removê-lo
-   explicitamente no filho e acender a estrutura que já os delimita. */
+   explicitamente no filho e acender a estrutura que já os delimita.
+
+   A TINTA deixou de ser o sódio, e a razão está na auditoria: foco, seleção e
+   accent competiam porque os três pediam a mesma cor emprestada, e um retângulo
+   de sódio forte é lido como "isto está selecionado" e não como "o teclado está
+   aqui". Agora cada um tem canal próprio — seleção preenche, foco contorna,
+   sódio marca. Um elemento pode exibir os três ao mesmo tempo e continuar
+   legível, porque nenhum usa o recurso visual do outro. */
 :focus-visible {
-  outline: var(--marker) solid var(--signal-ink);
-  outline-offset: var(--line);
+  outline: var(--stroke-20) solid var(--focus-ink);
+  outline-offset: var(--marker);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -326,5 +372,15 @@ body {
     --danger: Mark;
     --shadow-overlay: none;
     --overlay-backdrop: Canvas;
+
+    /* O foco tem palavra propria no sistema de alto contraste, e ela nao e
+       `CanvasText`: quem le com forced colors espera o anel do proprio SO. */
+    --focus-ink: Highlight;
+
+    /* A barra de proporcao vira contorno mais preenchimento solido — sem cor
+       intermediaria, `rgba` nao sobrevive aqui. */
+    --meter-track: Canvas;
+    --meter-fill: CanvasText;
+    --grid-dot: transparent;
   }
 }
