@@ -57,7 +57,7 @@ import {
   podeAvancar as podeAvancarNaTrilha, podeVoltar as podeVoltarNaTrilha,
   visitar as visitarNaTrilha, voltar as voltarNaTrilha, type Trilha,
 } from "./navegacao";
-import type { AcademicDashboard, AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, Capture, DailyContext, DailyToday, FunctionDefinition, HiddenWidget, Ingestion, ObjectiveLink, Week, WidgetPlacement, RadialPin, Page, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, Parada, SearchItem, StaleView, Task, TaskState, Workspace , DeliveryEvent, SyncStatus } from "./types";
+import type { AcademicDashboard, AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, Capture, DailyContext, DailyToday, FunctionDefinition, HiddenWidget, Ingestion, ObjectiveLink, Week, WidgetPlacement, RadialPin, Page, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, Parada, ReminderTarget, SearchItem, StaleView, Task, TaskState, Workspace , DeliveryEvent, SyncStatus } from "./types";
 import { SCREEN_LABEL } from "./types";
 import "./App.css";
 
@@ -2304,7 +2304,11 @@ function BoardPage({ tasks, projects, stale, refresh, openTask, intent }: { task
   </div>;
 }
 
-function TaskDrawer({ task, projects, close, refresh, receipt, openCapture }: { task: Task; projects: Project[]; close: () => void; refresh: () => Promise<void>; receipt: (action: UndoAction) => void; openCapture: (capture: Capture) => void }) {
+/** O que o compositor de lembrete precisa saber de quem o abriu. Vazio quando o
+ *  lembrete nasce solto — do Attention Center ou do leque. */
+type ReminderRequest = { title?: string; target?: ReminderTarget; targetLabel?: string };
+
+function TaskDrawer({ task, projects, close, refresh, receipt, openCapture, remind }: { task: Task; projects: Project[]; close: () => void; refresh: () => Promise<void>; receipt: (action: UndoAction) => void; openCapture: (capture: Capture) => void; remind: () => void }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
   const [projectId, setProjectId] = useState(task.projectId ?? "");
@@ -2364,7 +2368,17 @@ function TaskDrawer({ task, projects, close, refresh, receipt, openCapture }: { 
         <label><span>ESTADO</span><select value={state} onChange={(event) => setState(event.currentTarget.value as TaskState)} disabled={pending !== null}>{stateOrder.map((value) => <option key={value} value={value}>{stateLabels[value]}</option>)}</select></label>
         {source ? <div className="provenance"><span className="micro-label">ORIGEM</span><button type="button" onClick={() => openCapture(source)}>{source.content}</button><small>{sourceLabel(source.source)} · {relativeTime(source.capturedAt)}</small></div> : null}
         {pending === "save" ? <StateMessage state="saving" label="Salvando Task..." /> : pending === "archive" ? <StateMessage state="saving" label="Arquivando Task..." /> : error ? <StateMessage state="error" label={error} /> : null}
-        <div className="form-actions spread"><Button variant="danger" onClick={() => void archive()} disabled={pending !== null}>{pending === "archive" ? "Arquivando" : "Arquivar"}</Button><Button variant="primary" type="submit" disabled={!title.trim() || pending !== null}>{pending === "save" ? "Salvando" : "Salvar"}</Button></div>
+        {/* LEMBRAR.
+            Ele fica com as outras acoes da Task, e nao escondido num menu: e a
+            unica forma de uma Task ganhar hora. As decisoes D-1 e D-4 deixaram
+            o M/OS sem prazo em Task de proposito (`ATTENTION-SYSTEM.md` §35.1),
+            e o Reminder e o que ocupa esse lugar sem virar prazo — ele traz a
+            Task de volta a atencao, e nao a marca de atrasada.
+
+            `secondary` e nao `primary`: salvar continua sendo o que esta folha
+            existe para fazer, e duas acoes acesas na mesma fileira dividem a
+            decisao em vez de guiar. */}
+        <div className="form-actions spread"><Button variant="danger" onClick={() => void archive()} disabled={pending !== null}>{pending === "archive" ? "Arquivando" : "Arquivar"}</Button><div className="button-line"><Button variant="secondary" onClick={remind} disabled={pending !== null}>Lembrar</Button><Button variant="primary" type="submit" disabled={!title.trim() || pending !== null}>{pending === "save" ? "Salvando" : "Salvar"}</Button></div></div>
       </form>
     </m.aside>
   </LazyMotion>;
@@ -2671,7 +2685,12 @@ function DesktopApp() {
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState(() => localStorage.getItem("m-os-current-workspace") ?? "");
   const [commandOpen, setCommandOpen] = useState(false);
   const [attentionOpen, setAttentionOpen] = useState(false);
-  const [composerOpen, setComposerOpen] = useState(false);
+  /* O compositor de lembrete deixou de ser um booleano.
+     Ele abre de dois lugares agora — do Attention Center, solto, e do botao
+     "Lembrar" dentro de uma Task, preso a ela — e um `true` nao consegue
+     carregar de onde veio. Guardar o pedido inteiro e o que impede o segundo
+     caminho de virar uma copia do primeiro com outro nome. */
+  const [composer, setComposer] = useState<ReminderRequest | null>(null);
   // O badge conta itens que ESPERAM ACAO, e nao notificacoes nao lidas.
   // Um numero que sobe com coisa que nao pede acao e um numero que se
   // aprende a ignorar. Quem decide o que conta e o backend (§21.1).
@@ -3102,7 +3121,7 @@ function DesktopApp() {
     // pessoa de onde ela estava. Sair da tela para agendar algo e exatamente
     // a interrupcao que o §85 do UX-PRINCIPLES manda medir e reduzir.
     if (target === "attention_create") {
-      setComposerOpen(true);
+      setComposer({});
       return;
     }
     /* Os do dia sao sobreposicao pelo mesmo motivo do compositor de lembrete:
@@ -3267,7 +3286,7 @@ function DesktopApp() {
     que o desenho recusou. */}{syncStatus?.endpoint && syncStatus.hasToken && syncStatus.lastSyncAt ? <span className="page-meta" title="Última sincronização">SYNC {relativeTime(syncStatus.lastSyncAt)}</span> : null}</div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main>{/* O leque vive na coluna principal, e nao sobre o rail: ele e o gesto que
     o rail perdeu quando voltou a oito, e competir com a navegacao ao lado
     seria desfazer a troca. Ver ADR-045. */}
-<Leque pins={radialPins} workspaceId={currentWorkspaceId || null} apps={apps} onNavegar={navigate} onAbrirApp={openRegisteredApp} onAcao={(target) => { if (target === "attention_create") setComposerOpen(true); else void api.showQuickCapture(); }} onFixar={(slot) => setSlotEmEscolha(slot)} /></div>{/* Os tres estados do ciclo do dia, um por vez. A `AnimatePresence` de saida
+<Leque pins={radialPins} workspaceId={currentWorkspaceId || null} apps={apps} onNavegar={navigate} onAbrirApp={openRegisteredApp} onAcao={(target) => { if (target === "attention_create") setComposer({}); else void api.showQuickCapture(); }} onFixar={(slot) => setSlotEmEscolha(slot)} /></div>{/* Os tres estados do ciclo do dia, um por vez. A `AnimatePresence` de saida
     fica dentro de cada fluxo — eles ja se desmontam com a propria animacao. */}
 {fluxoDoDia?.tipo === "iniciar" ? <StartMyDayFlow close={() => setFluxoDoDia(null)} concluido={(proximo) => { daily.setDia(proximo); void daily.recarregar(); }} /> : null}{fluxoDoDia?.tipo === "sessao" && (fluxoDoDia.carregada ?? daily.dia) ? <DailySessionView
       /* A sessao CARREGADA vem da busca ou do historico e pode ser de outro
@@ -3288,7 +3307,7 @@ function DesktopApp() {
       sessaoAntiga={fluxoDoDia.sessao}
       close={() => setFluxoDoDia(null)}
       concluido={(proximo) => { daily.setDia(proximo); void daily.recarregar(); }}
-    /> : null}{composerOpen ? <ReminderComposer close={() => setComposerOpen(false)} created={() => { void api.attentionCount().then(setAttentionCount).catch(() => undefined); setAttentionOpen(true); }} /> : null}{attentionOpen ? <AttentionCenter compose={() => { setAttentionOpen(false); setComposerOpen(true); }} close={() => { setAttentionOpen(false); void api.attentionCount().then(setAttentionCount).catch(() => undefined); }} /> : null}{delivered ? <AttentionToast event={delivered} close={() => setDelivered(null)} open={() => { setDelivered(null); setAttentionOpen(true); }} /> : null}{/* A Drop Zone vive no shell, ao lado das outras sobreposicoes: soltar algo
+    /> : null}{composer ? <ReminderComposer close={() => setComposer(null)} initialTitle={composer.title} target={composer.target} targetLabel={composer.targetLabel} created={() => { void api.attentionCount().then(setAttentionCount).catch(() => undefined); setAttentionOpen(true); }} /> : null}{attentionOpen ? <AttentionCenter compose={() => { setAttentionOpen(false); setComposer({}); }} close={() => { setAttentionOpen(false); void api.attentionCount().then(setAttentionCount).catch(() => undefined); }} /> : null}{delivered ? <AttentionToast event={delivered} close={() => setDelivered(null)} open={() => { setDelivered(null); setAttentionOpen(true); }} /> : null}{/* A Drop Zone vive no shell, ao lado das outras sobreposicoes: soltar algo
     em QUALQUER lugar do M/OS tem que funcionar — inclusive sobre o rail —, e e
     o shell quem sabe onde a pessoa estava quando soltou. */}
 {<DropZone
@@ -3303,7 +3322,7 @@ function DesktopApp() {
       onRecibo={(message, run) => showReceipt({ message, run })}
       refresh={refresh}
       onOcupacao={setDropOcupado}
-    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} openDailySession={(sessionId) => { void api.dailySession(sessionId).then((carregada) => setFluxoDoDia({ tipo: "sessao", carregada })).catch(() => undefined); }} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}<Argos pose={argosPose} presenca={argosPresenca} canto={argosCanto} onAbrir={() => setAttentionOpen(true)} onAbrirHermes={() => navigate("hermes")} /><LazyMotion features={loadMotionFeatures} strict><AnimatePresence>{undo ? <m.div className="receipt" role="status" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></m.div> : null}</AnimatePresence></LazyMotion></div>;
+    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} openDailySession={(sessionId) => { void api.dailySession(sessionId).then((carregada) => setFluxoDoDia({ tipo: "sessao", carregada })).catch(() => undefined); }} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} remind={() => setComposer({ title: drawerTask.title, target: { type: "task", id: drawerTask.id }, targetLabel: "TASK" })} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}<Argos pose={argosPose} presenca={argosPresenca} canto={argosCanto} onAbrir={() => setAttentionOpen(true)} onAbrirHermes={() => navigate("hermes")} /><LazyMotion features={loadMotionFeatures} strict><AnimatePresence>{undo ? <m.div className="receipt" role="status" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></m.div> : null}</AnimatePresence></LazyMotion></div>;
 }
 
 /**

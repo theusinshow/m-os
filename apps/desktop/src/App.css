@@ -8068,11 +8068,24 @@ input[type="checkbox"]:disabled {
    estava. Sair da tela para agendar algo e exatamente a interrupcao que o §85
    do UX-PRINCIPLES manda medir e reduzir. */
 
+/* ELE ABRE POR CIMA DO DRAWER DA TASK, e por isso a camada nao e mais a do
+   rail.
+
+   O botao "Lembrar" da Task abre o compositor com o drawer ainda montado, e o
+   drawer vive em `--z-drawer` (20) — acima dos `--z-rail + 3` (13) que esta
+   regra tinha. O sintoma seria mudo: o compositor abriria, roubaria o foco, e
+   ficaria ATRAS do drawer. Nada de errado apareceria na tela; a folha
+   simplesmente nao estaria la.
+
+   O scrim tem uma classe propria pelo mesmo motivo pelo qual nao basta subir
+   `.attention-scrim`: o Attention Center usa o mesmo scrim e vive em
+   `--z-rail + 2`. Subir o compartilhado enterraria o Centro atras do proprio
+   fundo. */
 .reminder-composer {
   position: fixed;
   top: 50%;
   left: 50%;
-  z-index: calc(var(--z-rail) + 3);
+  z-index: var(--z-overlay);
   width: min(26rem, calc(100vw - var(--space-6)));
   padding: var(--space-5);
   background: var(--surface-raised);
@@ -8091,10 +8104,25 @@ input[type="checkbox"]:disabled {
   border: 0;
 }
 
+.attention-scrim--composer {
+  z-index: calc(var(--z-overlay) - 1);
+}
+
 .composer-choices {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+}
+
+/* A entidade a que o lembrete vai ficar preso.
+   Micro e maiuscula, acima do campo de titulo: quem abriu a folha de dentro de
+   uma Task precisa ver que ela continua sendo sobre aquela Task — e o titulo
+   sozinho nao diz isso, porque ele e editavel e pode virar outra coisa. */
+.composer-target {
+  margin: 0;
+  color: var(--text-meta);
+  font: var(--text-micro);
+  letter-spacing: 0.08em;
 }
 
 /* O instante resolvido fica sempre visivel. Um lembrete que dispara em hora

@@ -3,7 +3,7 @@ import { LazyMotion, m } from "framer-motion";
 import { api } from "./api";
 import { Button } from "./Button";
 import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
-import type { Reminder } from "./types";
+import type { Reminder, ReminderTarget } from "./types";
 
 const loadMotionFeatures = () => import("./motionFeatures").then((module) => module.default);
 
@@ -25,6 +25,16 @@ const loadMotionFeatures = () => import("./motionFeatures").then((module) => mod
  * Task e sem entidade Event, então não há âncora de tempo futuro para
  * referenciar. Um campo desabilitado ensinaria que a capacidade existe e está
  * quebrada; a ausência é honesta (`ATTENTION-SYSTEM.md` §35.1).
+ *
+ * # O alvo, quando existe, não é um campo
+ *
+ * Ele chega pronto de quem abriu — o botão "Lembrar" da Task manda a Task —, e
+ * a folha mostra de que entidade se trata em vez de perguntar. Um seletor de
+ * "prender a quê" na tela de criar lembrete faria pagar em decisão o que o
+ * contexto já respondeu: quem clicou no botão dentro da Task já disse a qual.
+ *
+ * Sem alvo, o lembrete nasce solto — e isso continua sendo legítimo. Nem tudo
+ * que se precisa lembrar é uma entidade do M/OS.
  */
 
 type Choice = { label: string; resolve: () => Date };
@@ -91,11 +101,20 @@ function whenLabel(when: Date): string {
 export function ReminderComposer({
   close,
   created,
+  initialTitle = "",
+  target,
+  targetLabel,
 }: {
   close: () => void;
   created: (reminder: Reminder) => void;
+  /** O que já se sabe que se quer lembrar. Vem preenchido, e continua editável. */
+  initialTitle?: string;
+  /** A entidade a que ele se prende, quando alguém abriu a folha de dentro dela. */
+  target?: ReminderTarget;
+  /** Como chamar essa entidade na tela. "TASK", "PROJECT". */
+  targetLabel?: string;
 }) {
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(initialTitle);
   const [body, setBody] = useState("");
   const [when, setWhen] = useState<Date>(() => available()[0]?.resolve() ?? new Date(Date.now() + 900000));
   const [custom, setCustom] = useState(false);
@@ -123,7 +142,7 @@ export function ReminderComposer({
 
     setSaving(true);
     try {
-      created(await api.createReminder(title.trim(), body.trim(), when));
+      created(await api.createReminder(title.trim(), body.trim(), when, target));
       close();
     } catch (nextError) {
       setError(String(nextError));
@@ -137,7 +156,7 @@ export function ReminderComposer({
     <LazyMotion features={loadMotionFeatures} strict>
       <m.button
         aria-hidden="true"
-        className="attention-scrim"
+        className="attention-scrim attention-scrim--composer"
         onClick={close}
         tabIndex={-1}
         type="button"
@@ -147,7 +166,7 @@ export function ReminderComposer({
         transition={{ duration: MOTION_DURATIONS.enter }}
       />
       <m.div
-        aria-label="Novo lembrete"
+        aria-label={targetLabel ? `Lembrete para ${targetLabel}` : "Novo lembrete"}
         className="reminder-composer"
         ref={panel}
         role="dialog"
@@ -157,6 +176,10 @@ export function ReminderComposer({
         transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}
       >
         <form className="stack-form" onSubmit={submit}>
+          {/* De onde a folha saiu. Sem isto, um lembrete criado de dentro de uma
+              Task seria indistinguível de um lembrete solto no instante em que
+              mais importa distinguir: antes de confirmar. */}
+          {targetLabel ? <p className="composer-target">PRESO À {targetLabel}</p> : null}
           <label>
             <span>LEMBRAR DE</span>
             <input
