@@ -278,6 +278,18 @@ não existe passkey registrada. Depois:
 2. registre a passkey com o convite de `/etc/mos-web.env`;
 3. `sudo bash /tmp/mos/abrir-para-passkey.sh` tira o Basic Auth.
 
+O convite que o bootstrap sorteia tem 32 caracteres com `+`, `/` e `=` — três
+trocas de teclado no iPhone, e o erro de digitação aparece como "convite
+inválido", indistinguível do convite errado. `convite-novo.sh` troca por 16
+caracteres em quatro grupos, de um alfabeto sem `0`, `o`, `1`, `l` e `i`:
+
+```bash
+sudo bash /tmp/mos/convite-novo.sh
+```
+
+Trocar o convite é seguro: ele autoriza um registro, não autentica ninguém —
+aparelhos já registrados continuam entrando pela passkey.
+
 Inverter 2 e 3 tranca você do lado de fora — sem Basic Auth e sem passkey, não
 sobra porta. O script **confere e recusa** se não houver aparelho registrado.
 
