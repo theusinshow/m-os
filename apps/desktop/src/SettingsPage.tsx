@@ -278,21 +278,15 @@ function HermesSettings() {
  * Credential Manager do Windows, pelo mesmo caminho da credencial do Hermes —
  * um segredo que a tela pode ler e um segredo que aparece num screenshot.
  *
- * O botao de sincronizar existe porque hoje a rodada e MANUAL, e dizer isso na
- * tela e mais honesto que um automatico que ninguem pediu: o M/OS funciona
- * inteiro sem sincronizar, e ligar isto e uma decisao, nao um padrao.
- */
-
-/**
- * A sincronizacao entre dispositivos.
+ * Ate 28/08 a rodada era MANUAL, e o comentario aqui defendia isso: "dizer
+ * isso na tela e mais honesto que um automatico que ninguem pediu". Estava
+ * certo, e deixou de estar no dia em que alguem pediu — o fluxo casa >
+ * trabalho > celular tinha o elo do meio na mao enquanto o celular ja
+ * sincronizava sozinho.
  *
- * O ENDERECO e visivel e editavel; o SEGREDO entra e nunca volta. Ele mora no
- * Credential Manager do Windows, pelo mesmo caminho da credencial do Hermes —
- * um segredo que a tela pode ler e um segredo que aparece num screenshot.
- *
- * O botao de sincronizar existe porque hoje a rodada e MANUAL, e dizer isso na
- * tela e mais honesto que um automatico que ninguem pediu: o M/OS funciona
- * inteiro sem sincronizar, e ligar isto e uma decisao, nao um padrao.
+ * O botao ficou, e mudou de papel: nao e mais o unico caminho, e sim o que
+ * ADIANTA a proxima rodada para quem esta de saida e nao quer esperar o
+ * proximo gatilho.
  */
 function SyncSettings() {
   const [status, setStatus] = useState<SyncStatus | null>(null);
@@ -345,6 +339,7 @@ function SyncSettings() {
 
   return <Panel label="SINCRONIZAÇÃO">
     <p className="support-copy">O M/OS guarda tudo aqui e funciona inteiro sem isto. O hub só serve para dois aparelhos se alcançarem quando não estão na mesma rede — ele não decide nada, apenas guarda em ordem e devolve.</p>
+    <p className="support-copy">Sincroniza sozinho: ao abrir, ao voltar para a frente, depois de você mexer em algo, e a cada 15 minutos. O botão abaixo só adianta a próxima.</p>
     <form className="stack-form" onSubmit={save}>
       <label><span>ENDEREÇO DO HUB</span><input className="mono-input" value={endpoint} onChange={(event) => setEndpoint(event.currentTarget.value)} placeholder="http://127.0.0.1:9120" /></label>
       <label><span>SEGREDO</span><input type="password" value={token} onChange={(event) => setToken(event.currentTarget.value)} autoComplete="off" placeholder={status?.hasToken ? "Guardado — digite para trocar" : "Ao menos 32 caracteres"} /></label>
@@ -356,6 +351,9 @@ function SyncSettings() {
     <dl className="fact-grid">
       <div><dt>SEGREDO</dt><dd>{status?.hasToken ? "Guardado" : <span className="fact-empty">Não configurado</span>}</dd></div>
       <div><dt>NA FILA</dt><dd>{status ? `${status.pending}` : "—"}</dd></div>
+      {/* Sem a hora da ultima rodada, um sync que parou de funcionar parece
+          igual a um que funciona. */}
+      <div><dt>ÚLTIMA</dt><dd>{status?.lastSyncAt ? relativeTime(status.lastSyncAt) : <span className="fact-empty">Nunca</span>}</dd></div>
     </dl>
     <div className="button-line">
       <Button variant="secondary" disabled={running || !status?.endpoint || !status?.hasToken} onClick={() => void run()}>{running ? "Sincronizando" : "Sincronizar agora"}</Button>
@@ -417,19 +415,6 @@ function FinanceActionSettings() {
     </Panel>
   );
 }
-
-/**
- * Iniciar com o Windows (ADR-043).
- *
- * O toggle de cima PERGUNTA AO SISTEMA a cada vez que a tela abre, em vez de
- * espelhar uma configuração nossa. O `auto-launch` grava também na chave que o
- * Gerenciador de Tarefas usa, e o usuário pode desligar por lá sem nos avisar —
- * um booleano nosso divergiria no primeiro clique feito fora daqui, e a tela
- * passaria a afirmar "ligado" sobre algo desligado.
- *
- * O de baixo é preferência nossa e mora em settings.json: o Windows sabe iniciar
- * o programa, não com que cara.
- */
 
 /**
  * Iniciar com o Windows (ADR-043).
@@ -528,25 +513,6 @@ function StartupSettings() {
     </Panel>
   );
 }
-
-/**
- * O caderno de ocorrencias, na tela.
- *
- * # Por que ele existe aqui
- *
- * O M/OS passou a gravar panico do Rust, erro nao tratado da interface e janela
- * que abriu sem montar (ver `src-tauri/src/diagnostico.rs`). Um log que so o
- * desenvolvedor alcanca e um log que so serve depois que alguem ja perguntou —
- * e as duas falhas que motivaram tudo isso acontecem no LOGON, longe de
- * qualquer terminal aberto.
- *
- * # Por que fechado por padrao
- *
- * `<details>`, e nao um painel sempre aberto. §14, quiet UI: uma lista de erros
- * permanente em Settings ensina ansiedade sobre um app que esta funcionando. O
- * caderno so interessa em dois momentos — quando algo quebrou, e quando alguem
- * quer conferir que nada quebrou.
- */
 
 /**
  * O caderno de ocorrencias, na tela.
