@@ -11,16 +11,12 @@
 //! pessoa que achasse a URL viraria a dona da casa. Por isso todo registro —
 //! inclusive o primeiro — exige o `MOS_WEB_INVITE`.
 //!
-//! # Sessao sem criptografia propria
+//! # Onde este arquivo termina
 //!
-//! O cookie carrega um token ALEATORIO e opaco, e quem resolve o que ele
-//! significa e uma tabela. Assinar um cookie eu mesmo seria inventar cripto num
-//! lugar onde errar custa a casa toda; um valor sorteado de 32 bytes nao tem
-//! nada para forjar — ou ele esta na tabela, ou nao esta.
-//!
-//! O token e guardado como HASH. Um vazamento do banco de sessoes nao deve
-//! entregar sessoes vivas, pela mesma razao que uma senha nao se guarda em
-//! claro.
+//! Ele prova que o dono e o dono, e entrega o resultado para o `porta.rs`, que
+//! cria a sessao e o cookie. A divisao existe porque a metade que decide QUEM
+//! PASSA precisa ser testavel onde este arquivo nao compila — ver o topo do
+//! `porta.rs`.
 
 use std::sync::{Arc, Mutex};
 
