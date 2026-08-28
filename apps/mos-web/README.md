@@ -28,7 +28,7 @@ recusa em toda linha.
 | Servidor, banco, identidade | pronto |
 | Sync contra o hub (fundo + a cada escrita) | pronto |
 | API: capturar, inbox, tasks | pronto |
-| Porta (passkey) | **escrita, não compilada** aqui — ver abaixo |
+| Porta (passkey) | **montada** — cerimônia atrás da feature, guardião sempre |
 | PWA em React | pronto |
 | Notificação (Web Push) | pronto |
 | Hermes com camada de ação | falta |
@@ -86,6 +86,30 @@ mos-web --gerar-vapid
 **Trocá-la mata todas as assinaturas** — o aparelho assinou com a pública
 antiga, e o serviço de push recusa o que a nova assinar. O sintoma é o pior
 possível: tudo parece funcionar e nada chega.
+
+## A porta
+
+Duas metades, e a divisão não é arrumação:
+
+| | onde | compila aqui? |
+|---|---|---|
+| Sessão, cookie, guardião das rotas | `porta.rs` | **sim** |
+| Cerimônia WebAuthn (o Face ID) | `auth.rs`, feature `passkey` | não (OpenSSL) |
+
+Enquanto a porta inteira morava atrás da feature, a pergunta que mais importa —
+*uma requisição sem sessão é recusada?* — só tinha resposta no CI. E o CI
+respondeu "verde" por semanas para um `auth.rs` que estava escrito, compilando, e
+**não montado em rota nenhuma**: `cargo check` não distingue rota montada de rota
+esquecida numa gaveta. Só uma requisição distingue, e `tests/a_porta.rs` faz sete
+delas — no Windows, em menos de um segundo.
+
+O guardião decide pelo **caminho**: tudo sob `/api` exige sessão, menos
+`/api/porta/`. Um sub-router protegido seria uma decisão que se perde — alguém
+acrescenta uma rota no lugar errado e ela nasce pública. Aqui rota nova nasce
+protegida por omissão.
+
+A página continua livre, porque ela é a tela de entrar. Ela não expõe dado
+nenhum: o dado está atrás da API.
 
 ## A notificação
 

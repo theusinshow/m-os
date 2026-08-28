@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { api, type Capture, type EstadoDoAparelho, type Task } from "./api";
+import { api, SemSessao, type Capture, type EstadoDoAparelho, type Task } from "./api";
 import { ativar, situacao, type Situacao } from "./notificacoes";
+import { Porta } from "./Porta";
 
 type Aba = "capturar" | "inbox" | "tasks" | "avisos";
 
@@ -29,10 +30,24 @@ export function App() {
   const [erro, setErro] = useState(false);
   const [ocupado, setOcupado] = useState(false);
   const [avisos, setAvisos] = useState<Situacao | null>(null);
+  /** `true` enquanto o servidor recusar por falta de sessão. */
+  const [fechado, setFechado] = useState(false);
 
   const atualizar = useCallback(async () => {
-    const [proximoEstado, proximaInbox, proximasTasks] = await Promise.all([
-      api.estado().catch(() => null),
+    // O `estado` é o que decide se há sessão: ele é a chamada mais barata, e um
+    // 401 aqui vale por todas — pedir inbox e tasks para depois descobrir que
+    // ninguém entrou seriam dois 401 a mais para nada.
+    let proximoEstado: EstadoDoAparelho | null = null;
+    try {
+      proximoEstado = await api.estado();
+      setFechado(false);
+    } catch (causa) {
+      if (causa instanceof SemSessao) {
+        setFechado(true);
+        return;
+      }
+    }
+    const [proximaInbox, proximasTasks] = await Promise.all([
       api.inbox().catch(() => [] as Capture[]),
       api.tasks().catch(() => [] as Task[]),
     ]);
@@ -139,6 +154,12 @@ export function App() {
   }
 
   const pendentes = estado?.pendentes ?? 0;
+
+  // A porta ocupa a tela inteira, e não um cartaz por cima do app: um app
+  // visível atrás de um aviso de login convida a tocar no que não responde.
+  if (fechado) {
+    return <Porta aoEntrar={() => void atualizar()} />;
+  }
 
   return (
     <div className="app">

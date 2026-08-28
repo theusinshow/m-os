@@ -284,6 +284,64 @@ body {
   color: var(--signal);
 }
 
+/* -------------------------------------------------------------- porta */
+
+/* A tela de entrar ocupa tudo, e o conteúdo fica no terço de cima.
+   Centralizado na vertical, o botão cairia perto do meio da tela — longe do
+   polegar e perto de onde o teclado do iPhone sobe por cima. */
+.porta {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  justify-items: start;
+  min-height: 100dvh;
+  padding: calc(env(safe-area-inset-top) + var(--space-5)) var(--space-4)
+    calc(env(safe-area-inset-bottom) + var(--space-4));
+}
+
+.porta .marca {
+  margin: 0 0 var(--space-2);
+}
+
+.porta .botao,
+.registro {
+  width: 100%;
+}
+
+.registro {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.campo {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.campo span {
+  color: var(--text-system);
+  font: 500 11px/1.4 var(--font-system);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.campo input {
+  min-height: var(--toque);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  /* 16px não é escolha estética: abaixo disso o iOS dá zoom ao focar, e a tela
+     inteira salta no meio da digitação. */
+  font: 400 16px/1.5 var(--font-product);
+}
+
+.porta code {
+  font: 400 13px/1.5 var(--font-system);
+  color: var(--text);
+}
+
 /* ------------------------------------------------------------- avisos */
 
 /* A aba de notificações é a única sem compositor embaixo, então ela tem o

@@ -38,6 +38,20 @@ export type AssinaturaPush = {
  * frase, e não "Failed to fetch". A pessoa está na rua com uma ideia na
  * cabeça — ela precisa saber se deve tentar de novo ou se perdeu.
  */
+/**
+ * O 401 tem tratamento próprio.
+ *
+ * Ele não é um erro para mostrar numa linha de recado: é a informação de que a
+ * tela inteira deveria ser outra. Um `Error` comum aqui viraria "Entre para
+ * continuar." escrito embaixo de um app que a pessoa não consegue usar.
+ */
+export class SemSessao extends Error {
+  constructor() {
+    super("Entre para continuar.");
+    this.name = "SemSessao";
+  }
+}
+
 async function pedir<T>(caminho: string, init?: RequestInit): Promise<T> {
   let resposta: Response;
   try {
@@ -48,6 +62,7 @@ async function pedir<T>(caminho: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new Error("Sem conexão com o M/OS.");
   }
+  if (resposta.status === 401) throw new SemSessao();
   if (!resposta.ok) {
     const corpo = await resposta.json().catch(() => null);
     throw new Error(corpo?.erro ?? `O servidor respondeu ${resposta.status}.`);

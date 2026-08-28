@@ -250,22 +250,36 @@ curl -s http://127.0.0.1:9130/api/estado
 
 ## 4.1 A porta — leia antes de apontar o DNS
 
-O `auth.rs` do `mos-web` tem passkey **escrito e não montado em rota nenhuma**.
-Enquanto isso for verdade, o binário não autentica ninguém: publicá-lo sem nada
-na frente entrega o M/OS inteiro a quem achar a URL.
-
-Por isso o binário **recusa a subir** quando `MOS_WEB_ORIGEM` está definida — a
-declaração de que ele é alcançável de fora — sem `MOS_WEB_PORTA_EXTERNA=1`. A
-versão anterior deste guardião só perguntava se o bind era local; atrás de um
-proxy reverso o bind **é** local, e ele deixava passar exatamente o caso que
-importa.
+O binário **recusa a subir** quando `MOS_WEB_ORIGEM` está definida — a declaração
+de que ele é alcançável de fora — sem alguma porta. A versão anterior deste
+guardião só perguntava se o bind era local; atrás de um proxy reverso o bind
+**é** local, e ele deixava passar exatamente o caso que importa.
 
 Um servidor não enxerga o proxy à frente dele. O que ele consegue é exigir que
 alguém tenha pensado no assunto e escrito a resposta.
 
-Hoje a porta é **Basic Auth no Caddy**, sobre TLS. Não é a definitiva — passkey
-é —, mas é uma porta de verdade, e uma porta de verdade hoje vale mais que a
-porta certa na semana que vem com a casa aberta no meio.
+Portas que ele aceita:
+
+| | como declarar |
+|---|---|
+| **Interna (passkey)** | compilar com `--features passkey` **e** definir `MOS_WEB_INVITE` |
+| **Externa (proxy)** | `MOS_WEB_PORTA_EXTERNA=1` |
+
+As duas condições da interna são exigidas juntas: com a feature ligada e sem
+convite, `Estado::abrir` não monta sessão nenhuma, o guardião fica inerte e a API
+abre inteira.
+
+### A ordem de troca, que não é negociável
+
+O `bootstrap-vps.sh` sobe com **Basic Auth no Caddy**, porque no primeiro minuto
+não existe passkey registrada. Depois:
+
+1. entre no app com usuário e senha;
+2. registre a passkey com o convite de `/etc/mos-web.env`;
+3. `sudo bash /tmp/mos/abrir-para-passkey.sh` tira o Basic Auth.
+
+Inverter 2 e 3 tranca você do lado de fora — sem Basic Auth e sem passkey, não
+sobra porta. O script **confere e recusa** se não houver aparelho registrado.
 
 ## 5. O proxy com TLS — e por que ele não é opcional
 
