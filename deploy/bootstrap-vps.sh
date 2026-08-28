@@ -201,15 +201,36 @@ fi
 # ------------------------------------------------------------ 7. conferência
 
 dizer "Conferência"
-sleep 3
-printf 'hub    ....... '; curl -sf http://127.0.0.1:9120/health >/dev/null && echo OK || echo FALHOU
-printf 'mos-web ...... '; curl -sf http://127.0.0.1:9130/api/estado >/dev/null && echo OK || echo FALHOU
+
+# Dez segundos, e não três: o mos-web abre três bancos e roda migrations antes
+# de escutar. O teto antigo dava "FALHOU" para um serviço que subia bem — e um
+# runbook que grita falso ensina a ignorar o que ele diz.
+for _ in $(seq 1 10); do
+  curl -sf http://127.0.0.1:9130/api/porta/estado >/dev/null && break
+  sleep 1
+done
+
+printf 'hub    ....... '
+curl -sf http://127.0.0.1:9120/health >/dev/null && echo OK || echo FALHOU
+
+# `/api/porta/estado` e nao `/api/estado`: com a porta montada, a segunda
+# responde 401 para quem nao tem sessao — e o `curl -f` chamava isso de falha.
+# A conferencia dizia "FALHOU" exatamente quando tudo estava certo.
+PORTA="$(curl -sf http://127.0.0.1:9130/api/porta/estado || true)"
+printf 'mos-web ...... '
+[ -n "$PORTA" ] && echo OK || echo FALHOU
+
+printf 'porta ........ '
+case "$PORTA" in
+  *'"passkey":true'*) echo "passkey compilada" ;;
+  *) echo "SO o proxy (binario sem --features passkey)" ;;
+esac
+
 printf 'chave push ... '
-if curl -sf http://127.0.0.1:9130/api/estado | grep -q '"chavePush":"B'; then
-  echo OK
-else
-  echo "FALHOU — sem chave VAPID, o celular não recebe nada"
-fi
+# Esta rota exige sessao, entao a conferencia vai ao ambiente: e o que o
+# servidor leu para decidir se notifica.
+grep -q '^MOS_WEB_VAPID_PRIVADA=.\+' /etc/mos-web.env && echo OK ||
+  echo "FALHOU — sem chave VAPID, o celular nao recebe nada"
 
 dizer "Pronto"
 cat <<FIM
