@@ -205,11 +205,6 @@
   --meter-fill: #8C949A;
   --meter-height: 3px;
 
-  /* O grid pontilhado ja existia como materialidade, reimplementado a mao em
-     cada superficie que o quis. Como token ele para de divergir. */
-  --grid-dot: rgba(140, 148, 154, 0.11);
-  --grid-size: 32px;
-
   /* Tile da Library sem imagem. Hachura, nunca ilustracao nem icone gigante. */
   --hatch: repeating-linear-gradient(
     135deg,
@@ -276,12 +271,11 @@
   /* Paridade do canal de foco e das barras de proporcao. Os tres resolvidos
      contra o claro: tinta escura no lugar da clara, e os neutros da barra
      derivados de `--text-secondary` para manterem a mesma relacao com o fundo
-     que tinham no escuro. `--text-number` e `--grid-size` nao aparecem aqui
-     porque tamanho nao muda com o tema. */
+     que tinham no escuro. `--text-number` nao aparece aqui porque tamanho nao
+     muda com o tema. */
   --focus-ink: #14181A;
   --meter-track: rgba(89, 97, 102, 0.20);
   --meter-fill: #596166;
-  --grid-dot: rgba(89, 97, 102, 0.13);
 
   /* A hachura precisa da própria definição aqui.
      No claro, --surface e --surface-raised são ambos #FFFFFF, então a versão
@@ -381,6 +375,5 @@ body {
        intermediaria, `rgba` nao sobrevive aqui. */
     --meter-track: Canvas;
     --meter-fill: CanvasText;
-    --grid-dot: transparent;
   }
 }
