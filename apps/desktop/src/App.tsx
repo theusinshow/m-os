@@ -11,12 +11,13 @@ import { DotField } from "./DotField";
 import { FaixaSync } from "./FaixaSync";
 import { arrangeHome, fillBand, HOME_SECTIONS, HOME_SIZES, HOME_WIDGETS, moveInArrangement, placementsFor, touchedSections, type ArrangedWidget, type HomeWidgetRole, type HomeWidgetSpan, type PlacedWidget } from "./homeLayout";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
-import { hermes, type HermesConnectionState, type HermesFailure, type HermesStatus } from "./hermes";
+import { hermes, type HermesConnectionState, type HermesStatus } from "./hermes";
 import { HermesPage } from "./HermesPage";
 import { AppIcon } from "./AppIcon";
 import { Argos, useArgosPose, useArgosPresenca } from "./Argos";
 import { ProcessingBar } from "./ProcessingBar";
 import { deveEsperarAbertura, esperaDaTentativa } from "./abertura";
+import { decidirAposFalha } from "./hermesSupervisor";
 import { cantoPara } from "./argosCorner";
 import { Button } from "./Button";
 import { ActionMenu, ContextPath, EmptyState, Inspector, PaneHeader, Panel, StateMessage } from "./Surface";
@@ -3538,8 +3539,14 @@ function DesktopApp() {
    * param para sempre — quem mexe em credencial e o usuario, em Settings, e e
    * a acao dele que deve destravar a proxima tentativa.
    *
-   * Sem credencial configurada nao ha nem primeira tentativa. */
+   * Sem credencial configurada nao ha nem primeira tentativa.
+   *
+   * E ele so comeca depois de o app ABRIR. A primeira tentativa chamava
+   * `hermes.status()` durante a rajada de IPC do boot e colhia a recusa do
+   * portao — `O M/OS ainda esta abrindo`, que nao tem nada a ver com o Hermes.
+   * Tratar essa falha foi o conserto; nao provoca-la e melhor que trata-la. */
   useEffect(() => {
+    if (bootState !== "ready") return;
     let cancelled = false;
     let timer = 0;
     let delay = 5_000;
@@ -3574,8 +3581,14 @@ function DesktopApp() {
         await hermes.connect();
       } catch (error) {
         if (cancelled) return;
-        const failure = error as Partial<HermesFailure> | null;
-        if (!failure?.retriable) { stopped = true; return; }
+        /* A decisao mora no `hermesSupervisor.ts`, e o motivo esta escrito
+           la: esta linha lia `retriable` (sem Y) num erro que podia ser um
+           `CoreError`, que tem `retryable` (com Y). O erro da ABERTURA —
+           "O M/OS ainda esta abrindo" — caia nesse buraco, e o supervisor
+           morria no boot todo dia. Agora so `unauthorized` e `rate_limited`
+           param; o desconhecido repete. */
+        const decisao = decidirAposFalha(error);
+        if (decisao.acao === "parar") { stopped = true; return; }
         schedule();
       }
     }
@@ -3598,7 +3611,7 @@ function DesktopApp() {
       window.clearTimeout(timer);
       void subscription.then((dispose) => dispose());
     };
-  }, []);
+  }, [bootState]);
   // A chave `m-os-current-workspace-name` deixou de ser escrita: existia so para
   // a Library desenhar o segmento do caminho sem ter o objeto. Com o Workspace
   // chegando por prop, guardar o nome seria uma segunda fonte de verdade.
