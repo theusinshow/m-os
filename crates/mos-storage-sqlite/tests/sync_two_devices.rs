@@ -202,6 +202,14 @@ fn task() -> EntityRef {
     EntityRef::new("task", Uuid::from_u128(4242))
 }
 
+fn capture() -> EntityRef {
+    EntityRef::new("capture", Uuid::from_u128(4243))
+}
+
+fn tipo_do_futuro() -> EntityRef {
+    EntityRef::new("tipo_do_futuro", Uuid::from_u128(4244))
+}
+
 // ------------------------------------------------------------------ testes
 
 #[test]
@@ -444,4 +452,35 @@ fn apagar_num_dispositivo_apaga_no_outro() {
         Some(json!("some")),
         "o conteudo continua guardado: restaurar devolve a Task inteira"
     );
+}
+
+/// A faixa da Home diz "3 tasks e 1 capture", e `recebidas` nao serve para isso.
+///
+/// Ele conta OPERACOES: duas edicoes da mesma Task sao duas operacoes e uma
+/// task. Dizer "2 tasks" para quem mexeu numa so seria mentira com numero.
+#[test]
+fn a_rodada_conta_entidades_por_tipo_e_nao_operacoes() {
+    let hub = HubLocal::default();
+    let mut pc = Dispositivo::novo("PC", "windows");
+    let mut iphone = Dispositivo::novo("iPhone", "ios");
+
+    pc.mudar(&task(), &[("title", json!("Revisar memorial"))]);
+    pc.mudar(&task(), &[("state", json!("doing"))]);
+    pc.mudar(&capture(), &[("content", json!("ideia na rua"))]);
+    // `EntityKind` e texto e nao enum fechado (SYNC.md §9): um tipo que este
+    // cliente nao conhece precisa CONTAR em vez de sumir, senao a faixa diz que
+    // nada chegou quando algo chegou.
+    pc.mudar(&tipo_do_futuro(), &[("qualquer", json!(1))]);
+    pc.sincronizar(&hub);
+
+    let rodada = iphone.sincronizar(&hub);
+
+    assert_eq!(rodada.recebidas, 4, "`recebidas` conta OPERACOES");
+    assert_eq!(
+        rodada.recebidas_por_tipo.get("task"),
+        Some(&1),
+        "duas mudancas na mesma task sao UMA task"
+    );
+    assert_eq!(rodada.recebidas_por_tipo.get("capture"), Some(&1));
+    assert_eq!(rodada.recebidas_por_tipo.get("tipo_do_futuro"), Some(&1));
 }

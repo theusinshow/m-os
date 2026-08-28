@@ -764,6 +764,11 @@ impl SqliteStorage {
             passadas += 1;
             rodada.enviadas += passada.enviadas;
             rodada.recebidas += passada.recebidas;
+            // Funde, e nao substitui: com a fila grande sao varias passadas, e
+            // atribuir deixaria a faixa da Home contando so a ultima.
+            for (tipo, quantas) in passada.recebidas_por_tipo {
+                *rodada.recebidas_por_tipo.entry(tipo).or_insert(0) += quantas;
+            }
             rodada.conflitos += passada.conflitos;
             rodada.pendentes = passada.pendentes;
             rodada.tem_mais = passada.tem_mais;

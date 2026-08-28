@@ -1441,6 +1441,30 @@ export type SyncStatus = {
   /** Mudancas locais esperando para subir. */
   pending: number;
   enabled: boolean;
+  /** Uma rodada esta em curso agora. */
+  running: boolean;
+  /** Quando a ultima rodada terminou, em RFC3339. Nulo: nunca rodou. */
+  lastSyncAt: string | null;
+  /** Por que a ultima rodada parou. Nulo: terminou inteira. */
+  lastError: string | null;
+  /**
+   * O resumo da primeira rodada do dia, enquanto nao for lido.
+   *
+   * Quem decide que e "a primeira do dia" e o backend, e nao a tela: como
+   * estado do React, sair da Home e voltar traria a faixa de novo no mesmo dia.
+   */
+  daySummary: SyncDaySummary | null;
+};
+
+export type SyncDaySummary = {
+  /**
+   * Quantas ENTIDADES de cada tipo mudaram. Nao e `received` reparticionado —
+   * aquele conta operacoes. Chave livre: um tipo que esta versao ainda nao
+   * conhece aparece pelo id, em vez de sumir.
+   */
+  byKind: Record<string, number>;
+  /** Quando essa rodada terminou, em RFC3339. */
+  at: string;
 };
 
 export type SyncRound = {
@@ -1448,6 +1472,8 @@ export type SyncRound = {
   received: number;
   conflicts: number;
   pending: number;
+  /** Quantas entidades de cada tipo chegaram. Ver `SyncDaySummary.byKind`. */
+  receivedByKind: Record<string, number>;
   /**
    * A rodada parou por erro. O que ja foi feito ate ali PERMANECE feito —
    * sincronizacao parcial e melhor que nenhuma.

@@ -8,6 +8,7 @@ import { api, appError } from "./api";
 import { DotField } from "./DotField";
 /* O arranjo da Home mora fora daqui para poder ser testado: sem DOM no runner
    (ver `vitest.config.ts`), o que da para verificar tem de ser funcao pura. */
+import { FaixaSync } from "./FaixaSync";
 import { arrangeHome, fillBand, HOME_SECTIONS, HOME_SIZES, HOME_WIDGETS, moveInArrangement, placementsFor, touchedSections, type ArrangedWidget, type HomeWidgetRole, type HomeWidgetSpan, type PlacedWidget } from "./homeLayout";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
 import { hermes, type HermesConnectionState, type HermesFailure, type HermesStatus } from "./hermes";
@@ -507,7 +508,7 @@ function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
   return nextIndex;
 }
 
-function HomePage({ recent, inbox, projects, tasks, stale, academic, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, setHiddenWidgets, widgetPlacements, setWidgetPlacements, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, openFinancePage, openCalendarPage, openMeetingsPage, openAcademicPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent, daily }: { recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; stale: StaleView; academic: AcademicDashboard | null; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; setHiddenWidgets: (next: HiddenWidget[]) => void; widgetPlacements: WidgetPlacement[]; setWidgetPlacements: (next: WidgetPlacement[]) => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; openFinancePage: () => void; openCalendarPage: () => void; openMeetingsPage: () => void; openAcademicPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent; daily: DailyProps }) {
+function HomePage({ syncStatus, refreshSync, recent, inbox, projects, tasks, stale, academic, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, setHiddenWidgets, widgetPlacements, setWidgetPlacements, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, openFinancePage, openCalendarPage, openMeetingsPage, openAcademicPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent, daily }: { syncStatus: SyncStatus | null; refreshSync: () => void; recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; stale: StaleView; academic: AcademicDashboard | null; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; setHiddenWidgets: (next: HiddenWidget[]) => void; widgetPlacements: WidgetPlacement[]; setWidgetPlacements: (next: WidgetPlacement[]) => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; openFinancePage: () => void; openCalendarPage: () => void; openMeetingsPage: () => void; openAcademicPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent; daily: DailyProps }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
   const [workspaceApps, setWorkspaceApps] = useState<RegisteredApp[]>([]);
@@ -757,6 +758,12 @@ function HomePage({ recent, inbox, projects, tasks, stale, academic, workspaces,
   return <div className="page home-page">
     <DotField />
     <ContextPath segments={["M", "HOME"]} />
+    {/* A faixa NAO e widget, e e a unica excecao ao principio de que tudo na
+        Home se arruma. Ela pode ser: nao MORA aqui — so existe quando ha
+        noticia ou quando algo esta errado, e some quando e lida ou quando a
+        causa some. A defesa inteira, e o que foi recusado (o widget
+        arrumavel, que se esconde), estao no `syncFaixa.ts`. */}
+    <FaixaSync status={syncStatus} onChanged={refreshSync} />
     <CaptureComposer onSaved={(capture) => { markSaved(capture); void refresh(); }} focusKey={intent?.target === "home_capture" ? intent.key : undefined} />
     <section className="home-context" aria-labelledby="home-context-heading">
       <span className="micro-label" id="home-context-heading">CONTEXTO ATUAL</span>
@@ -3492,6 +3499,29 @@ function DesktopApp() {
     const events = [listen("capture-changed", refreshFromEvent), listen("data-changed", refreshFromEvent), listen("ingestion-extracted", refreshFromEvent), listen("dataset-restored", refreshFromEvent), listen("snapshot-status-changed", refreshFromEvent)];
     return () => { events.forEach((event) => void event.then((dispose) => dispose())); };
   }, [initialize, refresh, daily.recarregar]);
+
+  /* O estado do sync, sem polling: o backend emite `sync-changed` no comeco e
+     no fim de cada rodada, e a tela so pergunta quando ele avisa. Perguntar de
+     tempos em tempos seria pedir a fila inteira a cada intervalo para descobrir
+     que nada mudou, que e o que o §51 do SYNC.md proibe. */
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const refreshSync = useCallback(() => {
+    void api.syncStatus().then(setSyncStatus).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    refreshSync();
+    const parar = listen("sync-changed", refreshSync);
+    return () => { void parar.then((dispose) => dispose()); };
+  }, [refreshSync]);
+
+  /* Libera a primeira rodada automatica.
+     O daemon espera este sinal para nao segurar o banco durante a rajada de IPC
+     do boot — ver `iniciar_daemon` no `sync.rs`. Ele tem teto de 30s, entao um
+     boot que nunca chega em `ready` atrasa o sync, mas nao o mata. */
+  useEffect(() => {
+    if (bootState !== "ready") return;
+    void api.syncAppReady().catch(() => undefined);
+  }, [bootState]);
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("m-os-theme", theme); }, [theme]);
   /* Supervisor da ponte do Hermes.
    *
@@ -3839,7 +3869,7 @@ function DesktopApp() {
   }, [page]);
   const pageContent = useMemo(() => {
     if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} openTask={(id) => { const task = tasks.find((candidate) => candidate.id === id); if (task) setDrawerTask(task); }} />;
-    if (page === "home") return <HomePage recent={recent} inbox={inbox} projects={projects} tasks={tasks} stale={stale} academic={academic} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} setHiddenWidgets={setHiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} openFinancePage={() => setPage("finance")} openCalendarPage={() => setPage("calendario")} openMeetingsPage={() => setPage("reunioes")} openAcademicPage={() => setPage("academic")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} daily={dailyProps} />;
+    if (page === "home") return <HomePage syncStatus={syncStatus} refreshSync={refreshSync} recent={recent} inbox={inbox} projects={projects} tasks={tasks} stale={stale} academic={academic} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} setHiddenWidgets={setHiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} openFinancePage={() => setPage("finance")} openCalendarPage={() => setPage("calendario")} openMeetingsPage={() => setPage("reunioes")} openAcademicPage={() => setPage("academic")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} daily={dailyProps} />;
     if (page === "tempo") return <TempoPage projects={projects} openProject={openProject} receipt={showReceipt} />;
     if (page === "finance") return <FinancePage />;
     if (page === "academic") return <AcademicPage refresh={refresh} />;
@@ -3910,7 +3940,11 @@ function DesktopApp() {
     estar noutra pagina. */}
 <ProcessingBar abrirReuniao={(id) => { setFocusedMeetingId(id); navigate("reunioes"); }} />{/* A barra vive no shell, e nao numa pagina: navegar para a Home nao pode
     apagar da vista o fato de que o microfone esta aberto (§17.2). */}
-<div className="system-state" aria-live="polite" data-busy={busy || undefined}>{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span></div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main>{/* O leque vive na coluna principal, e nao sobre o rail: ele e o gesto que
+<div className="system-state" aria-live="polite" data-busy={busy || undefined}>{busy ? <><MosSymbol size={16} spinning /><span className="micro-label">SINCRONIZANDO</span></> : null}<span className="page-meta">{pageMeta}</span>{/* O estado CALMO do sync. A faixa some da Home quando esta em dia
+    porque este horario existe: sem ele, "em dia" nao seria visivel em lugar
+    nenhum, e a unica forma de saber se o sync ainda funciona seria abrir o
+    Settings. Discreto de proposito — se chamasse atencao, seria a faixa fixa
+    que o desenho recusou. */}{syncStatus?.endpoint && syncStatus.hasToken && syncStatus.lastSyncAt ? <span className="page-meta" title="Última sincronização">SYNC {relativeTime(syncStatus.lastSyncAt)}</span> : null}</div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main>{/* O leque vive na coluna principal, e nao sobre o rail: ele e o gesto que
     o rail perdeu quando voltou a oito, e competir com a navegacao ao lado
     seria desfazer a troca. Ver ADR-045. */}
 <Leque pins={radialPins} workspaceId={currentWorkspaceId || null} apps={apps} onNavegar={navigate} onAbrirApp={openRegisteredApp} onAcao={(target) => { if (target === "attention_create") setComposerOpen(true); else void api.showQuickCapture(); }} onFixar={(slot) => setSlotEmEscolha(slot)} /></div>{/* Os tres estados do ciclo do dia, um por vez. A `AnimatePresence` de saida

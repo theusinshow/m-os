@@ -10977,3 +10977,34 @@ button.daily-objective-title:focus-visible {
     transform: none;
   }
 }
+
+/* A faixa de sincronizacao da Home.
+
+   Discreta de proposito: ela aparece quando ha noticia, e uma noticia que grita
+   todo dia deixa de ser lida. O estado vive na borda esquerda, e nao no fundo
+   inteiro — pintar o card todo faria uma fila pendente parecer um incendio. */
+.sync-faixa {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--signal-ink);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+.sync-faixa[data-tipo="erro"] { border-left-color: var(--danger); }
+.sync-faixa[data-tipo="pendente"] { border-left-color: var(--text-system); }
+.sync-faixa-texto p {
+  margin: var(--space-1) 0 0;
+  font: var(--text-small);
+  color: var(--text-secondary);
+}
+.sync-faixa-acoes {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}

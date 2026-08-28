@@ -70,6 +70,17 @@ pub struct Rodada {
     /// esvazia a fila em varias rodadas precisa desta resposta para saber
     /// quando parar.
     pub tem_mais: bool,
+    /// Quantas ENTIDADES de cada tipo mudaram nesta rodada.
+    ///
+    /// Nao e `recebidas` reparticionado: aquele conta OPERACOES, e tres edicoes
+    /// da mesma Task sao tres operacoes e uma task. A faixa da Home usa este
+    /// mapa justamente porque "3 tasks chegaram" precisa significar tres tasks.
+    ///
+    /// Chave `String` e nao enum: `EntityKind` e texto (§9), e um tipo que este
+    /// cliente ainda nao conhece precisa CONTAR em vez de sumir — senao a faixa
+    /// diz que nada chegou quando algo chegou.
+    #[serde(default)]
+    pub recebidas_por_tipo: BTreeMap<String, usize>,
     /// Preenchido quando a rodada parou por erro. O que ja foi feito ate ali
     /// permanece feito — sincronizacao parcial e melhor que nenhuma.
     pub erro: Option<String>,
@@ -161,6 +172,9 @@ pub fn sincronizar(
                 }
 
                 for ((kind, id), ops) in por_entidade {
+                    // Conta ANTES do que pode falhar: o `break` do erro esta
+                    // logo abaixo, e o que ja chegou permanece chegado.
+                    *rodada.recebidas_por_tipo.entry(kind.clone()).or_insert(0) += 1;
                     let base = projecao.estado_de(&ops[0]);
                     let resultado = aplicar(base, &ops);
                     rodada.conflitos += resultado.conflitos.len();

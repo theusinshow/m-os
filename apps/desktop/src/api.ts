@@ -1101,6 +1101,21 @@ export const api = {
   syncNow() {
     return invoke<SyncRound>("sync_now");
   },
+
+  /**
+   * A tela abriu. Libera a primeira rodada automatica.
+   *
+   * Sem isto o daemon espera 30s e roda assim mesmo. O sinal existe para a
+   * primeira rodada nao segurar o banco durante a rajada de IPC do boot.
+   */
+  syncAppReady() {
+    return invoke<void>("sync_app_pronto");
+  },
+
+  /** O resumo do dia foi lido. */
+  syncDismissSummary() {
+    return invoke<void>("sync_dispensar_resumo");
+  },
   createBackup(path: string) {
     return invoke<BackupReceipt>("create_backup", { path });
   },

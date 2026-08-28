@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager, Runtime,
+    AppHandle, Emitter, Listener, Manager, Runtime,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
@@ -161,6 +161,16 @@ pub(crate) struct UserSettings {
     /// carrega e o export copia.
     #[serde(default)]
     sync_endpoint: String,
+    /// O dia em que o resumo da sincronizacao foi mostrado pela ultima vez.
+    ///
+    /// Data civil (`YYYY-MM-DD`), e nao instante: "primeira abertura do dia" e a
+    /// mesma regua da Daily Session, e um segundo conceito de dia dentro do
+    /// mesmo app seria uma divergencia esperando acontecer.
+    ///
+    /// Mora AQUI e nao no React porque, como estado da tela, sair da Home e
+    /// voltar traria a faixa de novo no mesmo dia.
+    #[serde(default)]
+    pub(crate) sync_ultimo_resumo_em: String,
 }
 
 #[derive(Serialize)]
@@ -1244,6 +1254,9 @@ pub(crate) fn reveal_window<R: Runtime>(app: &AppHandle<R>, label: &str) {
         let _ = window.unminimize();
         let _ = window.set_focus();
         let _ = window.emit("window-revealed", ());
+        // Voltar ao primeiro plano e o gatilho que o fluxo casa > trabalho >
+        // celular mais usa: sentar na mesa e trazer o M/OS para frente.
+        sync::acordar(&window.app_handle().clone());
     }
 }
 
@@ -1959,6 +1972,26 @@ pub fn run() {
                 settings_path,
             });
 
+            app.manage(sync::SyncRuntime::default());
+            // O sync automatico. Ele espera a tela dizer que abriu antes da
+            // primeira rodada — ver `sync::iniciar_daemon`.
+            sync::iniciar_daemon(app.handle().clone());
+
+            // A mutacao e OUVIDA, e nao emitida. `data-changed` ja sai de 25
+            // lugares; tocar os 25 seriam 25 chances de esquecer um, e o
+            // esquecido nao daria erro — daria uma entidade que so sai deste
+            // aparelho no proximo quarto de hora.
+            {
+                let handle = app.handle().clone();
+                app.listen_any("data-changed", move |_| {
+                    let handle = handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(sync::DEBOUNCE_DA_MUTACAO).await;
+                        sync::acordar(&handle);
+                    });
+                });
+            }
+
             // Reparo de abertura: o app pode ter sido fechado no meio de um
             // turno, e uma mensagem gravada como `streaming` voltaria
             // eternamente em curso na tela.
@@ -2134,6 +2167,8 @@ pub fn run() {
             sync::sync_set_token,
             sync::sync_clear_token,
             sync::sync_now,
+            sync::sync_app_pronto,
+            sync::sync_dispensar_resumo,
             hermes::hermes_set_credentials,
             hermes::hermes_clear_credentials,
             hermes::hermes_set_base_url,

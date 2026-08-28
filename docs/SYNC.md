@@ -144,9 +144,30 @@ incremental. Baixar o banco inteiro a cada abertura está proibido.
 
 ## 8. Gatilhos
 
-Sincronizar em: abertura, voltar para o primeiro plano, reconectar rede, depois
-de mutação (com *debounce*), oportunidade de background, sinal de push, refresh
-manual.
+No desktop, desde 28/08, a rodada é **automática**. Quatro gatilhos, em
+`apps/desktop/src-tauri/src/sync.rs`:
+
+| Gatilho | Quando | Como |
+| --- | --- | --- |
+| abertura | uma vez, **depois** que o app terminou de abrir | o renderer chama `sync_app_pronto` ao chegar em `ready`; teto de 30s |
+| primeiro plano | a janela voltou | `reveal_window` acorda o laço |
+| pós-mutação | a fila cresceu | o daemon **ouve** `data-changed`, com *debounce* de 10s |
+| rede de segurança | a cada 15 min, se nada mais acordou | só existe para a rede que voltou sozinha |
+
+**A primeira rodada espera o app abrir, e isso não é otimização.**
+`sincronizar_agora` segura o mutex do relógio a rodada inteira, de propósito
+(§11). Com fila grande, rodar junto com a abertura seguraria o banco durante a
+rajada de IPC do boot, e a webview gastaria as 12 tentativas dela contra um
+banco ocupado — parando na tela de erro que diz, mentindo, que os dados não
+abriram com segurança.
+
+**A mutação é ouvida, e não emitida.** `data-changed` já sai de 25 lugares;
+acrescentar um aviso em cada um seriam 25 chances de esquecer um — e o esquecido
+não daria erro, daria uma entidade que só sai deste aparelho no próximo quarto
+de hora.
+
+Ainda **não** existem: sinal de push do hub para o desktop, e reconexão de rede
+como gatilho. Os dois estão cobertos, com atraso, pela rede de segurança.
 
 **Nunca polling agressivo** (§51). No iPhone isso é bateria; em qualquer lugar é
 requisição sem motivo. O sistema é orientado a evento.
@@ -182,6 +203,19 @@ Eventos a registrar (§39), sem dado pessoal: `sync_started`, `sync_completed`,
 Estados que a interface precisa saber representar (§40): sincronizado,
 sincronizando, offline, alterações pendentes, erro. Não precisa estar sempre à
 vista — precisa ser descobrível quando algo está errado.
+
+**São seis, e não cinco.** Falta **desligado**: sem endereço ou sem segredo, e é
+o estado em que a feature nasce em toda máquina nova. Ele é o único que **não
+vira aviso**: quem não ligou o sync não tem um problema, tem uma feature
+desligada, e um aviso diário na Home sobre isso seria propaganda dentro do
+próprio produto. Ele vive só no Settings.
+
+No desktop, a regra de qual estado desenhar é função pura em
+`apps/desktop/src/syncFaixa.ts`, e a ordem das perguntas é o desenho: desligado
+sai calado; a notícia ganha do erro (a rodada que trouxe coisa funcionou); o
+erro ganha da fila (a fila é consequência, o erro é a causa). *Erro* e
+*pendente* **não se dispensam** — um aviso que se pode calar sem consertar a
+causa é um aviso que se cala sempre.
 
 ---
 
@@ -307,16 +341,15 @@ trava o valor.
 
 ## 14. O que falta
 
-- **Transporte real e servidor.** O `Transport` está definido; nenhuma
-  implementação de rede existe.
-- **Auth.** Não existe.
-- **Emitir operações nas outras sete entidades.** Já emitem: Captures, Tasks,
+- **Emitir operações nas outras entidades.** Já emitem: Captures, Tasks,
   Projects, Reminders, Resources e a Daily Session (`daily_session`,
   `daily_objective`, `daily_reflection` — ver `DAILY-SESSION.md`), o fecho da
   semana (`weekly_review`) e o M/Academic (`academic_semester`,
   `academic_subject`, `academic_assignment`, `academic_exam`,
-  `academic_study_session` — ver `ACADEMIC.md`). Faltam
-  Calendar, Meetings, Conversations, Tracking, Workspaces, Apps e Voice.
+  `academic_study_session` — ver `ACADEMIC.md`) e Workspaces. Faltam
+  Calendar, Meetings, Conversations, Tracking, Apps e Voice. Nenhum deles
+  bloqueia aresta do Knowledge Graph — Workspace bloqueava, e foi por isso que
+  ele veio antes.
 - **O arquivo dos Resources.** Só o metadado viaja. PDF, imagem e áudio são
   outra camada (§44), com upload, download, cache e checksum. Não existe.
 - **Arquivos binários.** Resources com PDF, imagem e áudio não sincronizam como

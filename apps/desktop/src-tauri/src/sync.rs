@@ -12,11 +12,13 @@
 //! recebe de volta. Um segredo que a interface pode ler e um segredo que
 //! aparece num screenshot.
 
-use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use mos_storage_sqlite::SqliteStorage;
 use serde::Serialize;
-use tauri::State;
+use tauri::{Emitter, Manager, State};
 
 const SERVICO: &str = "com.codedbym.mos.sync";
 const CONTA: &str = "hub";
@@ -49,6 +51,14 @@ pub struct SyncStatus {
     pub pending: usize,
     /// Se a emissao esta ligada neste dispositivo.
     pub enabled: bool,
+    /// Uma rodada corre agora.
+    pub running: bool,
+    /// RFC3339 de quando a ultima terminou. `None`: nunca rodou nesta sessao.
+    pub last_sync_at: Option<String>,
+    /// Por que a ultima parou. `None`: terminou inteira.
+    pub last_error: Option<String>,
+    /// O resumo da primeira rodada do dia, enquanto nao for lido.
+    pub day_summary: Option<Resumo>,
 }
 
 /// O resultado de uma rodada, para a tela.
@@ -59,6 +69,9 @@ pub struct SyncRound {
     pub received: usize,
     pub conflicts: usize,
     pub pending: usize,
+    /// Quantas ENTIDADES de cada tipo chegaram. Nao e `received`
+    /// reparticionado: aquele conta operacoes.
+    pub received_by_kind: BTreeMap<String, usize>,
     /// Preenchido quando a rodada parou por erro. **O que ja foi feito ate ali
     /// permanece feito** — sincronizacao parcial e melhor que nenhuma, e mentir
     /// que nada aconteceu faria o proximo clique parecer o primeiro.
@@ -66,13 +79,24 @@ pub struct SyncRound {
 }
 
 #[tauri::command]
-pub fn sync_status(state: State<'_, crate::AppState>) -> SyncStatus {
+pub fn sync_status(
+    state: State<'_, crate::AppState>,
+    runtime: State<'_, SyncRuntime>,
+) -> SyncStatus {
     use mos_sync::OutboxRepository;
+    // Lock envenenado nao pode derrubar a tela: sem o que a ultima rodada
+    // disse, a faixa some — e uma Home sem faixa e melhor que uma Home que nao
+    // abre.
+    let ultima = runtime.ultima.lock().ok();
     SyncStatus {
         endpoint: crate::load_settings(&state.settings_path).sync_endpoint,
         has_token: token_guardado().is_some(),
         pending: state.storage.quantidade_pendente().unwrap_or(0),
         enabled: state.storage.sync_ligado(),
+        running: runtime.rodando.load(Ordering::Relaxed),
+        last_sync_at: ultima.as_ref().and_then(|u| u.em.clone()),
+        last_error: ultima.as_ref().and_then(|u| u.erro.clone()),
+        day_summary: ultima.as_ref().and_then(|u| u.resumo.clone()),
     }
 }
 
@@ -113,40 +137,237 @@ pub fn sync_clear_token() -> Result<(), String> {
     }
 }
 
-/// Uma rodada, agora.
+/// De quanto em quanto tempo a rodada acontece sem ninguem pedir.
+///
+/// Quinze minutos e a REDE DE SEGURANCA, e nao o mecanismo: o que sincroniza de
+/// verdade sao a abertura, o primeiro plano e a mutacao. Este intervalo existe
+/// para o caso que nenhum dos tres cobre — a rede que voltou sozinha enquanto a
+/// janela ficou aberta e parada. O `SYNC.md` §51 proibe polling agressivo, e
+/// uma tentativa por quarto de hora nao e polling.
+const REDE_DE_SEGURANCA: Duration = Duration::from_secs(15 * 60);
+
+/// Quanto esperar depois de uma mutacao antes de sincronizar.
+///
+/// Sem isto, arrastar cinco tasks no Kanban dispararia cinco rodadas. O motor
+/// segura o mutex do relogio durante a rodada, entao rodada a mais nao e so
+/// trafego — e a interface esperando.
+pub const DEBOUNCE_DA_MUTACAO: Duration = Duration::from_secs(10);
+
+/// Ate quando esperar a tela dizer que abriu, antes de rodar assim mesmo.
+///
+/// O sinal vem do renderer, e um sync que DEPENDE da tela e um sync que morre
+/// em silencio quando a tela nao abre — e o M/OS pode abrir minimizado na
+/// bandeja por configuracao. O teto existe para o automatico nunca ficar refem
+/// de uma janela.
+const TETO_DA_ABERTURA: Duration = Duration::from_secs(30);
+
+/// O que a interface precisa saber, e que nao mora no banco.
+pub struct SyncRuntime {
+    /// Uma rodada por vez. Duas brigariam pelo mesmo `HlcClock`, e duas
+    /// operacoes com o mesmo instante e o mesmo dispositivo quebram a ordem
+    /// total — a unica coisa que a reconciliacao tem para desempatar.
+    ///
+    /// Assincrono de proposito: o clique manual ESPERA a rodada automatica e ve
+    /// o resultado dela, em vez de falhar ou enfileirar uma segunda.
+    rodada: tokio::sync::Mutex<()>,
+    /// Acorda o laco: primeiro plano, mutacao, clique.
+    acordar: tokio::sync::Notify,
+    /// A tela terminou de abrir.
+    pronto: tokio::sync::Notify,
+    rodando: AtomicBool,
+    ultima: Mutex<UltimaRodada>,
+}
+
+#[derive(Default)]
+struct UltimaRodada {
+    /// RFC3339 de quando a ultima rodada terminou.
+    em: Option<String>,
+    erro: Option<String>,
+    /// O resumo por ler. `Some` so quando foi a primeira rodada do dia E ela
+    /// trouxe alguma coisa.
+    resumo: Option<Resumo>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Resumo {
+    pub by_kind: BTreeMap<String, usize>,
+    pub at: String,
+}
+
+impl Default for SyncRuntime {
+    fn default() -> Self {
+        Self {
+            rodada: tokio::sync::Mutex::new(()),
+            acordar: tokio::sync::Notify::new(),
+            pronto: tokio::sync::Notify::new(),
+            rodando: AtomicBool::new(false),
+            ultima: Mutex::new(UltimaRodada::default()),
+        }
+    }
+}
+
+/// Uma rodada — a mesma para o daemon e para o botao.
+///
+/// Uma so implementacao de proposito: duplicar aqui duplicaria a decisao de
+/// quando parar, e a copia ficaria para tras no primeiro ajuste.
+///
+/// `Ok(None)` quando nao ha nada configurado. Isso NAO e erro: o M/OS funciona
+/// inteiro sem sincronizar, e o daemon chamaria isto a cada quinze minutos numa
+/// maquina onde o sync nunca foi ligado.
 ///
 /// # Por que `spawn_blocking`
 ///
-/// O `HttpTransport` e bloqueante, porque o motor e sincrono. Chamar isto
-/// direto num comando `async` do Tauri derruba o processo com "cannot block the
-/// current thread from within a runtime" — e derruba na hora, nao
-/// intermitentemente. Ver o topo do `mos-sync-http`.
-#[tauri::command]
-pub async fn sync_now(state: State<'_, crate::AppState>) -> Result<SyncRound, String> {
-    let endpoint = crate::load_settings(&state.settings_path).sync_endpoint;
+/// O `HttpTransport` e bloqueante, porque o motor e sincrono. Chamar direto de
+/// dentro de um worker do tokio derruba o processo com "cannot block the
+/// current thread from within a runtime" — na hora, nao intermitentemente.
+async fn rodar(app: &tauri::AppHandle) -> Result<Option<SyncRound>, String> {
+    let (storage, settings_path) = {
+        let state = app.state::<crate::AppState>();
+        (Arc::clone(&state.storage), state.settings_path.clone())
+    };
+    let endpoint = crate::load_settings(&settings_path).sync_endpoint;
     if endpoint.is_empty() {
-        return Err("Configure o endereco do hub antes de sincronizar.".into());
+        return Ok(None);
     }
     let Some(token) = token_guardado() else {
-        return Err("Falta o segredo do hub.".into());
+        return Ok(None);
     };
-    let storage: Arc<SqliteStorage> = Arc::clone(&state.storage);
 
-    tauri::async_runtime::spawn_blocking(move || {
-        let transporte = mos_sync_http::HttpTransport::novo(endpoint, token)
-            .map_err(|erro| erro.mensagem)?;
+    let runtime = app.state::<SyncRuntime>();
+    // Uma por vez. Quem chegou depois ESPERA e ve o resultado desta.
+    let _turno = runtime.rodada.lock().await;
+    runtime.rodando.store(true, Ordering::Relaxed);
+    let _ = app.emit("sync-changed", ());
+
+    let resultado = tauri::async_runtime::spawn_blocking(move || {
+        let transporte =
+            mos_sync_http::HttpTransport::novo(endpoint, token).map_err(|erro| erro.mensagem)?;
         let agora = time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
-        let rodada = storage
+        storage
             .sincronizar_agora(&transporte, agora as i64, LIMITE)
-            .map_err(|erro| erro.message)?;
-        Ok(SyncRound {
-            sent: rodada.enviadas,
-            received: rodada.recebidas,
-            conflicts: rodada.conflitos,
-            pending: rodada.pendentes,
-            error: rodada.erro,
-        })
+            .map_err(|erro| erro.message)
     })
-    .await
-    .map_err(|erro| format!("A rodada de sincronizacao nao terminou: {erro}"))?
+    .await;
+
+    runtime.rodando.store(false, Ordering::Relaxed);
+
+    let rodada =
+        resultado.map_err(|erro| format!("A rodada de sincronizacao nao terminou: {erro}"))??;
+
+    let agora = time::OffsetDateTime::now_utc();
+    let em = agora
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_default();
+    let hoje = agora.date().to_string();
+
+    {
+        let mut settings = crate::load_settings(&settings_path);
+        let primeira_do_dia = settings.sync_ultimo_resumo_em != hoje;
+        if let Ok(mut ultima) = runtime.ultima.lock() {
+            ultima.em = Some(em.clone());
+            ultima.erro = rodada.erro.clone();
+            // O resumo so nasce na PRIMEIRA rodada do dia, e so se trouxe algo.
+            // Nao ter noticia nao e noticia.
+            if primeira_do_dia && !rodada.recebidas_por_tipo.is_empty() {
+                ultima.resumo = Some(Resumo {
+                    by_kind: rodada.recebidas_por_tipo.clone(),
+                    at: em.clone(),
+                });
+                // Marca ANTES de a tela ler: se o app fechar entre a rodada e a
+                // leitura, o resumo se perde — e perder uma noticia e melhor
+                // que mostrar a de anteontem como se fosse de hoje.
+                settings.sync_ultimo_resumo_em = hoje;
+                let _ = crate::save_settings(&settings_path, &settings);
+            }
+        }
+    }
+
+    let _ = app.emit("sync-changed", ());
+    Ok(Some(SyncRound {
+        sent: rodada.enviadas,
+        received: rodada.recebidas,
+        conflicts: rodada.conflitos,
+        pending: rodada.pendentes,
+        received_by_kind: rodada.recebidas_por_tipo,
+        error: rodada.erro,
+    }))
+}
+
+/// Uma rodada, agora, pedida pelo botao.
+#[tauri::command]
+pub async fn sync_now(app: tauri::AppHandle) -> Result<SyncRound, String> {
+    match rodar(&app).await? {
+        Some(rodada) => Ok(rodada),
+        None => Err("Configure o endereco do hub antes de sincronizar.".into()),
+    }
+}
+
+/// O laco que faz o M/OS sincronizar sozinho.
+///
+/// # Por que a primeira rodada ESPERA
+///
+/// `sincronizar_agora` segura o mutex do relogio a rodada inteira, de proposito
+/// — soltar no meio faria uma mutacao local emitir um instante que o motor ja
+/// passou. Com fila grande, rodar junto com a abertura seguraria o banco
+/// enquanto a webview faz a rajada de IPC do boot: o `abertura.ts` gastaria as
+/// 12 tentativas dele contra um banco ocupado, e o sintoma seria a tela de erro
+/// que 4800e75 acabou de consertar — com causa nova e a mesma mensagem
+/// mentirosa.
+pub fn iniciar_daemon(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        {
+            let runtime = app.state::<SyncRuntime>();
+            let _ = tokio::time::timeout(TETO_DA_ABERTURA, runtime.pronto.notified()).await;
+        }
+
+        loop {
+            if let Err(erro) = rodar(&app).await {
+                // Ao `stderr`, e nao numa caixa: a rodada de fundo que falha
+                // nao pode interromper quem esta trabalhando. A faixa conta.
+                eprintln!("[sync] a rodada de fundo parou: {erro}");
+                let runtime = app.state::<SyncRuntime>();
+                runtime.rodando.store(false, Ordering::Relaxed);
+                if let Ok(mut ultima) = runtime.ultima.lock() {
+                    ultima.erro = Some(erro);
+                }
+                let _ = app.emit("sync-changed", ());
+            }
+
+            let runtime = app.state::<SyncRuntime>();
+            let _ = tokio::time::timeout(REDE_DE_SEGURANCA, runtime.acordar.notified()).await;
+        }
+    });
+}
+
+/// Pede uma rodada. Ignorado se o daemon ainda nao existe.
+///
+/// `notify_one` e nao `notify_waiters`: o laco e um so, e um pedido que chega
+/// enquanto ele ja roda fica GUARDADO — a proxima espera retorna na hora, em vez
+/// de a mutacao que chegou no meio da rodada esperar quinze minutos.
+pub fn acordar<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(runtime) = app.try_state::<SyncRuntime>() {
+        runtime.acordar.notify_one();
+    }
+}
+
+/// A tela terminou de abrir. Libera a primeira rodada.
+#[tauri::command]
+pub fn sync_app_pronto(runtime: State<'_, SyncRuntime>) {
+    runtime.pronto.notify_waiters();
+}
+
+/// O resumo do dia foi lido.
+#[tauri::command]
+pub fn sync_dispensar_resumo(
+    app: tauri::AppHandle,
+    runtime: State<'_, SyncRuntime>,
+) -> Result<(), String> {
+    runtime
+        .ultima
+        .lock()
+        .map_err(|_| "Estado do sync indisponivel.".to_string())?
+        .resumo = None;
+    let _ = app.emit("sync-changed", ());
+    Ok(())
 }
