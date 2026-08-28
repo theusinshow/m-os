@@ -271,7 +271,7 @@ impl IngestionRepository for SqliteStorage {
         resource: NewResource,
         plan: &RelationPlan,
     ) -> Result<(Ingestion, Resource), CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         expect_state(&transaction, id, &["preserved"])?;
         let resource_id = insert_resource(self, &transaction, resource)?;
@@ -313,7 +313,7 @@ impl IngestionRepository for SqliteStorage {
         existing: ResourceId,
         plan: &RelationPlan,
     ) -> Result<Ingestion, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         expect_state(&transaction, id, &["preserved"])?;
 
@@ -480,7 +480,7 @@ impl IngestionRepository for SqliteStorage {
     }
 
     fn undo_ingestion(&self, id: IngestionId) -> Result<(), CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let ingestion = query_ingestion_tx(&transaction, id)?;
         let now = format_time(OffsetDateTime::now_utc())?;

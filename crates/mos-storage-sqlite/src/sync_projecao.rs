@@ -593,6 +593,16 @@ fn valor_sql(valor: &serde_json::Value) -> rusqlite::types::Value {
 /// teste que montava o caminho a mao — ele passava por um caminho que o M/OS nao
 /// usa. A unica porta e `SqliteStorage::sincronizar_agora`, que faz as duas
 /// metades.
+///
+/// # NAO troque `connection.lock()` por `escrita()` aqui dentro
+///
+/// Toda escrita do crate passa pelo portao (`SqliteStorage::portao`), e a regra
+/// vale — mas esta struct e a excecao, e nao por descuido: ela roda POR BAIXO de
+/// `sincronizar_agora`, que ja tomou o portao para a rodada inteira. O cadeado
+/// nao e reentrante, entao pedi-lo de novo aqui prenderia a rodada em si mesma.
+///
+/// Pelo mesmo motivo nada aqui emite operacao: o que a projecao grava veio de
+/// FORA, e reemiti-lo devolveria ao hub o que o hub acabou de mandar.
 pub(crate) struct ProjecaoSqlite<'a> {
     pub(crate) storage: &'a SqliteStorage,
     /// Entidades cujo estado foi gravado mas que ainda nao viraram linha.
@@ -728,6 +738,13 @@ impl SqliteStorage {
         agora_ms: i64,
         limite: usize,
     ) -> Result<mos_sync::Rodada, CoreError> {
+        // O PORTAO ANTES DO RELOGIO, e o "antes" e o conserto inteiro.
+        //
+        // Esta rodada vai pedir a conexao muitas vezes la dentro, pela projecao,
+        // enquanto segura o relogio. Uma escrita que chegasse no meio disso
+        // estaria com a conexao na mao esperando o relogio, e as duas esperariam
+        // uma pela outra para sempre. Ver `SqliteStorage::portao`.
+        let _portao = self.portao()?;
         let mut slot = self.sync.lock().map_err(crate::map_lock_error)?;
         let Some(relogio) = slot.as_mut() else {
             return Err(crate::sync_emit::erro_de_sync(

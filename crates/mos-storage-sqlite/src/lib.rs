@@ -22,7 +22,7 @@ mod work_repository;
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Mutex, MutexGuard},
     time::Duration,
 };
 
@@ -85,6 +85,42 @@ const MIGRATION_034: &str = include_str!("../migrations/0034_academic_decision.s
 const MIGRATION_035: &str = include_str!("../migrations/0035_sync_state.sql");
 
 pub struct SqliteStorage {
+    /// O PORTAO: quem vai mexer na conexao E no relogio passa por aqui antes.
+    ///
+    /// # O abraco mortal que ele existe para tornar impossivel
+    ///
+    /// Dois cadeados, e dois caminhos que os pegavam em ordem CONTRARIA:
+    ///
+    /// | caminho | pegava primeiro | depois |
+    /// |---|---|---|
+    /// | uma escrita que emite (`emitir`) | `connection` | `sync` |
+    /// | uma rodada (`sincronizar_agora`) | `sync` | `connection` |
+    ///
+    /// Ordens contrarias nao sao risco teorico: sao um abraco mortal esperando o
+    /// encontro. E o encontro chega sozinho, porque uma rodada roda em segundo
+    /// plano enquanto o aplicativo continua escrevendo — no `mos-web` isso era
+    /// capturar duas coisas seguidas, e o servidor prendia **para sempre**, sem
+    /// log, sem erro e sem voltar ao reabrir.
+    ///
+    /// # Por que um terceiro cadeado, e nao a ordem invertida
+    ///
+    /// Inverter a ordem exigiria que as 65 escritas do crate pegassem o relogio
+    /// ANTES da conexao, e uma escrita nova que esquecesse disso traria o abraco
+    /// de volta calada. O portao troca essa disciplina por uma so, verificavel:
+    /// **quem escreve chama [`SqliteStorage::escrita`]**, que ja devolve os dois
+    /// na ordem certa e nao deixa escolher.
+    ///
+    /// Assim rodada e escrita nunca correm juntas — que e, alias, o que o `sync`
+    /// ja tentava garantir segurando o relogio pela rodada inteira. O portao
+    /// apenas move essa garantia para ANTES da conexao, que e onde ela precisava
+    /// estar desde o comeco.
+    ///
+    /// # O que NAO passa por ele
+    ///
+    /// Leitura. Ela toca so a conexao, nunca o relogio, e por isso nao consegue
+    /// participar do ciclo. Fazer a inbox esperar por uma rodada de rede seria
+    /// pagar em tela travada por um risco que ela nao corre.
+    portao: Mutex<()>,
     connection: Mutex<Connection>,
     backup_lock: Mutex<()>,
     database_path: PathBuf,
@@ -95,6 +131,39 @@ pub struct SqliteStorage {
     /// inteiro sem ela, e e isso que permite ligar a emissao por entidade, uma
     /// de cada vez, sem parar o desktop. Ver `sync_emit.rs`.
     sync: Mutex<Option<mos_sync::HlcClock>>,
+}
+
+/// A conexao com o portao junto: o par que toda escrita que emite operacao usa.
+///
+/// Ela existe para a ordem certa NAO SER UMA ESCOLHA. Uma escrita que pegasse os
+/// cadeados a mao poderia pega-los na ordem errada, e o defeito so apareceria
+/// meses depois, num travamento sem log — ver `SqliteStorage::portao`.
+///
+/// Ela desreferencia para `Connection`, entao tudo que vinha depois da linha do
+/// `lock()` continua igual: `unchecked_transaction`, `execute`, `query_row`.
+pub(crate) struct Escrita<'a> {
+    /// Declarada PRIMEIRO de proposito: campo declarado antes cai antes, e a
+    /// conexao tem que ser solta com o portao ainda na mao. Ao contrario haveria
+    /// um instante com a conexao presa e o portao livre — que e exatamente a
+    /// janela que o portao existe para fechar.
+    conexao: MutexGuard<'a, Connection>,
+    _portao: MutexGuard<'a, ()>,
+}
+
+impl std::ops::Deref for Escrita<'_> {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        &self.conexao
+    }
+}
+
+/// `DerefMut` porque `Connection::transaction()` — a com rollback automatico —
+/// exige `&mut`. Uma escrita usa ela; as outras usam `unchecked_transaction`.
+impl std::ops::DerefMut for Escrita<'_> {
+    fn deref_mut(&mut self) -> &mut Connection {
+        &mut self.conexao
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -126,12 +195,39 @@ impl SqliteStorage {
         ensure_search_projection(&connection)?;
 
         Ok(Self {
+            portao: Mutex::new(()),
             connection: Mutex::new(connection),
             backup_lock: Mutex::new(()),
             database_path,
             backup_directory,
             sync: Mutex::new(None),
         })
+    }
+
+    /// Por onde TODA escrita que emite operacao pega o banco.
+    ///
+    /// Portao primeiro, conexao depois — nesta ordem e sem alternativa. Ver
+    /// `SqliteStorage::portao` para o abraco mortal que isto torna impossivel.
+    ///
+    /// Uma escrita que NAO emite — restaurar um backup, que troca o arquivo
+    /// inteiro — nao precisa dela: sem emissao nao ha relogio, e sem relogio nao
+    /// ha ciclo.
+    pub(crate) fn escrita(&self) -> Result<Escrita<'_>, CoreError> {
+        let portao = self.portao.lock().map_err(map_lock_error)?;
+        let conexao = self.connection.lock().map_err(map_lock_error)?;
+        Ok(Escrita {
+            conexao,
+            _portao: portao,
+        })
+    }
+
+    /// O portao sozinho, para quem vai pegar a conexao la dentro.
+    ///
+    /// Existe por causa de uma so chamadora: `sincronizar_agora` nao segura a
+    /// conexao — ela entrega a projecao, que a pega e solta muitas vezes durante
+    /// a rodada. O que ela precisa e chegar ANTES, e e so isso que isto faz.
+    pub(crate) fn portao(&self) -> Result<MutexGuard<'_, ()>, CoreError> {
+        self.portao.lock().map_err(map_lock_error)
     }
 
     pub fn health(&self) -> Result<StorageHealth, CoreError> {

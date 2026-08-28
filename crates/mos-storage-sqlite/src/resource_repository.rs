@@ -63,7 +63,7 @@ impl RawResource {
 
 impl ResourceRepository for SqliteStorage {
     fn create_resource(&self, resource: NewResource) -> Result<Resource, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let id = insert_resource(self, &transaction, resource)?;
         transaction.commit().map_err(map_sql_error)?;
@@ -77,7 +77,7 @@ impl ResourceRepository for SqliteStorage {
         url: &str,
         note: &str,
     ) -> Result<Resource, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         delete_resource_search(&transaction, id)?;
         let now = format_time(OffsetDateTime::now_utc())?;
@@ -157,7 +157,7 @@ impl ResourceRepository for SqliteStorage {
             LifecycleState::Archived => (Some(now.as_str()), None),
             LifecycleState::Trashed => (None, Some(now.as_str())),
         };
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -277,7 +277,7 @@ impl ResourceRepository for SqliteStorage {
     }
 
     fn delete_resource(&self, id: ResourceId) -> Result<(), CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         guard_deletable(&transaction, "resources", &id.to_string(), "Resource")?;
         delete_resource_search(&transaction, id)?;
@@ -299,7 +299,7 @@ impl ResourceRepository for SqliteStorage {
         workspace_id: WorkspaceId,
         linked: bool,
     ) -> Result<(), CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         if linked {
             let now = format_time(OffsetDateTime::now_utc())?;
@@ -363,7 +363,7 @@ impl ResourceRepository for SqliteStorage {
         project_id: ProjectId,
         linked: bool,
     ) -> Result<(), CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         {
             let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
             link_resource_project(self, &transaction, resource_id, project_id, linked)?;

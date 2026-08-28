@@ -109,7 +109,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .push
                 .as_ref()
                 .map(|push| std::sync::Arc::clone(&push.avisador)),
-            std::sync::Arc::clone(&estado.vez),
         );
     }
 

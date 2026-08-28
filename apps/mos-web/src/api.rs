@@ -230,47 +230,38 @@ fn empurrar(estado: &Estado) {
         crate::sync::agora(
             std::sync::Arc::clone(&estado.storage),
             std::sync::Arc::clone(hub),
-            std::sync::Arc::clone(&estado.vez),
         );
     }
 }
 
-/// TODA escrita de dominio passa por aqui, e a razao nao e arrumacao.
+/// TODA escrita de dominio passa por aqui, numa thread de bloqueio.
 ///
-/// # A vez
+/// # Por que nao direto no handler
 ///
-/// Uma escrita e uma rodada de sync pegam os dois cadeados do `SqliteStorage` em
-/// ordem contraria, e o encontro das duas trava o servidor **para sempre** — o
-/// desenho inteiro do abraco esta em `estado::Estado::vez`. Como toda escrita
-/// dispara uma rodada, o encontro nao e raro: e o que acontece quando alguem
-/// captura duas coisas seguidas.
+/// O que corre aqui dentro e SQLite bloqueante, e ele pode esperar: o portao do
+/// `SqliteStorage` faz uma escrita aguardar a rodada de sync em curso terminar —
+/// e uma rodada e uma ida a rede. Num worker do tokio essa espera prenderia a
+/// thread que serve as outras requisicoes, e a inbox pararia de carregar porque
+/// alguem mandou uma captura.
 ///
-/// Passar por uma funcao so e o que impede o conserto de envelhecer: uma rota
-/// nova escrita a mao nasceria sem a vez, e o defeito voltaria sem nada na tela
-/// dizendo isso.
+/// # O que este arquivo NAO precisa mais fazer
 ///
-/// # E por que `spawn_blocking`
-///
-/// O que corre aqui dentro e SQLite bloqueante, e agora ele tambem pode esperar
-/// uma rodada de rede terminar. Num worker do tokio isso prenderia a thread que
-/// serve as outras requisicoes — a inbox pararia de carregar porque alguem
-/// mandou uma captura.
+/// Serializar escrita contra rodada. Isso morava aqui como remendo — os dois
+/// caminhos pegavam os cadeados do `SqliteStorage` em ordem contraria, e o
+/// encontro travava o servidor para sempre. A ordem foi consertada no crate
+/// (`SqliteStorage::portao`), que e onde os cadeados moram; um remendo aqui em
+/// cima so faria parecer que o crate ainda nao resolve isso.
 async fn escrever<T, F>(estado: &Estado, tarefa: F) -> Resultado<T>
 where
     F: FnOnce(&Estado) -> Result<T, CoreError> + Send + 'static,
     T: Send + 'static,
 {
     let meu = estado.clone();
-    let feito = tokio::task::spawn_blocking(move || {
-        let _vez = crate::estado::tomar(&meu.vez);
-        tarefa(&meu)
-    })
-    .await
-    .map_err(|causa| Erro(StatusCode::INTERNAL_SERVER_ERROR, causa.to_string()))?
-    .map_err(de_core)?;
+    let feito = tokio::task::spawn_blocking(move || tarefa(&meu))
+        .await
+        .map_err(|causa| Erro(StatusCode::INTERNAL_SERVER_ERROR, causa.to_string()))?
+        .map_err(de_core)?;
 
-    // Depois de soltar a vez, e nunca antes: a rodada que este empurrao dispara
-    // precisa dela.
     empurrar(estado);
     Ok(feito)
 }

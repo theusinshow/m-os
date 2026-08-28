@@ -151,7 +151,7 @@ impl RawTask {
 impl WorkRepository for SqliteStorage {
     fn create_workspace(&self, workspace: NewWorkspace) -> Result<Workspace, CoreError> {
         let now = format_time(workspace.created_at)?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         transaction
             .execute(
@@ -194,7 +194,7 @@ impl WorkRepository for SqliteStorage {
         description: &str,
     ) -> Result<Workspace, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         delete_workspace_search(&transaction, id)?;
         let changed = transaction
@@ -252,7 +252,7 @@ impl WorkRepository for SqliteStorage {
     ) -> Result<Workspace, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
         let archived_at = (lifecycle == LifecycleState::Archived).then_some(now.as_str());
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         // Transacao, e nao `execute` solto como era antes: a operacao de
         // sincronizacao precisa entrar JUNTO com a mudanca. Arquivar e falhar ao
         // enfileirar deixaria um Workspace arquivado que nunca sai deste
@@ -364,7 +364,7 @@ impl WorkRepository for SqliteStorage {
         workspace_id: WorkspaceId,
         linked: bool,
     ) -> Result<(), CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         if linked {
             let now = format_time(OffsetDateTime::now_utc())?;
@@ -422,7 +422,7 @@ impl WorkRepository for SqliteStorage {
     }
 
     fn delete_task(&self, id: TaskId) -> Result<(), CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         guard_deletable(&transaction, "tasks", &id.to_string(), "Task")?;
         delete_task_search(&transaction, id)?;
@@ -442,7 +442,7 @@ impl WorkRepository for SqliteStorage {
     /// (0007_v03_design.sql:30). Apagar um Project nao pode levar trabalho junto
     /// — ele deixa de ter contexto, o que ja e perda suficiente.
     fn delete_project(&self, id: ProjectId) -> Result<(), CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         guard_deletable(&transaction, "projects", &id.to_string(), "Project")?;
         delete_project_search(&transaction, id)?;
@@ -771,7 +771,7 @@ impl WorkRepository for SqliteStorage {
 
     fn create_project(&self, project: NewProject) -> Result<Project, CoreError> {
         let now = format_time(project.created_at)?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         transaction
             .execute(
@@ -820,7 +820,7 @@ impl WorkRepository for SqliteStorage {
         repository: &str,
     ) -> Result<Project, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         delete_project_search(&transaction, id)?;
         let changed = transaction
@@ -881,7 +881,7 @@ impl WorkRepository for SqliteStorage {
     ) -> Result<Project, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
         let archived_at = (lifecycle == LifecycleState::Archived).then_some(now.as_str());
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -903,7 +903,7 @@ impl WorkRepository for SqliteStorage {
 
     fn create_task(&self, task: NewTask) -> Result<Task, CoreError> {
         let id = task.id;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         insert_task(self, &transaction, task, None)?;
         transaction.commit().map_err(map_sql_error)?;
@@ -916,7 +916,7 @@ impl WorkRepository for SqliteStorage {
         task: NewTask,
     ) -> Result<Task, CoreError> {
         let id = task.id;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let already_exists: bool = transaction
             .query_row(
@@ -960,7 +960,7 @@ impl WorkRepository for SqliteStorage {
     ) -> Result<(Task, Option<Reminder>), CoreError> {
         let task_id = task.id;
         let reminder_id = reminder.as_ref().map(|draft| draft.id);
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
 
         // A mesma guarda de `create_task_from_capture`: uma Capture tem no
@@ -1024,7 +1024,7 @@ impl WorkRepository for SqliteStorage {
         project_id: Option<ProjectId>,
     ) -> Result<Task, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         delete_task_search(&transaction, id)?;
         let changed = transaction
@@ -1091,7 +1091,7 @@ impl WorkRepository for SqliteStorage {
     fn set_task_state(&self, id: TaskId, state: TaskState) -> Result<Task, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
         let completed_at = (state == TaskState::Done).then_some(now.as_str());
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -1128,7 +1128,7 @@ impl WorkRepository for SqliteStorage {
     fn set_task_lifecycle(&self, id: TaskId, lifecycle: LifecycleState) -> Result<Task, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
         let archived_at = (lifecycle == LifecycleState::Archived).then_some(now.as_str());
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(

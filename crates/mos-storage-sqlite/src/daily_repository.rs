@@ -470,7 +470,7 @@ impl DailyRepository for SqliteStorage {
     ) -> Result<DailySession, CoreError> {
         let id = session.id;
         let momento = format_time(now)?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
 
         let ja_existe: i64 = transaction
@@ -567,7 +567,7 @@ impl DailyRepository for SqliteStorage {
     fn add_objective(&self, objective: NewDailyObjective) -> Result<DailyObjective, CoreError> {
         let id = objective.id;
         let momento = format_time(objective.created_at)?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
 
         if objective.priority == ObjectivePriority::Main {
@@ -588,7 +588,7 @@ impl DailyRepository for SqliteStorage {
             }
             None => (None, None),
         };
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
 
         if objective.priority == ObjectivePriority::Main {
@@ -642,7 +642,7 @@ impl DailyRepository for SqliteStorage {
         now: OffsetDateTime,
     ) -> Result<Vec<DailyObjective>, CoreError> {
         let momento = format_time(now)?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let session: String = connection
             .query_row(
                 "SELECT session_id FROM daily_objectives WHERE id = ?1",
@@ -676,7 +676,7 @@ impl DailyRepository for SqliteStorage {
     }
 
     fn remove_objective(&self, id: DailyObjectiveId) -> Result<(), CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -703,7 +703,7 @@ impl DailyRepository for SqliteStorage {
         now: OffsetDateTime,
     ) -> Result<Vec<DailyObjective>, CoreError> {
         let momento = format_time(now)?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         for (position, id) in order.iter().enumerate() {
             // O `session_id` entra no WHERE: um id de outra sessao mandado por
@@ -735,7 +735,7 @@ impl DailyRepository for SqliteStorage {
         now: OffsetDateTime,
     ) -> Result<DailySession, CoreError> {
         let momento = format_time(now)?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
 
         for (id, status) in resolutions {
@@ -828,7 +828,7 @@ impl DailyRepository for SqliteStorage {
         now: OffsetDateTime,
     ) -> Result<DailySession, CoreError> {
         let momento = format_time(now)?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
 
         // Recusa se ja houver OUTRO dia aberto. Dois dias `active` e o estado
@@ -1013,7 +1013,7 @@ impl DailyRepository for SqliteStorage {
         let fechado = format_time(review.closed_at)?;
         let semana = review.week.start().as_str().to_owned();
 
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
 
         // `closed_at` fica FORA do UPDATE de proposito: corrigir o texto na

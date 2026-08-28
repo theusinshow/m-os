@@ -49,7 +49,7 @@ pub(crate) const CAPTURE_COLUMNS: &str =
 impl CaptureRepository for SqliteStorage {
     fn create(&self, capture: NewCapture) -> Result<Capture, CoreError> {
         let now = format_time(capture.captured_at)?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         insert_capture(&transaction, &capture, &now)?;
         // A operacao entra na MESMA transacao. Gravar a Capture e falhar aqui
@@ -202,7 +202,7 @@ impl CaptureRepository for SqliteStorage {
         state: ProcessingState,
     ) -> Result<Capture, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -232,7 +232,7 @@ impl CaptureRepository for SqliteStorage {
             LifecycleState::Archived => (Some(now.as_str()), None),
             LifecycleState::Trashed => (None, Some(now.as_str())),
         };
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -264,7 +264,7 @@ impl CaptureRepository for SqliteStorage {
     /// Aqui a recusa explica o motivo real: a proveniencia daquele item
     /// derivado deixaria de existir.
     fn delete_capture(&self, id: CaptureId) -> Result<(), CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         guard_deletable(&transaction, "captures", &id.to_string(), "Capture")?;
         let derived: i64 = transaction

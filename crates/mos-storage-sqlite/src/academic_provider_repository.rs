@@ -375,7 +375,7 @@ impl AcademicProviderRepository for SqliteStorage {
         let agora_dt = OffsetDateTime::now_utc();
         let agora = format_time(agora_dt)?;
 
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
 
         // --- Semestres -----------------------------------------------------

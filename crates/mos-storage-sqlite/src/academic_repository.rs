@@ -342,7 +342,7 @@ impl AcademicRepository for SqliteStorage {
     fn create_semester(&self, semester: NewSemester) -> Result<Semester, CoreError> {
         let id = semester.id;
         let now = format_time(semester.created_at)?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         transaction
             .execute(
@@ -403,7 +403,7 @@ impl AcademicRepository for SqliteStorage {
             ));
         }
         let now = format_time(OffsetDateTime::now_utc())?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -444,7 +444,7 @@ impl AcademicRepository for SqliteStorage {
         state: LifecycleState,
     ) -> Result<Semester, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -483,7 +483,7 @@ impl AcademicRepository for SqliteStorage {
     fn create_subject(&self, subject: NewSubject) -> Result<Subject, CoreError> {
         let id = subject.id;
         let now = format_time(subject.created_at)?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         transaction
             .execute(
@@ -537,7 +537,7 @@ impl AcademicRepository for SqliteStorage {
         notes: &str,
     ) -> Result<Subject, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -572,7 +572,7 @@ impl AcademicRepository for SqliteStorage {
         state: LifecycleState,
     ) -> Result<Subject, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -614,7 +614,7 @@ impl AcademicRepository for SqliteStorage {
             .pontuacao
             .map(Pontuacao::colunas)
             .unwrap_or((None, None));
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         transaction
             .execute(
@@ -675,7 +675,7 @@ impl AcademicRepository for SqliteStorage {
         let (score, max_score) = Pontuacao::nova(input.score, input.max_score)?
             .map(Pontuacao::colunas)
             .unwrap_or((None, None));
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -725,7 +725,7 @@ impl AcademicRepository for SqliteStorage {
         status: AssignmentStatus,
     ) -> Result<Assignment, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let atual = one_assignment(&transaction, id)?;
         transaction
@@ -784,7 +784,7 @@ impl AcademicRepository for SqliteStorage {
         state: LifecycleState,
     ) -> Result<Assignment, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -806,7 +806,7 @@ impl AcademicRepository for SqliteStorage {
     }
 
     fn create_task_for_assignment(&self, id: AssignmentId) -> Result<Task, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let assignment = one_assignment(&transaction, id)?;
         if assignment.task_id.is_some() {
@@ -845,7 +845,7 @@ impl AcademicRepository for SqliteStorage {
 
     fn unlink_assignment_task(&self, id: AssignmentId) -> Result<Assignment, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -883,7 +883,7 @@ impl AcademicRepository for SqliteStorage {
         let now = format_time(exam.created_at)?;
         let at = format_time(exam.at)?;
         let (score, max_score) = exam.pontuacao.map(Pontuacao::colunas).unwrap_or((None, None));
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         transaction
             .execute(
@@ -938,7 +938,7 @@ impl AcademicRepository for SqliteStorage {
         let (score, max_score) = Pontuacao::nova(input.score, input.max_score)?
             .map(Pontuacao::colunas)
             .unwrap_or((None, None));
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -984,7 +984,7 @@ impl AcademicRepository for SqliteStorage {
 
     fn set_exam_lifecycle(&self, id: ExamId, state: LifecycleState) -> Result<Exam, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -1050,7 +1050,7 @@ impl AcademicRepository for SqliteStorage {
         linked: bool,
     ) -> Result<(), CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         if linked {
             transaction
@@ -1106,7 +1106,7 @@ impl AcademicRepository for SqliteStorage {
         let id = StudySessionId::new();
         let agora = OffsetDateTime::now_utc();
         let now = format_time(agora)?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
 
         // Fecha a que ficou aberta, com o tempo de parede.
@@ -1184,7 +1184,7 @@ impl AcademicRepository for SqliteStorage {
             ));
         }
         let now = format_time(OffsetDateTime::now_utc())?;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
@@ -1329,7 +1329,7 @@ impl AcademicRepository for SqliteStorage {
     }
 
     fn discard_study(&self, id: StudySessionId) -> Result<(), CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         transaction
             .execute(
@@ -1371,7 +1371,7 @@ impl AcademicRepository for SqliteStorage {
         } else {
             Some(now.clone())
         };
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let mudou = transaction
             .execute(
@@ -1404,7 +1404,7 @@ impl AcademicRepository for SqliteStorage {
         } else {
             Some(now.clone())
         };
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let mudou = transaction
             .execute(
@@ -1438,7 +1438,7 @@ impl AcademicRepository for SqliteStorage {
         let now = format_time(OffsetDateTime::now_utc())?;
         let quando = plano.map(|p| format_time(p.quando)).transpose()?;
         let minutos = plano.map(|p| p.minutos).unwrap_or(0);
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let mudou = transaction
             .execute(
@@ -1468,7 +1468,7 @@ impl AcademicRepository for SqliteStorage {
         let now = format_time(OffsetDateTime::now_utc())?;
         let quando = plano.map(|p| format_time(p.quando)).transpose()?;
         let minutos = plano.map(|p| p.minutos).unwrap_or(0);
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let mudou = transaction
             .execute(

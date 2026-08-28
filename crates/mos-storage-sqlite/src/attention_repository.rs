@@ -132,7 +132,7 @@ fn encode_trigger(trigger: &Trigger) -> Result<String, CoreError> {
 impl AttentionRepository for SqliteStorage {
     fn create_reminder(&self, reminder: NewReminder) -> Result<Reminder, CoreError> {
         let id = reminder.id;
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         insert_reminder(&transaction, &reminder)?;
         self.emitir(
@@ -182,7 +182,7 @@ impl AttentionRepository for SqliteStorage {
     }
 
     fn save_reminder(&self, reminder: &Reminder) -> Result<Reminder, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let (target_type, target_id) = match reminder.target {
             Some(target) => {
                 let (kind, id) = target.as_columns();
@@ -254,7 +254,7 @@ impl AttentionRepository for SqliteStorage {
         id: ReminderId,
         state: LifecycleState,
     ) -> Result<Reminder, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(

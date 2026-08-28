@@ -853,7 +853,7 @@ impl MeetingRepository for SqliteStorage {
         let task_id = task.id;
         let reminder_id = reminder.as_ref().map(|reminder| reminder.id);
 
-        let mut connection = self.connection.lock().map_err(map_lock_error)?;
+        let mut connection = self.escrita()?;
         let transaction = connection.transaction().map_err(map_sql_error)?;
 
         // A guarda vem PRIMEIRO, dentro da transacao. Fora dela, duas

@@ -89,6 +89,25 @@ impl SqliteStorage {
         entidade: EntityRef,
         corpo: OpBody,
     ) -> Result<(), CoreError> {
+        // O CANARIO DO PORTAO.
+        //
+        // Aqui e a linha exata onde o abraco mortal nascia: a conexao ja esta na
+        // mao de quem chamou, e agora o relogio vai ser pedido. Se o portao
+        // estiver LIVRE, quem chamou nao passou por `escrita()` — e essa escrita
+        // e uma bomba-relogio que so estoura quando cair dentro de uma rodada.
+        //
+        // `try_lock` responde `Err` de duas formas, e as duas sao aceitaveis: o
+        // portao esta com esta thread (o caso correto) ou com outra. Ele responde
+        // `Ok` numa unica situacao — ninguem o tem —, e ai o defeito e certo.
+        //
+        // Fica em `debug_assert` porque o preco de errar o julgamento e alto nos
+        // dois sentidos: em teste ele para na hora e aponta o metodo; em release
+        // ele some, e um falso positivo nao derruba escrita de ninguem.
+        debug_assert!(
+            self.portao.try_lock().is_err(),
+            "escrita emitindo operacao sem passar por SqliteStorage::escrita():              pegue a conexao com `self.escrita()?` em vez de `self.connection.lock()`"
+        );
+
         let mut slot = self.sync.lock().map_err(map_lock_error)?;
         let Some(relogio) = slot.as_mut() else {
             return Ok(());

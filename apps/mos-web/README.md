@@ -110,18 +110,23 @@ então basta a segunda escrita cair dentro da rodada da primeira. Nunca tinha
 aparecido porque nenhum teste escrevia duas vezes seguidas — foi a aba de
 lembretes, que cria e conclui em sequência, que o tornou reprodutível.
 
-O conserto daqui **desfaz o encontro em vez de reordenar os cadeados**: uma
-escrita e uma rodada nunca acontecem juntas (`estado::Estado::vez`), e toda
-escrita passa por `api::escrever` — uma rota nova escrita à mão sem a vez faria o
-defeito voltar sem nada na tela dizendo isso. Leitura não pega a vez: ela só toca
-a conexão, nunca o relógio, e fazer a inbox esperar por uma rodada de rede seria
-pagar em tela travada por um risco que ela não corre.
+O conserto está **onde os cadeados moram**, e não aqui em cima: o
+`SqliteStorage` ganhou um portão que toda escrita que emite operação atravessa
+antes de tocar na conexão (`SqliteStorage::portao`), e a rodada o toma primeiro.
+Com isso a ordem passou a ser uma só, e o desktop — que também emite escritas
+concorrentes — foi consertado junto.
 
-`tests/de_bolso.rs::escrever_em_rajada_nao_trava` guarda o conserto.
+Leitura não passa pelo portão: ela só toca a conexão, nunca o relógio, e por isso
+não consegue participar do ciclo. Fazer a inbox esperar por uma rodada de rede
+seria pagar em tela travada por um risco que ela não corre.
 
-**A ordem contrária continua lá dentro**, e ela alcança o desktop também — ele
-emite escritas concorrentes de comandos diferentes. Arrumar a ordem no
-`mos-storage-sqlite` é um conserto de outra caixa, e este aqui não o dispensa.
+O que ficou deste lado é `api::escrever`, e por outra razão: uma escrita agora
+pode esperar uma rodada de rede terminar, e essa espera num worker do tokio
+prenderia a thread que serve as outras requisições.
+
+Dois testes guardam o conserto — `tests/de_bolso.rs::escrever_em_rajada_nao_trava`
+aqui, e `escrita_e_rodada.rs` no `mos-storage-sqlite`, que trava em 30s se o
+portão sair.
 
 ## A porta
 
