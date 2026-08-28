@@ -36,6 +36,9 @@ pub fn rotas() -> Router<Estado> {
         .route("/api/inbox", get(inbox))
         .route("/api/tasks", get(tasks).post(criar_task))
         .route("/api/tasks/{id}/estado", post(mudar_estado))
+        .route("/api/lembretes", get(lembretes).post(criar_lembrete))
+        .route("/api/lembretes/{id}/concluir", post(concluir_lembrete))
+        .route("/api/lembretes/{id}/cancelar", post(cancelar_lembrete))
         .route("/api/estado", get(estado_do_aparelho))
         .route("/api/push/assinar", post(assinar_push))
         .route("/api/push/testar", post(testar_push))
@@ -349,6 +352,135 @@ async fn mudar_estado(
     .await?;
 
     Ok(Json(serde_json::to_value(task).unwrap_or_default()))
+}
+
+// -------------------------------------------------------------- lembretes
+
+/// # Por que CRIAR lembrete aqui nao contradiz o `avisos.rs`
+///
+/// O `avisos.rs` abre dizendo que este aparelho **le** lembretes e **nao
+/// escreve** nenhum, e isso continua verdade do jeito que importa: ele nao
+/// escreve estado de ENTREGA. Marcar "entregue" e uma decisao que o desktop
+/// tambem toma sobre o mesmo lembrete, e dois agendadores disputando a mesma
+/// coluna produzem o lembrete que some do PC porque o celular achou que ja tinha
+/// dado conta.
+///
+/// Criar e concluir sao outra coisa: sao a PESSOA decidindo, uma vez, num
+/// aparelho so. Elas sincronizam como a Task criada no bolso ja sincroniza — e
+/// recusa-las aqui significaria que a unica forma de lembrar de algo na rua e
+/// esperar chegar em casa.
+///
+/// # O instante chega RESOLVIDO
+///
+/// "Amanha de manha" e um conceito local, e este servidor roda numa VPS cujo
+/// fuso nao e o de quem tocou no botao. A tela calcula e manda RFC 3339; o
+/// servidor guarda UTC e nunca adivinha. E a regra normativa da
+/// `CORE-FOUNDATION.md` §5, e o mesmo caminho que o `ReminderComposer` do
+/// desktop segue.
+#[derive(Deserialize)]
+pub struct NovoLembrete {
+    pub titulo: String,
+    #[serde(default)]
+    pub nota: String,
+    /// RFC 3339, ja no instante exato. Ver acima.
+    pub quando: String,
+    /// A entidade a que ele se prende, quando se prende. Tipo e id andam
+    /// juntos — um alvo pela metade e um alvo que nao abre nada ao ser tocado.
+    #[serde(default)]
+    pub alvo_tipo: Option<String>,
+    #[serde(default)]
+    pub alvo_id: Option<String>,
+}
+
+fn instante(valor: &str) -> Result<time::OffsetDateTime, Erro> {
+    time::OffsetDateTime::parse(valor, &time::format_description::well_known::Rfc3339).map_err(
+        |_| {
+            Erro(
+                StatusCode::BAD_REQUEST,
+                String::from("Instante invalido: esperava RFC 3339."),
+            )
+        },
+    )
+}
+
+fn alvo(
+    tipo: Option<String>,
+    id: Option<String>,
+) -> Result<Option<mos_core::ReminderTarget>, Erro> {
+    match (tipo, id) {
+        (Some(tipo), Some(id)) => mos_core::ReminderTarget::from_columns(&tipo, &id)
+            .map(Some)
+            .map_err(de_core),
+        (None, None) => Ok(None),
+        _ => Err(Erro(
+            StatusCode::BAD_REQUEST,
+            String::from("Alvo incompleto: tipo e id andam juntos."),
+        )),
+    }
+}
+
+/// O que a tela mostra: o que ainda espera alguma coisa.
+async fn lembretes(State(estado): State<Estado>) -> Resultado<Json<serde_json::Value>> {
+    let itens = estado.attention.open().map_err(de_core)?;
+    Ok(Json(serde_json::to_value(itens).unwrap_or_default()))
+}
+
+async fn criar_lembrete(
+    State(estado): State<Estado>,
+    Json(pedido): Json<NovoLembrete>,
+) -> Resultado<Json<serde_json::Value>> {
+    let quando = instante(&pedido.quando)?;
+    let alvo = alvo(pedido.alvo_tipo, pedido.alvo_id)?;
+
+    let lembrete = escrever(&estado, move |estado| {
+        estado.attention.create_at(
+            &pedido.titulo,
+            &pedido.nota,
+            quando,
+            alvo,
+            // `User` e nao `System`: quem tocou no botao foi a pessoa. A origem
+            // alimenta o Attention Score, e um lembrete que a pessoa criou
+            // contando como regra automatica falsearia a conta.
+            mos_core::ReminderSource::User,
+        )
+    })
+    .await?;
+
+    Ok(Json(serde_json::to_value(lembrete).unwrap_or_default()))
+}
+
+/// Concluir e cancelar, e mais nada.
+///
+/// Adiar existe no dominio e NAO esta aqui de proposito: `Snooze` mexe no
+/// `next_due_at`, que e exatamente a coluna que o agendador do desktop le. As
+/// duas transicoes abaixo levam o lembrete para estado TERMINAL — depois delas
+/// nenhum agendador olha mais para ele, e nao ha o que disputar.
+async fn transitar(
+    estado: &Estado,
+    id: &str,
+    transicao: mos_core::Transition,
+) -> Resultado<Json<serde_json::Value>> {
+    let id = mos_core::ReminderId::parse(id).map_err(de_core)?;
+    let lembrete = escrever(estado, move |estado| {
+        estado.attention.transition(id, transicao)
+    })
+    .await?;
+
+    Ok(Json(serde_json::to_value(lembrete).unwrap_or_default()))
+}
+
+async fn concluir_lembrete(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+) -> Resultado<Json<serde_json::Value>> {
+    transitar(&estado, &id, mos_core::Transition::Complete).await
+}
+
+async fn cancelar_lembrete(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+) -> Resultado<Json<serde_json::Value>> {
+    transitar(&estado, &id, mos_core::Transition::Cancel).await
 }
 
 // -------------------------------------------------------------------- push

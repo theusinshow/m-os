@@ -7,7 +7,8 @@
  * design do desktop.
  *
  * O que muda aqui, e por quê: nada é hover. O dedo não tem hover, e um estado
- * que só existe no mouse é um estado que não existe no celular.
+ * que só existe no mouse é um estado que não existe no celular. O feedback de
+ * toque mora em `:active`, que é o único que o dedo produz.
  */
 
 :root {
@@ -26,12 +27,17 @@
   --signal: #e7c24e;
   --signal-wash: rgba(231, 194, 78, 0.16);
   --signal-press: #d0ac3c;
+  /* O verde do "em dia" não é um estado de marca, é a ausência de problema.
+     Ele é dessaturado de propósito: no M/OS o âmbar é quem tem direito de puxar
+     o olho, e um verde vivo competiria com ele por atenção que não merece. */
+  --calmo: #5f8f72;
 
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 20px;
   --space-5: 32px;
+  --space-6: 48px;
 
   --radius: 3px;
   --radius-lg: 8px;
@@ -39,6 +45,10 @@
   /* O alvo de toque não é decisão de estilo: abaixo de 44px o dedo erra, e
      errar aqui significa marcar a task errada como feita. */
   --toque: 44px;
+
+  /* Uma constante só para o tempo das transições. Elas são curtas porque tudo
+     aqui é resposta a um toque, e resposta a toque que demora parece travada. */
+  --tempo: 140ms;
 }
 
 * {
@@ -79,7 +89,7 @@ body {
 
 .topo {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
@@ -93,14 +103,32 @@ body {
 
 /* A fila é o único sinal honesto de que a sincronização está acontecendo. Ela
    fica sempre visível, e não escondida num menu: se o número não baixa, algo
-   está errado, e quem está com o celular na mão precisa poder ver isso. */
+   está errado, e quem está com o celular na mão precisa poder ver isso.
+
+   O ponto ao lado existe porque a cor sozinha não diz nada para quem não
+   distingue âmbar de verde — a palavra ao lado já carrega o estado, e o ponto
+   só dá a ela um lugar fixo no olhar. */
 .fila {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   color: var(--text-system);
   font: 500 12px/1.4 var(--font-system);
   letter-spacing: 0.05em;
 }
 
-.fila[data-pendente="sim"] {
+.fila i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.fila[data-estado="em-dia"] {
+  color: var(--calmo);
+}
+
+.fila[data-estado="fila"] {
   color: var(--signal);
 }
 
@@ -112,22 +140,52 @@ body {
 }
 
 .abas button {
+  display: flex;
   flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   min-height: var(--toque);
-  padding: var(--space-3) var(--space-2);
+  padding: var(--space-3) var(--space-1);
   border: 0;
   border-bottom: 2px solid transparent;
   background: none;
   color: var(--text-system);
-  font: 500 12px/1.4 var(--font-system);
+  font: 500 11px/1.4 var(--font-system);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   cursor: pointer;
+  transition: color var(--tempo) ease, border-color var(--tempo) ease;
+}
+
+.abas button:active {
+  background: var(--surface);
 }
 
 .abas button[aria-current="page"] {
   border-bottom-color: var(--signal);
   color: var(--signal);
+}
+
+/* O número ao lado do nome, e não colado nele.
+   Grudado no rótulo ele virava parte da palavra — "INBOX 4" se lia como o nome
+   da aba, e o olho não achava onde o número mudava. */
+.conta {
+  min-width: 18px;
+  padding: 1px var(--space-1);
+  border-radius: 9px;
+  background: var(--surface-active);
+  color: var(--text-secondary);
+  font: 500 10px/1.6 var(--font-system);
+  letter-spacing: 0;
+  text-align: center;
+}
+
+/* O badge de lembretes conta só o que cobra ação, então ele tem direito à cor
+   de sinal. Os outros contam o que existe, que é informação e não chamado. */
+.conta[data-urgente] {
+  background: var(--signal);
+  color: var(--canvas);
 }
 
 /* ------------------------------------------------------------ conteúdo */
@@ -142,10 +200,13 @@ body {
 }
 
 .vazio {
-  padding: var(--space-5) var(--space-4);
+  max-width: 40ch;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-3);
   color: var(--text-system);
-  font: 400 13px/1.5 var(--font-product);
+  font: 400 14px/1.6 var(--font-product);
   text-align: center;
+  text-wrap: balance;
 }
 
 /* --------------------------------------------------------------- lista */
@@ -169,6 +230,14 @@ body {
   background: var(--surface);
 }
 
+/* O corpo é quem encolhe. Sem `min-width: 0` num flex item, uma palavra longa
+   sem espaço — uma URL colada numa captura — empurra o sino para fora da tela
+   em vez de quebrar. */
+.item-corpo {
+  flex: 1;
+  min-width: 0;
+}
+
 .item p {
   margin: 0;
   overflow-wrap: anywhere;
@@ -178,8 +247,19 @@ body {
   display: block;
   margin-top: var(--space-1);
   color: var(--text-system);
-  font: 500 12px/1.4 var(--font-system);
+  font: 500 11px/1.45 var(--font-system);
   letter-spacing: 0.05em;
+}
+
+/* O lembrete que já venceu ganha uma barra, e não um fundo colorido: o fundo
+   competiria com o texto justamente na linha que precisa ser lida. */
+.item[data-cobra] {
+  border-color: var(--border-strong);
+  box-shadow: inset 2px 0 0 var(--signal);
+}
+
+.item[data-cobra] small {
+  color: var(--signal);
 }
 
 /* A caixa de marcar é o alvo mais tocado da tela, então ela é grande de
@@ -200,12 +280,284 @@ body {
   width: 20px;
   height: 20px;
   border: 1.5px solid var(--border-strong);
-  border-radius: var(--radius-sm, 2px);
+  border-radius: 2px;
+  transition: background var(--tempo) ease, border-color var(--tempo) ease;
+}
+
+.marcar:active span {
+  border-color: var(--signal);
 }
 
 .marcar[aria-pressed="true"] span {
   border-color: var(--signal);
   background: var(--signal);
+}
+
+/* O sino da Task. Mesma regra de alvo grande e desenho pequeno da caixa de
+   marcar, do outro lado da linha — as duas ações da linha ficam nas duas
+   pontas, e o dedo não escolhe errado por um pixel. */
+.sino {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--toque);
+  height: var(--toque);
+  margin: calc(var(--space-3) * -1) calc(var(--space-3) * -1) 0 0;
+  border: 0;
+  background: none;
+  color: var(--text-system);
+  cursor: pointer;
+  transition: color var(--tempo) ease;
+}
+
+.sino:active {
+  color: var(--signal);
+}
+
+/* Já há lembrete para esta Task. O sino aceso não desabilita o botão: um
+   segundo lembrete para a mesma coisa é uma decisão legítima — "me lembra de
+   novo às cinco" —, e o que a tela deve fazer é DIZER que já existe um, e não
+   impedir. A folha repete o aviso antes de criar. */
+.sino[data-ligado] {
+  color: var(--signal);
+}
+
+/* As ações de um lembrete. Elas ficam abaixo do texto em telas estreitas
+   porque duas palavras e um título na mesma linha espremem os dois. */
+.item-acoes {
+  display: flex;
+  flex: none;
+  gap: var(--space-2);
+}
+
+.acao {
+  min-height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: 500 12px/1.4 var(--font-system);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.acao:active {
+  background: var(--surface-active);
+}
+
+.acao[data-variante="quieto"] {
+  background: none;
+  color: var(--text-system);
+}
+
+.acao:disabled {
+  color: var(--text-system);
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* As ações do lembrete descem para a própria linha, SEMPRE.
+
+   Elas ficavam ao lado do texto, e num aparelho de 390px — que é a largura da
+   maioria — "Ligar para a marcenaria" quebrava em duas linhas para caber ao
+   lado de dois botões que não precisavam daquele espaço. Um título de lembrete
+   é frase, não rótulo: ele merece a largura toda, e as ações não perdem nada
+   embaixo, porque continuam do lado do polegar. */
+.lembretes .item {
+  flex-wrap: wrap;
+}
+
+.lembretes .item-acoes {
+  flex-basis: 100%;
+  justify-content: flex-end;
+  margin-top: var(--space-1);
+}
+
+/* ------------------------------------------------------------ lembretes */
+
+.lembretes {
+  display: grid;
+  gap: var(--space-5);
+}
+
+/* O canal de entrega, embaixo dos lembretes.
+   Enquanto está desligado ele é um bloco que explica o passo que falta; depois
+   que liga, vira uma linha. Configuração resolvida não merece ocupar o topo de
+   uma tela todo dia. */
+.canal {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.canal[data-estado="ativo"] {
+  gap: var(--space-2);
+}
+
+.canal .botao {
+  /* No polegar: um botão que ocupa a largura é um alvo que não se erra, e
+     errar aqui significa não ativar a notificação e não saber por quê. */
+  width: 100%;
+}
+
+.canal-linha {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--text-system);
+  font: 500 11px/1.4 var(--font-system);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.canal-linha i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--calmo);
+}
+
+/* A frase que explica o que fazer.
+   Ela tem largura máxima em `ch` e não em `%`: o que decide legibilidade é
+   quantos CARACTERES cabem na linha, e num iPhone deitado uma porcentagem
+   produziria linhas longas demais para ler de relance. */
+.explicacao {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--text-secondary);
+  font: 400 14px/1.55 var(--font-product);
+}
+
+/* As duas coisas que a notificação vai trazer.
+   Sem marcador de lista: são duas linhas, e um bullet aqui pesaria mais que o
+   conteúdo. O recuo do traço já separa o suficiente. */
+.promessas {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font: 400 14px/1.5 var(--font-product);
+}
+
+.promessas li::before {
+  content: "— ";
+  color: var(--text-system);
+}
+
+/* ------------------------------------------------------- folha de quando */
+
+/* O fundo escurece o app em vez de escondê-lo: a lista de onde a folha saiu
+   continua visível, e é ela que diz o que está sendo agendado. */
+.folha-fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(6, 8, 9, 0.72);
+  animation: aparecer var(--tempo) ease-out;
+}
+
+/* A folha vem de baixo porque é de baixo que o polegar alcança. Ver `Quando`. */
+.folha {
+  display: grid;
+  gap: var(--space-3);
+  width: 100%;
+  max-height: 90dvh;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-4)
+    calc(env(safe-area-inset-bottom) + var(--space-4));
+  border-top: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--surface-raised);
+  animation: subir 180ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+/* O que está sendo agendado, com o texto inteiro e sem cortar: numa lista de
+   tasks parecidas, a metade de um título não distingue uma da outra. */
+.folha-alvo {
+  margin: 0;
+  font: 500 17px/1.4 var(--font-product);
+  overflow-wrap: anywhere;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip {
+  min-height: 38px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 19px;
+  background: var(--surface);
+  color: var(--text);
+  font: 500 13px/1.4 var(--font-product);
+  cursor: pointer;
+  transition: background var(--tempo) ease, border-color var(--tempo) ease;
+}
+
+.chip:active {
+  background: var(--surface-active);
+}
+
+.chip[aria-pressed="true"] {
+  border-color: var(--signal);
+  background: var(--signal-wash);
+  color: var(--signal);
+}
+
+.campo-hora {
+  width: 100%;
+  min-height: var(--toque);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--canvas);
+  color: var(--text);
+  /* 16px não é escolha estética: abaixo disso o iOS dá zoom ao focar, e a folha
+     inteira salta debaixo do dedo. */
+  font: 400 16px/1.5 var(--font-product);
+}
+
+/* O instante resolvido, sempre visível: um lembrete que dispara em hora
+   diferente da que a pessoa achou que escolheu é pior que um que não dispara. */
+.folha-instante {
+  margin: 0;
+  color: var(--signal);
+  font: 500 13px/1.4 var(--font-system);
+  letter-spacing: 0.04em;
+}
+
+.folha-acoes {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.folha-acoes .botao {
+  flex: 1;
+}
+
+@keyframes subir {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+}
+
+@keyframes aparecer {
+  from {
+    opacity: 0;
+  }
 }
 
 /* -------------------------------------------------------------- captura */
@@ -249,6 +601,7 @@ body {
   color: var(--canvas);
   font: 500 14px/1.45 var(--font-product);
   cursor: pointer;
+  transition: background var(--tempo) ease;
 }
 
 .botao:active {
@@ -267,6 +620,16 @@ body {
   color: var(--text);
 }
 
+.botao[data-variante="quieto"]:active {
+  background: var(--surface-active);
+}
+
+.botao[data-variante="quieto"]:disabled {
+  border-color: var(--border);
+  background: none;
+  color: var(--text-system);
+}
+
 .linha-de-botoes {
   display: flex;
   gap: var(--space-2);
@@ -275,6 +638,7 @@ body {
 /* O recado da última ação, ao lado do botão que a provocou. */
 .recado {
   min-height: 18px;
+  margin: 0;
   color: var(--text-system);
   font: 500 12px/1.4 var(--font-system);
   letter-spacing: 0.05em;
@@ -340,56 +704,6 @@ body {
 .porta code {
   font: 400 13px/1.5 var(--font-system);
   color: var(--text);
-}
-
-/* ------------------------------------------------------------- avisos */
-
-/* A aba de notificações é a única sem compositor embaixo, então ela tem o
-   conteúdo todo aqui — e é uma coluna, e não uma lista: o que ela mostra é uma
-   frase e, no máximo, dois botões. */
-.avisos {
-  display: grid;
-  gap: var(--space-4);
-  justify-items: start;
-}
-
-/* A frase que explica o que fazer.
-   Ela tem largura máxima em `ch` e não em `%`: o que decide legibilidade é
-   quantos CARACTERES cabem na linha, e num iPhone deitado uma porcentagem
-   produziria linhas longas demais para ler de relance. */
-.explicacao {
-  max-width: 46ch;
-  margin: 0;
-  color: var(--text-secondary);
-  font: 400 14px/1.55 var(--font-product);
-}
-
-/* As duas coisas que a notificação vai trazer.
-   Sem marcador de lista: são duas linhas, e um bullet aqui pesaria mais que o
-   conteúdo. O recuo do traço já separa o suficiente. */
-.promessas {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  color: var(--text-secondary);
-  font: 400 14px/1.5 var(--font-product);
-}
-
-.promessas li::before {
-  content: "— ";
-  color: var(--text-system);
-}
-
-.avisos .botao {
-  /* No polegar: um botão que ocupa a largura é um alvo que não se erra, e
-     errar aqui significa não ativar a notificação e não saber por quê. */
-  width: 100%;
-}
-
-.avisos .rotulo {
-  margin: 0;
 }
 
 /* --------------------------------------------------------------- foco */

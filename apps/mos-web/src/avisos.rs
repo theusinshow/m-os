@@ -12,6 +12,11 @@
 //! `assinaturas.rs`. O aviso e uma decisao DESTE aparelho sobre a propria tela;
 //! o lembrete continua sendo do M/OS.
 //!
+//! A fronteira e sobre ENTREGA, e nao sobre escrita em geral: o `api.rs` cria,
+//! conclui e cancela lembretes, porque essas tres sao a pessoa decidindo uma vez
+//! num aparelho so — e as tres levam a estado que nenhum agendador disputa. Ver
+//! a secao de lembretes la.
+//!
 //! # Por que a decisao e uma funcao pura
 //!
 //! [`o_que_avisar`] recebe lembretes e um instante, e devolve avisos. Sem rede,

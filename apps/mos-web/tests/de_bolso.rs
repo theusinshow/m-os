@@ -155,6 +155,153 @@ async fn a_task_do_pc_aparece_no_bolso() {
     assert!(encontrada, "a Task do PC nao apareceu no bolso");
 }
 
+/// O lembrete criado no bolso chega no PC, apontando para a Task certa.
+///
+/// # Por que este teste existe, e nao so o de captura
+///
+/// Porque o `avisos.rs` abre dizendo que este aparelho **le** lembretes e **nao
+/// escreve** nenhum, e criar um e uma escrita. A fronteira que continua de pe e
+/// outra: ele nao escreve estado de ENTREGA — isso o desktop tambem faz, e dois
+/// agendadores na mesma coluna produzem o lembrete que some do PC. Criar e a
+/// pessoa decidindo, uma vez, e precisa sincronizar como a Task ja sincroniza.
+///
+/// Um lembrete que fica so no celular seria pior que nenhum: ele apareceria na
+/// lista, tocaria no bolso, e nunca existiria no PC — que e onde a pessoa
+/// trabalha.
+#[tokio::test(flavor = "multi_thread")]
+async fn o_lembrete_do_bolso_chega_no_pc() {
+    use mos_core::AttentionRepository;
+
+    let hub = servir_hub().await;
+    let pasta_web = tempfile::tempdir().unwrap();
+    let pasta_pc = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta_web.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    // A Task nasce no bolso, para o lembrete ter um alvo real. Um id inventado
+    // passaria pela rota e provaria menos: o que se quer conferir e que o alvo
+    // sobrevive a viagem.
+    let task: serde_json::Value = cliente
+        .post(format!("http://{web}/api/tasks"))
+        .json(&serde_json::json!({ "titulo": "Levar o notebook" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let task_id = task["id"].as_str().unwrap().to_owned();
+
+    // O instante chega RESOLVIDO, como a tela manda. Uma hora a frente para o
+    // lembrete nascer `scheduled` e nao vencido.
+    let quando = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
+    let resposta = cliente
+        .post(format!("http://{web}/api/lembretes"))
+        .json(&serde_json::json!({
+            "titulo": "Levar o notebook",
+            "quando": quando
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap(),
+            "alvo_tipo": "task",
+            "alvo_id": task_id,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(resposta.status().is_success(), "criar lembrete falhou");
+
+    // E ele aparece na lista do proprio bolso, que e o que a aba desenha.
+    let lista: serde_json::Value = cliente
+        .get(format!("http://{web}/api/lembretes"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(lista.as_array().map(Vec::len), Some(1));
+    assert_eq!(lista[0]["target"]["type"], "task");
+    assert_eq!(lista[0]["target"]["id"], task_id.as_str());
+
+    // Espera por CONDICAO, e nao por um numero fixo de milissegundos.
+    let caminho_pc = pasta_pc.path().to_path_buf();
+    let pc = tokio::task::spawn_blocking(move || {
+        let pc = outro_aparelho(&caminho_pc);
+        for _ in 0..50 {
+            sincronizar(&pc, hub);
+            if !pc.open_reminders().unwrap().is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        pc
+    })
+    .await
+    .unwrap();
+
+    let lembretes = pc.open_reminders().unwrap();
+    assert_eq!(lembretes.len(), 1, "o lembrete do bolso nao chegou no PC");
+    assert_eq!(lembretes[0].title, "Levar o notebook");
+    assert_eq!(
+        lembretes[0].target,
+        Some(mos_core::ReminderTarget::Task(
+            mos_core::TaskId::parse(&task_id).unwrap()
+        )),
+        "o lembrete chegou solto: o alvo se perdeu na viagem"
+    );
+}
+
+/// Concluir no bolso tira o lembrete da lista.
+///
+/// Concluir e cancelar levam a estado TERMINAL, e e por isso que estao na porta
+/// enquanto `snooze` nao esta: depois delas nenhum agendador olha mais para o
+/// lembrete, e nao ha o que os dois aparelhos disputem.
+#[tokio::test(flavor = "multi_thread")]
+async fn concluir_no_bolso_tira_da_lista() {
+    let hub = servir_hub().await;
+    let pasta = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    let quando = time::OffsetDateTime::now_utc() + time::Duration::hours(2);
+    let criado: serde_json::Value = cliente
+        .post(format!("http://{web}/api/lembretes"))
+        .json(&serde_json::json!({
+            "titulo": "Ligar para a marcenaria",
+            "quando": quando
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap(),
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = criado["id"].as_str().unwrap();
+
+    let resposta = cliente
+        .post(format!("http://{web}/api/lembretes/{id}/concluir"))
+        .send()
+        .await
+        .unwrap();
+    assert!(resposta.status().is_success(), "concluir falhou");
+
+    let lista: serde_json::Value = cliente
+        .get(format!("http://{web}/api/lembretes"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        lista.as_array().map(Vec::len),
+        Some(0),
+        "o lembrete concluido continua cobrando"
+    );
+}
+
 /// Escrever duas vezes seguidas nao trava o servidor.
 ///
 /// # O defeito que este teste guarda

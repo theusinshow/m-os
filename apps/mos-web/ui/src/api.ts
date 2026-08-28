@@ -18,6 +18,51 @@ export type Task = {
   state: "inbox" | "backlog" | "planned" | "doing" | "review" | "done";
 };
 
+/**
+ * A entidade a que um lembrete se prende, quando se prende.
+ *
+ * So `task` aparece nesta superficie hoje, e o tipo continua largo de proposito:
+ * o dominio tem sete bracos, e estreitar aqui faria a tela mentir sobre o que o
+ * servidor devolve quando um lembrete criado no PC aponta para outra coisa.
+ */
+export type AlvoDoLembrete = {
+  type: "task" | "project" | "capture" | "resource" | "conversation" | "app" | "meeting";
+  id: string;
+};
+
+export type EstadoDoLembrete =
+  | "scheduled"
+  | "due"
+  | "delivered"
+  | "acknowledged"
+  | "snoozed"
+  | "completed"
+  | "cancelled"
+  | "missed"
+  | "expired";
+
+export type Lembrete = {
+  id: string;
+  title: string;
+  body: string;
+  target: AlvoDoLembrete | null;
+  status: EstadoDoLembrete;
+  priority: "low" | "normal" | "high" | "urgent";
+  /** Quando vence — ou quando venceu. RFC 3339. */
+  nextDueAt: string | null;
+  snoozeCount: number;
+  createdAt: string;
+};
+
+/** O que ainda espera uma acao da pessoa. E o que o badge conta. */
+export function pedeAtencao(lembrete: Lembrete): boolean {
+  return (
+    lembrete.status === "due" ||
+    lembrete.status === "delivered" ||
+    lembrete.status === "missed"
+  );
+}
+
 export type EstadoDoAparelho = {
   pendentes: number;
   sincroniza: boolean;
@@ -94,6 +139,35 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ estado }),
     });
+  },
+  /**
+   * Cria um lembrete.
+   *
+   * `quando` viaja como instante JA RESOLVIDO, e o calculo de "amanha de manha"
+   * acontece AQUI de proposito: este servidor roda numa VPS cujo fuso nao e o de
+   * quem tocou no botao, e meia-noite em UTC e nove da noite no Brasil. Mesmo
+   * caminho que o `ReminderComposer` do desktop segue.
+   */
+  criarLembrete(titulo: string, quando: Date, nota = "", alvo?: AlvoDoLembrete) {
+    return pedir<Lembrete>("/api/lembretes", {
+      method: "POST",
+      body: JSON.stringify({
+        titulo,
+        nota,
+        quando: quando.toISOString(),
+        alvo_tipo: alvo?.type,
+        alvo_id: alvo?.id,
+      }),
+    });
+  },
+  lembretes() {
+    return pedir<Lembrete[]>("/api/lembretes");
+  },
+  concluirLembrete(id: string) {
+    return pedir<Lembrete>(`/api/lembretes/${id}/concluir`, { method: "POST" });
+  },
+  cancelarLembrete(id: string) {
+    return pedir<Lembrete>(`/api/lembretes/${id}/cancelar`, { method: "POST" });
   },
   estado() {
     return pedir<EstadoDoAparelho>("/api/estado");

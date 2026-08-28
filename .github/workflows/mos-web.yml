@@ -63,6 +63,16 @@ jobs:
           npm ci
           npm run build
 
+      # A aritmética de fuso da folha de "quando".
+      #
+      # Ela roda separada do Rust porque é o único pedaço do front que decide
+      # algo sozinho: um lembrete resolvido errado não falha, ele toca na hora
+      # errada — e isso só apareceria numa segunda-feira, ou às 19h, ou na
+      # virada do mês, que são momentos em que ninguém está olhando.
+      - name: Test the PWA
+        working-directory: apps/mos-web/ui
+        run: npm test
+
       - name: Test
         run: cargo test -p mos-web --locked
 

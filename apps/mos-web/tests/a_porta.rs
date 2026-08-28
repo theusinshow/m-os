@@ -54,6 +54,8 @@ const PROTEGIDAS: &[(&str, &str)] = &[
     ("GET", "/api/estado"),
     ("POST", "/api/capturar"),
     ("POST", "/api/tasks"),
+    ("GET", "/api/lembretes"),
+    ("POST", "/api/lembretes"),
     ("POST", "/api/push/assinar"),
     ("POST", "/api/push/testar"),
 ];

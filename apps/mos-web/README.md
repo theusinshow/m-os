@@ -28,14 +28,17 @@ recusa em toda linha.
 | Servidor, banco, identidade | pronto |
 | Sync contra o hub (fundo + a cada escrita) | pronto |
 | API: capturar, inbox, tasks | pronto |
+| API: lembretes (criar, ver, concluir) | pronto |
 | Porta (passkey) | **montada** — cerimônia atrás da feature, guardião sempre |
 | PWA em React | pronto |
 | Notificação (Web Push) | pronto |
 | Hermes com camada de ação | falta |
 
 Testes de ponta a ponta, com hub de verdade, `mos-web` de verdade e um segundo
-M/OS de verdade: a captura feita no bolso chega no PC e a Task criada no PC
-aparece no bolso. Conferido que todos caem quando o sync é desligado.
+M/OS de verdade: a captura feita no bolso chega no PC, a Task criada no PC
+aparece no bolso, e o lembrete criado no bolso chega no PC **com o alvo
+intacto** — um lembrete que chega solto apontaria para nada quando tocasse.
+Conferido que todos caem quando o sync é desligado.
 
 ## As features, e por que elas existem
 
@@ -169,11 +172,23 @@ pacote sem poder ler uma palavra dele.
 | Lembrete que venceu | um laço de 60s lê `attention.waiting()` e avisa uma vez cada |
 | Coisa nova vinda do PC | quando uma rodada de sync desce algo, diz **quantos** |
 
-O `mos-web` **lê** lembretes e **não escreve** nenhum. Marcar um Reminder como entregue
+O `mos-web` **não escreve estado de entrega**. Marcar um Reminder como entregue
 sincronizaria para o PC, e o desktop tem o próprio agendador olhando os mesmos
 lembretes — dois aparelhos disputando o mesmo estado produziriam o lembrete que
 some do PC porque o celular achou que já tinha dado conta. O que já foi avisado
 mora no `push.db`, que é local e não sincroniza.
+
+### O que ele PODE escrever, e por que a fronteira não é a mesma
+
+Criar, concluir e cancelar. As três são a pessoa decidindo, uma vez, num
+aparelho só — e sincronizam como a Task criada no bolso já sincroniza. Recusá-las
+aqui significaria que a única forma de lembrar de algo na rua é esperar chegar em
+casa.
+
+**Adiar não está na porta.** `Snooze` mexe no `next_due_at`, que é exatamente a
+coluna que o agendador do desktop lê para decidir quando acordar. Concluir e
+cancelar levam o lembrete a estado terminal: depois delas nenhum agendador olha
+mais para ele, e não há o que os dois aparelhos disputem.
 
 ### O que o iPhone exige, e que nada no código resolve
 
