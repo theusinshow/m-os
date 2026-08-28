@@ -38,8 +38,7 @@ use crate::{
     SqliteStorage,
 };
 
-const SESSION_COLUMNS: &str =
-    "id, day, status, note, started_at, ended_at, created_at, updated_at";
+const SESSION_COLUMNS: &str = "id, day, status, note, started_at, ended_at, created_at, updated_at";
 
 const OBJECTIVE_COLUMNS: &str = "id, session_id, title, description, link_kind, link_id, \
      priority, status, position, carried_from, created_at, updated_at, completed_at";
@@ -117,7 +116,10 @@ fn read_objective(row: &Row<'_>) -> rusqlite::Result<Result<DailyObjective, Core
             priority: ObjectivePriority::parse(&priority)?,
             status: ObjectiveStatus::parse(&status)?,
             position,
-            carried_from: carried_from.as_deref().map(DailyObjectiveId::parse).transpose()?,
+            carried_from: carried_from
+                .as_deref()
+                .map(DailyObjectiveId::parse)
+                .transpose()?,
             created_at: parse_time(&created_at)?,
             updated_at: parse_time(&updated_at)?,
             completed_at: completed_at.as_deref().map(parse_time).transpose()?,
@@ -156,7 +158,10 @@ fn objective_fields(
         None => (serde_json::Value::Null, serde_json::Value::Null),
     };
     Ok(vec![
-        ("sessionId", serde_json::json!(objective.session_id.to_string())),
+        (
+            "sessionId",
+            serde_json::json!(objective.session_id.to_string()),
+        ),
         ("title", serde_json::json!(objective.title)),
         ("description", serde_json::json!(objective.description)),
         ("linkKind", kind),
@@ -216,16 +221,21 @@ fn insert_objective(
         .map_err(map_sql_error)?;
 
     let mut fields = vec![
-        ("sessionId", serde_json::json!(objective.session_id.to_string())),
+        (
+            "sessionId",
+            serde_json::json!(objective.session_id.to_string()),
+        ),
         ("title", serde_json::json!(objective.title)),
         ("description", serde_json::json!(objective.description)),
         (
             "linkKind",
-            kind.as_deref().map_or(serde_json::Value::Null, |value| serde_json::json!(value)),
+            kind.as_deref()
+                .map_or(serde_json::Value::Null, |value| serde_json::json!(value)),
         ),
         (
             "linkId",
-            id.as_deref().map_or(serde_json::Value::Null, |value| serde_json::json!(value)),
+            id.as_deref()
+                .map_or(serde_json::Value::Null, |value| serde_json::json!(value)),
         ),
         ("priority", serde_json::json!(objective.priority.as_str())),
         ("status", serde_json::json!("pending")),
@@ -286,10 +296,16 @@ fn demote_main(
 }
 
 impl SqliteStorage {
-    fn query_sessions(&self, tail: &str, args: &[&dyn rusqlite::ToSql]) -> Result<Vec<DailySession>, CoreError> {
+    fn query_sessions(
+        &self,
+        tail: &str,
+        args: &[&dyn rusqlite::ToSql],
+    ) -> Result<Vec<DailySession>, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let mut statement = connection
-            .prepare(&format!("SELECT {SESSION_COLUMNS} FROM daily_sessions {tail}"))
+            .prepare(&format!(
+                "SELECT {SESSION_COLUMNS} FROM daily_sessions {tail}"
+            ))
             .map_err(map_sql_error)?;
         let rows = statement
             .query_map(args, read_session)
@@ -308,7 +324,9 @@ impl SqliteStorage {
     ) -> Result<Vec<DailyObjective>, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let mut statement = connection
-            .prepare(&format!("SELECT {OBJECTIVE_COLUMNS} FROM daily_objectives {tail}"))
+            .prepare(&format!(
+                "SELECT {OBJECTIVE_COLUMNS} FROM daily_objectives {tail}"
+            ))
             .map_err(map_sql_error)?;
         let rows = statement
             .query_map(args, read_objective)
@@ -341,7 +359,11 @@ impl SqliteStorage {
         // pendentes, reabrir procura os concluidos. Sem isso, mover uma Task de
         // `done` para `review` devolveria a pendente um objetivo que a pessoa
         // tinha marcado a mao.
-        let (de, para) = if done { ("pending", "completed") } else { ("completed", "pending") };
+        let (de, para) = if done {
+            ("pending", "completed")
+        } else {
+            ("completed", "pending")
+        };
         let alvos: Vec<String> = {
             let mut statement = transaction
                 .prepare(
@@ -431,10 +453,7 @@ impl DailyRepository for SqliteStorage {
         )
     }
 
-    fn objectives_of(
-        &self,
-        sessions: &[DailySessionId],
-    ) -> Result<Vec<DailyObjective>, CoreError> {
+    fn objectives_of(&self, sessions: &[DailySessionId]) -> Result<Vec<DailyObjective>, CoreError> {
         if sessions.is_empty() {
             return Ok(Vec::new());
         }
@@ -650,7 +669,9 @@ impl DailyRepository for SqliteStorage {
                 |row| row.get(0),
             )
             .map_err(|error| match error {
-                rusqlite::Error::QueryReturnedNoRows => not_found("Objetivo do dia nao encontrado."),
+                rusqlite::Error::QueryReturnedNoRows => {
+                    not_found("Objetivo do dia nao encontrado.")
+                }
                 other => map_sql_error(other),
             })?;
         let session = DailySessionId::parse(&session)?;
@@ -712,7 +733,12 @@ impl DailyRepository for SqliteStorage {
                 .execute(
                     "UPDATE daily_objectives SET position = ?3, updated_at = ?4 \
                      WHERE id = ?1 AND session_id = ?2",
-                    params![id.to_string(), session.to_string(), position as i64, momento],
+                    params![
+                        id.to_string(),
+                        session.to_string(),
+                        position as i64,
+                        momento
+                    ],
                 )
                 .map_err(map_sql_error)?;
             self.emitir_update(
@@ -903,10 +929,7 @@ impl DailyRepository for SqliteStorage {
     }
 
     fn sessions(&self, limit: usize) -> Result<Vec<DailySession>, CoreError> {
-        self.query_sessions(
-            "ORDER BY day DESC LIMIT ?1",
-            &[&(limit.min(365) as i64)],
-        )
+        self.query_sessions("ORDER BY day DESC LIMIT ?1", &[&(limit.min(365) as i64)])
     }
 
     fn carry_depth(&self, id: DailyObjectiveId) -> Result<usize, CoreError> {
@@ -1100,7 +1123,10 @@ impl DailyRepository for SqliteStorage {
         // cabe num scan. As outras entidades usam FTS porque crescem sem teto.
         let padrao = format!(
             "%{}%",
-            termo.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+            termo
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
         );
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let mut statement = connection

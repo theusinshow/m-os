@@ -38,8 +38,7 @@ fn ler_device(row: &rusqlite::Row<'_>) -> rusqlite::Result<Device> {
     })
 }
 
-const COLUNAS: &str =
-    "id, name, platform, app_version, last_sync_at, is_this_device FROM devices";
+const COLUNAS: &str = "id, name, platform, app_version, last_sync_at, is_this_device FROM devices";
 
 impl DeviceRepository for SqliteStorage {
     /// Idempotente: e chamado em toda abertura do app.
@@ -48,12 +47,7 @@ impl DeviceRepository for SqliteStorage {
     /// app mudam, o id nao. Criar um dispositivo novo a cada abertura encheria
     /// a lista do §9 de fantasmas e faria o desempate do HLC mudar de resposta
     /// entre execucoes, que e pior: a ordem total deixaria de ser estavel.
-    fn este_dispositivo(
-        &self,
-        nome: &str,
-        plataforma: &str,
-        versao: &str,
-    ) -> Resultado<Device> {
+    fn este_dispositivo(&self, nome: &str, plataforma: &str, versao: &str) -> Resultado<Device> {
         let connection = self.connection.lock().map_err(|_| erro_lock())?;
         // `format_time` devolve `Result<_, CoreError>`, e este crate nao fala
         // `CoreError` — a conversao acontece na fronteira, como o resto do

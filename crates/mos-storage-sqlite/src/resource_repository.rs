@@ -469,7 +469,10 @@ pub(crate) fn link_resource_workspace(
     )
 }
 
-pub(crate) fn insert_resource_search(transaction: &Transaction<'_>, rowid: i64) -> Result<(), CoreError> {
+pub(crate) fn insert_resource_search(
+    transaction: &Transaction<'_>,
+    rowid: i64,
+) -> Result<(), CoreError> {
     transaction
         .execute(
             "INSERT INTO resource_search (rowid, title, url, note)
@@ -743,9 +746,7 @@ pub(crate) fn insert_resource(
             )
             .optional()
             .map_err(map_sql_error)?
-            .ok_or_else(|| {
-                CoreError::new(ErrorCode::NotFound, "Capture nao encontrada.", false)
-            })?;
+            .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "Capture nao encontrada.", false))?;
         if lifecycle != "active" {
             return Err(CoreError::new(
                 ErrorCode::InvalidTransition,

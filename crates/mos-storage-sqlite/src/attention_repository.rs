@@ -12,9 +12,9 @@
 
 use mos_core::{
     AttentionRepository, Channel, ContentPrivacy, CoreError, DeliveryPolicy, ErrorCode,
-    LifecycleState, NewNotification, NewReminder, Notification, NotificationId,
-    NotificationStatus, Priority, Reminder, ReminderId, ReminderSource, ReminderStatus,
-    ReminderTarget, Trigger, VisualLevel,
+    LifecycleState, NewNotification, NewReminder, Notification, NotificationId, NotificationStatus,
+    Priority, Reminder, ReminderId, ReminderSource, ReminderStatus, ReminderTarget, Trigger,
+    VisualLevel,
 };
 use rusqlite::{params, Row};
 use time::OffsetDateTime;
@@ -401,7 +401,9 @@ impl SqliteStorage {
         let mut statement = connection
             .prepare(&format!("SELECT {REMINDER_COLUMNS} FROM reminders {tail}"))
             .map_err(map_sql_error)?;
-        let rows = statement.query_map([], read_reminder).map_err(map_sql_error)?;
+        let rows = statement
+            .query_map([], read_reminder)
+            .map_err(map_sql_error)?;
 
         let mut found = Vec::new();
         for row in rows {
@@ -432,15 +434,24 @@ fn campos_do_lembrete(
         ("body", serde_json::json!(reminder.body)),
         ("targetType", serde_json::json!(target_type)),
         ("targetId", serde_json::json!(target_id)),
-        ("triggerKind", serde_json::json!(reminder.trigger.kind_str())),
-        ("trigger", serde_json::json!(encode_trigger(&reminder.trigger)?)),
+        (
+            "triggerKind",
+            serde_json::json!(reminder.trigger.kind_str()),
+        ),
+        (
+            "trigger",
+            serde_json::json!(encode_trigger(&reminder.trigger)?),
+        ),
         ("priority", serde_json::json!(reminder.priority.as_str())),
         ("status", serde_json::json!(reminder.status.as_str())),
         (
             "snoozeAllowed",
             serde_json::json!(reminder.policy.snooze_allowed),
         ),
-        ("privacy", serde_json::json!(reminder.policy.privacy.as_str())),
+        (
+            "privacy",
+            serde_json::json!(reminder.policy.privacy.as_str()),
+        ),
         (
             "nextDueAt",
             serde_json::json!(reminder.next_due_at.map(format_time).transpose()?),
@@ -651,7 +662,10 @@ mod tests {
         ] {
             let mut subject = base.clone();
             subject.policy.privacy = privacy;
-            assert_eq!(storage.save_reminder(&subject).unwrap().policy.privacy, privacy);
+            assert_eq!(
+                storage.save_reminder(&subject).unwrap().policy.privacy,
+                privacy
+            );
         }
 
         for status in [
@@ -730,7 +744,11 @@ mod tests {
         let waiting = storage.waiting_reminders().unwrap();
         let ids: Vec<_> = waiting.iter().map(|reminder| reminder.id).collect();
 
-        assert_eq!(ids, vec![soon.id, later.id], "concluido e arquivado ficam fora");
+        assert_eq!(
+            ids,
+            vec![soon.id, later.id],
+            "concluido e arquivado ficam fora"
+        );
         assert_eq!(
             mos_core::next_wake(&waiting),
             Some(clock.now() + Duration::hours(1))
@@ -769,8 +787,7 @@ mod tests {
         let created = storage.create_reminder(new_reminder(&clock, 1)).unwrap();
 
         let until = clock.now() + Duration::hours(4);
-        let snoozed =
-            mos_core::apply(&created, Transition::Snooze { until }, clock.now()).unwrap();
+        let snoozed = mos_core::apply(&created, Transition::Snooze { until }, clock.now()).unwrap();
         storage.save_reminder(&snoozed).unwrap();
 
         let read = storage.reminder(created.id).unwrap();
@@ -799,10 +816,7 @@ mod tests {
 
         assert_eq!(recorded.status, NotificationStatus::Queued);
         assert_eq!(recorded.channel, Channel::InApp);
-        assert_eq!(
-            recorded.dedupe_key,
-            format!("reminder-due:{}", reminder.id)
-        );
+        assert_eq!(recorded.dedupe_key, format!("reminder-due:{}", reminder.id));
 
         let all = storage.notifications_for(reminder.id).unwrap();
         assert_eq!(all.len(), 1);
@@ -883,7 +897,10 @@ mod tests {
         let saved = storage.save_notification(&recorded).unwrap();
 
         assert_eq!(saved.status, NotificationStatus::Failed);
-        assert_eq!(saved.failure.as_deref(), Some("toast recusado pelo sistema"));
+        assert_eq!(
+            saved.failure.as_deref(),
+            Some("toast recusado pelo sistema")
+        );
 
         let still = storage.reminder(reminder.id).unwrap();
         assert_eq!(
@@ -1008,7 +1025,12 @@ mod tests {
         assert_eq!(service.needs_attention_count().unwrap(), 1);
 
         let queued = service
-            .queue_delivery(created.id, Channel::InApp, "reminder-due", VisualLevel::Normal)
+            .queue_delivery(
+                created.id,
+                Channel::InApp,
+                "reminder-due",
+                VisualLevel::Normal,
+            )
             .unwrap()
             .expect("primeira entrega e criada");
         service.mark_delivered(&queued).unwrap();
@@ -1030,7 +1052,13 @@ mod tests {
     fn reconciling_twice_changes_nothing_the_second_time() {
         let (service, clock, _guard) = service();
         service
-            .create_at("X", "", clock.now() + Duration::hours(1), None, ReminderSource::User)
+            .create_at(
+                "X",
+                "",
+                clock.now() + Duration::hours(1),
+                None,
+                ReminderSource::User,
+            )
             .unwrap();
 
         clock.advance(Duration::hours(1));
@@ -1047,7 +1075,13 @@ mod tests {
     fn what_expired_while_away_comes_back_as_missed_with_its_original_delay() {
         let (service, clock, _guard) = service();
         let created = service
-            .create_at("Ligar", "", clock.now() + Duration::hours(1), None, ReminderSource::User)
+            .create_at(
+                "Ligar",
+                "",
+                clock.now() + Duration::hours(1),
+                None,
+                ReminderSource::User,
+            )
             .unwrap();
 
         clock.advance(Duration::hours(9));
@@ -1062,7 +1096,10 @@ mod tests {
             "o atraso conta do vencimento original, e nao de agora"
         );
 
-        assert_eq!(service.reminder(created.id).unwrap().status, ReminderStatus::Missed);
+        assert_eq!(
+            service.reminder(created.id).unwrap().status,
+            ReminderStatus::Missed
+        );
         assert_eq!(service.needs_attention_count().unwrap(), 1);
     }
 
@@ -1071,18 +1108,34 @@ mod tests {
     fn a_second_delivery_of_the_same_subject_is_blocked_while_the_first_lives() {
         let (service, clock, _guard) = service();
         let created = service
-            .create_at("X", "", clock.now() + Duration::minutes(1), None, ReminderSource::User)
+            .create_at(
+                "X",
+                "",
+                clock.now() + Duration::minutes(1),
+                None,
+                ReminderSource::User,
+            )
             .unwrap();
         clock.advance(Duration::minutes(1));
         service.reconcile().unwrap();
 
         assert!(service
-            .queue_delivery(created.id, Channel::InApp, "reminder-due", VisualLevel::Normal)
+            .queue_delivery(
+                created.id,
+                Channel::InApp,
+                "reminder-due",
+                VisualLevel::Normal
+            )
             .unwrap()
             .is_some());
         assert!(
             service
-                .queue_delivery(created.id, Channel::InApp, "reminder-due", VisualLevel::Normal)
+                .queue_delivery(
+                    created.id,
+                    Channel::InApp,
+                    "reminder-due",
+                    VisualLevel::Normal
+                )
                 .unwrap()
                 .is_none(),
             "a segunda com a mesma chave e recusada"
@@ -1091,7 +1144,12 @@ mod tests {
         // Assunto diferente NAO e bloqueado: "venceu" e "foi perdido" sao
         // avisos diferentes sobre o mesmo Reminder.
         assert!(service
-            .queue_delivery(created.id, Channel::InApp, "reminder-missed", VisualLevel::Normal)
+            .queue_delivery(
+                created.id,
+                Channel::InApp,
+                "reminder-missed",
+                VisualLevel::Normal
+            )
             .unwrap()
             .is_some());
     }
@@ -1101,13 +1159,24 @@ mod tests {
     fn a_failed_delivery_leaves_the_reminder_needing_attention() {
         let (service, clock, _guard) = service();
         let created = service
-            .create_at("X", "", clock.now() + Duration::minutes(1), None, ReminderSource::User)
+            .create_at(
+                "X",
+                "",
+                clock.now() + Duration::minutes(1),
+                None,
+                ReminderSource::User,
+            )
             .unwrap();
         clock.advance(Duration::minutes(1));
         service.reconcile().unwrap();
 
         let queued = service
-            .queue_delivery(created.id, Channel::Windows, "reminder-due", VisualLevel::Normal)
+            .queue_delivery(
+                created.id,
+                Channel::Windows,
+                "reminder-due",
+                VisualLevel::Normal,
+            )
             .unwrap()
             .unwrap();
         service.mark_failed(&queued, "toast recusado").unwrap();
@@ -1119,7 +1188,12 @@ mod tests {
 
         // E como a entrega morreu, o dedupe libera a proxima tentativa.
         assert!(service
-            .queue_delivery(created.id, Channel::Windows, "reminder-due", VisualLevel::Normal)
+            .queue_delivery(
+                created.id,
+                Channel::Windows,
+                "reminder-due",
+                VisualLevel::Normal
+            )
             .unwrap()
             .is_some());
     }
@@ -1128,7 +1202,13 @@ mod tests {
     fn snoozing_takes_it_out_of_attention_and_puts_it_back_later() {
         let (service, clock, _guard) = service();
         let created = service
-            .create_at("X", "", clock.now() + Duration::minutes(1), None, ReminderSource::User)
+            .create_at(
+                "X",
+                "",
+                clock.now() + Duration::minutes(1),
+                None,
+                ReminderSource::User,
+            )
             .unwrap();
         clock.advance(Duration::minutes(1));
         service.reconcile().unwrap();
@@ -1157,7 +1237,13 @@ mod tests {
     fn archiving_removes_it_from_the_scheduler_without_destroying_it() {
         let (service, clock, _guard) = service();
         let created = service
-            .create_at("X", "", clock.now() + Duration::hours(1), None, ReminderSource::User)
+            .create_at(
+                "X",
+                "",
+                clock.now() + Duration::hours(1),
+                None,
+                ReminderSource::User,
+            )
             .unwrap();
 
         service
@@ -1178,7 +1264,13 @@ mod tests {
     fn a_transition_decides_on_the_stored_state_not_the_callers_copy() {
         let (service, clock, _guard) = service();
         let created = service
-            .create_at("X", "", clock.now() + Duration::hours(1), None, ReminderSource::User)
+            .create_at(
+                "X",
+                "",
+                clock.now() + Duration::hours(1),
+                None,
+                ReminderSource::User,
+            )
             .unwrap();
 
         service.transition(created.id, Transition::Cancel).unwrap();
@@ -1203,10 +1295,7 @@ mod tests {
 
         let id = {
             let storage = SqliteStorage::open(path.clone(), backups.clone()).unwrap();
-            storage
-                .create_reminder(new_reminder(&clock, 1))
-                .unwrap()
-                .id
+            storage.create_reminder(new_reminder(&clock, 1)).unwrap().id
         };
 
         // A maquina ficou fora do ar por trinta horas.
@@ -1221,8 +1310,7 @@ mod tests {
         assert_eq!(found[0].id, id);
         assert_eq!(found[0].reason, mos_core::ReconcileReason::MissedWhileAway);
 
-        let missed =
-            mos_core::apply(&waiting[0], Transition::Miss, clock.now()).unwrap();
+        let missed = mos_core::apply(&waiting[0], Transition::Miss, clock.now()).unwrap();
         let saved = storage.save_reminder(&missed).unwrap();
         assert_eq!(saved.status, ReminderStatus::Missed);
         assert_eq!(

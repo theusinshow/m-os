@@ -83,9 +83,7 @@ impl Spoken {
             let inside_clock = *character == ':'
                 && index > 0
                 && original[index - 1].is_ascii_digit()
-                && original
-                    .get(index + 1)
-                    .is_some_and(char::is_ascii_digit);
+                && original.get(index + 1).is_some_and(char::is_ascii_digit);
             if character.is_alphanumeric() || inside_clock {
                 start.get_or_insert(index);
             } else if let Some(begin) = start.take() {
@@ -104,7 +102,10 @@ impl Spoken {
     }
 
     pub(crate) fn words(&self) -> Vec<&str> {
-        self.tokens.iter().map(|token| token.norm.as_str()).collect()
+        self.tokens
+            .iter()
+            .map(|token| token.norm.as_str())
+            .collect()
     }
 
     /// O texto inteiro normalizado, com uma palavra por espaco.
@@ -127,8 +128,9 @@ impl Spoken {
         if needle.is_empty() || needle.len() > self.tokens.len() {
             return None;
         }
-        (0..=self.tokens.len() - needle.len())
-            .find(|&index| (0..needle.len()).all(|step| self.tokens[index + step].norm == needle[step]))
+        (0..=self.tokens.len() - needle.len()).find(|&index| {
+            (0..needle.len()).all(|step| self.tokens[index + step].norm == needle[step])
+        })
     }
 }
 
@@ -474,9 +476,7 @@ fn time_anchor(spoken: &Spoken) -> Option<TimeAnchor> {
 
 /// `9h`, `9h30`, `21h00`, `09:00` — as formas escritas que a transcricao produz.
 fn compact_hour(word: &str, index: usize) -> Option<TimeAnchor> {
-    let (hour_text, minute_text) = word
-        .split_once('h')
-        .or_else(|| word.split_once(':'))?;
+    let (hour_text, minute_text) = word.split_once('h').or_else(|| word.split_once(':'))?;
     let hour: u8 = hour_text.parse().ok()?;
     if hour > 23 {
         return None;
@@ -589,7 +589,10 @@ mod tests {
         // Lisboa. O mesmo texto, outro fuso, outro instante em UTC.
         let lisboa = datetime!(2026-08-19 14:32:00 +01:00);
         let quando = resolve_when("amanha as nove", lisboa).unwrap();
-        assert_eq!(quando.instant.offset(), UtcOffset::from_hms(1, 0, 0).unwrap());
+        assert_eq!(
+            quando.instant.offset(),
+            UtcOffset::from_hms(1, 0, 0).unwrap()
+        );
         assert_eq!(quando.instant, datetime!(2026-08-20 09:00:00 +01:00));
     }
 

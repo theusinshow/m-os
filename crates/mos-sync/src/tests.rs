@@ -109,7 +109,11 @@ fn cenario_2_campos_diferentes_convivem() {
     // sobrevivem. Com "ultima gravacao vence" por entidade, uma sumiria.
     let ops = vec![
         update(pc(), 2_000, &[("title", json!("Revisar memorial"))]),
-        update(iphone(), 2_100, &[("due_at", json!("2026-08-22T09:00:00Z"))]),
+        update(
+            iphone(),
+            2_100,
+            &[("due_at", json!("2026-08-22T09:00:00Z"))],
+        ),
     ];
     let r = aplicar(EstadoDaEntidade::default(), &ops);
 
@@ -190,7 +194,10 @@ fn cenario_5_reaplicar_nao_duplica_nem_muda_nada() {
     let dez = aplicar(EstadoDaEntidade::default(), &vec![op.clone(); 10]);
 
     assert_eq!(uma.estado, dez.estado);
-    assert!(dez.conflitos.is_empty(), "a mesma operacao nao briga consigo");
+    assert!(
+        dez.conflitos.is_empty(),
+        "a mesma operacao nao briga consigo"
+    );
 }
 
 // ------------------------------------------------------- apagar e restaurar
@@ -233,7 +240,10 @@ fn restaurar_so_desfaz_apagamento_anterior() {
         ),
     ];
     let r = aplicar(EstadoDaEntidade::default(), &ops);
-    assert!(!r.estado.visivel(), "um Restore velho nao desfaz um Delete novo");
+    assert!(
+        !r.estado.visivel(),
+        "um Restore velho nao desfaz um Delete novo"
+    );
 }
 
 // ----------------------------------------------------------- o contrato
@@ -270,7 +280,6 @@ fn tipo_de_entidade_desconhecido_atravessa_sem_quebrar() {
     let op: Op = serde_json::from_value(cru).expect("tipo desconhecido precisa atravessar");
     assert_eq!(op.entity.kind.as_str(), "invencao-futura");
 }
-
 
 // ------------------------------------------------ relacoes do Knowledge Graph
 
@@ -336,7 +345,10 @@ fn desligar_e_religar_termina_ligado() {
     ];
     let r = aplicar(EstadoDaEntidade::default(), &ops);
     assert_eq!(r.estado.campo("linked").unwrap(), &json!(true));
-    assert!(r.estado.visivel(), "a relacao nunca e apagada, so alternada");
+    assert!(
+        r.estado.visivel(),
+        "a relacao nunca e apagada, so alternada"
+    );
 }
 
 #[test]

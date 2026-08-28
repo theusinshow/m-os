@@ -303,7 +303,10 @@ fn run(
                 Ok(Some(frames)) if frames > 0 => frames,
                 Ok(_) => break,
                 Err(error) => {
-                    state = lost(started, &format!("a leitura do dispositivo falhou: {error}"));
+                    state = lost(
+                        started,
+                        &format!("a leitura do dispositivo falhou: {error}"),
+                    );
                     break 'capture;
                 }
             };
@@ -313,17 +316,20 @@ fn run(
                 scratch.resize(wanted_bytes, 0);
             }
 
-            let (frames_read, _buffer) = match capture.read_from_device(&mut scratch[..wanted_bytes])
-            {
-                Ok(result) => result,
-                Err(error) => {
-                    // O dispositivo sumiu no meio. **Nunca fingir que continua
-                    // gravando**: o canal cai aqui, com o instante exato, e o
-                    // outro segue sozinho.
-                    state = lost(started, &format!("o dispositivo parou de responder: {error}"));
-                    break 'capture;
-                }
-            };
+            let (frames_read, _buffer) =
+                match capture.read_from_device(&mut scratch[..wanted_bytes]) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        // O dispositivo sumiu no meio. **Nunca fingir que continua
+                        // gravando**: o canal cai aqui, com o instante exato, e o
+                        // outro segue sozinho.
+                        state = lost(
+                            started,
+                            &format!("o dispositivo parou de responder: {error}"),
+                        );
+                        break 'capture;
+                    }
+                };
             if frames_read == 0 {
                 break;
             }

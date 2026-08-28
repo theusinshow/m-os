@@ -30,7 +30,8 @@ fn grava_os_dois_canais_e_concilia_com_o_disco() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("meetings/0198-teste");
 
-    let recording = Recording::start(&root, "2026-08-19T14:00:00Z").expect("a gravacao precisa comecar");
+    let recording =
+        Recording::start(&root, "2026-08-19T14:00:00Z").expect("a gravacao precisa comecar");
 
     // O estado precisa ficar vivo enquanto grava, e a duracao precisa CRESCER.
     // Uma duracao parada seria a assinatura de um canal que abriu e nao entrega
@@ -46,7 +47,9 @@ fn grava_os_dois_canais_e_concilia_com_o_disco() {
         );
     }
 
-    let outcome = recording.stop().expect("parar precisa devolver o que gravou");
+    let outcome = recording
+        .stop()
+        .expect("parar precisa devolver o que gravou");
     println!("\noutcome: {outcome:#?}");
 
     assert!(
@@ -92,7 +95,10 @@ fn grava_os_dois_canais_e_concilia_com_o_disco() {
     // evidencia `14:04` depende dela.
     let mic_ms = recovered.mic.duration_ms(Format::CAPTURE);
     let system_ms = recovered.system.duration_ms(Format::CAPTURE);
-    println!("divergencia entre canais: {} ms", (mic_ms - system_ms).abs());
+    println!(
+        "divergencia entre canais: {} ms",
+        (mic_ms - system_ms).abs()
+    );
     assert!(
         (mic_ms - system_ms).abs() < 500,
         "os canais divergiram {} ms (mic {mic_ms}, system {system_ms})",
@@ -159,8 +165,8 @@ fn a_gravacao_de_voz_pega_o_microfone_e_nada_alem_dele() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("voice/0198-teste");
 
-    let recording = Recording::start_mic(&root, "2026-08-19T14:00:00Z")
-        .expect("a gravacao precisa comecar");
+    let recording =
+        Recording::start_mic(&root, "2026-08-19T14:00:00Z").expect("a gravacao precisa comecar");
     println!("FALE AGORA — 4 segundos");
     for _ in 0..4 {
         thread::sleep(Duration::from_secs(1));
@@ -170,10 +176,16 @@ fn a_gravacao_de_voz_pega_o_microfone_e_nada_alem_dele() {
             state.duration_ms, state.mic_level, state.mic_peak, state.system
         );
     }
-    let outcome = recording.stop().expect("parar precisa devolver o que gravou");
+    let outcome = recording
+        .stop()
+        .expect("parar precisa devolver o que gravou");
     println!("\noutcome: {outcome:#?}");
 
-    assert!(outcome.mic.has_audio(), "o microfone nao gravou: {:?}", outcome.mic);
+    assert!(
+        outcome.mic.has_audio(),
+        "o microfone nao gravou: {:?}",
+        outcome.mic
+    );
     assert!(
         outcome.mic_peak >= mos_core_piso(),
         "o pico foi {} — abaixo do piso, a fala nao chegaria ao transcritor",

@@ -46,7 +46,8 @@ fn sessao_em(storage: &SqliteStorage, day: &str, titulo: &str) {
     let nova = NewDailySession::create(dia(day), "", quando).unwrap();
     let id = nova.id;
     let objetivo =
-        NewDailyObjective::create(id, titulo, "", None, ObjectivePriority::Main, 0, quando).unwrap();
+        NewDailyObjective::create(id, titulo, "", None, ObjectivePriority::Main, 0, quando)
+            .unwrap();
     storage.start_day(nova, vec![objetivo], quando).unwrap();
 }
 
@@ -195,16 +196,14 @@ fn corrigir_o_texto_emite_com_o_id_que_ficou_gravado() {
         )
         .unwrap();
     storage
-        .save_weekly_review(
-            NewWeeklyReview::create(alvo, "corrigida", agora()),
-            agora(),
-        )
+        .save_weekly_review(NewWeeklyReview::create(alvo, "corrigida", agora()), agora())
         .unwrap();
 
     let ops = storage.pendentes(10).unwrap();
     assert_eq!(ops.len(), 2);
     assert_eq!(
-        ops[1].entity.id, primeira.id.as_uuid(),
+        ops[1].entity.id,
+        primeira.id.as_uuid(),
         "as duas operacoes falam da MESMA entidade"
     );
 }
@@ -236,7 +235,11 @@ fn as_reflexoes_de_varias_sessoes_vem_numa_consulta() {
             mood: humor.as_str().to_owned(),
             summary: String::new(),
         };
-        let reflexao = entrada.reflection().unwrap().unwrap().for_session(sessao.id);
+        let reflexao = entrada
+            .reflection()
+            .unwrap()
+            .unwrap()
+            .for_session(sessao.id);
         storage
             .end_day(sessao.id, &[], Some(reflexao), agora())
             .unwrap();
@@ -292,7 +295,10 @@ fn a_semana_corrente_nunca_e_pendente() {
     let (_dir, storage) = banco();
     sessao_em(&storage, "2026-08-19", "hoje");
     let service = servico(storage);
-    assert!(service.pending_week(&semana("2026-08-19")).unwrap().is_none());
+    assert!(service
+        .pending_week(&semana("2026-08-19"))
+        .unwrap()
+        .is_none());
 }
 
 #[test]
@@ -301,7 +307,10 @@ fn semana_sem_sessao_nenhuma_nao_e_pendente() {
     // semana vazia.
     let (_dir, storage) = banco();
     let service = servico(storage);
-    assert!(service.pending_week(&semana("2026-08-26")).unwrap().is_none());
+    assert!(service
+        .pending_week(&semana("2026-08-26"))
+        .unwrap()
+        .is_none());
 }
 
 #[test]

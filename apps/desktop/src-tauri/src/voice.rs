@@ -29,11 +29,7 @@
 //! `meeting_start`: se a captura falhar, existe uma linha que a proxima
 //! abertura reconcilia. Audio sem linha no banco seria audio que ninguem acha.
 
-use std::{
-    path::PathBuf,
-    sync::Mutex,
-    time::Duration,
-};
+use std::{path::PathBuf, sync::Mutex, time::Duration};
 
 use mos_audio::{AudioError, Recording};
 use mos_core::{
@@ -42,7 +38,6 @@ use mos_core::{
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
-
 
 /// Quanto tempo o recibo fica na tela antes de o HUD sumir.
 ///
@@ -113,7 +108,9 @@ pub enum VoiceStopped {
     /// So o id: a nota inteira ja chegou ao HUD por `voice_start` ou pelo
     /// evento `voice-started`, e repeti-la aqui seria mandar 232 bytes de
     /// estado que o outro lado ja tem para dizer "comecou".
-    Transcribing { note_id: String },
+    Transcribing {
+        note_id: String,
+    },
 }
 
 /// O que a leitura produziu, ja com o recibo pronto para a tela.
@@ -492,7 +489,10 @@ fn run_transcription(app: AppHandle, note_id: String) {
         .map(|provider| provider.name())
         .unwrap_or_default();
     match transcribe(&app, &note_id) {
-        Ok(transcript) => match state.voice.captured(&note_id, &transcript, &nome_do_provider) {
+        Ok(transcript) => match state
+            .voice
+            .captured(&note_id, &transcript, &nome_do_provider)
+        {
             Ok((note, capture)) => {
                 // O audio sai AGORA, e nao antes: o texto ja esta no banco e
                 // indexado, entao os bytes deixaram de carregar informacao que
@@ -506,11 +506,14 @@ fn run_transcription(app: AppHandle, note_id: String) {
                         // A leitura falhou, e a Capture continua la. E o §19 do
                         // brief acontecendo: intencao desconhecida termina na
                         // Inbox, e isso e o comportamento correto.
-                        let _ = app.emit("voice-failed", VoiceFailed {
-                            note_id: note_id.clone(),
-                            message: error.message,
-                            retryable: false,
-                        });
+                        let _ = app.emit(
+                            "voice-failed",
+                            VoiceFailed {
+                                note_id: note_id.clone(),
+                                message: error.message,
+                                retryable: false,
+                            },
+                        );
                         return;
                     }
                 };
@@ -582,7 +585,7 @@ fn transcribe(app: &AppHandle, note_id: &str) -> Result<String, String> {
     // Nota de voz e o MESMO microfone baixo da reuniao, e merece o mesmo ganho.
     let (frames, _ganho) =
         mos_audio::export_channel_normalized(&root, mos_audio::Channel::Mic, &wav)
-        .map_err(|error| error.to_string())?;
+            .map_err(|error| error.to_string())?;
     if frames == 0 {
         let _ = std::fs::remove_dir_all(&work);
         return Err("A gravacao nao produziu audio.".into());
@@ -707,11 +710,12 @@ fn execute(
     }
 
     let reminder = match (understanding.action, understanding.when) {
-        (VoiceAction::CreateTaskWithReminder, Some(instant)) => Some(
-            state
-                .attention
-                .draft_at(&understanding.title, "", instant, mos_core::ReminderSource::Capture)?,
-        ),
+        (VoiceAction::CreateTaskWithReminder, Some(instant)) => Some(state.attention.draft_at(
+            &understanding.title,
+            "",
+            instant,
+            mos_core::ReminderSource::Capture,
+        )?),
         _ => None,
     };
 
@@ -809,7 +813,11 @@ pub fn reconcile(app: &AppHandle) {
                 // Sem audio em disco, a nota nao guarda nada e sai. COM audio,
                 // ela fica: e a diferenca entre limpar e perder.
                 let tem_audio = audio_root(app, &note)
-                    .map(|root| mos_audio::recover_session(&root).map(|s| s.has_audio()).unwrap_or(false))
+                    .map(|root| {
+                        mos_audio::recover_session(&root)
+                            .map(|s| s.has_audio())
+                            .unwrap_or(false)
+                    })
                     .unwrap_or(false);
                 if tem_audio {
                     let _ = state
@@ -834,7 +842,11 @@ fn delete_audio(app: &AppHandle, note: &VoiceNote) {
     let Ok(state) = crate::services(app) else {
         return;
     };
-    if state.voice.mark_audio_deleted(&note.id.to_string()).is_err() {
+    if state
+        .voice
+        .mark_audio_deleted(&note.id.to_string())
+        .is_err()
+    {
         return;
     }
     if let Ok(root) = audio_root(app, note) {

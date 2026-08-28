@@ -574,7 +574,6 @@ fn parse_scope(workspace: Option<&str>) -> Result<Option<crate::WorkspaceId>, Co
     }
 }
 
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateProjectInput {
@@ -1058,8 +1057,7 @@ impl WorkService {
         &self,
         workspace: Option<&str>,
     ) -> Result<Vec<crate::WidgetPlacement>, CoreError> {
-        self.repository
-            .reset_widget_layout(parse_scope(workspace)?)
+        self.repository.reset_widget_layout(parse_scope(workspace)?)
     }
     pub fn hidden_widgets(&self) -> Result<Vec<HiddenWidget>, CoreError> {
         self.repository.hidden_widgets()
@@ -1403,7 +1401,10 @@ pub struct AudioOutcome {
 }
 
 impl MeetingService {
-    pub fn new(repository: Arc<dyn crate::MeetingRepository>, clock: Arc<dyn crate::Clock>) -> Self {
+    pub fn new(
+        repository: Arc<dyn crate::MeetingRepository>,
+        clock: Arc<dyn crate::Clock>,
+    ) -> Self {
         Self { repository, clock }
     }
 
@@ -1760,10 +1761,9 @@ impl MeetingService {
                 // O corpo do lembrete cita a reuniao, e nao a Task: quando ele
                 // tocar amanha as 9h, "de onde veio isto?" precisa ter resposta
                 // sem abrir mais nada.
-                let meeting = self.repository.meeting(
-                    self.repository
-                        .insights_meeting(accept.insight_id)?,
-                )?;
+                let meeting = self
+                    .repository
+                    .meeting(self.repository.insights_meeting(accept.insight_id)?)?;
                 Some(
                     crate::NewReminder::at(
                         &accept.title,
@@ -1969,10 +1969,7 @@ pub struct DailyService {
 }
 
 impl DailyService {
-    pub fn new(
-        repository: Arc<dyn crate::DailyRepository>,
-        clock: Arc<dyn crate::Clock>,
-    ) -> Self {
+    pub fn new(repository: Arc<dyn crate::DailyRepository>, clock: Arc<dyn crate::Clock>) -> Self {
         Self { repository, clock }
     }
 
@@ -2199,10 +2196,7 @@ impl DailyService {
             .end_day(session, &resolutions, reflection, self.clock.now())
     }
 
-    pub fn reopen(
-        &self,
-        session: crate::DailySessionId,
-    ) -> Result<crate::DailySession, CoreError> {
+    pub fn reopen(&self, session: crate::DailySessionId) -> Result<crate::DailySession, CoreError> {
         self.repository.reopen_day(session, self.clock.now())
     }
 
@@ -2259,7 +2253,6 @@ impl DailyService {
     pub fn sessions(&self, limit: usize) -> Result<Vec<crate::DailySession>, CoreError> {
         self.repository.sessions(limit)
     }
-
 
     /// A semana em narrativa, com o fecho dela quando existe.
     ///
@@ -2802,7 +2795,10 @@ impl AcademicService {
     }
 
     /// O recorte de hoje, para o Start My Day e o End My Day.
-    pub fn today(&self, now_local: time::OffsetDateTime) -> Result<crate::AcademicToday, CoreError> {
+    pub fn today(
+        &self,
+        now_local: time::OffsetDateTime,
+    ) -> Result<crate::AcademicToday, CoreError> {
         let painel = self.dashboard(now_local)?;
         Ok(crate::compose_today(&painel, now_local))
     }

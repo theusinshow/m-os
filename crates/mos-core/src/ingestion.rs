@@ -392,7 +392,10 @@ pub fn plan_relations(
 /// Comparacao por palavra normalizada, e nao por substring solta: `api.pdf` nao
 /// pode casar com o Project "Rapidinhas" so porque as letras cabem la dentro.
 /// Palavras de menos de quatro letras sao ignoradas pelo mesmo motivo.
-fn match_project_by_name<'a>(file_name: &str, projects: &'a [ProjectHint]) -> Option<&'a ProjectHint> {
+fn match_project_by_name<'a>(
+    file_name: &str,
+    projects: &'a [ProjectHint],
+) -> Option<&'a ProjectHint> {
     let haystack = normalize_words(file_name);
     if haystack.is_empty() {
         return None;
@@ -468,7 +471,8 @@ pub fn sanitize_file_name(raw: &str) -> String {
     let cleaned: String = without_path
         .chars()
         .map(|character| {
-            if character.is_control() || matches!(character, ':' | '*' | '?' | '"' | '<' | '>' | '|')
+            if character.is_control()
+                || matches!(character, ':' | '*' | '?' | '"' | '<' | '>' | '|')
             {
                 '_'
             } else {
@@ -505,7 +509,9 @@ pub fn extension_of(name: &str) -> String {
     let lowered = candidate.to_ascii_lowercase();
     if lowered.is_empty()
         || lowered.chars().count() > 12
-        || !lowered.chars().all(|character| character.is_ascii_alphanumeric())
+        || !lowered
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
     {
         return String::new();
     }
@@ -642,11 +648,7 @@ pub fn stored_path(sha256: &str, extension: &str) -> Result<String, CoreError> {
 pub fn normalize_url(raw: &str) -> Result<String, CoreError> {
     let trimmed = raw.trim().trim_end_matches('#');
     if trimmed.is_empty() {
-        return Err(CoreError::new(
-            ErrorCode::InvalidInput,
-            "URL vazia.",
-            false,
-        ));
+        return Err(CoreError::new(ErrorCode::InvalidInput, "URL vazia.", false));
     }
     let lowered = trimmed.to_ascii_lowercase();
     if !(lowered.starts_with("http://") || lowered.starts_with("https://")) {
@@ -940,7 +942,10 @@ mod tests {
     #[test]
     fn nome_perde_o_caminho_e_a_travessia() {
         assert_eq!(sanitize_file_name("../../etc/passwd"), "passwd");
-        assert_eq!(sanitize_file_name(r"C:\Windows\System32\evil.dll"), "evil.dll");
+        assert_eq!(
+            sanitize_file_name(r"C:\Windows\System32\evil.dll"),
+            "evil.dll"
+        );
         assert_eq!(sanitize_file_name("../.."), "arquivo-sem-nome");
         assert_eq!(sanitize_file_name("   "), "arquivo-sem-nome");
         assert_eq!(sanitize_file_name("rela:torio*.pdf"), "rela_torio_.pdf");

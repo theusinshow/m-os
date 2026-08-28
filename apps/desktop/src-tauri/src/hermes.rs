@@ -738,7 +738,12 @@ pub async fn hermes_interrupt<R: Runtime>(app: AppHandle<R>) -> Result<(), Strin
     // exatamente no momento em que o usuario decidiu ficar com ela.
     let state = app.state::<HermesState>();
     // Foi o usuario que mandou parar, e a linha diz isso.
-    let _ = settle_turn(&app, &state, MessageStatus::Interrupted, Some(mos_core::TurnEnding::UserStopped));
+    let _ = settle_turn(
+        &app,
+        &state,
+        MessageStatus::Interrupted,
+        Some(mos_core::TurnEnding::UserStopped),
+    );
     result
 }
 
@@ -782,7 +787,12 @@ pub async fn hermes_clarify_cancel<R: Runtime>(
     // nao chega que a tela nao pode continuar dizendo "pensando".
     let state = app.state::<HermesState>();
     // A pergunta do agente foi fechada sem resposta.
-    let _ = settle_turn(&app, &state, MessageStatus::Interrupted, Some(mos_core::TurnEnding::ClarifyDismissed));
+    let _ = settle_turn(
+        &app,
+        &state,
+        MessageStatus::Interrupted,
+        Some(mos_core::TurnEnding::ClarifyDismissed),
+    );
     answered.and(interrupted)
 }
 
@@ -801,7 +811,12 @@ pub async fn hermes_select_conversation<R: Runtime>(
         let state = app.state::<HermesState>();
         // Um turno da conversa anterior nao pode continuar gravando na nova.
         // A conversa mudou embaixo do turno.
-        let _ = settle_turn(&app, &state, MessageStatus::Interrupted, Some(mos_core::TurnEnding::ConversationSwitched));
+        let _ = settle_turn(
+            &app,
+            &state,
+            MessageStatus::Interrupted,
+            Some(mos_core::TurnEnding::ConversationSwitched),
+        );
         set(&state.conversation_id, conversation_id.clone());
         set(&state.session_id, None);
         announce(&app, &state);
@@ -940,18 +955,48 @@ mod gate_d {
         interleave(
             MeetingId::new(),
             vec![
-                fala(0, "Bom dia pessoal, vamos comecar o alinhamento do NexoDoc."),
-                fala(5_000, "Eu termino os slides da apresentacao amanha de manha e mando para voces."),
-                fala(11_000, "Sobre o orcamento, acho que precisamos revisar os valores antes de fechar."),
-                fala(17_000, "Ficou decidido entao que usamos o Hermes para a camada de inteligencia."),
-                fala(23_000, "Eu fico responsavel por falar com o cliente ainda esta semana."),
+                fala(
+                    0,
+                    "Bom dia pessoal, vamos comecar o alinhamento do NexoDoc.",
+                ),
+                fala(
+                    5_000,
+                    "Eu termino os slides da apresentacao amanha de manha e mando para voces.",
+                ),
+                fala(
+                    11_000,
+                    "Sobre o orcamento, acho que precisamos revisar os valores antes de fechar.",
+                ),
+                fala(
+                    17_000,
+                    "Ficou decidido entao que usamos o Hermes para a camada de inteligencia.",
+                ),
+                fala(
+                    23_000,
+                    "Eu fico responsavel por falar com o cliente ainda esta semana.",
+                ),
             ],
             vec![
-                fala(1_000, "Perfeito, bom dia. Eu revisei o documento ontem a noite."),
-                fala(6_500, "Combinado, eu reviso os slides na sexta-feira pela manha."),
-                fala(12_500, "Concordo com a revisao do orcamento. Eu levanto os numeros do trimestre."),
-                fala(19_000, "Uma duvida que ficou em aberto e se o prazo de entrega continua o mesmo."),
-                fala(25_000, "Talvez a gente possa antecipar a proxima reuniao, mas nao tenho certeza."),
+                fala(
+                    1_000,
+                    "Perfeito, bom dia. Eu revisei o documento ontem a noite.",
+                ),
+                fala(
+                    6_500,
+                    "Combinado, eu reviso os slides na sexta-feira pela manha.",
+                ),
+                fala(
+                    12_500,
+                    "Concordo com a revisao do orcamento. Eu levanto os numeros do trimestre.",
+                ),
+                fala(
+                    19_000,
+                    "Uma duvida que ficou em aberto e se o prazo de entrega continua o mesmo.",
+                ),
+                fala(
+                    25_000,
+                    "Talvez a gente possa antecipar a proxima reuniao, mas nao tenho certeza.",
+                ),
             ],
         )
     }
@@ -974,7 +1019,10 @@ mod gate_d {
         let resposta = super::ask_once(super::DEFAULT_BASE_URL, &prompt)
             .await
             .expect("o Hermes precisa responder");
-        println!("\nresposta crua ({} caracteres):\n{resposta}", resposta.len());
+        println!(
+            "\nresposta crua ({} caracteres):\n{resposta}",
+            resposta.len()
+        );
 
         let outcome = mos_core::parse_analysis(meeting_id, &resposta, &segments)
             .expect("o bloco precisa passar pela validacao do dominio");

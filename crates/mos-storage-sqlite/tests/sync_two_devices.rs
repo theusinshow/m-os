@@ -22,12 +22,12 @@
 
 use std::sync::Mutex;
 
+use mos_storage_sqlite::SqliteStorage;
 use mos_sync::{
     aplicar, carregar_relogio, sincronizar, ClockRepository, ConflictRepository, Deposito,
     DeviceRepository, EntityRef, EstadoDaEntidade, HlcClock, Lote, Op, OpBody, OutboxRepository,
     Projecao, Resultado, Transport,
 };
-use mos_storage_sqlite::SqliteStorage;
 use serde_json::json;
 use std::collections::BTreeMap;
 use uuid::Uuid;
@@ -333,7 +333,11 @@ fn o_mesmo_campo_nos_dois_lados_guarda_o_perdedor() {
     iphone.sincronizar(&hub);
 
     let conflitos = iphone.storage.abertos(10).unwrap();
-    assert_eq!(conflitos.len(), 1, "o mesmo campo dos dois lados e conflito");
+    assert_eq!(
+        conflitos.len(),
+        1,
+        "o mesmo campo dos dois lados e conflito"
+    );
     let guardado = &conflitos[0];
     assert_eq!(guardado.campo, "title");
     // O valor perdedor esta guardado, inteiro, com o dispositivo de origem.

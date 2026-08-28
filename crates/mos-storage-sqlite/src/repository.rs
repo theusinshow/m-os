@@ -61,7 +61,10 @@ impl CaptureRepository for SqliteStorage {
             mos_sync::OpBody::Create {
                 fields: [
                     ("content".to_owned(), serde_json::json!(capture.content)),
-                    ("source".to_owned(), serde_json::json!(capture.source.as_str())),
+                    (
+                        "source".to_owned(),
+                        serde_json::json!(capture.source.as_str()),
+                    ),
                     (
                         "processingState".to_owned(),
                         serde_json::json!(ProcessingState::Inbox.as_str()),

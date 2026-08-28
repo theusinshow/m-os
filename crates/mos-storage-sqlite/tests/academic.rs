@@ -23,17 +23,22 @@ fn storage() -> (tempfile::TempDir, SqliteStorage) {
 
 fn semestre(storage: &SqliteStorage) -> mos_core::Semester {
     storage
-        .create_semester(
-            NewSemester::create("2026.2", "UFSC", "2026-08-01", "2026-12-15").unwrap(),
-        )
+        .create_semester(NewSemester::create("2026.2", "UFSC", "2026-08-01", "2026-12-15").unwrap())
         .unwrap()
 }
 
 fn disciplina(storage: &SqliteStorage, semestre: &mos_core::Semester) -> mos_core::Subject {
     storage
         .create_subject(
-            NewSubject::create(semestre.id, "Estatica dos Corpos", "EMC5132", "Prof. X", "trigo", "")
-                .unwrap(),
+            NewSubject::create(
+                semestre.id,
+                "Estatica dos Corpos",
+                "EMC5132",
+                "Prof. X",
+                "trigo",
+                "",
+            )
+            .unwrap(),
         )
         .unwrap()
 }
@@ -208,7 +213,9 @@ fn a_task_apagada_deixa_a_atividade_de_pe() {
     let lista = atividade(&storage, &materia, "Lista 03");
     let task = storage.create_task_for_assignment(lista.id).unwrap();
 
-    storage.set_task_lifecycle(task.id, LifecycleState::Trashed).unwrap();
+    storage
+        .set_task_lifecycle(task.id, LifecycleState::Trashed)
+        .unwrap();
     storage.delete_task(task.id).unwrap();
 
     let sobrevivente = storage
@@ -269,7 +276,9 @@ fn a_sessao_de_estudo_comeca_e_termina() {
     assert!(sessao.em_curso());
     assert_eq!(storage.running_study().unwrap().unwrap().id, sessao.id);
 
-    let fechada = storage.finish_study(sessao.id, 45 * 60, "cansativo").unwrap();
+    let fechada = storage
+        .finish_study(sessao.id, 45 * 60, "cansativo")
+        .unwrap();
     assert_eq!(fechada.seconds, 45 * 60);
     assert!(!fechada.em_curso());
     assert_eq!(fechada.notes, "cansativo");
@@ -349,7 +358,9 @@ fn o_material_e_um_resource_de_verdade() {
     assert_eq!(contagens, vec![(materia.id, 1)]);
 
     // Desligar e ligar de novo termina ligado, e nao duplicado.
-    storage.link_material(materia.id, recurso.id, false).unwrap();
+    storage
+        .link_material(materia.id, recurso.id, false)
+        .unwrap();
     assert!(storage.subject_resources(materia.id).unwrap().is_empty());
     storage.link_material(materia.id, recurso.id, true).unwrap();
     storage.link_material(materia.id, recurso.id, true).unwrap();

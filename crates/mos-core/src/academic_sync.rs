@@ -220,7 +220,9 @@ impl ExternalEntity for ExternalAssignment {
             self.title,
             self.description,
             self.due_at.map(|d| d.unix_timestamp()).unwrap_or_default(),
-            self.submitted_at.map(|d| d.unix_timestamp()).unwrap_or_default(),
+            self.submitted_at
+                .map(|d| d.unix_timestamp())
+                .unwrap_or_default(),
             self.weight,
             fmt_num(self.max_score),
             fmt_num(self.score),
@@ -593,10 +595,7 @@ impl SyncReport {
         let mut partes: Vec<String> = Vec::new();
         let mut add = |n: usize, singular: &str, plural: &str| {
             if n > 0 {
-                partes.push(format!(
-                    "+{n} {}",
-                    if n == 1 { singular } else { plural }
-                ));
+                partes.push(format!("+{n} {}", if n == 1 { singular } else { plural }));
             }
         };
         add(self.subjects.created, "disciplina", "disciplinas");
@@ -698,7 +697,11 @@ mod tests {
         ];
         let plano = reconcile(ExternalKind::Exam, &itens, &[]);
         assert_eq!(plano.created(), 3);
-        let ids: Vec<&str> = plano.actions.iter().map(|a| a.item().external_id()).collect();
+        let ids: Vec<&str> = plano
+            .actions
+            .iter()
+            .map(|a| a.item().external_id())
+            .collect();
         assert_eq!(ids, ["2713958", "2713960", "2713961"]);
     }
 
@@ -728,7 +731,11 @@ mod tests {
             "exam-local-1",
             &antes.fingerprint(),
         )];
-        let depois = vec![avaliacao("2713958", "Prova", datetime!(2026-09-30 23:59 UTC))];
+        let depois = vec![avaliacao(
+            "2713958",
+            "Prova",
+            datetime!(2026-09-30 23:59 UTC),
+        )];
         let plano = reconcile(ExternalKind::Exam, &depois, &refs);
         assert_eq!(plano.created(), 0);
         assert_eq!(plano.updated(), 1);
@@ -744,7 +751,11 @@ mod tests {
             ref_de(ExternalKind::Exam, "2713958", "exam-1", "hash-a"),
             ref_de(ExternalKind::Exam, "2713960", "exam-2", "hash-b"),
         ];
-        let agora = vec![avaliacao("2713958", "Prova", datetime!(2026-09-14 23:59 UTC))];
+        let agora = vec![avaliacao(
+            "2713958",
+            "Prova",
+            datetime!(2026-09-14 23:59 UTC),
+        )];
         let plano = reconcile(ExternalKind::Exam, &agora, &refs);
         assert_eq!(plano.missing.len(), 1);
         assert_eq!(plano.missing[0].local_id, "exam-2");
@@ -756,7 +767,11 @@ mod tests {
         let item = avaliacao("2713958", "Prova", datetime!(2026-09-14 23:59 UTC));
         let mut referencia = ref_de(ExternalKind::Exam, "2713958", "exam-1", &item.fingerprint());
         referencia.unavailable_since = Some(datetime!(2026-08-10 10:00 UTC));
-        let plano = reconcile(ExternalKind::Exam, std::slice::from_ref(&item), &[referencia]);
+        let plano = reconcile(
+            ExternalKind::Exam,
+            std::slice::from_ref(&item),
+            &[referencia],
+        );
         assert_eq!(plano.updated(), 1);
         assert_eq!(plano.unchanged(), 0);
     }
@@ -769,7 +784,11 @@ mod tests {
             ref_de(ExternalKind::Exam, "corrente-1", "exam-1", "hash-a"),
             ref_de(ExternalKind::Exam, "antigo-1", "exam-2", "hash-b"),
         ];
-        let agora = vec![avaliacao("corrente-1", "Prova", datetime!(2026-09-14 23:59 UTC))];
+        let agora = vec![avaliacao(
+            "corrente-1",
+            "Prova",
+            datetime!(2026-09-14 23:59 UTC),
+        )];
         let plano = reconcile_scoped(ExternalKind::Exam, &agora, &refs, |r| {
             r.external_id.starts_with("corrente")
         });
@@ -782,7 +801,11 @@ mod tests {
     #[test]
     fn fora_do_recorte_que_reaparece_casa_com_a_linha_antiga() {
         let refs = vec![ref_de(ExternalKind::Exam, "antigo-1", "exam-2", "hash-b")];
-        let agora = vec![avaliacao("antigo-1", "Prova", datetime!(2026-09-14 23:59 UTC))];
+        let agora = vec![avaliacao(
+            "antigo-1",
+            "Prova",
+            datetime!(2026-09-14 23:59 UTC),
+        )];
         let plano = reconcile_scoped(ExternalKind::Exam, &agora, &refs, |_| false);
         assert_eq!(plano.created(), 0);
         assert_eq!(plano.updated(), 1);

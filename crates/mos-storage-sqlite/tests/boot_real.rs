@@ -28,10 +28,8 @@ fn qual_leitura_do_boot_falha() {
         }
     }
 
-    let storage = match SqliteStorage::open(
-        dir.path().join("m-os.db"),
-        dir.path().join("backups"),
-    ) {
+    let storage = match SqliteStorage::open(dir.path().join("m-os.db"), dir.path().join("backups"))
+    {
         Ok(storage) => {
             println!("ABRIR                        ok");
             storage

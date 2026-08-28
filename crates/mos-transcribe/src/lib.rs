@@ -380,11 +380,18 @@ mod tests {
     #[test]
     fn le_a_saida_do_whisper_com_offsets() {
         let segments = parse(SAIDA).unwrap();
-        assert_eq!(segments.len(), 3, "o parse nao filtra; quem filtra e o dominio");
+        assert_eq!(
+            segments.len(),
+            3,
+            "o parse nao filtra; quem filtra e o dominio"
+        );
         assert_eq!(segments[0].start_ms, 4000);
         assert_eq!(segments[0].end_ms, 8000);
         assert!(segments[0].text.contains("slides"));
-        assert!(segments[0].confidence.is_none(), "confianca nao e inventada");
+        assert!(
+            segments[0].confidence.is_none(),
+            "confianca nao e inventada"
+        );
     }
 
     #[test]
@@ -587,7 +594,12 @@ mod tests {
 
         let mut config = config_de_teste("");
         config.threads = 8;
-        let com = args(&config, std::path::Path::new(r"C:\tmp\mic.wav"), &saida, None);
+        let com = args(
+            &config,
+            std::path::Path::new(r"C:\tmp\mic.wav"),
+            &saida,
+            None,
+        );
         let t = com.iter().position(|a| a == "-t").unwrap();
         assert_eq!(com[t + 1], "8");
     }

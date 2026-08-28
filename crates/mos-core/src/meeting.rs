@@ -967,13 +967,19 @@ pub enum TranscriptionError {
     /// Nenhum provider foi configurado ainda.
     NotConfigured,
     /// O binario ou o modelo nao estao onde a configuracao diz.
-    MissingRuntime { detail: String },
+    MissingRuntime {
+        detail: String,
+    },
     /// O audio que deveria ser transcrito nao existe ou esta vazio.
     NoAudio,
     /// O provider rodou e falhou.
-    Failed { detail: String },
+    Failed {
+        detail: String,
+    },
     /// O provider rodou e devolveu algo que nao da para ler.
-    Unreadable { detail: String },
+    Unreadable {
+        detail: String,
+    },
     Cancelled,
 }
 
@@ -1257,8 +1263,7 @@ impl MeetingInsight {
             // desabilitado seria um beco sem saida (`UX-PRINCIPLES` §64).
             "Sem evidencia na transcricao. Confira o item antes de criar a Task.".to_owned()
         } else if self.confidence == Confidence::Low {
-            "Confianca baixa: a frase original era hipotetica. Confira antes de criar."
-                .to_owned()
+            "Confianca baixa: a frase original era hipotetica. Confira antes de criar.".to_owned()
         } else {
             String::new()
         };
@@ -1345,7 +1350,12 @@ mod tests {
             );
         }
         // E retomar so faz sentido a partir de Paused.
-        assert!(apply(&meeting(MeetingStatus::Recording), Transition::Resume, now()).is_err());
+        assert!(apply(
+            &meeting(MeetingStatus::Recording),
+            Transition::Resume,
+            now()
+        )
+        .is_err());
     }
 
     #[test]
@@ -1376,19 +1386,26 @@ mod tests {
 
     #[test]
     fn queda_vira_interrupted_e_nao_recorded() {
-        let interrupted =
-            apply(&meeting(MeetingStatus::Recording), Transition::DetectInterrupted, now()).unwrap();
+        let interrupted = apply(
+            &meeting(MeetingStatus::Recording),
+            Transition::DetectInterrupted,
+            now(),
+        )
+        .unwrap();
         assert_eq!(interrupted.status, MeetingStatus::Interrupted);
 
-        let processed =
-            apply(&interrupted, Transition::ProcessRecovered, now()).unwrap();
+        let processed = apply(&interrupted, Transition::ProcessRecovered, now()).unwrap();
         assert_eq!(processed.status, MeetingStatus::Recorded);
     }
 
     #[test]
     fn descartar_carimba_e_preserva_a_linha() {
-        let cancelled =
-            apply(&meeting(MeetingStatus::Interrupted), Transition::Cancel, now()).unwrap();
+        let cancelled = apply(
+            &meeting(MeetingStatus::Interrupted),
+            Transition::Cancel,
+            now(),
+        )
+        .unwrap();
         assert_eq!(cancelled.status, MeetingStatus::Cancelled);
         assert_eq!(cancelled.cancelled_at, Some(now()));
     }
@@ -1479,7 +1496,9 @@ mod tests {
 
         // `failed` sem estagio e integridade quebrada, e nao um default.
         assert_eq!(
-            MeetingStatus::from_columns("failed", None).unwrap_err().code,
+            MeetingStatus::from_columns("failed", None)
+                .unwrap_err()
+                .code,
             ErrorCode::DataIntegrity
         );
     }

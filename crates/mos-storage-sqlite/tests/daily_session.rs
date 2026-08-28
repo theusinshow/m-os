@@ -10,9 +10,10 @@
 //! testa o que acontece quando elas encontram o SQLite.
 
 use mos_core::{
-    Day, DailyObjectiveId, DailyRepository, DailySessionId, EndDayInput, LinkKind, NewDailyObjective,
-    NewDailyReflection, NewDailySession, NewProject, NewTask, ObjectiveLink, ObjectivePriority,
-    ObjectiveResolution, ObjectiveStatus, SearchRequest, SessionStatus, TaskState, WorkRepository,
+    DailyObjectiveId, DailyRepository, DailySessionId, Day, EndDayInput, LinkKind,
+    NewDailyObjective, NewDailyReflection, NewDailySession, NewProject, NewTask, ObjectiveLink,
+    ObjectivePriority, ObjectiveResolution, ObjectiveStatus, SearchRequest, SessionStatus,
+    TaskState, WorkRepository,
 };
 use mos_storage_sqlite::SqliteStorage;
 use time::macros::datetime;
@@ -89,7 +90,13 @@ fn comecar(
 #[test]
 fn comecar_o_dia_grava_a_sessao_e_os_objetivos_juntos() {
     let (_dir, storage) = banco();
-    let id = comecar(&storage, "2026-08-21", "Finalizar planta de formas", &["Revisar memorial"], agora());
+    let id = comecar(
+        &storage,
+        "2026-08-21",
+        "Finalizar planta de formas",
+        &["Revisar memorial"],
+        agora(),
+    );
 
     let sessao = DailyRepository::session(&storage, id).unwrap();
     assert_eq!(sessao.status, SessionStatus::Active);
@@ -99,8 +106,14 @@ fn comecar_o_dia_grava_a_sessao_e_os_objetivos_juntos() {
     let objetivos = storage.objectives(id).unwrap();
     assert_eq!(objetivos.len(), 2);
     assert_eq!(objetivos[0].title, "Finalizar planta de formas");
-    assert_eq!(objetivos[0].priority, ObjectivePriority::Main, "o principal vem primeiro");
-    assert!(objetivos.iter().all(|objetivo| objetivo.status == ObjectiveStatus::Pending));
+    assert_eq!(
+        objetivos[0].priority,
+        ObjectivePriority::Main,
+        "o principal vem primeiro"
+    );
+    assert!(objetivos
+        .iter()
+        .all(|objetivo| objetivo.status == ObjectiveStatus::Pending));
 }
 
 #[test]
@@ -112,7 +125,11 @@ fn dois_inicios_no_mesmo_dia_sao_recusados() {
 
     let segunda = NewDailySession::create(dia("2026-08-21"), "", agora()).unwrap();
     let erro = storage.start_day(segunda, Vec::new(), agora()).unwrap_err();
-    assert!(erro.message.contains("ja foi iniciado"), "veio: {}", erro.message);
+    assert!(
+        erro.message.contains("ja foi iniciado"),
+        "veio: {}",
+        erro.message
+    );
 
     assert_eq!(storage.sessions(10).unwrap().len(), 1);
 }
@@ -138,18 +155,34 @@ fn o_dia_sobrevive_ao_fechamento_do_aplicativo() {
 #[test]
 fn so_existe_um_principal_por_dia() {
     let (_dir, storage) = banco();
-    let id = comecar(&storage, "2026-08-21", "planta", &["memorial", "arquivos"], agora());
+    let id = comecar(
+        &storage,
+        "2026-08-21",
+        "planta",
+        &["memorial", "arquivos"],
+        agora(),
+    );
     let objetivos = storage.objectives(id).unwrap();
-    let memorial = objetivos.iter().find(|objetivo| objetivo.title == "memorial").unwrap();
+    let memorial = objetivos
+        .iter()
+        .find(|objetivo| objetivo.title == "memorial")
+        .unwrap();
 
     let depois = storage.set_main_objective(memorial.id, agora()).unwrap();
     let principais: Vec<_> = depois
         .iter()
         .filter(|objetivo| objetivo.priority == ObjectivePriority::Main)
         .collect();
-    assert_eq!(principais.len(), 1, "promover tem de rebaixar o anterior na mesma transacao");
+    assert_eq!(
+        principais.len(),
+        1,
+        "promover tem de rebaixar o anterior na mesma transacao"
+    );
     assert_eq!(principais[0].title, "memorial");
-    assert_eq!(depois[0].title, "memorial", "e o principal continua sendo o primeiro da lista");
+    assert_eq!(
+        depois[0].title, "memorial",
+        "e o principal continua sendo o primeiro da lista"
+    );
 }
 
 #[test]
@@ -159,14 +192,25 @@ fn acrescentar_um_principal_rebaixa_o_anterior() {
 
     storage
         .add_objective(
-            NewDailyObjective::create(id, "mudou de ideia", "", None, ObjectivePriority::Main, 1, agora())
-                .unwrap(),
+            NewDailyObjective::create(
+                id,
+                "mudou de ideia",
+                "",
+                None,
+                ObjectivePriority::Main,
+                1,
+                agora(),
+            )
+            .unwrap(),
         )
         .unwrap();
 
     let objetivos = storage.objectives(id).unwrap();
     assert_eq!(
-        objetivos.iter().filter(|o| o.priority == ObjectivePriority::Main).count(),
+        objetivos
+            .iter()
+            .filter(|o| o.priority == ObjectivePriority::Main)
+            .count(),
         1
     );
     assert_eq!(objetivos[0].title, "mudou de ideia");
@@ -206,13 +250,22 @@ fn concluir_a_task_conclui_o_objetivo_que_e_ela() {
         agora(),
     )
     .unwrap();
-    storage.start_day(sessao, vec![da_task, do_project], agora()).unwrap();
+    storage
+        .start_day(sessao, vec![da_task, do_project], agora())
+        .unwrap();
 
     storage.set_task_state(task.id, TaskState::Done).unwrap();
 
     let objetivos = storage.objectives(id).unwrap();
-    assert_eq!(objetivos[0].status, ObjectiveStatus::Completed, "o objetivo que E a Task fecha junto");
-    assert!(objetivos[0].completed_at.is_some(), "concluido carimba a hora");
+    assert_eq!(
+        objetivos[0].status,
+        ObjectiveStatus::Completed,
+        "o objetivo que E a Task fecha junto"
+    );
+    assert!(
+        objetivos[0].completed_at.is_some(),
+        "concluido carimba a hora"
+    );
     assert_eq!(
         objetivos[1].status,
         ObjectiveStatus::Pending,
@@ -253,7 +306,10 @@ fn tirar_a_task_do_done_devolve_o_objetivo_a_pendente() {
 
     let objetivo = &storage.objectives(id).unwrap()[0];
     assert_eq!(objetivo.status, ObjectiveStatus::Pending);
-    assert!(objetivo.completed_at.is_none(), "sair de concluido limpa o carimbo");
+    assert!(
+        objetivo.completed_at.is_none(),
+        "sair de concluido limpa o carimbo"
+    );
 }
 
 #[test]
@@ -318,14 +374,21 @@ fn objetivo_vinculado_a_entidade_apagada_continua_legivel() {
         )
         .unwrap();
 
-    storage.set_task_lifecycle(task.id, mos_core::LifecycleState::Archived).unwrap();
-    storage.set_task_lifecycle(task.id, mos_core::LifecycleState::Trashed).unwrap();
+    storage
+        .set_task_lifecycle(task.id, mos_core::LifecycleState::Archived)
+        .unwrap();
+    storage
+        .set_task_lifecycle(task.id, mos_core::LifecycleState::Trashed)
+        .unwrap();
     storage.delete_task(task.id).unwrap();
 
     let objetivos = storage.objectives(id).unwrap();
     assert_eq!(objetivos.len(), 1);
     assert_eq!(objetivos[0].title, "some daqui");
-    assert!(objetivos[0].link.is_some(), "o par continua gravado; quem some e o alvo");
+    assert!(
+        objetivos[0].link.is_some(),
+        "o par continua gravado; quem some e o alvo"
+    );
 }
 
 // ------------------------------------------------------------ fim do dia
@@ -333,21 +396,38 @@ fn objetivo_vinculado_a_entidade_apagada_continua_legivel() {
 #[test]
 fn encerrar_resolve_pendentes_grava_reflexao_e_fecha_a_sessao() {
     let (_dir, storage) = banco();
-    let id = comecar(&storage, "2026-08-21", "planta", &["memorial", "daily session"], agora());
+    let id = comecar(
+        &storage,
+        "2026-08-21",
+        "planta",
+        &["memorial", "daily session"],
+        agora(),
+    );
     let objetivos = storage.objectives(id).unwrap();
 
     let entrada = EndDayInput {
         resolutions: vec![
-            ObjectiveResolution { objective_id: objetivos[0].id.to_string(), status: "completed".into() },
-            ObjectiveResolution { objective_id: objetivos[1].id.to_string(), status: "carried_over".into() },
-            ObjectiveResolution { objective_id: objetivos[2].id.to_string(), status: "dropped".into() },
+            ObjectiveResolution {
+                objective_id: objetivos[0].id.to_string(),
+                status: "completed".into(),
+            },
+            ObjectiveResolution {
+                objective_id: objetivos[1].id.to_string(),
+                status: "carried_over".into(),
+            },
+            ObjectiveResolution {
+                objective_id: objetivos[2].id.to_string(),
+                status: "dropped".into(),
+            },
         ],
         mood: "blocked".into(),
         summary: "o 063-26 tomou mais tempo que o esperado".into(),
     };
     let destinos = entrada.parsed_resolutions().unwrap();
     let reflexao = entrada.reflection().unwrap().unwrap().for_session(id);
-    let fechada = storage.end_day(id, &destinos, Some(reflexao), agora() + Duration::hours(8)).unwrap();
+    let fechada = storage
+        .end_day(id, &destinos, Some(reflexao), agora() + Duration::hours(8))
+        .unwrap();
 
     assert_eq!(fechada.status, SessionStatus::Completed);
     assert!(fechada.ended_at.is_some());
@@ -374,8 +454,13 @@ fn objetivo_sem_destino_fica_pendente_e_nao_e_abandonado() {
     storage.end_day(id, &[], None, agora()).unwrap();
 
     let depois = storage.objectives(id).unwrap();
-    assert!(depois.iter().all(|objetivo| objetivo.status == ObjectiveStatus::Pending));
-    assert!(storage.reflection(id).unwrap().is_none(), "reflexao vazia nao vira linha");
+    assert!(depois
+        .iter()
+        .all(|objetivo| objetivo.status == ObjectiveStatus::Pending));
+    assert!(
+        storage.reflection(id).unwrap().is_none(),
+        "reflexao vazia nao vira linha"
+    );
 }
 
 #[test]
@@ -389,9 +474,19 @@ fn reabrir_devolve_o_dia_e_recusa_dois_abertos() {
     assert!(reaberta.ended_at.is_none(), "reabrir limpa a hora de fim");
 
     storage.end_day(id, &[], None, agora()).unwrap();
-    let outro = comecar(&storage, "2026-08-22", "outro dia", &[], agora() + Duration::days(1));
+    let outro = comecar(
+        &storage,
+        "2026-08-22",
+        "outro dia",
+        &[],
+        agora() + Duration::days(1),
+    );
     let erro = storage.reopen_day(id, agora()).unwrap_err();
-    assert!(erro.message.contains("dia aberto"), "veio: {}", erro.message);
+    assert!(
+        erro.message.contains("dia aberto"),
+        "veio: {}",
+        erro.message
+    );
     assert_eq!(
         DailyRepository::session(&storage, outro).unwrap().status,
         SessionStatus::Active
@@ -403,7 +498,13 @@ fn reabrir_devolve_o_dia_e_recusa_dois_abertos() {
 #[test]
 fn comecar_hoje_fecha_o_dia_de_ontem_sem_apagar_o_que_ficou_pendente() {
     let (_dir, storage) = banco();
-    let ontem = comecar(&storage, "2026-08-20", "planta", &["memorial"], agora() - Duration::days(1));
+    let ontem = comecar(
+        &storage,
+        "2026-08-20",
+        "planta",
+        &["memorial"],
+        agora() - Duration::days(1),
+    );
 
     assert!(
         storage.stale_session(&dia("2026-08-21")).unwrap().is_some(),
@@ -416,7 +517,11 @@ fn comecar_hoje_fecha_o_dia_de_ontem_sem_apagar_o_que_ficou_pendente() {
     assert_eq!(fechada.status, SessionStatus::Completed);
     assert!(fechada.ended_at.is_some());
     assert!(
-        storage.objectives(ontem).unwrap().iter().all(|o| o.status == ObjectiveStatus::Pending),
+        storage
+            .objectives(ontem)
+            .unwrap()
+            .iter()
+            .all(|o| o.status == ObjectiveStatus::Pending),
         "fechar por conta nao pode decidir o destino dos objetivos por ninguem"
     );
     assert!(
@@ -432,7 +537,10 @@ fn a_corrente_de_carry_over_conta_os_elos() {
     let (_dir, storage) = banco();
 
     let mut anterior: Option<DailyObjectiveId> = None;
-    for (indice, day) in ["2026-08-18", "2026-08-19", "2026-08-20"].iter().enumerate() {
+    for (indice, day) in ["2026-08-18", "2026-08-19", "2026-08-20"]
+        .iter()
+        .enumerate()
+    {
         let quando = agora() - Duration::days(3 - indice as i64);
         let sessao = NewDailySession::create(dia(day), "", quando).unwrap();
         let id = sessao.id;
@@ -454,16 +562,30 @@ fn a_corrente_de_carry_over_conta_os_elos() {
     }
 
     let ultimo = anterior.unwrap();
-    assert_eq!(storage.carry_depth(ultimo).unwrap(), 2, "dois elos atras dele");
+    assert_eq!(
+        storage.carry_depth(ultimo).unwrap(),
+        2,
+        "dois elos atras dele"
+    );
 
     let anterior_a_hoje = storage.session_before(&dia("2026-08-21")).unwrap().unwrap();
-    assert_eq!(anterior_a_hoje.day.as_str(), "2026-08-20", "o carry-over vem do dia mais recente");
+    assert_eq!(
+        anterior_a_hoje.day.as_str(),
+        "2026-08-20",
+        "o carry-over vem do dia mais recente"
+    );
 }
 
 #[test]
 fn remover_o_elo_antigo_nao_derruba_o_novo() {
     let (_dir, storage) = banco();
-    let ontem = comecar(&storage, "2026-08-20", "documentacao", &[], agora() - Duration::days(1));
+    let ontem = comecar(
+        &storage,
+        "2026-08-20",
+        "documentacao",
+        &[],
+        agora() - Duration::days(1),
+    );
     let origem = storage.objectives(ontem).unwrap()[0].id;
 
     let sessao = NewDailySession::create(dia("2026-08-21"), "", agora()).unwrap();
@@ -490,7 +612,10 @@ fn remover_o_elo_antigo_nao_derruba_o_novo() {
 
     let atual = &storage.objectives(hoje).unwrap()[0];
     assert_eq!(atual.title, "documentacao", "o objetivo de hoje sobrevive");
-    assert!(atual.carried_from.is_none(), "a corrente perde o elo, e nao o objetivo");
+    assert!(
+        atual.carried_from.is_none(),
+        "a corrente perde o elo, e nao o objetivo"
+    );
 }
 
 // ------------------------------------------------------------------ ordem
@@ -498,8 +623,20 @@ fn remover_o_elo_antigo_nao_derruba_o_novo() {
 #[test]
 fn reordenar_grava_a_lista_inteira_e_ignora_id_de_outra_sessao() {
     let (_dir, storage) = banco();
-    let id = comecar(&storage, "2026-08-21", "principal", &["a", "b", "c"], agora());
-    let outro = comecar(&storage, "2026-08-22", "outro", &[], agora() + Duration::days(1));
+    let id = comecar(
+        &storage,
+        "2026-08-21",
+        "principal",
+        &["a", "b", "c"],
+        agora(),
+    );
+    let outro = comecar(
+        &storage,
+        "2026-08-22",
+        "outro",
+        &[],
+        agora() + Duration::days(1),
+    );
     let intruso = storage.objectives(outro).unwrap()[0].id;
 
     let objetivos = storage.objectives(id).unwrap();
@@ -512,9 +649,7 @@ fn reordenar_grava_a_lista_inteira_e_ignora_id_de_outra_sessao() {
 
     // O principal continua primeiro na LEITURA — a ordem da lista e "principal,
     // depois posicao" — mas as posicoes gravadas seguem o pedido.
-    let posicao = |titulo: &str| {
-        depois.iter().find(|o| o.title == titulo).unwrap().position
-    };
+    let posicao = |titulo: &str| depois.iter().find(|o| o.title == titulo).unwrap().position;
     assert_eq!(posicao("c"), 0);
     assert_eq!(posicao("b"), 1);
     assert_eq!(posicao("a"), 2);
@@ -532,8 +667,20 @@ fn reordenar_grava_a_lista_inteira_e_ignora_id_de_outra_sessao() {
 #[test]
 fn o_historico_traz_as_sessoes_da_mais_nova_para_a_mais_antiga() {
     let (_dir, storage) = banco();
-    comecar(&storage, "2026-08-19", "a", &[], agora() - Duration::days(2));
-    comecar(&storage, "2026-08-20", "b", &[], agora() - Duration::days(1));
+    comecar(
+        &storage,
+        "2026-08-19",
+        "a",
+        &[],
+        agora() - Duration::days(2),
+    );
+    comecar(
+        &storage,
+        "2026-08-20",
+        "b",
+        &[],
+        agora() - Duration::days(1),
+    );
     comecar(&storage, "2026-08-21", "c", &[], agora());
 
     let dias: Vec<_> = storage
@@ -546,7 +693,11 @@ fn o_historico_traz_as_sessoes_da_mais_nova_para_a_mais_antiga() {
 
     let ids: Vec<_> = storage.sessions(10).unwrap().iter().map(|s| s.id).collect();
     let todos = storage.objectives_of(&ids).unwrap();
-    assert_eq!(todos.len(), 3, "os objetivos de N dias vem numa consulta so");
+    assert_eq!(
+        todos.len(),
+        3,
+        "os objetivos de N dias vem numa consulta so"
+    );
     assert!(storage.objectives_of(&[]).unwrap().is_empty());
 }
 
@@ -555,8 +706,20 @@ fn o_historico_traz_as_sessoes_da_mais_nova_para_a_mais_antiga() {
 #[test]
 fn os_objetivos_entram_na_busca_com_o_dia_em_que_foram_escritos() {
     let (_dir, storage) = banco();
-    comecar(&storage, "2026-08-20", "Revisar memorial descritivo", &[], agora() - Duration::days(1));
-    comecar(&storage, "2026-08-21", "Finalizar planta de formas", &["outra coisa"], agora());
+    comecar(
+        &storage,
+        "2026-08-20",
+        "Revisar memorial descritivo",
+        &[],
+        agora() - Duration::days(1),
+    );
+    comecar(
+        &storage,
+        "2026-08-21",
+        "Finalizar planta de formas",
+        &["outra coisa"],
+        agora(),
+    );
 
     let achados = storage
         .search_objectives(SearchRequest {
@@ -572,7 +735,11 @@ fn os_objetivos_entram_na_busca_com_o_dia_em_que_foram_escritos() {
     // `%` e `_` sao curingas do LIKE. Sem escape, procurar por "%" devolveria a
     // base inteira — e uma busca que devolve tudo e uma busca quebrada.
     assert!(storage
-        .search_objectives(SearchRequest { query: "%".into(), include_archived: false, limit: 10 })
+        .search_objectives(SearchRequest {
+            query: "%".into(),
+            include_archived: false,
+            limit: 10
+        })
         .unwrap()
         .is_empty());
 }
@@ -646,7 +813,12 @@ fn remover_um_objetivo_emite_delete() {
     use mos_sync::{OpBody, OutboxRepository};
     let (_dir, storage) = com_sync();
     let id = comecar(&storage, "2026-08-21", "planta", &["some"], agora());
-    let some = storage.objectives(id).unwrap().into_iter().find(|o| o.title == "some").unwrap();
+    let some = storage
+        .objectives(id)
+        .unwrap()
+        .into_iter()
+        .find(|o| o.title == "some")
+        .unwrap();
 
     storage.remove_objective(some.id).unwrap();
 
@@ -660,6 +832,13 @@ fn sem_sync_ligado_nada_e_emitido_e_nada_falha() {
     use mos_sync::OutboxRepository;
     let (_dir, storage) = banco();
     let id = comecar(&storage, "2026-08-21", "planta", &["memorial"], agora());
-    storage.end_day(id, &[], NewDailyReflection::create(None, "foi bom"), agora()).unwrap();
+    storage
+        .end_day(
+            id,
+            &[],
+            NewDailyReflection::create(None, "foi bom"),
+            agora(),
+        )
+        .unwrap();
     assert!(storage.pendentes(10).unwrap().is_empty());
 }

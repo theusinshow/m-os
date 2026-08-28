@@ -11,8 +11,8 @@ use mos_core::{
     CaptureRepository, CaptureSource, LifecycleState, NewCapture, NewProject, NewTask, TaskState,
     WorkRepository,
 };
-use mos_sync::{DeviceRepository, OpBody, OutboxRepository};
 use mos_storage_sqlite::SqliteStorage;
+use mos_sync::{DeviceRepository, OpBody, OutboxRepository};
 
 fn com_sync() -> (tempfile::TempDir, SqliteStorage) {
     let dir = tempfile::tempdir().unwrap();
@@ -151,7 +151,9 @@ fn excluir_de_vez_emite_delete_nos_dois_tipos() {
         .collect();
     assert_eq!(deletes.len(), 2);
     assert!(deletes.iter().any(|op| op.entity.kind.as_str() == "task"));
-    assert!(deletes.iter().any(|op| op.entity.kind.as_str() == "project"));
+    assert!(deletes
+        .iter()
+        .any(|op| op.entity.kind.as_str() == "project"));
 }
 
 #[test]

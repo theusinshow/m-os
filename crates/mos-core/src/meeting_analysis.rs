@@ -247,7 +247,10 @@ pub fn parse_analysis(
             kind,
             seq: index as i64,
             text,
-            owner: item.owner.map(|owner| owner.trim().to_owned()).filter(|owner| !owner.is_empty()),
+            owner: item
+                .owner
+                .map(|owner| owner.trim().to_owned())
+                .filter(|owner| !owner.is_empty()),
             due_hint: item
                 .due_hint
                 .map(|hint| hint.trim().to_owned())
@@ -430,7 +433,12 @@ fn format_segment(segment: &TranscriptSegment) -> String {
 
 fn clock(ms: i64) -> String {
     let total = ms / 1000;
-    format!("{:02}:{:02}:{:02}", total / 3600, (total / 60) % 60, total % 60)
+    format!(
+        "{:02}:{:02}:{:02}",
+        total / 3600,
+        (total / 60) % 60,
+        total % 60
+    )
 }
 
 /// As instrucoes que acompanham a transcricao.
@@ -575,10 +583,7 @@ mod tests {
         // verificavel, entao a evidencia vale.
         let segments = segmentos();
         let id = segments[0].id;
-        let linha_inteira = format!(
-            "[{id}] 00:00:04 VOCE — {}",
-            segments[0].text
-        );
+        let linha_inteira = format!("[{id}] 00:00:04 VOCE — {}", segments[0].text);
         let response = resposta(&format!(
             "{{\"kind\":\"my_action\",\"text\":\"Slides\",\"confidence\":\"high\",\
              \"evidence\":[{{\"segment\":{}}}]}}",
@@ -695,8 +700,7 @@ mod tests {
     fn resposta_sem_bloco_e_um_erro_proprio() {
         let segments = segmentos();
         assert_eq!(
-            parse_analysis(segments[0].meeting_id, "So prosa, sem bloco.", &segments)
-                .unwrap_err(),
+            parse_analysis(segments[0].meeting_id, "So prosa, sem bloco.", &segments).unwrap_err(),
             AnalysisError::NoBlock
         );
     }
@@ -796,7 +800,10 @@ mod tests {
         let segments = segmentos();
         let janelas = build_windows(&segments, WINDOW_BUDGET_CHARS);
         let texto = &janelas[0].text;
-        assert!(texto.contains(&segments[0].id.to_string()), "o id precisa estar la");
+        assert!(
+            texto.contains(&segments[0].id.to_string()),
+            "o id precisa estar la"
+        );
         assert!(texto.contains("00:00:04"));
         assert!(texto.contains("VOCE"));
         assert!(texto.contains("REMOTO"));

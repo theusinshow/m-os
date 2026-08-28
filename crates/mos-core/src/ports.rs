@@ -4,13 +4,12 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::{
-    Assignment, AssignmentId, AssignmentStatus, Day, Exam, ExamId, ExamStatus, NewAssignment,
-    NewExam, NewSemester, NewSubject, Resource, ResourceId, Semester, SemesterId, StudySession,
-    StudySessionId, Subject, SubjectId,
-    AppId, Capture, CaptureId, CoreError, HiddenWidget, LifecycleState, NewCapture, NewProject,
-    NewRegisteredApp, NewReminder, NewTask, NewVoiceNote, NewWorkspace, ProcessingState, Project,
-    ProjectId, RegisteredApp, Reminder, SearchItem, Task, TaskId, TaskState, VoiceNote,
-    VoiceNoteId, Workspace, WorkspaceId,
+    AppId, Assignment, AssignmentId, AssignmentStatus, Capture, CaptureId, CoreError, Day, Exam,
+    ExamId, ExamStatus, HiddenWidget, LifecycleState, NewAssignment, NewCapture, NewExam,
+    NewProject, NewRegisteredApp, NewReminder, NewSemester, NewSubject, NewTask, NewVoiceNote,
+    NewWorkspace, ProcessingState, Project, ProjectId, RegisteredApp, Reminder, Resource,
+    ResourceId, SearchItem, Semester, SemesterId, StudySession, StudySessionId, Subject, SubjectId,
+    Task, TaskId, TaskState, VoiceNote, VoiceNoteId, Workspace, WorkspaceId,
 };
 
 #[derive(Clone, Debug)]
@@ -541,10 +540,8 @@ pub trait AttentionRepository: Send + Sync {
 
     /// A entrega viva com esta chave, se houver. E o que o dedupe consulta
     /// antes de criar outra.
-    fn live_notification(
-        &self,
-        dedupe_key: &str,
-    ) -> Result<Option<crate::Notification>, CoreError>;
+    fn live_notification(&self, dedupe_key: &str)
+        -> Result<Option<crate::Notification>, CoreError>;
 
     fn notifications_for(
         &self,
@@ -644,10 +641,7 @@ pub trait MeetingRepository: Send + Sync {
         segments: Vec<crate::TranscriptSegment>,
     ) -> Result<usize, CoreError>;
 
-    fn transcript(
-        &self,
-        id: crate::MeetingId,
-    ) -> Result<Vec<crate::TranscriptSegment>, CoreError>;
+    fn transcript(&self, id: crate::MeetingId) -> Result<Vec<crate::TranscriptSegment>, CoreError>;
 
     /// Troca resumo e itens inteiros, numa transacao.
     ///
@@ -660,10 +654,7 @@ pub trait MeetingRepository: Send + Sync {
         insights: Vec<crate::MeetingInsight>,
     ) -> Result<usize, CoreError>;
 
-    fn analysis(
-        &self,
-        id: crate::MeetingId,
-    ) -> Result<Option<crate::MeetingAnalysis>, CoreError>;
+    fn analysis(&self, id: crate::MeetingId) -> Result<Option<crate::MeetingAnalysis>, CoreError>;
 
     fn insights(&self, id: crate::MeetingId) -> Result<Vec<crate::MeetingInsight>, CoreError>;
 
@@ -784,10 +775,7 @@ pub trait IngestionRepository: Send + Sync {
     /// durabilidade do `synchronous=FULL`, e criar um Resource automaticamente
     /// seria decidir por inferencia o que a frase significa. A Capture continua
     /// na Inbox — que e onde uma decisao por tomar deve estar.
-    fn complete_as_capture(
-        &self,
-        id: crate::IngestionId,
-    ) -> Result<crate::Ingestion, CoreError>;
+    fn complete_as_capture(&self, id: crate::IngestionId) -> Result<crate::Ingestion, CoreError>;
 
     /// Fecha a ingestao apontando para um Resource que ja existia, aplicando
     /// nele o contexto novo. O que ja estava ligado permanece ligado, e a
@@ -914,16 +902,14 @@ pub trait DailyRepository: Send + Sync {
     fn session(&self, id: crate::DailySessionId) -> Result<crate::DailySession, CoreError>;
 
     /// A sessao mais recente ANTERIOR a uma data. E de onde vem o carry-over.
-    fn session_before(&self, day: &crate::Day)
-        -> Result<Option<crate::DailySession>, CoreError>;
+    fn session_before(&self, day: &crate::Day) -> Result<Option<crate::DailySession>, CoreError>;
 
     /// A sessao de um dia anterior que ficou `active`.
     ///
     /// Existe separada de `session_before` porque as duas perguntas sao
     /// diferentes: uma e "o que sobrou de ontem?", a outra e "ficou alguma
     /// porta aberta?". Um dia encerrado responde a primeira e nao a segunda.
-    fn stale_session(&self, day: &crate::Day)
-        -> Result<Option<crate::DailySession>, CoreError>;
+    fn stale_session(&self, day: &crate::Day) -> Result<Option<crate::DailySession>, CoreError>;
 
     fn objectives(
         &self,
@@ -939,10 +925,7 @@ pub trait DailyRepository: Send + Sync {
         sessions: &[crate::DailySessionId],
     ) -> Result<Vec<crate::DailyObjective>, CoreError>;
 
-    fn objective(
-        &self,
-        id: crate::DailyObjectiveId,
-    ) -> Result<crate::DailyObjective, CoreError>;
+    fn objective(&self, id: crate::DailyObjectiveId) -> Result<crate::DailyObjective, CoreError>;
 
     /// Comeca o dia: fecha o que ficou aberto de dias anteriores, cria a sessao
     /// e grava os objetivos — **numa transacao so**.
@@ -1054,8 +1037,7 @@ pub trait DailyRepository: Send + Sync {
     fn sessions_between(&self, week: &crate::Week) -> Result<Vec<crate::DailySession>, CoreError>;
 
     /// O fecho de uma semana, se houver.
-    fn weekly_review(&self, week: &crate::Week)
-        -> Result<Option<crate::WeeklyReview>, CoreError>;
+    fn weekly_review(&self, week: &crate::Week) -> Result<Option<crate::WeeklyReview>, CoreError>;
 
     /// Grava o fecho, ou corrige o texto de um que ja existe.
     ///
@@ -1184,11 +1166,7 @@ pub trait AcademicRepository: Send + Sync {
         id: AssignmentId,
         decision: crate::Decision,
     ) -> Result<Assignment, CoreError>;
-    fn set_exam_decision(
-        &self,
-        id: ExamId,
-        decision: crate::Decision,
-    ) -> Result<Exam, CoreError>;
+    fn set_exam_decision(&self, id: ExamId, decision: crate::Decision) -> Result<Exam, CoreError>;
     /// Quando pretendo fazer, e por quanto tempo. `None` desfaz o plano.
     fn plan_assignment(
         &self,

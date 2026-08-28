@@ -30,9 +30,7 @@ use mos_core::academic_sync::{
     Missing, ProviderConnection, ProviderSnapshot, ProviderStatus, SyncAction, SyncCounts,
     SyncOutcome, SyncReport,
 };
-use mos_core::{
-    CoreError, ErrorCode, NewResource, ResourceKind, SubjectId,
-};
+use mos_core::{CoreError, ErrorCode, NewResource, ResourceKind, SubjectId};
 use rusqlite::{params, Connection, OptionalExtension};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -70,13 +68,10 @@ pub trait AcademicProviderRepository: Send + Sync {
     ) -> Result<SyncReport, CoreError>;
     /// A media oficial e a situacao que a instituicao publica, por disciplina.
     /// **Nunca** substitui `mos_core::academic::desempenho`.
-    fn provider_subject_facts(
-        &self,
-        provider: &str,
-    ) -> Result<Vec<ProviderSubjectFact>, CoreError>;
+    fn provider_subject_facts(&self, provider: &str)
+        -> Result<Vec<ProviderSubjectFact>, CoreError>;
     /// O ultimo endereco visto de um material. Pode estar vencido: e cache.
-    fn material_url(&self, provider: &str, external_id: &str)
-        -> Result<Option<String>, CoreError>;
+    fn material_url(&self, provider: &str, external_id: &str) -> Result<Option<String>, CoreError>;
     /// Desconecta: apaga o estado e as referencias, **preservando** as entidades
     /// academicas ja criadas. Quem desconecta nao pede para perder o semestre.
     fn forget_provider(&self, provider: &str) -> Result<(), CoreError>;
@@ -124,18 +119,20 @@ fn ler_refs(
 
     linhas
         .into_iter()
-        .map(|(external_id, local_id, payload_hash, indisponivel, primeiro, ultimo)| {
-            Ok(ExternalRef {
-                provider: provider.to_owned(),
-                kind,
-                external_id,
-                local_id,
-                payload_hash,
-                unavailable_since: indisponivel.as_deref().map(parse_time).transpose()?,
-                first_synced_at: parse_time(&primeiro)?,
-                last_synced_at: parse_time(&ultimo)?,
-            })
-        })
+        .map(
+            |(external_id, local_id, payload_hash, indisponivel, primeiro, ultimo)| {
+                Ok(ExternalRef {
+                    provider: provider.to_owned(),
+                    kind,
+                    external_id,
+                    local_id,
+                    payload_hash,
+                    unavailable_since: indisponivel.as_deref().map(parse_time).transpose()?,
+                    first_synced_at: parse_time(&primeiro)?,
+                    last_synced_at: parse_time(&ultimo)?,
+                })
+            },
+        )
         .collect()
 }
 
@@ -860,7 +857,10 @@ impl AcademicProviderRepository for SqliteStorage {
                     item.extension.to_uppercase()
                 )
             } else {
-                format!("Material da disciplina no Univirtus · {}", item.extension.to_uppercase())
+                format!(
+                    "Material da disciplina no Univirtus · {}",
+                    item.extension.to_uppercase()
+                )
             };
             let local_id = match acao {
                 SyncAction::Create(_) => {
@@ -869,13 +869,8 @@ impl AcademicProviderRepository for SqliteStorage {
                     // com URL morta e pior que um sem URL — ele promete que
                     // abre. O endereco corrente vive em `academic_material_urls`
                     // e se resolve na hora de abrir.
-                    let novo = NewResource::create(
-                        ResourceKind::Note,
-                        &item.title,
-                        "",
-                        &nota,
-                        None,
-                    )?;
+                    let novo =
+                        NewResource::create(ResourceKind::Note, &item.title, "", &nota, None)?;
                     let id = novo.id;
                     transaction
                         .execute(
@@ -914,10 +909,7 @@ impl AcademicProviderRepository for SqliteStorage {
                     params![subject_id, local_id, agora],
                 )
                 .map_err(map_sql_error)?;
-            if let (Ok(de), Ok(para)) = (
-                Uuid::parse_str(&subject_id),
-                Uuid::parse_str(&local_id),
-            ) {
+            if let (Ok(de), Ok(para)) = (Uuid::parse_str(&subject_id), Uuid::parse_str(&local_id)) {
                 self.emitir_relacao(&transaction, REL_MATERIAL, de, para, true)?;
             }
             // O endereco corrente, como cache datado.
@@ -1036,11 +1028,7 @@ impl AcademicProviderRepository for SqliteStorage {
             .collect()
     }
 
-    fn material_url(
-        &self,
-        provider: &str,
-        external_id: &str,
-    ) -> Result<Option<String>, CoreError> {
+    fn material_url(&self, provider: &str, external_id: &str) -> Result<Option<String>, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         connection
             .query_row(

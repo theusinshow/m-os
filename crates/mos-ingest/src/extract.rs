@@ -217,7 +217,10 @@ mod tests {
 
     #[test]
     fn arquivo_vazio_e_vazio_e_nao_falha() {
-        assert_eq!(extract(DetectedKind::Text, b"").state, ExtractionState::Empty);
+        assert_eq!(
+            extract(DetectedKind::Text, b"").state,
+            ExtractionState::Empty
+        );
         assert_eq!(
             extract(DetectedKind::Markdown, b"   \n\n ").state,
             ExtractionState::Empty
@@ -281,7 +284,11 @@ mod tests {
             offsets.push(pdf.len());
             pdf.push_str(objeto);
         };
-        push(&mut pdf, &mut offsets, "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+        push(
+            &mut pdf,
+            &mut offsets,
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        );
         push(
             &mut pdf,
             &mut offsets,
@@ -307,7 +314,10 @@ mod tests {
             ),
         );
         let xref = pdf.len();
-        pdf.push_str(&format!("xref\n0 {}\n0000000000 65535 f \n", offsets.len() + 1));
+        pdf.push_str(&format!(
+            "xref\n0 {}\n0000000000 65535 f \n",
+            offsets.len() + 1
+        ));
         for offset in &offsets {
             pdf.push_str(&format!("{offset:010} 00000 n \n"));
         }

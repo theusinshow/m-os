@@ -32,17 +32,17 @@ mod ports;
 mod relacao;
 
 pub use clock::{Hlc, HlcClock};
+pub use device::{Device, DeviceId, Platform};
 pub use engine::{
     carregar_relogio, erro_de_contrato, instante_de, sincronizar, Deposito, Lote, Projecao, Rodada,
     Transport,
 };
-pub use device::{Device, DeviceId, Platform};
 pub use merge::{aplicar, CampoResolvido, Conflito, EstadoDaEntidade, Reconciliacao};
 pub use op::{EntityKind, EntityRef, Op, OpBody};
-pub use relacao::{Relacao, RelationKind};
 pub use ports::{
     ClockRepository, ConflictRepository, DeviceRepository, OutboxRepository, Resultado, SyncError,
 };
+pub use relacao::{Relacao, RelationKind};
 
 /// A versao do formato que viaja entre dispositivos.
 ///

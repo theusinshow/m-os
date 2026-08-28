@@ -199,7 +199,9 @@ fn prazo_que_muda_atualiza_a_prova_existente() {
     assert_eq!(relatorio.assessments.updated, 1);
     let depois = storage.exams(false).unwrap();
     assert_eq!(depois.len(), antes.len());
-    assert!(depois.iter().any(|e| e.at == datetime!(2026-09-30 23:59 UTC)));
+    assert!(depois
+        .iter()
+        .any(|e| e.at == datetime!(2026-09-30 23:59 UTC)));
 }
 
 /// A regra do §14, verificada ate o banco: `peso` virou teto, `pesoMedia` virou
@@ -254,8 +256,16 @@ fn a_republicacao_do_portal_nao_desfaz_a_decisao_da_pessoa() {
     storage.apply_provider_snapshot(&retrato, agora()).unwrap();
 
     let depois = storage.assignments(false).unwrap().pop().unwrap();
-    assert_eq!(depois.due_at, Some(datetime!(2026-08-30 23:59 UTC)), "o prazo e do portal");
-    assert_eq!(depois.priority, Priority::Urgent, "a prioridade e da pessoa");
+    assert_eq!(
+        depois.due_at,
+        Some(datetime!(2026-08-30 23:59 UTC)),
+        "o prazo e do portal"
+    );
+    assert_eq!(
+        depois.priority,
+        Priority::Urgent,
+        "a prioridade e da pessoa"
+    );
     assert_eq!(depois.task_id, Some(task.id), "a Task continua ligada");
 }
 
@@ -268,14 +278,24 @@ fn accent_e_observacoes_sobrevivem_a_sincronizacao() {
 
     let materia = storage.subjects(false).unwrap().pop().unwrap();
     storage
-        .update_subject(materia.id, &materia.name, &materia.code, "Prof. Ana", "musgo", "sentar na frente")
+        .update_subject(
+            materia.id,
+            &materia.name,
+            &materia.code,
+            "Prof. Ana",
+            "musgo",
+            "sentar na frente",
+        )
         .unwrap();
 
     retrato.subjects[0].name = "Projeto Arquitetônico II".into();
     storage.apply_provider_snapshot(&retrato, agora()).unwrap();
 
     let depois = storage.subjects(false).unwrap().pop().unwrap();
-    assert_eq!(depois.name, "Projeto Arquitetônico II", "o nome e do portal");
+    assert_eq!(
+        depois.name, "Projeto Arquitetônico II",
+        "o nome e do portal"
+    );
     assert_eq!(depois.accent, "musgo", "a cor e da pessoa");
     assert_eq!(depois.notes, "sentar na frente", "a observacao e da pessoa");
     assert_eq!(
@@ -330,7 +350,11 @@ fn a_media_oficial_nao_invade_a_media_calculada() {
     let mut retrato = retrato();
     retrato.subjects[0] = disciplina(Some(7.4));
     // Uma unica avaliacao, com 100 de 100 e peso 30.
-    retrato.assessments = vec![avaliacao("2713956", datetime!(2026-08-24 23:59 UTC), Some(100.0))];
+    retrato.assessments = vec![avaliacao(
+        "2713956",
+        datetime!(2026-08-24 23:59 UTC),
+        Some(100.0),
+    )];
     storage.apply_provider_snapshot(&retrato, agora()).unwrap();
 
     let materia = storage.subjects(false).unwrap().pop().unwrap();
@@ -401,7 +425,10 @@ fn a_url_assinada_nao_entra_no_resource_e_muda_sem_duplicar() {
     let materia = storage.subjects(false).unwrap().pop().unwrap();
     let recursos = storage.subject_resources(materia.id).unwrap();
     assert_eq!(recursos.len(), 1);
-    assert_eq!(recursos[0].url, "", "a URL assinada nao vira endereco do Resource");
+    assert_eq!(
+        recursos[0].url, "",
+        "a URL assinada nao vira endereco do Resource"
+    );
     assert_eq!(recursos[0].title, "PLANO DE ENSINO.pdf");
 
     // A assinatura muda, como muda a cada resposta do portal.
@@ -409,14 +436,20 @@ fn a_url_assinada_nao_entra_no_resource_e_muda_sem_duplicar() {
         Some("https://cdn.example/x?Signature=bbb&Expires=2".into());
     let relatorio = storage.apply_provider_snapshot(&retrato, agora()).unwrap();
 
-    assert_eq!(relatorio.materials.created, 0, "URL nova nao cria material novo");
+    assert_eq!(
+        relatorio.materials.created, 0,
+        "URL nova nao cria material novo"
+    );
     assert_eq!(relatorio.materials.unchanged, 1);
     assert_eq!(storage.subject_resources(materia.id).unwrap().len(), 1);
     let url = storage
         .material_url(PROVIDER_UNIVIRTUS, "60634399")
         .unwrap()
         .unwrap();
-    assert!(url.contains("Signature=bbb"), "o cache guarda a mais recente");
+    assert!(
+        url.contains("Signature=bbb"),
+        "o cache guarda a mais recente"
+    );
 }
 
 // ===========================================================================
@@ -560,7 +593,10 @@ fn o_sync_nao_desarquiva_o_que_a_pessoa_arquivou() {
         .find(|s| s.id == materia.id)
         .unwrap();
     assert_eq!(arquivada.lifecycle_state, LifecycleState::Archived);
-    assert_eq!(arquivada.name, "Outro nome", "o dado do portal ainda atualiza");
+    assert_eq!(
+        arquivada.name, "Outro nome",
+        "o dado do portal ainda atualiza"
+    );
 }
 
 #[test]

@@ -5,8 +5,8 @@
 //! **nao emitiu quando esta desligado**.
 
 use mos_core::{CaptureRepository, CaptureSource, LifecycleState, NewCapture, ProcessingState};
-use mos_sync::{DeviceRepository, Op, OpBody, OutboxRepository};
 use mos_storage_sqlite::SqliteStorage;
+use mos_sync::{DeviceRepository, Op, OpBody, OutboxRepository};
 
 fn banco() -> (tempfile::TempDir, SqliteStorage) {
     let dir = tempfile::tempdir().unwrap();

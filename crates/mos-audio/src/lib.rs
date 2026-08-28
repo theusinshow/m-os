@@ -43,23 +43,35 @@ pub enum AudioError {
     /// Ja existe uma gravacao em curso neste processo.
     AlreadyRecording,
     Device(String),
-    Storage { path: String, detail: String },
+    Storage {
+        path: String,
+        detail: String,
+    },
     /// Bytes que nao completam um frame. Meio frame desalinha tudo o que vier
     /// depois, sem sintoma ate alguem ouvir ruido branco.
-    Misaligned { bytes: usize, frame: usize },
+    Misaligned {
+        bytes: usize,
+        frame: usize,
+    },
 }
 
 impl std::fmt::Display for AudioError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unsupported => {
-                write!(f, "A captura de audio existe apenas no Windows nesta versao.")
+                write!(
+                    f,
+                    "A captura de audio existe apenas no Windows nesta versao."
+                )
             }
             Self::AlreadyRecording => write!(f, "Ja existe uma gravacao em curso."),
             Self::Device(detail) => write!(f, "Dispositivo de audio indisponivel: {detail}"),
             Self::Storage { path, detail } => write!(f, "Falha ao gravar em {path}: {detail}"),
             Self::Misaligned { bytes, frame } => {
-                write!(f, "Escrita de {bytes} bytes nao e multipla do frame de {frame}.")
+                write!(
+                    f,
+                    "Escrita de {bytes} bytes nao e multipla do frame de {frame}."
+                )
             }
         }
     }
@@ -386,8 +398,10 @@ impl Recording {
             // coisa que diz se a linha do tempo do canal remoto e confiavel. O
             // teste de hardware pegou isso.
             manifest.mic = merge(manifest.mic, mic.as_ref().and_then(|r| r.info.clone()));
-            manifest.system =
-                merge(manifest.system, system.as_ref().and_then(|r| r.info.clone()));
+            manifest.system = merge(
+                manifest.system,
+                system.as_ref().and_then(|r| r.info.clone()),
+            );
             let _ = session.write_manifest(&manifest);
         }
 
@@ -483,12 +497,9 @@ mod tests {
         session.create().unwrap();
 
         // MIC gravou 2 s, SYSTEM caiu com 1 s. A reuniao durou 2 s.
-        let mut mic = chunks::ChunkWriter::create(
-            &session.channel(Channel::Mic),
-            Format::CAPTURE,
-            CHUNK_MS,
-        )
-        .unwrap();
+        let mut mic =
+            chunks::ChunkWriter::create(&session.channel(Channel::Mic), Format::CAPTURE, CHUNK_MS)
+                .unwrap();
         mic.write(&vec![0u8; 16_000 * 2 * 2]).unwrap();
         mic.finish().unwrap();
 

@@ -6,8 +6,8 @@ mod academic_sync_impl;
 mod academic_univirtus_impl;
 mod action;
 mod agent;
-mod attention;
 mod app;
+mod attention;
 mod calendar;
 mod capture;
 mod clock;
@@ -30,13 +30,13 @@ mod weekly;
 mod work;
 
 pub use academic::{
-    compose_compromissos, compose_dashboard, compose_today, desempenho, horizonte_de, nota_necessaria,
-    progresso_do_periodo, segundos_na_semana, segundos_no_dia, semestre_corrente, validate_accent,
-    AcademicDashboard, AcademicToday, Assignment, AssignmentId, AssignmentStatus, Compromisso,
-    DashboardInput, Desempenho, Exam, ExamId, ExamStatus, Horizonte, Nota, Semester, SemesterId,
-    SemesterStatus, StudySession, StudySessionId, StudySuggestion, Subject, SubjectId,
-    NewAssignment, NewExam, NewSemester, NewSubject, Pontuacao, SubjectOverview, MAX_UPCOMING,
-    SUBJECT_ACCENTS,
+    compose_compromissos, compose_dashboard, compose_today, desempenho, horizonte_de,
+    nota_necessaria, progresso_do_periodo, segundos_na_semana, segundos_no_dia, semestre_corrente,
+    validate_accent, AcademicDashboard, AcademicToday, Assignment, AssignmentId, AssignmentStatus,
+    Compromisso, DashboardInput, Desempenho, Exam, ExamId, ExamStatus, Horizonte, NewAssignment,
+    NewExam, NewSemester, NewSubject, Nota, Pontuacao, Semester, SemesterId, SemesterStatus,
+    StudySession, StudySessionId, StudySuggestion, Subject, SubjectId, SubjectOverview,
+    MAX_UPCOMING, SUBJECT_ACCENTS,
 };
 /// A sincronizacao academica com um AVA externo.
 ///
@@ -60,32 +60,30 @@ pub use action::{
 };
 pub use agent::{
     candidates_block, here_block, normalize, now_block, parse_query, preamble, query_answer,
-    query_contract, resolution_error, resolve, search_terms, short_id, spoken_moment, split_fenced,
+    query_contract, resolution_error, resolve, search_terms, short_id, split_fenced, spoken_moment,
     system_context, Candidate, EntityKind, Here, Named, PreambleInput, QueryRequest, Resolved,
     MAX_CANDIDATES, MAX_QUERY_HOPS,
 };
-pub use attention::{
-    apply, next_wake, reconcile, Channel, ContentPrivacy, DeliveryPolicy, NewNotification,
-    NewReminder, Notification, NotificationId, NotificationStatus, Priority, Reconciliation,
-    ReconcileReason, Reminder, ReminderId, ReminderSource, ReminderStatus, ReminderTarget,
-    Transition, Trigger, VisualLevel, MISS_GRACE,
-};
 pub use app::{
     app_catalog, app_targeting_host, validate_launch_target, validate_source_url, AppCapabilities,
-    AppCatalogEntry,
-    AppId, AppLaunchKind, NewRegisteredApp, RegisteredApp,
+    AppCatalogEntry, AppId, AppLaunchKind, NewRegisteredApp, RegisteredApp,
+};
+pub use attention::{
+    apply, next_wake, reconcile, Channel, ContentPrivacy, DeliveryPolicy, NewNotification,
+    NewReminder, Notification, NotificationId, NotificationStatus, Priority, ReconcileReason,
+    Reconciliation, Reminder, ReminderId, ReminderSource, ReminderStatus, ReminderTarget,
+    Transition, Trigger, VisualLevel, MISS_GRACE,
 };
 pub use calendar::{compose, CalendarItem, CalendarKind, ComposeInput};
-pub use clock::{Clock, FixedClock, SystemClock};
 pub use capture::{Capture, CaptureId, CaptureSource, LifecycleState, NewCapture, ProcessingState};
+pub use clock::{Clock, FixedClock, SystemClock};
 pub use conversation::{
     validate_title, ContextEntity, ContextOrigin, Conversation, ConversationId,
     ConversationSummary, Message, MessageId, MessagePart, MessagePartId, MessageRole,
-    MessageStatus, NewConversation, NewMessage, PartBody, ProposalStatus, ToolRunState,
-    TurnEnding,
+    MessageStatus, NewConversation, NewMessage, PartBody, ProposalStatus, ToolRunState, TurnEnding,
 };
 pub use daily::{
-    compose_context, completes_with_task, summarize, CarryOver, ContextInput, DailyContext,
+    completes_with_task, compose_context, summarize, CarryOver, ContextInput, DailyContext,
     DailyObjective, DailyObjectiveId, DailyReflection, DailySession, DailySessionId,
     DailySessionSummary, DailyToday, Day, DayMood, EndDayInput, LinkKind, NewDailyObjective,
     NewDailyReflection, NewDailySession, ObjectiveDraft, ObjectiveLink, ObjectivePriority,
@@ -105,13 +103,12 @@ pub use ingestion::{
     RelationPlan, CONFIDENCE_LINK, CONFIDENCE_SUGGEST, MAX_EXTRACTED_CHARS, MAX_INGEST_BYTES,
 };
 pub use meeting::{
-    apply as apply_meeting, interleave, AudioRetention, Channel as MeetingChannel, ChannelOutcome,
-    Confidence, FailedStage, InsightId, InsightKind, InsightStatus, Meeting, MeetingAnalysis,
-    MeetingEvidence, MeetingFailure, MeetingId, MeetingInsight, MeetingSource, MeetingStatus,
-    clean_segments, is_speech, AcceptInsight, AcceptedInsight, InsightPreview, NewMeeting,
-    RawSegment, SegmentId, TranscriptSegment,
-    Transition as MeetingTransition, TranscriptionError, TranscriptionProvider,
-    TranscriptionRequest,
+    apply as apply_meeting, clean_segments, interleave, is_speech, AcceptInsight, AcceptedInsight,
+    AudioRetention, Channel as MeetingChannel, ChannelOutcome, Confidence, FailedStage, InsightId,
+    InsightKind, InsightPreview, InsightStatus, Meeting, MeetingAnalysis, MeetingEvidence,
+    MeetingFailure, MeetingId, MeetingInsight, MeetingSource, MeetingStatus, NewMeeting,
+    RawSegment, SegmentId, TranscriptSegment, TranscriptionError, TranscriptionProvider,
+    TranscriptionRequest, Transition as MeetingTransition,
 };
 pub use meeting_analysis::{
     build_windows, instructions, parse_analysis, AnalysisError, AnalysisOutcome, PromptWindow,
@@ -119,15 +116,14 @@ pub use meeting_analysis::{
 };
 pub use monitoring::{
     decidir_oferta, diff_transitions, open_periods, uncovered, ActivityEvent, ActivityEventId,
-    ActivityKind, ContextoDaOferta, DecisaoDeOferta, MicrofoneAberto,
-    MonitoredApp, MonitoringSettings, NewActivityEvent, Period,
+    ActivityKind, ContextoDaOferta, DecisaoDeOferta, MicrofoneAberto, MonitoredApp,
+    MonitoringSettings, NewActivityEvent, Period,
 };
 pub use ports::{
-    AcademicRepository, AppRepository, AttentionRepository, BackupInspection, BackupReceipt, CaptureRepository,
-    ConversationRepository, DailyRepository, DataMaintenance, IngestionRepository,
-    MeetingRepository, UpdateAssignment, UpdateExam,
-    MonitoringRepository, ResourceRepository, SearchRequest, TimeTrackingRepository,
-    VoiceRepository,
+    AcademicRepository, AppRepository, AttentionRepository, BackupInspection, BackupReceipt,
+    CaptureRepository, ConversationRepository, DailyRepository, DataMaintenance,
+    IngestionRepository, MeetingRepository, MonitoringRepository, ResourceRepository,
+    SearchRequest, TimeTrackingRepository, UpdateAssignment, UpdateExam, VoiceRepository,
     WorkRepository,
 };
 pub use resource::{
@@ -135,23 +131,17 @@ pub use resource::{
     ResourceWorkspace,
 };
 pub use service::{
-    AcademicService, AppService, AttentionService, AudioOutcome, CaptureService, ConversationService, CreateAppInput,
-    DailyService,
-    CreateCaptureInput, CreateProjectInput, CreateResourceInput, CreateTaskInput,
-    CreateWorkspaceInput, DataService, MeetingService, MemoryService, MonitoringService,
-    Servicos, TrackingService, UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput,
-    UpdateWorkspaceInput, VoiceService, WorkService,
+    AcademicService, AppService, AttentionService, AudioOutcome, CaptureService,
+    ConversationService, CreateAppInput, CreateCaptureInput, CreateProjectInput,
+    CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DailyService, DataService,
+    MeetingService, MemoryService, MonitoringService, Servicos, TrackingService, UpdateAppInput,
+    UpdateProjectInput, UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, VoiceService,
+    WorkService,
 };
 pub use stale::{
     atividade_do_project, compose_stale, project_activity, tolerancia, trabalho_aberto, Parada,
     ProjectActivity, StaleInput, StaleKind, StaleView, TOLERANCIA_PROJECT,
 };
-pub use voice::{
-    apply as apply_voice, heard, is_hallucination, title_from, understand, Heard, NewVoiceNote,
-    ProjectSource, Understanding, VoiceAction, VoiceContext, VoiceNote, VoiceNoteId,
-    VoiceNoteStatus, VoiceTransition, MAX_DURATION_MS, MIN_DURATION_MS, MIN_PEAK_LEVEL,
-};
-pub use voice_when::{resolve_when, ResolvedWhen};
 pub use tracking::{
     aggregate_by_project, amount_for_duration, billable_duration, elapsed_seconds, net_duration,
     parse_moment, round_duration, settle, ActiveTimer, ActivityType, Client, ClientId, ClientInput,
@@ -159,6 +149,12 @@ pub use tracking::{
     StartTimer, TimeEntry, TimeEntryEdit, TimeEntryId, TimerSnapshot, TimerStatus, Totals,
     TrackedSession, TrackingSettings, TrackingStatus,
 };
+pub use voice::{
+    apply as apply_voice, heard, is_hallucination, title_from, understand, Heard, NewVoiceNote,
+    ProjectSource, Understanding, VoiceAction, VoiceContext, VoiceNote, VoiceNoteId,
+    VoiceNoteStatus, VoiceTransition, MAX_DURATION_MS, MIN_DURATION_MS, MIN_PEAK_LEVEL,
+};
+pub use voice_when::{resolve_when, ResolvedWhen};
 pub use weekly::{
     compose_week, Dominant, NewWeeklyReview, Recurring, Week, WeekInput, WeekSummary, WeeklyReview,
     WeeklyReviewId,

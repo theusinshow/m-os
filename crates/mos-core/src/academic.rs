@@ -41,7 +41,11 @@ macro_rules! academic_id {
 
             pub fn parse(value: &str) -> Result<Self, CoreError> {
                 Uuid::parse_str(value).map(Self).map_err(|_| {
-                    CoreError::new(ErrorCode::InvalidInput, concat!($label, " invalido."), false)
+                    CoreError::new(
+                        ErrorCode::InvalidInput,
+                        concat!($label, " invalido."),
+                        false,
+                    )
                 })
             }
 
@@ -490,7 +494,10 @@ pub fn desempenho(assignments: &[Assignment], exams: &[Exam]) -> Desempenho {
                 (soma + nota.fracao * nota.weight, peso + nota.weight)
             })
     } else {
-        (notas.iter().map(|nota| nota.fracao).sum(), notas.len() as f64)
+        (
+            notas.iter().map(|nota| nota.fracao).sum(),
+            notas.len() as f64,
+        )
     };
 
     let media = (peso_total > 0.0).then(|| (soma / peso_total) * 10.0);
@@ -513,7 +520,8 @@ pub fn desempenho(assignments: &[Assignment], exams: &[Exam]) -> Desempenho {
                 .map(|item| item.weight),
         )
         .sum();
-    let peso_avaliado = (peso_planejado > 0.0).then(|| (peso_total / peso_planejado).clamp(0.0, 1.0));
+    let peso_avaliado =
+        (peso_planejado > 0.0).then(|| (peso_total / peso_planejado).clamp(0.0, 1.0));
 
     Desempenho {
         media,
@@ -530,11 +538,7 @@ pub fn desempenho(assignments: &[Assignment], exams: &[Exam]) -> Desempenho {
 /// sem peso a fazer, nao ha o que perguntar.
 ///
 /// Pode devolver mais de 1: e uma resposta legitima, e significa "nao da mais".
-pub fn nota_necessaria(
-    notas: &[Nota],
-    peso_restante: f64,
-    alvo_em_dez: f64,
-) -> Option<f64> {
+pub fn nota_necessaria(notas: &[Nota], peso_restante: f64, alvo_em_dez: f64) -> Option<f64> {
     if peso_restante <= 0.0 {
         return None;
     }
@@ -753,8 +757,7 @@ pub fn compose_dashboard(input: DashboardInput<'_>) -> AcademicDashboard {
         .subjects
         .iter()
         .filter(|subject| {
-            subject.semester_id == semester.id
-                && subject.lifecycle_state == LifecycleState::Active
+            subject.semester_id == semester.id && subject.lifecycle_state == LifecycleState::Active
         })
         .collect();
 
@@ -1597,8 +1600,14 @@ mod tests {
     fn o_status_do_semestre_vem_das_datas_e_nao_de_um_campo() {
         let atual = semestre("2026.2", "2026-08-01", "2026-12-15");
         assert_eq!(atual.status_em(&dia("2026-08-22")), SemesterStatus::Active);
-        assert_eq!(atual.status_em(&dia("2026-07-31")), SemesterStatus::Upcoming);
-        assert_eq!(atual.status_em(&dia("2026-12-16")), SemesterStatus::Completed);
+        assert_eq!(
+            atual.status_em(&dia("2026-07-31")),
+            SemesterStatus::Upcoming
+        );
+        assert_eq!(
+            atual.status_em(&dia("2026-12-16")),
+            SemesterStatus::Completed
+        );
     }
 
     /// A borda pertence ao semestre. O primeiro e o ultimo dia de aula sao dias
@@ -1944,13 +1953,7 @@ mod tests {
         let subjects = vec![materia];
         let assignments = vec![entrega];
         let exams = vec![prova_longe, prova_perto];
-        let painel = compose_dashboard(entrada(
-            &semesters,
-            &subjects,
-            &assignments,
-            &exams,
-            &[],
-        ));
+        let painel = compose_dashboard(entrada(&semesters, &subjects, &assignments, &exams, &[]));
 
         let titulos: Vec<&str> = painel.upcoming.iter().map(|i| i.title.as_str()).collect();
         assert_eq!(titulos, vec!["Lista 03", "P1", "P2"]);
@@ -1980,7 +1983,10 @@ mod tests {
         let subjects = vec![materia];
         let assignments = vec![solta];
         let painel = compose_dashboard(entrada(&semesters, &subjects, &assignments, &[], &[]));
-        assert!(painel.upcoming.is_empty(), "sem data, sem lugar na linha do tempo");
+        assert!(
+            painel.upcoming.is_empty(),
+            "sem data, sem lugar na linha do tempo"
+        );
         assert_eq!(painel.subjects[0].pending, 1, "mas continua pendente");
     }
 
@@ -2274,7 +2280,11 @@ mod tests {
     fn o_proximo_do_card_pula_o_resto_de_calendario_antigo() {
         let semestre = semestre("2026B2", "2026-07-01", "2026-08-31");
         let materia = disciplina(&semestre, "Estatica");
-        let resto = atividade(&materia, "Etapa antiga", Some(datetime!(2026-03-23 23:59 -03:00)));
+        let resto = atividade(
+            &materia,
+            "Etapa antiga",
+            Some(datetime!(2026-03-23 23:59 -03:00)),
+        );
         let real = atividade(&materia, "APOL 3", Some(datetime!(2026-08-24 23:59 -03:00)));
         let painel = compose_dashboard(DashboardInput {
             now_local: agora(),

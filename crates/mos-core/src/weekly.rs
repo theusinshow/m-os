@@ -466,7 +466,11 @@ mod tests {
     #[test]
     fn conta_dias_com_sessao_e_ignora_o_que_esta_fora_da_semana() {
         let semana = semana_de_teste();
-        let sessoes = [sessao("2026-08-17"), sessao("2026-08-19"), sessao("2026-08-24")];
+        let sessoes = [
+            sessao("2026-08-17"),
+            sessao("2026-08-19"),
+            sessao("2026-08-24"),
+        ];
         let sem_project = |_: &ObjectiveLink| None;
         let sem_profundidade = |_: DailyObjectiveId| 0;
         let resumo = compose_week(entrada(
@@ -490,8 +494,15 @@ mod tests {
         let semana = semana_de_teste();
         let sem_project = |_: &ObjectiveLink| None;
         let sem_profundidade = |_: DailyObjectiveId| 0;
-        let resumo =
-            compose_week(entrada(&semana, &[], &[], &[], &sem_project, &sem_profundidade)).unwrap();
+        let resumo = compose_week(entrada(
+            &semana,
+            &[],
+            &[],
+            &[],
+            &sem_project,
+            &sem_profundidade,
+        ))
+        .unwrap();
         assert!(resumo.empty);
         assert_eq!(resumo.days_with_session, 0);
     }
@@ -502,8 +513,20 @@ mod tests {
         let segunda = sessao("2026-08-17");
         let terca = sessao("2026-08-18");
         let objetivos = vec![
-            objetivo(&segunda, "Planta de formas", ObjectivePriority::Main, ObjectiveStatus::Completed, Some(link_task(TASK_A))),
-            objetivo(&terca, "Detalhamento", ObjectivePriority::Main, ObjectiveStatus::Pending, Some(link_task(TASK_B))),
+            objetivo(
+                &segunda,
+                "Planta de formas",
+                ObjectivePriority::Main,
+                ObjectiveStatus::Completed,
+                Some(link_task(TASK_A)),
+            ),
+            objetivo(
+                &terca,
+                "Detalhamento",
+                ObjectivePriority::Main,
+                ObjectiveStatus::Pending,
+                Some(link_task(TASK_B)),
+            ),
         ];
         let sessoes = [segunda, terca];
         // As duas Tasks pertencem ao MESMO Project: e essa a agregacao que a
@@ -534,8 +557,20 @@ mod tests {
         let segunda = sessao("2026-08-17");
         let terca = sessao("2026-08-18");
         let objetivos = vec![
-            objetivo(&segunda, "Resolver pendencias financeiras", ObjectivePriority::Main, ObjectiveStatus::Completed, None),
-            objetivo(&terca, "resolver PENDENCIAS financeiras", ObjectivePriority::Secondary, ObjectiveStatus::Pending, None),
+            objetivo(
+                &segunda,
+                "Resolver pendencias financeiras",
+                ObjectivePriority::Main,
+                ObjectiveStatus::Completed,
+                None,
+            ),
+            objetivo(
+                &terca,
+                "resolver PENDENCIAS financeiras",
+                ObjectivePriority::Secondary,
+                ObjectiveStatus::Pending,
+                None,
+            ),
         ];
         let sessoes = [segunda, terca];
         let sem_project = |_: &ObjectiveLink| None;
@@ -549,7 +584,11 @@ mod tests {
             &sem_profundidade,
         ))
         .unwrap();
-        assert_eq!(resumo.dominated.len(), 1, "caixa diferente e o mesmo assunto");
+        assert_eq!(
+            resumo.dominated.len(),
+            1,
+            "caixa diferente e o mesmo assunto"
+        );
         assert_eq!(resumo.dominated[0].main_days, 1);
         assert_eq!(resumo.dominated[0].days, 2);
         assert_eq!(
@@ -569,10 +608,22 @@ mod tests {
             .collect();
         let mut objetivos = Vec::new();
         for dia_da_semana in &dias[..2] {
-            objetivos.push(objetivo(dia_da_semana, "Principal duas vezes", ObjectivePriority::Main, ObjectiveStatus::Pending, None));
+            objetivos.push(objetivo(
+                dia_da_semana,
+                "Principal duas vezes",
+                ObjectivePriority::Main,
+                ObjectiveStatus::Pending,
+                None,
+            ));
         }
         for dia_da_semana in &dias {
-            objetivos.push(objetivo(dia_da_semana, "Secundario sempre", ObjectivePriority::Secondary, ObjectiveStatus::Pending, None));
+            objetivos.push(objetivo(
+                dia_da_semana,
+                "Secundario sempre",
+                ObjectivePriority::Secondary,
+                ObjectiveStatus::Pending,
+                None,
+            ));
         }
         let sem_project = |_: &ObjectiveLink| None;
         let sem_profundidade = |_: DailyObjectiveId| 0;
@@ -595,11 +646,29 @@ mod tests {
         let semana = semana_de_teste();
         let segunda = sessao("2026-08-17");
         let terca = sessao("2026-08-18");
-        let veterano_a = objetivo(&segunda, "Atualizar documentacao", ObjectivePriority::Secondary, ObjectiveStatus::CarriedOver, None);
-        let mut veterano_b = objetivo(&terca, "Atualizar documentacao", ObjectivePriority::Secondary, ObjectiveStatus::CarriedOver, None);
+        let veterano_a = objetivo(
+            &segunda,
+            "Atualizar documentacao",
+            ObjectivePriority::Secondary,
+            ObjectiveStatus::CarriedOver,
+            None,
+        );
+        let mut veterano_b = objetivo(
+            &terca,
+            "Atualizar documentacao",
+            ObjectivePriority::Secondary,
+            ObjectiveStatus::CarriedOver,
+            None,
+        );
         // A corrente: o de terca veio do de segunda.
         veterano_b.carried_from = Some(veterano_a.id);
-        let novato = objetivo(&terca, "Veio de ontem", ObjectivePriority::Secondary, ObjectiveStatus::Pending, None);
+        let novato = objetivo(
+            &terca,
+            "Veio de ontem",
+            ObjectivePriority::Secondary,
+            ObjectiveStatus::Pending,
+            None,
+        );
 
         let id_a = veterano_a.id;
         let id_b = veterano_b.id;
@@ -624,7 +693,11 @@ mod tests {
             &profundidade,
         ))
         .unwrap();
-        assert_eq!(resumo.recurring.len(), 1, "a corrente e uma linha, e nao duas");
+        assert_eq!(
+            resumo.recurring.len(),
+            1,
+            "a corrente e uma linha, e nao duas"
+        );
         assert_eq!(resumo.recurring[0].title, "Atualizar documentacao");
         assert_eq!(
             resumo.recurring[0].times_carried, 4,
@@ -637,8 +710,20 @@ mod tests {
         let semana = semana_de_teste();
         let segunda = sessao("2026-08-17");
         let objetivos = vec![
-            objetivo(&segunda, "Revisar proposta antiga", ObjectivePriority::Secondary, ObjectiveStatus::Dropped, None),
-            objetivo(&segunda, "Feito", ObjectivePriority::Main, ObjectiveStatus::Completed, None),
+            objetivo(
+                &segunda,
+                "Revisar proposta antiga",
+                ObjectivePriority::Secondary,
+                ObjectiveStatus::Dropped,
+                None,
+            ),
+            objetivo(
+                &segunda,
+                "Feito",
+                ObjectivePriority::Main,
+                ObjectiveStatus::Completed,
+                None,
+            ),
         ];
         let sessoes = [segunda];
         let sem_project = |_: &ObjectiveLink| None;
@@ -664,9 +749,27 @@ mod tests {
         let quinta = sessao("2026-08-20");
         let sexta = sessao("2026-08-21");
         let reflexoes = vec![
-            DailyReflection { session_id: quarta.id, mood: Some(DayMood::Blocked), summary: String::new(), created_at: instante(), updated_at: instante() },
-            DailyReflection { session_id: quinta.id, mood: Some(DayMood::Blocked), summary: String::new(), created_at: instante(), updated_at: instante() },
-            DailyReflection { session_id: sexta.id, mood: Some(DayMood::Productive), summary: String::new(), created_at: instante(), updated_at: instante() },
+            DailyReflection {
+                session_id: quarta.id,
+                mood: Some(DayMood::Blocked),
+                summary: String::new(),
+                created_at: instante(),
+                updated_at: instante(),
+            },
+            DailyReflection {
+                session_id: quinta.id,
+                mood: Some(DayMood::Blocked),
+                summary: String::new(),
+                created_at: instante(),
+                updated_at: instante(),
+            },
+            DailyReflection {
+                session_id: sexta.id,
+                mood: Some(DayMood::Productive),
+                summary: String::new(),
+                created_at: instante(),
+                updated_at: instante(),
+            },
         ];
         let sessoes = [quarta, quinta, sexta];
         let sem_project = |_: &ObjectiveLink| None;
@@ -680,7 +783,11 @@ mod tests {
             &sem_profundidade,
         ))
         .unwrap();
-        let dias: Vec<&str> = resumo.blocked_days.iter().map(|valor| valor.as_str()).collect();
+        let dias: Vec<&str> = resumo
+            .blocked_days
+            .iter()
+            .map(|valor| valor.as_str())
+            .collect();
         assert_eq!(dias, ["2026-08-19", "2026-08-20"]);
     }
 
@@ -693,8 +800,20 @@ mod tests {
         let dentro = sessao("2026-08-18");
         let fora = sessao("2026-08-25");
         let objetivos = vec![
-            objetivo(&dentro, "Da semana", ObjectivePriority::Main, ObjectiveStatus::Dropped, None),
-            objetivo(&fora, "De outra semana", ObjectivePriority::Main, ObjectiveStatus::Dropped, None),
+            objetivo(
+                &dentro,
+                "Da semana",
+                ObjectivePriority::Main,
+                ObjectiveStatus::Dropped,
+                None,
+            ),
+            objetivo(
+                &fora,
+                "De outra semana",
+                ObjectivePriority::Main,
+                ObjectiveStatus::Dropped,
+                None,
+            ),
         ];
         let sessoes = [dentro];
         let sem_project = |_: &ObjectiveLink| None;
@@ -764,8 +883,14 @@ mod tests {
         // Ela e CHAVE: duas representacoes do mesmo intervalo criariam duas
         // linhas para a mesma semana, e o indice unico nao veria a duplicata.
         assert!(Week::parse("2026-08-17").is_ok());
-        assert!(Week::parse("2026-08-21").is_err(), "sexta nao e inicio de semana");
-        assert!(Week::parse("2026-8-17").is_err(), "sem zero a esquerda e outra chave");
+        assert!(
+            Week::parse("2026-08-21").is_err(),
+            "sexta nao e inicio de semana"
+        );
+        assert!(
+            Week::parse("2026-8-17").is_err(),
+            "sem zero a esquerda e outra chave"
+        );
         assert!(Week::parse("").is_err());
     }
 

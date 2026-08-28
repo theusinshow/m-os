@@ -260,7 +260,10 @@ impl MeetingRepository for SqliteStorage {
                     meeting.title,
                     status,
                     failed_stage,
-                    meeting.failure.as_ref().map(|failure| failure.message.clone()),
+                    meeting
+                        .failure
+                        .as_ref()
+                        .map(|failure| failure.message.clone()),
                     meeting.lifecycle_state.as_str(),
                     meeting.ended_at.map(format_time).transpose()?,
                     meeting.duration_ms,
@@ -407,11 +410,7 @@ impl MeetingRepository for SqliteStorage {
             .collect())
     }
 
-    fn mark_audio_deleted(
-        &self,
-        id: MeetingId,
-        at: OffsetDateTime,
-    ) -> Result<Meeting, CoreError> {
+    fn mark_audio_deleted(&self, id: MeetingId, at: OffsetDateTime) -> Result<Meeting, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         connection
             .execute(
@@ -517,7 +516,10 @@ impl MeetingRepository for SqliteStorage {
         let key = id.to_string();
 
         transaction
-            .execute("DELETE FROM meeting_segments WHERE meeting_id = ?1", params![key])
+            .execute(
+                "DELETE FROM meeting_segments WHERE meeting_id = ?1",
+                params![key],
+            )
             .map_err(map_sql_error)?;
         transaction
             .execute(
@@ -527,7 +529,10 @@ impl MeetingRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
         transaction
-            .execute("DELETE FROM meeting_transcript_index WHERE meeting_id = ?1", params![key])
+            .execute(
+                "DELETE FROM meeting_transcript_index WHERE meeting_id = ?1",
+                params![key],
+            )
             .map_err(map_sql_error)?;
 
         let written = segments.len();
@@ -835,9 +840,11 @@ impl MeetingRepository for SqliteStorage {
                 |row| row.get(0),
             )
             .map_err(|error| match error {
-                rusqlite::Error::QueryReturnedNoRows => {
-                    CoreError::new(ErrorCode::NotFound, "Item de reuniao nao encontrado.", false)
-                }
+                rusqlite::Error::QueryReturnedNoRows => CoreError::new(
+                    ErrorCode::NotFound,
+                    "Item de reuniao nao encontrado.",
+                    false,
+                ),
                 other => map_sql_error(other),
             })?;
         MeetingId::parse(&raw)
@@ -867,9 +874,11 @@ impl MeetingRepository for SqliteStorage {
                 |row| row.get(0),
             )
             .map_err(|error| match error {
-                rusqlite::Error::QueryReturnedNoRows => {
-                    CoreError::new(ErrorCode::NotFound, "Item de reuniao nao encontrado.", false)
-                }
+                rusqlite::Error::QueryReturnedNoRows => CoreError::new(
+                    ErrorCode::NotFound,
+                    "Item de reuniao nao encontrado.",
+                    false,
+                ),
                 other => map_sql_error(other),
             })?;
         if InsightStatus::parse(&status)? != InsightStatus::Proposed {
@@ -1091,13 +1100,18 @@ fn index_meeting(connection: &Connection, id: MeetingId) -> Result<(), CoreError
         )
         .map_err(map_sql_error)?;
     connection
-        .execute("DELETE FROM meeting_search_index WHERE meeting_id = ?1", params![key])
+        .execute(
+            "DELETE FROM meeting_search_index WHERE meeting_id = ?1",
+            params![key],
+        )
         .map_err(map_sql_error)?;
 
     let title: String = connection
-        .query_row("SELECT title FROM meetings WHERE id = ?1", params![key], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT title FROM meetings WHERE id = ?1",
+            params![key],
+            |row| row.get(0),
+        )
         .map_err(map_sql_error)?;
     let summary: String = connection
         .query_row(
@@ -1182,10 +1196,13 @@ fn single_insight(
     )?;
     load_evidence(connection, &mut found)?;
     found.pop().ok_or_else(|| {
-        CoreError::new(ErrorCode::NotFound, "Item de reuniao nao encontrado.", false)
+        CoreError::new(
+            ErrorCode::NotFound,
+            "Item de reuniao nao encontrado.",
+            false,
+        )
     })
 }
-
 
 /// Encurta uma fala para caber num resultado de busca.
 ///
@@ -1382,7 +1399,10 @@ mod tests {
             saved.status,
             MeetingStatus::Failed(FailedStage::Transcription)
         );
-        assert_eq!(saved.failure.unwrap().message, "modelo local nao encontrado");
+        assert_eq!(
+            saved.failure.unwrap().message,
+            "modelo local nao encontrado"
+        );
     }
 
     #[test]
@@ -1396,7 +1416,10 @@ mod tests {
             "UPDATE meetings SET status = 'failed', failed_stage = NULL WHERE id = ?1",
             params![meeting.id.to_string()],
         );
-        assert!(result.is_err(), "o CHECK deveria recusar failed sem estagio");
+        assert!(
+            result.is_err(),
+            "o CHECK deveria recusar failed sem estagio"
+        );
     }
 
     #[test]
@@ -1645,16 +1668,25 @@ mod tests {
         };
 
         // Titulo, resumo e item entram no indice global.
-        assert_eq!(storage.search_meetings(request("NexoDoc")).unwrap().len(), 1);
         assert_eq!(
-            storage.search_meetings(request("alinhamento")).unwrap().len(),
+            storage.search_meetings(request("NexoDoc")).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            storage
+                .search_meetings(request("alinhamento"))
+                .unwrap()
+                .len(),
             1
         );
         assert_eq!(storage.search_meetings(request("Hermes")).unwrap().len(), 1);
 
         // A transcricao NAO entra no indice global.
         assert!(
-            storage.search_meetings(request("slides")).unwrap().is_empty(),
+            storage
+                .search_meetings(request("slides"))
+                .unwrap()
+                .is_empty(),
             "segmento de transcricao nao pode aparecer na Search global"
         );
         // Mas ela e encontravel pelo indice proprio.
@@ -1730,7 +1762,10 @@ mod tests {
             include_archived: false,
             limit: 20,
         };
-        assert_eq!(storage.search_meetings(request("NexoDoc")).unwrap().len(), 1);
+        assert_eq!(
+            storage.search_meetings(request("NexoDoc")).unwrap().len(),
+            1
+        );
         assert_eq!(
             storage.search_transcripts(request("slides")).unwrap().len(),
             1
@@ -1837,9 +1872,11 @@ mod tests {
             "meeting_evidence",
         ] {
             let restante: i64 = connection
-                .query_row(&format!("SELECT COUNT(*) FROM {tabela}"), params![], |row| {
-                    row.get(0)
-                })
+                .query_row(
+                    &format!("SELECT COUNT(*) FROM {tabela}"),
+                    params![],
+                    |row| row.get(0),
+                )
                 .unwrap();
             assert_eq!(restante, 0, "{tabela} deveria ter sido cascateada");
         }
@@ -1971,9 +2008,7 @@ mod tests {
         let meeting = service.start("NexoDoc", None).unwrap();
 
         // O processo morreu. Na abertura seguinte, o disco diz 1h18.
-        let recuperadas = service
-            .reconcile_on_open(&|_| 4_680_000)
-            .unwrap();
+        let recuperadas = service.reconcile_on_open(&|_| 4_680_000).unwrap();
 
         assert_eq!(recuperadas.len(), 1);
         assert_eq!(recuperadas[0].id, meeting.id);
@@ -2271,9 +2306,7 @@ mod tests {
     // ================================================================
 
     /// Uma reuniao analisada, com um item acionavel pronto para virar Task.
-    fn com_item(
-        storage: &Arc<SqliteStorage>,
-    ) -> (MeetingService, Meeting, MeetingInsight) {
+    fn com_item(storage: &Arc<SqliteStorage>) -> (MeetingService, Meeting, MeetingInsight) {
         let service = service(storage);
         let meeting = service.start("NexoDoc", None).unwrap();
         let segments = transcribe(storage, &meeting);
@@ -2404,7 +2437,10 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code, ErrorCode::InvalidInput);
 
-        assert!(storage.tasks(false).unwrap().is_empty(), "nenhuma Task ficou");
+        assert!(
+            storage.tasks(false).unwrap().is_empty(),
+            "nenhuma Task ficou"
+        );
         assert_eq!(
             storage.insights(item.meeting_id).unwrap()[0].status,
             InsightStatus::Proposed,
@@ -2457,7 +2493,10 @@ mod tests {
         // Continua no banco: descartar nao e apagar.
         assert_eq!(storage.insights(meeting.id).unwrap().len(), 1);
         // E deixa de ser oferecido no lote.
-        assert!(service.bulk_candidates(&meeting.id.to_string()).unwrap().is_empty());
+        assert!(service
+            .bulk_candidates(&meeting.id.to_string())
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -2474,12 +2513,18 @@ mod tests {
                 remind_at: None,
             })
             .unwrap();
-        assert!(service.bulk_candidates(&meeting.id.to_string()).unwrap().is_empty());
+        assert!(service
+            .bulk_candidates(&meeting.id.to_string())
+            .unwrap()
+            .is_empty());
 
         let reaberto = service.reopen_insight(&item.id.to_string()).unwrap();
         assert_eq!(reaberto.status, InsightStatus::Proposed);
         assert_eq!(
-            service.bulk_candidates(&meeting.id.to_string()).unwrap().len(),
+            service
+                .bulk_candidates(&meeting.id.to_string())
+                .unwrap()
+                .len(),
             1,
             "quem desfez provavelmente quer refazer diferente"
         );
@@ -2490,7 +2535,12 @@ mod tests {
         let (_dir, storage) = shared();
         let (service, meeting, _item) = com_item(&storage);
         // Um segundo item, sem evidencia.
-        let orfao = insight(&meeting, InsightKind::MyAction, "Sem proveniencia", Vec::new());
+        let orfao = insight(
+            &meeting,
+            InsightKind::MyAction,
+            "Sem proveniencia",
+            Vec::new(),
+        );
         let segments = storage.transcript(meeting.id).unwrap();
         let bom = insight(
             &meeting,
@@ -2567,7 +2617,10 @@ mod tests {
             include_archived: true,
             limit: 20,
         };
-        assert_eq!(storage.search_meetings(procura("NexoDoc")).unwrap().len(), 1);
+        assert_eq!(
+            storage.search_meetings(procura("NexoDoc")).unwrap().len(),
+            1
+        );
         assert_eq!(
             storage.search_transcripts(procura("slides")).unwrap().len(),
             1
@@ -2577,9 +2630,18 @@ mod tests {
         // O caminho do audio volta porque so quem chamou pode apagar os bytes.
         assert!(!audio_dir.is_empty());
 
-        assert_eq!(storage.meeting(meeting.id).unwrap_err().code, ErrorCode::NotFound);
-        assert!(storage.search_meetings(procura("NexoDoc")).unwrap().is_empty());
-        assert!(storage.search_transcripts(procura("slides")).unwrap().is_empty());
+        assert_eq!(
+            storage.meeting(meeting.id).unwrap_err().code,
+            ErrorCode::NotFound
+        );
+        assert!(storage
+            .search_meetings(procura("NexoDoc"))
+            .unwrap()
+            .is_empty());
+        assert!(storage
+            .search_transcripts(procura("slides"))
+            .unwrap()
+            .is_empty());
         assert!(storage.transcript(meeting.id).unwrap().is_empty());
         assert!(storage.analysis(meeting.id).unwrap().is_none());
         assert!(storage.insights(meeting.id).unwrap().is_empty());
@@ -2588,11 +2650,9 @@ mod tests {
         let connection = storage.connection.lock().unwrap();
         let contar = |tabela: &str| -> i64 {
             connection
-                .query_row(
-                    &format!("SELECT count(*) FROM {tabela}"),
-                    [],
-                    |row| row.get(0),
-                )
+                .query_row(&format!("SELECT count(*) FROM {tabela}"), [], |row| {
+                    row.get(0)
+                })
                 .unwrap()
         };
         assert_eq!(contar("meeting_search_index"), 0);

@@ -15,7 +15,7 @@
 //! ordem de instante, e ordenar por JSON custaria varredura.
 
 use mos_sync::{
-    ClockRepository, Conflito, ConflictRepository, Hlc, Op, OutboxRepository, Resultado, SyncError,
+    ClockRepository, ConflictRepository, Conflito, Hlc, Op, OutboxRepository, Resultado, SyncError,
 };
 use rusqlite::{params, OptionalExtension};
 use time::OffsetDateTime;

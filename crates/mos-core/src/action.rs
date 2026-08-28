@@ -685,7 +685,9 @@ fn reminder_instant(
             .ok_or_else(|| recusa(&format!("nao consegui entender \"{when}\" como data.")))?;
         (resolved.instant, resolved.raw)
     } else {
-        return Err(recusa("veio sem `at` nem `when`. Um lembrete precisa de hora."));
+        return Err(recusa(
+            "veio sem `at` nem `when`. Um lembrete precisa de hora.",
+        ));
     };
 
     if instant < now_local - REMINDER_GRACE {
@@ -1008,11 +1010,18 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
                 line("Objetivo", title),
                 line(
                     "Peso",
-                    if priority == "main" { "principal" } else { "secundário" },
+                    if priority == "main" {
+                        "principal"
+                    } else {
+                        "secundário"
+                    },
                 ),
             ];
             if let Some(link) = link {
-                lines.push(line("Vinculado a", &format!("{} {}", link.kind, link.reference)));
+                lines.push(line(
+                    "Vinculado a",
+                    &format!("{} {}", link.kind, link.reference),
+                ));
             }
             ("ADICIONAR OBJETIVO DO DIA", lines)
         }
@@ -1136,7 +1145,10 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
             if let Some(day) = due_day {
                 lines.push(line("Vencimento", &format!("dia {day}")));
             }
-            lines.push(line("Recorrente", if *is_recurring { "sim" } else { "não" }));
+            lines.push(line(
+                "Recorrente",
+                if *is_recurring { "sim" } else { "não" },
+            ));
             ("CRIAR CONTA NO M-FINANCE", lines)
         }
     };
@@ -1675,7 +1687,10 @@ mod tests {
         assert_eq!(serde_json::from_str::<ActionAudit>(&json).unwrap(), audit);
         // Proposta gravada antes de hoje continua legivel: o campo e opcional.
         let antigo = r#"{"executedAt":"2026-08-20T20:30:00-03:00","entities":[]}"#;
-        assert!(serde_json::from_str::<ActionAudit>(antigo).unwrap().undo.is_none());
+        assert!(serde_json::from_str::<ActionAudit>(antigo)
+            .unwrap()
+            .undo
+            .is_none());
     }
 
     #[test]
@@ -1754,14 +1769,38 @@ mod tests {
     #[test]
     fn refuses_the_same_arguments_the_m_finance_bridge_refuses() {
         let recusados = [
-            ("valor negativo", r#"{"amountCents":-1,"description":"X","isRecurring":false}"#),
-            ("valor zero", r#"{"amountCents":0,"description":"X","isRecurring":false}"#),
-            ("valor fracionado", r#"{"amountCents":10.5,"description":"X","isRecurring":false}"#),
-            ("valor como texto", r#"{"amountCents":"1800","description":"X","isRecurring":false}"#),
-            ("descricao vazia", r#"{"amountCents":100,"description":"   ","isRecurring":false}"#),
-            ("descricao ausente", r#"{"amountCents":100,"isRecurring":false}"#),
-            ("dia 0", r#"{"amountCents":100,"description":"X","dueDay":0,"isRecurring":false}"#),
-            ("dia 32", r#"{"amountCents":100,"description":"X","dueDay":32,"isRecurring":false}"#),
+            (
+                "valor negativo",
+                r#"{"amountCents":-1,"description":"X","isRecurring":false}"#,
+            ),
+            (
+                "valor zero",
+                r#"{"amountCents":0,"description":"X","isRecurring":false}"#,
+            ),
+            (
+                "valor fracionado",
+                r#"{"amountCents":10.5,"description":"X","isRecurring":false}"#,
+            ),
+            (
+                "valor como texto",
+                r#"{"amountCents":"1800","description":"X","isRecurring":false}"#,
+            ),
+            (
+                "descricao vazia",
+                r#"{"amountCents":100,"description":"   ","isRecurring":false}"#,
+            ),
+            (
+                "descricao ausente",
+                r#"{"amountCents":100,"isRecurring":false}"#,
+            ),
+            (
+                "dia 0",
+                r#"{"amountCents":100,"description":"X","dueDay":0,"isRecurring":false}"#,
+            ),
+            (
+                "dia 32",
+                r#"{"amountCents":100,"description":"X","dueDay":32,"isRecurring":false}"#,
+            ),
         ];
 
         for (caso, args) in recusados {
@@ -1803,7 +1842,8 @@ mod tests {
     /// o bool sempre — a chave nunca chega ausente do outro lado.
     #[test]
     fn a_bill_without_is_recurring_defaults_to_false() {
-        let raw = r#"{"action":"m-finance.create_bill","args":{"amountCents":100,"description":"X"}}"#;
+        let raw =
+            r#"{"action":"m-finance.create_bill","args":{"amountCents":100,"description":"X"}}"#;
         match parse_action(raw).unwrap() {
             ActionArgs::MFinanceCreateBill { is_recurring, .. } => assert!(!is_recurring),
             other => panic!("virou outra acao: {other:?}"),
@@ -1960,7 +2000,11 @@ mod tests {
     #[test]
     fn a_reminder_without_an_instant_is_refused() {
         let error = lembrete(r#"{"title":"X"}"#).unwrap_err();
-        assert!(error.message.contains("precisa de hora"), "{}", error.message);
+        assert!(
+            error.message.contains("precisa de hora"),
+            "{}",
+            error.message
+        );
     }
 
     /// Recusar na LEITURA devolve o erro para o cartao. Recusar so na execucao
@@ -1997,8 +2041,9 @@ mod tests {
     /// extenso E a frase que o produziu, lado a lado.
     #[test]
     fn the_reminder_card_shows_the_instant_and_the_phrase_that_made_it() {
-        let args = lembrete(r#"{"title":"Enviar bases","when":"hoje às 20:30","taskRef":"7c3e2b19"}"#)
-            .unwrap();
+        let args =
+            lembrete(r#"{"title":"Enviar bases","when":"hoje às 20:30","taskRef":"7c3e2b19"}"#)
+                .unwrap();
         let preview = preview_of(&args);
         assert_eq!(preview.title, "CRIAR LEMBRETE");
         let quando = preview
@@ -2009,7 +2054,10 @@ mod tests {
         assert!(quando.value.contains("quinta-feira"), "{}", quando.value);
         assert!(quando.value.contains("20 de agosto"), "{}", quando.value);
         assert!(quando.value.contains("20:30"), "{}", quando.value);
-        assert!(preview.lines.iter().any(|linha| linha.label == "Você disse"));
+        assert!(preview
+            .lines
+            .iter()
+            .any(|linha| linha.label == "Você disse"));
         assert!(preview
             .lines
             .iter()
@@ -2018,8 +2066,14 @@ mod tests {
 
     #[test]
     fn a_reminder_outcome_outside_the_vocabulary_is_refused() {
-        assert!(parse_action(r#"{"action":"mos.reminder.resolve","args":{"reminder":"r1","state":"talvez"}}"#).is_err());
-        assert!(parse_action(r#"{"action":"mos.reminder.resolve","args":{"reminder":"r1","state":"done"}}"#).is_ok());
+        assert!(parse_action(
+            r#"{"action":"mos.reminder.resolve","args":{"reminder":"r1","state":"talvez"}}"#
+        )
+        .is_err());
+        assert!(parse_action(
+            r#"{"action":"mos.reminder.resolve","args":{"reminder":"r1","state":"done"}}"#
+        )
+        .is_ok());
     }
 
     // -------------------------------------------------------- capture e task
@@ -2159,9 +2213,17 @@ mod tests {
     fn desfecho_de_objetivo_desconhecido_e_recusado_na_leitura() {
         // Recusar na LEITURA devolve o erro para o cartao, onde ele e uma frase.
         // Recusar so na execucao devolveria o erro depois de a pessoa autorizar.
-        assert!(dia("set_objective", r#"{"objective":"memorial","status":"talvez"}"#).is_err());
+        assert!(dia(
+            "set_objective",
+            r#"{"objective":"memorial","status":"talvez"}"#
+        )
+        .is_err());
         assert_eq!(
-            dia("set_objective", r#"{"objective":"memorial","status":"carried_over"}"#).unwrap(),
+            dia(
+                "set_objective",
+                r#"{"objective":"memorial","status":"carried_over"}"#
+            )
+            .unwrap(),
             ActionArgs::DaySetObjective {
                 objective: "memorial".into(),
                 status: "carried_over".into(),
@@ -2180,8 +2242,15 @@ mod tests {
                 summary: String::new()
             }
         );
-        assert!(dia("end", r#"{"mood":"cansado"}"#).is_err(), "humor fora do vocabulario e recusado");
-        assert!(dia("end", r#"{"mood":"blocked","summary":"o 063-26 tomou o dia"}"#).is_ok());
+        assert!(
+            dia("end", r#"{"mood":"cansado"}"#).is_err(),
+            "humor fora do vocabulario e recusado"
+        );
+        assert!(dia(
+            "end",
+            r#"{"mood":"blocked","summary":"o 063-26 tomou o dia"}"#
+        )
+        .is_ok());
     }
 
     /// O cartao precisa dizer POR QUE o Hermes montou aquele dia. Autorizar um
@@ -2195,7 +2264,11 @@ mod tests {
         .unwrap();
         let preview = preview_of(&args);
         assert_eq!(preview.title, "INICIAR O DIA");
-        let rotulos: Vec<_> = preview.lines.iter().map(|linha| linha.label.as_str()).collect();
+        let rotulos: Vec<_> = preview
+            .lines
+            .iter()
+            .map(|linha| linha.label.as_str())
+            .collect();
         assert!(rotulos.contains(&"Principal"), "{rotulos:?}");
         assert!(rotulos.contains(&"Secundário 1"), "{rotulos:?}");
         assert!(rotulos.contains(&"Por quê"), "{rotulos:?}");

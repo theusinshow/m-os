@@ -42,7 +42,10 @@ impl RecordingState {
     /// Trava envenenada conta como "nao esta gravando": e o lado seguro, porque
     /// o erro vira uma oferta a mais e nunca uma gravacao perdida.
     pub fn gravando(&self) -> bool {
-        self.active.lock().map(|guard| guard.is_some()).unwrap_or(false)
+        self.active
+            .lock()
+            .map(|guard| guard.is_some())
+            .unwrap_or(false)
     }
 }
 
@@ -719,7 +722,9 @@ pub fn stop_from_tray(app: &AppHandle) {
         let recorder = handle.state::<RecordingState>();
         let state = handle.state::<AppState>();
         let active = {
-            let Ok(mut guard) = recorder.active.lock() else { return };
+            let Ok(mut guard) = recorder.active.lock() else {
+                return;
+            };
             guard.take()
         };
         let Some(active) = active else { return };
@@ -780,7 +785,10 @@ pub fn meeting_transcriber_status(app: AppHandle) -> TranscriberStatus {
     TranscriberStatus {
         configured: config.is_set(),
         ready: ready.is_ok(),
-        problem: ready.err().map(|error| error.to_string()).unwrap_or_default(),
+        problem: ready
+            .err()
+            .map(|error| error.to_string())
+            .unwrap_or_default(),
         name: provider.name(),
         binary: config.binary,
         model: config.model,
@@ -897,7 +905,10 @@ fn transcribe_channels(app: &AppHandle, id: &str) -> Result<Vec<TranscriptSegmen
 
     let (meeting, root) = {
         let state = app.state::<AppState>();
-        let meeting = state.meetings.meeting(id).map_err(|error| error.to_string())?;
+        let meeting = state
+            .meetings
+            .meeting(id)
+            .map_err(|error| error.to_string())?;
         let root = audio_root(app, &meeting).map_err(|error| error.to_string())?;
         (meeting, root)
     };

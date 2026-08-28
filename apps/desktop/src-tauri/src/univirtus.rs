@@ -90,10 +90,7 @@ enum Rota {
     /// As ofertas em que o aluno esta inscrito.
     Ofertas,
     /// Avaliacoes de uma disciplina.
-    Avaliacoes {
-        id_sala: String,
-        id_oferta: String,
-    },
+    Avaliacoes { id_sala: String, id_oferta: String },
     /// Trabalhos de uma disciplina.
     Trabalhos { id_oferta: String },
     /// As aulas do roteiro (`TipoOferta/1`) ou o material complementar (`2`).
@@ -243,7 +240,9 @@ impl UnivirtusSession {
         let cookie = cookie.trim().to_owned();
         let x_time = x_time.trim().to_owned();
         if cookie.is_empty() {
-            return Err(erro("A sessao veio sem cookie. Entre no portal e tente de novo."));
+            return Err(erro(
+                "A sessao veio sem cookie. Entre no portal e tente de novo.",
+            ));
         }
         // 18 digitos de ticks .NET. A checagem e de formato, e nao de valor: o
         // valor so o servidor sabe validar, e tentar adivinha-lo foi o que a

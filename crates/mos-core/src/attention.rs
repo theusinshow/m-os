@@ -42,7 +42,11 @@ macro_rules! attention_id {
 
             pub fn parse(value: &str) -> Result<Self, CoreError> {
                 Uuid::parse_str(value).map(Self).map_err(|_| {
-                    CoreError::new(ErrorCode::InvalidInput, concat!($label, " invalido."), false)
+                    CoreError::new(
+                        ErrorCode::InvalidInput,
+                        concat!($label, " invalido."),
+                        false,
+                    )
                 })
             }
 
@@ -394,7 +398,10 @@ impl ContentPrivacy {
         match self {
             Self::ShowContent => (title.to_owned(), body.to_owned()),
             Self::TitleOnly => (title.to_owned(), String::new()),
-            Self::Hidden => ("M/OS".to_owned(), "Um lembrete precisa de atenção.".to_owned()),
+            Self::Hidden => (
+                "M/OS".to_owned(),
+                "Um lembrete precisa de atenção.".to_owned(),
+            ),
         }
     }
 }
@@ -1274,7 +1281,11 @@ mod tests {
         let subject = reminder(ReminderStatus::Due, Some(at(10)));
         assert_eq!(subject.overdue_by(at(12)), Some(Duration::hours(2)));
         assert_eq!(subject.overdue_by(at(9)), None);
-        assert_eq!(subject.overdue_by(at(10)), None, "no instante nao ha atraso");
+        assert_eq!(
+            subject.overdue_by(at(10)),
+            None,
+            "no instante nao ha atraso"
+        );
     }
 
     // ------------------------------------------------------------ privacidade

@@ -42,7 +42,8 @@ pub fn export_channel(
         fs::create_dir_all(parent).map_err(|error| storage(parent, error))?;
     }
 
-    let mut output = BufWriter::new(File::create(destination).map_err(|error| storage(destination, error))?);
+    let mut output =
+        BufWriter::new(File::create(destination).map_err(|error| storage(destination, error))?);
     // Espaco reservado. O cabecalho real entra no fim, quando os tamanhos
     // existirem.
     output
@@ -89,7 +90,9 @@ pub fn export_channel(
         }
     }
 
-    output.flush().map_err(|error| storage(destination, error))?;
+    output
+        .flush()
+        .map_err(|error| storage(destination, error))?;
     let mut file = output
         .into_inner()
         .map_err(|error| storage(destination, error.into_error()))?;
@@ -98,7 +101,8 @@ pub fn export_channel(
         .map_err(|error| storage(destination, error))?;
     file.write_all(&header(format, data_bytes))
         .map_err(|error| storage(destination, error))?;
-    file.sync_all().map_err(|error| storage(destination, error))?;
+    file.sync_all()
+        .map_err(|error| storage(destination, error))?;
 
     Ok(data_bytes / frame as u64)
 }
@@ -312,14 +316,26 @@ mod tests {
         assert_eq!(&bytes[36..40], b"data");
 
         // Os campos que um decodificador le antes de tocar qualquer amostra.
-        assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 36 + 32_000);
+        assert_eq!(
+            u32::from_le_bytes(bytes[4..8].try_into().unwrap()),
+            36 + 32_000
+        );
         assert_eq!(u16::from_le_bytes(bytes[20..22].try_into().unwrap()), 1);
         assert_eq!(u16::from_le_bytes(bytes[22..24].try_into().unwrap()), 1);
-        assert_eq!(u32::from_le_bytes(bytes[24..28].try_into().unwrap()), 16_000);
-        assert_eq!(u32::from_le_bytes(bytes[28..32].try_into().unwrap()), 32_000);
+        assert_eq!(
+            u32::from_le_bytes(bytes[24..28].try_into().unwrap()),
+            16_000
+        );
+        assert_eq!(
+            u32::from_le_bytes(bytes[28..32].try_into().unwrap()),
+            32_000
+        );
         assert_eq!(u16::from_le_bytes(bytes[32..34].try_into().unwrap()), 2);
         assert_eq!(u16::from_le_bytes(bytes[34..36].try_into().unwrap()), 16);
-        assert_eq!(u32::from_le_bytes(bytes[40..44].try_into().unwrap()), 32_000);
+        assert_eq!(
+            u32::from_le_bytes(bytes[40..44].try_into().unwrap()),
+            32_000
+        );
 
         // E os dados sao os que foram gravados, na ordem.
         assert!(bytes[44..].iter().all(|byte| *byte == 7));
@@ -378,8 +394,7 @@ mod tests {
                 system: None,
             })
             .unwrap();
-        let mut writer =
-            ChunkWriter::create(&session.channel(Channel::Mic), format, 100).unwrap();
+        let mut writer = ChunkWriter::create(&session.channel(Channel::Mic), format, 100).unwrap();
         writer.write(&vec![0u8; 16_000]).unwrap();
         writer.finish().unwrap();
 
@@ -453,7 +468,10 @@ mod tests {
             export_channel_normalized(session.path(), Channel::Mic, &destino).unwrap();
 
         assert_eq!(frames, 16_000);
-        assert!(ganho > 1.0, "canal baixo deveria receber ganho, veio {ganho}");
+        assert!(
+            ganho > 1.0,
+            "canal baixo deveria receber ganho, veio {ganho}"
+        );
 
         let bytes = fs::read(&destino).unwrap();
         assert_eq!(bytes.len(), 44 + 32_000);
@@ -466,7 +484,10 @@ mod tests {
             .map(|entrada| entrada.path())
             .find(|caminho| caminho.extension().is_some_and(|ext| ext == "pcm"))
             .unwrap();
-        assert!(pico(&fs::read(chunk).unwrap()) <= 301, "o chunk foi alterado");
+        assert!(
+            pico(&fs::read(chunk).unwrap()) <= 301,
+            "o chunk foi alterado"
+        );
     }
 
     #[test]

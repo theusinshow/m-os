@@ -177,7 +177,11 @@ impl TurnRecorder {
     }
 
     /// As partes na ordem em que devem ser lidas.
-    pub fn into_parts(mut self, status: MessageStatus, now_local: time::OffsetDateTime) -> Vec<PartBody> {
+    pub fn into_parts(
+        mut self,
+        status: MessageStatus,
+        now_local: time::OffsetDateTime,
+    ) -> Vec<PartBody> {
         self.settle_tools(status == MessageStatus::Interrupted);
 
         let mut parts = Vec::new();
@@ -395,7 +399,8 @@ async fn run_action<R: Runtime>(
             // so acordaria no proximo restart, e "me lembra em vinte minutos"
             // passaria em silencio.
             crate::attention::poke(app);
-            let quando = mos_core::spoken_moment(instant.to_offset(crate::surface::now_local(app).offset()));
+            let quando =
+                mos_core::spoken_moment(instant.to_offset(crate::surface::now_local(app).offset()));
             let mensagem = match &alvo {
                 Some((_, rotulo)) => {
                     format!("Lembrete para {quando}, vinculado a \"{rotulo}\".")
@@ -415,7 +420,10 @@ async fn run_action<R: Runtime>(
             }
             Ok(effect)
         }
-        mos_core::ActionArgs::ReminderResolve { reminder, state: desfecho } => {
+        mos_core::ActionArgs::ReminderResolve {
+            reminder,
+            state: desfecho,
+        } => {
             let alvo = resolve_reminder(&state, reminder)?;
             let transition = if desfecho == "done" {
                 mos_core::Transition::Complete
@@ -428,7 +436,11 @@ async fn run_action<R: Runtime>(
                 format!(
                     "Lembrete \"{}\" {}.",
                     resolvido.title,
-                    if desfecho == "done" { "concluido" } else { "cancelado" }
+                    if desfecho == "done" {
+                        "concluido"
+                    } else {
+                        "cancelado"
+                    }
                 ),
                 // SEM desfazer, e a ausencia e a decisao: concluir e cancelar
                 // sao estados terminais no dominio (`attention.rs`), e nao ha
@@ -783,13 +795,17 @@ async fn run_action<R: Runtime>(
         }
         mos_core::ActionArgs::DayEnd { mood, summary } => {
             let hoje = state.daily.today(&crate::daily::hoje(app))?;
-            let sessao = hoje.session.as_ref().map(|sessao| sessao.id).ok_or_else(|| {
-                CoreError::new(
-                    mos_core::ErrorCode::InvalidInput,
-                    "O dia ainda nao comecou, entao nao ha o que encerrar.",
-                    false,
-                )
-            })?;
+            let sessao = hoje
+                .session
+                .as_ref()
+                .map(|sessao| sessao.id)
+                .ok_or_else(|| {
+                    CoreError::new(
+                        mos_core::ErrorCode::InvalidInput,
+                        "O dia ainda nao comecou, entao nao ha o que encerrar.",
+                        false,
+                    )
+                })?;
             let (feitos, total) = hoje.progress();
             // Os pendentes ficam PENDENTES: o Hermes nao decide destino de
             // objetivo por ninguem. Eles reaparecem no carry-over de amanha, que
@@ -1469,8 +1485,8 @@ pub fn candidates_for<R: Runtime>(app: &AppHandle<R>, text: &str) -> Vec<mos_cor
     let state = app.state::<AppState>();
     let mut encontrados: Vec<Pontuado> = Vec::new();
 
-    let registrar = |candidate: mos_core::Candidate, encontrados: &mut Vec<Pontuado>| {
-        match encontrados
+    let registrar =
+        |candidate: mos_core::Candidate, encontrados: &mut Vec<Pontuado>| match encontrados
             .iter_mut()
             .find(|existente| existente.candidate.id == candidate.id)
         {
@@ -1483,8 +1499,7 @@ pub fn candidates_for<R: Runtime>(app: &AppHandle<R>, text: &str) -> Vec<mos_cor
                     ordem,
                 });
             }
-        }
-    };
+        };
 
     for termo in &termos {
         // Arquivados ficam de fora: agir sobre o que ja saiu de vista e
@@ -1685,8 +1700,9 @@ fn detalhe_academico(
     let estado = match decision {
         mos_core::Decision::Done => Some("marcada como entregue".to_owned()),
         mos_core::Decision::Skipped => Some("marcada como nao vou fazer".to_owned()),
-        mos_core::Decision::None => planned_at
-            .map(|quando| format!("planejada para {}", mos_core::spoken_moment(quando))),
+        mos_core::Decision::None => {
+            planned_at.map(|quando| format!("planejada para {}", mos_core::spoken_moment(quando)))
+        }
     };
     match estado {
         Some(estado) => format!("{quando} · {estado}"),
@@ -2327,9 +2343,11 @@ mod tests {
         let passo = parts
             .iter()
             .find_map(|part| match part {
-                PartBody::ToolRun { name, state, detail } if name == "Busca no M/OS" => {
-                    Some((*state, detail.clone()))
-                }
+                PartBody::ToolRun {
+                    name,
+                    state,
+                    detail,
+                } if name == "Busca no M/OS" => Some((*state, detail.clone())),
                 _ => None,
             })
             .expect("a busca precisa aparecer como passo");

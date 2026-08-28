@@ -19,8 +19,8 @@
 use std::time::Duration as StdDuration;
 
 use mos_core::{
-    Channel, CoreError, LifecycleState, ReconcileReason, Reminder, ReminderId,
-    ReminderSource, ReminderTarget, Transition, VisualLevel,
+    Channel, CoreError, LifecycleState, ReconcileReason, Reminder, ReminderId, ReminderSource,
+    ReminderTarget, Transition, VisualLevel,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use time::OffsetDateTime;
@@ -151,10 +151,12 @@ fn deliver<R: Runtime>(app: &AppHandle<R>, reminder: &Reminder, reason: Reconcil
     let subject = if missed { SUBJECT_MISSED } else { SUBJECT_DUE };
     let state = app.state::<AppState>();
 
-    let queued = match state
-        .attention
-        .queue_delivery(reminder.id, Channel::InApp, subject, VisualLevel::Normal)
-    {
+    let queued = match state.attention.queue_delivery(
+        reminder.id,
+        Channel::InApp,
+        subject,
+        VisualLevel::Normal,
+    ) {
         Ok(Some(queued)) => queued,
         // `None` e o dedupe funcionando: ja existe entrega viva com esta
         // chave, e criar outra e exatamente o que produz fadiga.

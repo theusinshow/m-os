@@ -523,7 +523,11 @@ mod tests {
         assert!(validate_span(-1).is_err());
         assert_eq!(validate_span(1).unwrap(), 1);
         assert_eq!(validate_span(12).unwrap(), 12);
-        assert_eq!(validate_span(7).unwrap(), 7, "forma, e nao o vocabulario do desenho");
+        assert_eq!(
+            validate_span(7).unwrap(),
+            7,
+            "forma, e nao o vocabulario do desenho"
+        );
     }
 
     #[test]

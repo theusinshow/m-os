@@ -128,10 +128,7 @@ const EU_MESMO: &str = "mos-desktop.exe";
 ///
 /// Pura, e por isso testavel sem Windows — mesma divisao de `diff_transitions`:
 /// o que decide e um conjunto de fatos, e nao o sistema operacional.
-pub fn decidir_oferta(
-    abertos: &[MicrofoneAberto],
-    contexto: &ContextoDaOferta,
-) -> DecisaoDeOferta {
+pub fn decidir_oferta(abertos: &[MicrofoneAberto], contexto: &ContextoDaOferta) -> DecisaoDeOferta {
     if !contexto.ligado || contexto.gravando {
         return DecisaoDeOferta::Nada;
     }
@@ -141,7 +138,11 @@ pub fn decidir_oferta(
         // O M/OS abre o microfone quando grava. Sem esta linha ele se veria
         // gravando e ofereceria gravar de novo.
         .filter(|entrada| !entrada.processo.eq_ignore_ascii_case(EU_MESMO))
-        .filter(|entrada| !contexto.silenciados.contains(&entrada.processo.to_lowercase()))
+        .filter(|entrada| {
+            !contexto
+                .silenciados
+                .contains(&entrada.processo.to_lowercase())
+        })
         .filter(|entrada| entrada.segundos_aberto >= contexto.espera_segundos)
         // Ganha o aberto ha MAIS tempo: com Discord ao lado do Meet, quem abriu
         // primeiro provavelmente e a reuniao, e quem abriu depois e o acessorio.

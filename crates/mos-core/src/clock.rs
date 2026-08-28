@@ -61,9 +61,7 @@ impl FixedClock {
         Self {
             wall: std::sync::Arc::new(std::sync::Mutex::new(moment)),
             origin: Instant::now(),
-            monotonic_offset: std::sync::Arc::new(std::sync::Mutex::new(
-                std::time::Duration::ZERO,
-            )),
+            monotonic_offset: std::sync::Arc::new(std::sync::Mutex::new(std::time::Duration::ZERO)),
         }
     }
 
@@ -136,7 +134,11 @@ mod tests {
         clock.skew_wall(Duration::hours(1));
 
         assert_eq!(clock.now(), epoch() + Duration::hours(1));
-        assert_eq!(clock.monotonic(), before, "o monotonico nao acompanha salto");
+        assert_eq!(
+            clock.monotonic(),
+            before,
+            "o monotonico nao acompanha salto"
+        );
     }
 
     #[test]

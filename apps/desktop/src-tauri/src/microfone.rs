@@ -19,7 +19,8 @@ use std::collections::BTreeSet;
 use mos_core::MicrofoneAberto;
 
 #[cfg(windows)]
-const CONSENT: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone";
+const CONSENT: &str =
+    r"SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone";
 
 /// Segundos entre 1601-01-01 e 1970-01-01, para converter FILETIME em epoch.
 #[cfg(windows)]

@@ -36,7 +36,13 @@ use crate::{
     // nao de uma copia local: as duas superficies fazem a MESMA pergunta — "a
     // que Project isto pertence?" — e duas definicoes do mesmo par
     // (id, nome) divergiriam no dia em que uma das duas ganhasse um campo.
-    CaptureId, Confidence, CoreError, ErrorCode, ProjectHint, ProjectId, TaskId,
+    CaptureId,
+    Confidence,
+    CoreError,
+    ErrorCode,
+    ProjectHint,
+    ProjectId,
+    TaskId,
 };
 
 // ------------------------------------------------------------------ guardas
@@ -191,7 +197,10 @@ impl VoiceNoteStatus {
     /// É a pergunta que decide apagar bytes, e por isso ela mora no domínio e
     /// não em quem chama o filesystem.
     pub fn audio_still_needed(self) -> bool {
-        matches!(self, Self::Recording | Self::Recorded | Self::Transcribing | Self::Failed)
+        matches!(
+            self,
+            Self::Recording | Self::Recorded | Self::Transcribing | Self::Failed
+        )
     }
 }
 
@@ -253,10 +262,19 @@ impl NewVoiceNote {
 /// O que pode acontecer com uma nota.
 #[derive(Clone, Debug)]
 pub enum VoiceTransition {
-    Recorded { duration_ms: i64, peak_level: u64 },
+    Recorded {
+        duration_ms: i64,
+        peak_level: u64,
+    },
     Transcribing,
-    Captured { capture_id: CaptureId, transcript: String, provider: String },
-    Failed { message: String },
+    Captured {
+        capture_id: CaptureId,
+        transcript: String,
+        provider: String,
+    },
+    Failed {
+        message: String,
+    },
     Cancelled,
 }
 
@@ -448,7 +466,13 @@ const TASK_VERBS: [&str; 10] = [
 ];
 
 /// Relato sobre terceiros. Não é pedido, e por isso não vira ação.
-const REPORTED_SPEECH: [&str; 5] = ["disse que", "falou que", "avisou que", "mandou dizer", "comentou que"];
+const REPORTED_SPEECH: [&str; 5] = [
+    "disse que",
+    "falou que",
+    "avisou que",
+    "mandou dizer",
+    "comentou que",
+];
 
 const STOPWORDS: [&str; 22] = [
     "de", "da", "do", "das", "dos", "o", "a", "os", "as", "e", "em", "no", "na", "nos", "nas",
@@ -469,11 +493,15 @@ pub fn understand(
     let spoken = Spoken::new(transcript);
     let normalized = spoken.normalized();
 
-    let hedged = HEDGES.iter().any(|marca| contains_phrase(&normalized, marca));
+    let hedged = HEDGES
+        .iter()
+        .any(|marca| contains_phrase(&normalized, marca));
     let reminder_verb = REMINDER_VERBS
         .iter()
         .any(|verbo| contains_phrase(&normalized, verbo));
-    let task_verb = TASK_VERBS.iter().any(|verbo| contains_phrase(&normalized, verbo));
+    let task_verb = TASK_VERBS
+        .iter()
+        .any(|verbo| contains_phrase(&normalized, verbo));
     let reported = REPORTED_SPEECH
         .iter()
         .any(|marca| contains_phrase(&normalized, marca));
@@ -513,7 +541,10 @@ pub fn understand(
     });
 
     Understanding {
-        title: title_from(transcript, when.as_ref().map(|resolved| resolved.raw.as_str())),
+        title: title_from(
+            transcript,
+            when.as_ref().map(|resolved| resolved.raw.as_str()),
+        ),
         action,
         confidence,
         project_id,
@@ -609,8 +640,7 @@ fn opens_with_infinitive(spoken: &Spoken) -> bool {
         return false;
     }
     let first = words[0];
-    first.len() >= 5
-        && (first.ends_with("ar") || first.ends_with("er") || first.ends_with("ir"))
+    first.len() >= 5 && (first.ends_with("ar") || first.ends_with("er") || first.ends_with("ir"))
 }
 
 /// A expressão aparece no texto, respeitando fronteira de palavra.
@@ -669,7 +699,9 @@ fn match_project(spoken: &Spoken, projects: &[ProjectHint]) -> Option<ProjectId>
         }
         let hits: Vec<ProjectId> = candidates
             .iter()
-            .filter(|(_, tokens)| tokens.starts_with(needle) || contains_sequence_owned(tokens, needle))
+            .filter(|(_, tokens)| {
+                tokens.starts_with(needle) || contains_sequence_owned(tokens, needle)
+            })
             .map(|(id, _)| *id)
             .collect();
         if hits.len() == 1 {
@@ -736,7 +768,10 @@ pub fn title_from(transcript: &str, when_raw: Option<&str>) -> String {
     let mut cleaned = collapse(&text);
     cleaned = strip_leading_connectors(&cleaned);
     // Ponto final de uma frase falada não pertence a um título.
-    cleaned = cleaned.trim_end_matches(['.', ',', ';', ':']).trim().to_owned();
+    cleaned = cleaned
+        .trim_end_matches(['.', ',', ';', ':'])
+        .trim()
+        .to_owned();
 
     if cleaned.is_empty() {
         cleaned = collapse(transcript);
@@ -802,7 +837,10 @@ fn strip_leading_connectors(text: &str) -> String {
         let Some(first) = folded.split_whitespace().next() else {
             return current;
         };
-        if !matches!(first, "de" | "que" | "a" | "o" | "para" | "pra" | "e" | "ao") {
+        if !matches!(
+            first,
+            "de" | "que" | "a" | "o" | "para" | "pra" | "e" | "ao"
+        ) {
             return current;
         }
         let cut = char_to_byte(&current, first.chars().count());
@@ -1064,7 +1102,10 @@ mod tests {
     #[test]
     fn o_titulo_perde_o_andaime_e_a_capture_guarda_tudo() {
         assert_eq!(
-            title_from("Me lembra amanhã às nove de revisar o memorial.", Some("amanhã às nove")),
+            title_from(
+                "Me lembra amanhã às nove de revisar o memorial.",
+                Some("amanhã às nove")
+            ),
             "Revisar o memorial"
         );
     }
@@ -1078,7 +1119,10 @@ mod tests {
     fn titulo_que_ficaria_vazio_volta_a_fala() {
         // Só o andaime foi dito. Um título vazio recusaria a Task; a fala
         // inteira é pior título e melhor comportamento.
-        assert_eq!(title_from("Me lembra amanhã", Some("amanhã")), "Me lembra amanhã");
+        assert_eq!(
+            title_from("Me lembra amanhã", Some("amanhã")),
+            "Me lembra amanhã"
+        );
     }
 
     #[test]

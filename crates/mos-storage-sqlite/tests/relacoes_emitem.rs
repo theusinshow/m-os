@@ -7,8 +7,8 @@
 use mos_core::{
     NewProject, NewResource, NewWorkspace, ResourceKind, ResourceRepository, WorkRepository,
 };
-use mos_sync::{aplicar, DeviceRepository, EstadoDaEntidade, OpBody, OutboxRepository, Relacao};
 use mos_storage_sqlite::SqliteStorage;
+use mos_sync::{aplicar, DeviceRepository, EstadoDaEntidade, OpBody, OutboxRepository, Relacao};
 
 fn com_sync(nome: &str) -> (tempfile::TempDir, SqliteStorage) {
     let dir = tempfile::tempdir().unwrap();
@@ -24,8 +24,14 @@ fn com_sync(nome: &str) -> (tempfile::TempDir, SqliteStorage) {
 fn recurso_e_projeto(storage: &SqliteStorage) -> (mos_core::ResourceId, mos_core::ProjectId) {
     let recurso = storage
         .create_resource(
-            NewResource::create(ResourceKind::Site, "Allplan", "https://allplan.com", "", None)
-                .unwrap(),
+            NewResource::create(
+                ResourceKind::Site,
+                "Allplan",
+                "https://allplan.com",
+                "",
+                None,
+            )
+            .unwrap(),
         )
         .unwrap();
     let projeto = storage
@@ -47,7 +53,9 @@ fn relacao_emitida(storage: &SqliteStorage) -> mos_sync::Op {
 fn vincular_emite_a_relacao_como_entidade() {
     let (_dir, storage) = com_sync("PC");
     let (recurso, projeto) = recurso_e_projeto(&storage);
-    storage.set_resource_project(recurso, projeto, true).unwrap();
+    storage
+        .set_resource_project(recurso, projeto, true)
+        .unwrap();
 
     let relacao = relacao_emitida(&storage);
     match &relacao.body {
@@ -70,7 +78,9 @@ fn desvincular_nunca_emite_delete() {
     // desvincular as 10:00 venceria revincular as 10:05 para sempre.
     let (_dir, storage) = com_sync("PC");
     let (recurso, projeto) = recurso_e_projeto(&storage);
-    storage.set_resource_project(recurso, projeto, true).unwrap();
+    storage
+        .set_resource_project(recurso, projeto, true)
+        .unwrap();
     storage
         .set_resource_project(recurso, projeto, false)
         .unwrap();
@@ -100,7 +110,9 @@ fn o_id_emitido_e_o_id_derivado_do_par() {
     // em `mos-sync`.
     let (_dir, storage) = com_sync("PC");
     let (recurso, projeto) = recurso_e_projeto(&storage);
-    storage.set_resource_project(recurso, projeto, true).unwrap();
+    storage
+        .set_resource_project(recurso, projeto, true)
+        .unwrap();
 
     let emitida = relacao_emitida(&storage);
     let calculada = Relacao::nova("resourceProject", recurso.as_uuid(), projeto.as_uuid());
@@ -108,7 +120,9 @@ fn o_id_emitido_e_o_id_derivado_do_par() {
 
     // E ligar de novo nao cria outra: a segunda operacao fala da MESMA
     // entidade, entao reconciliar deixa um vinculo so.
-    storage.set_resource_project(recurso, projeto, true).unwrap();
+    storage
+        .set_resource_project(recurso, projeto, true)
+        .unwrap();
     let de_novo = relacao_emitida(&storage);
     assert_eq!(de_novo.entity.id, emitida.entity.id);
 
@@ -146,7 +160,10 @@ fn desvincular_num_e_revincular_no_outro_termina_vinculado() {
         &serde_json::json!(true),
         "revincular depois precisa vencer"
     );
-    assert!(r.estado.visivel(), "a relacao nunca e apagada, so alternada");
+    assert!(
+        r.estado.visivel(),
+        "a relacao nunca e apagada, so alternada"
+    );
 }
 
 #[test]

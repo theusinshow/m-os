@@ -6,10 +6,9 @@
 //! transicao que nao acontece.
 
 use mos_core::{
-    CaptureId, CoreError, DetectedKind, DropContext, ErrorCode, ExtractionState,
-    ImageSize, Ingestion, IngestionId, IngestionRepository, IngestionSource, IngestionState,
-    NewCapture, NewIngestion, NewResource, ProjectId, RelationPlan, Resource, ResourceId,
-    TaskId, WorkspaceId,
+    CaptureId, CoreError, DetectedKind, DropContext, ErrorCode, ExtractionState, ImageSize,
+    Ingestion, IngestionId, IngestionRepository, IngestionSource, IngestionState, NewCapture,
+    NewIngestion, NewResource, ProjectId, RelationPlan, Resource, ResourceId, TaskId, WorkspaceId,
 };
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 use time::OffsetDateTime;
@@ -111,7 +110,11 @@ impl RawIngestion {
             detected_kind: DetectedKind::parse(&self.detected_kind)?,
             state: IngestionState::parse(&self.state)?,
             failure: self.failure,
-            capture_id: self.capture_id.as_deref().map(CaptureId::parse).transpose()?,
+            capture_id: self
+                .capture_id
+                .as_deref()
+                .map(CaptureId::parse)
+                .transpose()?,
             resource_id: self
                 .resource_id
                 .as_deref()
@@ -190,7 +193,10 @@ impl IngestionRepository for SqliteStorage {
                     capture.id.to_string(),
                     ingestion.context.page,
                     ingestion.context.project_id.map(|value| value.to_string()),
-                    ingestion.context.workspace_id.map(|value| value.to_string()),
+                    ingestion
+                        .context
+                        .workspace_id
+                        .map(|value| value.to_string()),
                     ingestion.context.task_id.map(|value| value.to_string()),
                     now,
                 ],
@@ -423,10 +429,7 @@ impl IngestionRepository for SqliteStorage {
         query_ingestion(&connection, id)
     }
 
-    fn ingestion_for_resource(
-        &self,
-        resource: ResourceId,
-    ) -> Result<Option<Ingestion>, CoreError> {
+    fn ingestion_for_resource(&self, resource: ResourceId) -> Result<Option<Ingestion>, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let raw = connection
             .query_row(
@@ -602,10 +605,7 @@ fn finish(
     ensure_changed(changed)
 }
 
-fn mark_capture_processed(
-    transaction: &Transaction<'_>,
-    id: IngestionId,
-) -> Result<(), CoreError> {
+fn mark_capture_processed(transaction: &Transaction<'_>, id: IngestionId) -> Result<(), CoreError> {
     transaction
         .execute(
             "UPDATE captures SET processing_state = 'processed', updated_at = ?2
@@ -646,10 +646,7 @@ fn has_workspace_link(
         .map_err(map_sql_error)
 }
 
-fn added_links(
-    transaction: &Transaction<'_>,
-    id: IngestionId,
-) -> Result<(bool, bool), CoreError> {
+fn added_links(transaction: &Transaction<'_>, id: IngestionId) -> Result<(bool, bool), CoreError> {
     transaction
         .query_row(
             "SELECT added_project_link, added_workspace_link FROM ingestions WHERE id = ?1",
@@ -859,7 +856,10 @@ mod tests {
         assert_eq!(resource.url, "");
         assert!(CaptureRepository::inbox(&storage, 10).unwrap().is_empty());
         assert_eq!(
-            storage.get(closed.capture_id.unwrap()).unwrap().processing_state,
+            storage
+                .get(closed.capture_id.unwrap())
+                .unwrap()
+                .processing_state,
             ProcessingState::Processed
         );
     }
@@ -965,7 +965,10 @@ mod tests {
 
         assert_eq!(fechada.duplicate_of, Some(resource.id));
         assert!(fechada.resource_id.is_none());
-        assert_eq!(ResourceRepository::resources(&storage, true).unwrap().len(), 1);
+        assert_eq!(
+            ResourceRepository::resources(&storage, true).unwrap().len(),
+            1
+        );
         assert_eq!(storage.resource_projects().unwrap().len(), 1);
         assert!(CaptureRepository::inbox(&storage, 10).unwrap().is_empty());
     }
@@ -991,7 +994,10 @@ mod tests {
             LifecycleState::Archived
         );
         assert_eq!(
-            storage.get(closed.capture_id.unwrap()).unwrap().processing_state,
+            storage
+                .get(closed.capture_id.unwrap())
+                .unwrap()
+                .processing_state,
             ProcessingState::Inbox
         );
         assert_eq!(
@@ -1092,7 +1098,10 @@ mod tests {
         .unwrap();
         assert_eq!(encontrados.len(), 1);
         assert_eq!(encontrados[0].id, resource.id);
-        assert_eq!(storage.get_ingestion(closed.id).unwrap().page_count, Some(42));
+        assert_eq!(
+            storage.get_ingestion(closed.id).unwrap().page_count,
+            Some(42)
+        );
     }
 
     /// Extracao que falha nao mexe no que ja foi preservado.
@@ -1155,7 +1164,10 @@ mod tests {
             .complete_ingestion(ingestion.id, file_resource("memorial.pdf", None), &plan())
             .unwrap_err();
         assert_eq!(erro.code, ErrorCode::InvalidTransition);
-        assert_eq!(ResourceRepository::resources(&storage, true).unwrap().len(), 1);
+        assert_eq!(
+            ResourceRepository::resources(&storage, true).unwrap().len(),
+            1
+        );
     }
 
     /// O que a abertura precisa encontrar para reconciliar.

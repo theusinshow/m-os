@@ -149,7 +149,8 @@ pub fn faixa_de(item: &Compromisso, contexto: ContextoDaFaixa) -> Faixa {
             // A prova dos proximos tres dias sobe: ela nao se resolve em dez
             // minutos, e descobrir na vespera e o problema que o M/Academic
             // existe para evitar.
-            if item.kind == "exam" && dias_ate(item.at, contexto.agora_local) <= DIAS_DE_PROVA_EM_ATENCAO
+            if item.kind == "exam"
+                && dias_ate(item.at, contexto.agora_local) <= DIAS_DE_PROVA_EM_ATENCAO
             {
                 Faixa::Atencao
             } else {
@@ -229,7 +230,12 @@ mod tests {
     use crate::academic::Compromisso;
     use time::macros::datetime;
 
-    fn item(kind: &str, at: OffsetDateTime, horizonte: Horizonte, decision: Decision) -> Compromisso {
+    fn item(
+        kind: &str,
+        at: OffsetDateTime,
+        horizonte: Horizonte,
+        decision: Decision,
+    ) -> Compromisso {
         Compromisso {
             kind: kind.to_owned(),
             id: "x".into(),

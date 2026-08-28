@@ -272,8 +272,10 @@ pub fn today_block(day: &str, objectives: &[(String, String, bool)]) -> String {
             )
         })
         .collect::<Vec<_>>()
-        .join("
-");
+        .join(
+            "
+",
+        );
     let feitos = objectives.iter().filter(|(_, _, feito)| *feito).count();
     format!(
         "[Os objetivos de hoje ({day})]
@@ -483,7 +485,9 @@ where
         |campo, needle| campo == needle,
         // Prefixo de id, como o bloco de candidatos mostra. Seis digitos e o
         // piso: com menos, "1f4" casaria com meia base por acaso.
-        |campo, needle| needle.len() >= 6 && needle.len() <= campo.len() && campo.starts_with(needle),
+        |campo, needle| {
+            needle.len() >= 6 && needle.len() <= campo.len() && campo.starts_with(needle)
+        },
         // Titulo exato.
         |campo, needle| campo == needle,
         // Comeco do titulo. Vem antes de "contem" porque quem cita uma Task
@@ -576,26 +580,147 @@ pub fn resolution_error<T>(
 /// lembrete devolve os lembretes antigos em vez da coisa lembrada.
 const RUIDO: [&str; 136] = [
     // conectivos e artigos
-    "a", "ao", "aos", "as", "com", "da", "das", "de", "do", "dos", "e", "em", "essa", "esse",
-    "esta", "este", "eu", "isso", "isto", "ja", "la", "lhe", "me", "meu", "minha", "na", "nas",
-    "no", "nos", "num", "numa", "o", "os", "ou", "para", "pra", "pro", "por", "que", "se", "ser",
-    "sobre", "um", "uma", "voce", "aquele", "aquela", "aquilo", "tem", "ter", "vai", "foi",
+    "a",
+    "ao",
+    "aos",
+    "as",
+    "com",
+    "da",
+    "das",
+    "de",
+    "do",
+    "dos",
+    "e",
+    "em",
+    "essa",
+    "esse",
+    "esta",
+    "este",
+    "eu",
+    "isso",
+    "isto",
+    "ja",
+    "la",
+    "lhe",
+    "me",
+    "meu",
+    "minha",
+    "na",
+    "nas",
+    "no",
+    "nos",
+    "num",
+    "numa",
+    "o",
+    "os",
+    "ou",
+    "para",
+    "pra",
+    "pro",
+    "por",
+    "que",
+    "se",
+    "ser",
+    "sobre",
+    "um",
+    "uma",
+    "voce",
+    "aquele",
+    "aquela",
+    "aquilo",
+    "tem",
+    "ter",
+    "vai",
+    "foi",
     // vocabulario do proprio M/OS
-    "task", "tasks", "tarefa", "tarefas", "kanban", "board", "quadro", "coluna", "projeto",
-    "projetos", "project", "capture", "captura", "capturas", "resource", "recurso", "recursos",
-    "lembrete", "lembretes", "reminder", "agenda", "calendario", "inbox", "workspace", "timeline",
-    "arquivo", "arquivos", "mos", "hermes", "sistema", "app",
+    "task",
+    "tasks",
+    "tarefa",
+    "tarefas",
+    "kanban",
+    "board",
+    "quadro",
+    "coluna",
+    "projeto",
+    "projetos",
+    "project",
+    "capture",
+    "captura",
+    "capturas",
+    "resource",
+    "recurso",
+    "recursos",
+    "lembrete",
+    "lembretes",
+    "reminder",
+    "agenda",
+    "calendario",
+    "inbox",
+    "workspace",
+    "timeline",
+    "arquivo",
+    "arquivos",
+    "mos",
+    "hermes",
+    "sistema",
+    "app",
     // verbos de comando, que descrevem a acao e nao o alvo
-    "cria", "criar", "adiciona", "adicionar", "coloca", "colocar", "move", "mover", "marca",
-    "marcar", "lembra", "lembrar", "procura", "procurar", "busca", "buscar", "cadastrada",
+    "cria",
+    "criar",
+    "adiciona",
+    "adicionar",
+    "coloca",
+    "colocar",
+    "move",
+    "mover",
+    "marca",
+    "marcar",
+    "lembra",
+    "lembrar",
+    "procura",
+    "procurar",
+    "busca",
+    "buscar",
+    "cadastrada",
     "cadastrado",
     // pronomes e palavras de tempo: dizem QUANDO e sobre o QUE, nunca QUAL.
     // Sem eles, "me lembra disso hoje de noite" procuraria por "disso",
     // "hoje" e "noite" — tres palavras que aparecem em metade da base.
-    "disso", "disto", "daquilo", "dele", "dela", "nele", "nela", "aqui", "ali", "agora", "hoje",
-    "amanha", "ontem", "noite", "tarde", "manha", "hora", "horas", "minuto", "minutos", "dia",
-    "dias", "semana", "mes", "ainda", "depois", "antes", "quando", "onde", "qual", "todos",
-    "tudo", "nada", "mais", "menos",
+    "disso",
+    "disto",
+    "daquilo",
+    "dele",
+    "dela",
+    "nele",
+    "nela",
+    "aqui",
+    "ali",
+    "agora",
+    "hoje",
+    "amanha",
+    "ontem",
+    "noite",
+    "tarde",
+    "manha",
+    "hora",
+    "horas",
+    "minuto",
+    "minutos",
+    "dia",
+    "dias",
+    "semana",
+    "mes",
+    "ainda",
+    "depois",
+    "antes",
+    "quando",
+    "onde",
+    "qual",
+    "todos",
+    "tudo",
+    "nada",
+    "mais",
+    "menos",
 ];
 
 /// Minuscula e sem acento, para comparar texto com termo de busca.
@@ -897,8 +1022,14 @@ mod tests {
     fn the_here_block_names_what_is_open() {
         let here = Here {
             screen: "Kanban".into(),
-            project: Some(Named::new("1f4c9a2b-0000-0000-0000-000000000000", "Minarum")),
-            task: Some(Named::new("7c3e2b19-0000-0000-0000-000000000000", "Enviar bases")),
+            project: Some(Named::new(
+                "1f4c9a2b-0000-0000-0000-000000000000",
+                "Minarum",
+            )),
+            task: Some(Named::new(
+                "7c3e2b19-0000-0000-0000-000000000000",
+                "Enviar bases",
+            )),
             workspace: None,
         };
         let bloco = here_block(&here);
@@ -925,7 +1056,12 @@ mod tests {
             label: "Enviar tipos de bases faltantes para o Victor".into(),
             detail: "doing · Minarum".into(),
         }]);
-        assert!(bloco.contains("- task 7c3e2b19 · Enviar tipos de bases faltantes para o Victor · doing · Minarum"), "{bloco}");
+        assert!(
+            bloco.contains(
+                "- task 7c3e2b19 · Enviar tipos de bases faltantes para o Victor · doing · Minarum"
+            ),
+            "{bloco}"
+        );
         assert!(bloco.contains("Não crie uma entidade nova"));
     }
 
@@ -949,9 +1085,18 @@ mod tests {
 
     fn itens() -> Vec<Item> {
         [
-            ("7c3e2b19-1111-2222-3333-444444444444", "Enviar tipos de bases faltantes para o Victor"),
-            ("1f4c9a2b-1111-2222-3333-444444444444", "Revisar memorial descritivo"),
-            ("aa11bb22-1111-2222-3333-444444444444", "Enviar proposta para o Victor"),
+            (
+                "7c3e2b19-1111-2222-3333-444444444444",
+                "Enviar tipos de bases faltantes para o Victor",
+            ),
+            (
+                "1f4c9a2b-1111-2222-3333-444444444444",
+                "Revisar memorial descritivo",
+            ),
+            (
+                "aa11bb22-1111-2222-3333-444444444444",
+                "Enviar proposta para o Victor",
+            ),
         ]
         .into_iter()
         .map(|(id, label)| Item {
@@ -965,23 +1110,33 @@ mod tests {
         // Vaza de proposito no teste: o vetor precisa viver enquanto a
         // referencia emprestada existir.
         let items: &'static Vec<Item> = Box::leak(Box::new(itens()));
-        resolve(items, reference, |item| item.id.clone(), |item| item.label.clone())
+        resolve(
+            items,
+            reference,
+            |item| item.id.clone(),
+            |item| item.label.clone(),
+        )
     }
 
     #[test]
     fn resolves_by_the_short_id_the_block_showed() {
         match resolver("7c3e2b19") {
             Resolved::One(item) => assert!(item.label.contains("bases faltantes")),
-            outro => panic!("esperava um acerto, veio {outro:?}", outro = match outro {
-                Resolved::Many(itens) => format!("{} acertos", itens.len()),
-                _ => "nenhum".to_owned(),
-            }),
+            outro => panic!(
+                "esperava um acerto, veio {outro:?}",
+                outro = match outro {
+                    Resolved::Many(itens) => format!("{} acertos", itens.len()),
+                    _ => "nenhum".to_owned(),
+                }
+            ),
         }
     }
 
     #[test]
     fn resolves_by_the_whole_id_too() {
-        assert!(resolver("7c3e2b19-1111-2222-3333-444444444444").one().is_some());
+        assert!(resolver("7c3e2b19-1111-2222-3333-444444444444")
+            .one()
+            .is_some());
     }
 
     /// Prefixo curto demais casaria com meia base por acaso.
@@ -1017,7 +1172,10 @@ mod tests {
 
     #[test]
     fn an_unknown_reference_resolves_to_nothing() {
-        assert!(matches!(resolver("memorial do prédio azul"), Resolved::None));
+        assert!(matches!(
+            resolver("memorial do prédio azul"),
+            Resolved::None
+        ));
     }
 
     /// O erro de ambiguidade lista os titulos: "bate com 3" manda procurar, a
@@ -1025,7 +1183,12 @@ mod tests {
     #[test]
     fn the_ambiguity_error_lists_the_titles() {
         let items = itens();
-        let resolved = resolve(&items, "Enviar", |item| item.id.clone(), |item| item.label.clone());
+        let resolved = resolve(
+            &items,
+            "Enviar",
+            |item| item.id.clone(),
+            |item| item.label.clone(),
+        );
         let error = resolution_error(&resolved, EntityKind::Task, "Enviar", |item: &Item| {
             item.label.clone()
         })
@@ -1037,11 +1200,18 @@ mod tests {
     #[test]
     fn a_single_match_produces_no_error() {
         let items = itens();
-        let resolved = resolve(&items, "7c3e2b19", |item| item.id.clone(), |item| item.label.clone());
-        assert!(resolution_error(&resolved, EntityKind::Task, "7c3e2b19", |item: &Item| item
-            .label
-            .clone())
-        .is_none());
+        let resolved = resolve(
+            &items,
+            "7c3e2b19",
+            |item| item.id.clone(),
+            |item| item.label.clone(),
+        );
+        assert!(
+            resolution_error(&resolved, EntityKind::Task, "7c3e2b19", |item: &Item| item
+                .label
+                .clone())
+            .is_none()
+        );
     }
 
     // ----------------------------------------------------------------- termos
@@ -1073,7 +1243,9 @@ mod tests {
 
     #[test]
     fn terms_are_deduped_and_capped() {
-        let termos = search_terms("victor victor victor um dois tres quatro cinco seis sete oito nove dez onze");
+        let termos = search_terms(
+            "victor victor victor um dois tres quatro cinco seis sete oito nove dez onze",
+        );
         assert_eq!(termos.iter().filter(|termo| *termo == "victor").count(), 1);
         assert!(termos.len() <= MAX_TERMOS);
     }
@@ -1091,7 +1263,8 @@ mod tests {
 
     #[test]
     fn parses_a_query_with_kinds() {
-        let request = parse_query(r#"{"search":"victor bases","kinds":["task","projeto"]}"#).unwrap();
+        let request =
+            parse_query(r#"{"search":"victor bases","kinds":["task","projeto"]}"#).unwrap();
         assert_eq!(request.search, "victor bases");
         assert_eq!(request.kinds, vec![EntityKind::Task, EntityKind::Project]);
     }
@@ -1118,7 +1291,10 @@ mod tests {
             search: "victor".into(),
             kinds: Vec::new(),
         };
-        let resposta = query_answer(&request, &[candidato(EntityKind::Task, "7c3e2b19-x", "Enviar")]);
+        let resposta = query_answer(
+            &request,
+            &[candidato(EntityKind::Task, "7c3e2b19-x", "Enviar")],
+        );
         assert!(resposta.contains("não do usuário"));
         assert!(resposta.contains("task 7c3e2b19"));
         assert!(resposta.contains("Não peça outra busca"));
@@ -1324,17 +1500,30 @@ mod tests {
         let bloco = today_block(
             "2026-08-21",
             &[
-                ("Finalizar planta de formas".into(), "principal".into(), false),
+                (
+                    "Finalizar planta de formas".into(),
+                    "principal".into(),
+                    false,
+                ),
                 ("Revisar memorial".into(), "secundário".into(), true),
             ],
         );
         assert!(bloco.contains("2026-08-21"), "{bloco}");
-        assert!(bloco.contains("[ ] Finalizar planta de formas (principal)"), "{bloco}");
-        assert!(bloco.contains("[x] Revisar memorial (secundário)"), "{bloco}");
+        assert!(
+            bloco.contains("[ ] Finalizar planta de formas (principal)"),
+            "{bloco}"
+        );
+        assert!(
+            bloco.contains("[x] Revisar memorial (secundário)"),
+            "{bloco}"
+        );
         assert!(bloco.contains("1 de 2 concluídos"), "{bloco}");
         // A frase que impede a duplicata, do mesmo jeito que o bloco de
         // identidade impede "cria a task que ja existe".
-        assert!(bloco.contains("nunca crie Task para representar um"), "{bloco}");
+        assert!(
+            bloco.contains("nunca crie Task para representar um"),
+            "{bloco}"
+        );
     }
 
     #[test]
@@ -1352,15 +1541,24 @@ mod tests {
         });
         let dia = prompt.find("Os objetivos de hoje").expect("o bloco desce");
         let acoes = prompt.find("Ações disponíveis").expect("o catalogo desce");
-        assert!(dia < acoes, "o dia e contexto, e contexto vem antes do que da para fazer");
+        assert!(
+            dia < acoes,
+            "o dia e contexto, e contexto vem antes do que da para fazer"
+        );
     }
 
     /// O vocabulario de entidade atravessa a ponte e volta. Um tipo novo sem
     /// `parse` seria um candidato que o modelo cita e o M/OS nao reconhece.
     #[test]
     fn objetivo_do_dia_e_um_tipo_de_entidade_citavel() {
-        assert_eq!(EntityKind::parse("objetivo"), Some(EntityKind::DailyObjective));
-        assert_eq!(EntityKind::parse("daily_objective"), Some(EntityKind::DailyObjective));
+        assert_eq!(
+            EntityKind::parse("objetivo"),
+            Some(EntityKind::DailyObjective)
+        );
+        assert_eq!(
+            EntityKind::parse("daily_objective"),
+            Some(EntityKind::DailyObjective)
+        );
         assert_eq!(EntityKind::DailyObjective.as_str(), "objetivo");
     }
 }

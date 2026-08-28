@@ -37,8 +37,7 @@ pub trait DeviceRepository: Send + Sync {
     ///
     /// Idempotente de proposito: e chamado em toda abertura do app, e abrir o
     /// M/OS duas vezes nao pode criar dois dispositivos.
-    fn este_dispositivo(&self, nome: &str, plataforma: &str, versao: &str)
-        -> Resultado<Device>;
+    fn este_dispositivo(&self, nome: &str, plataforma: &str, versao: &str) -> Resultado<Device>;
 
     /// Todos os conhecidos, este primeiro.
     fn listar(&self) -> Resultado<Vec<Device>>;
@@ -70,8 +69,12 @@ pub trait OutboxRepository: Send + Sync {
 
 /// Onde os conflitos ficam guardados ate alguem olhar.
 pub trait ConflictRepository: Send + Sync {
-    fn registrar(&self, entity_kind: &str, entity_id: uuid::Uuid, conflitos: &[Conflito])
-        -> Resultado<()>;
+    fn registrar(
+        &self,
+        entity_kind: &str,
+        entity_id: uuid::Uuid,
+        conflitos: &[Conflito],
+    ) -> Resultado<()>;
     fn abertos(&self, limite: usize) -> Resultado<Vec<Conflito>>;
 }
 

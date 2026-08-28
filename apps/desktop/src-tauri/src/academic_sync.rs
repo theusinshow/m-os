@@ -126,7 +126,9 @@ struct Colheita {
 /// precisar ser uma janela do app em vez do navegador do sistema: o cookie e
 /// `HttpOnly`, e so o processo dono do WebView consegue le-lo.
 #[tauri::command]
-pub async fn univirtus_connect<R: Runtime>(app: AppHandle<R>) -> Result<UnivirtusStatus, CoreError> {
+pub async fn univirtus_connect<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<UnivirtusStatus, CoreError> {
     let url: tauri::Url = univirtus::LOGIN_URL
         .parse()
         .map_err(|_| falha("Endereco de login invalido."))?;

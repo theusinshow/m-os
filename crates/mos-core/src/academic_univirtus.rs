@@ -778,6 +778,9 @@ mod tests {
         assert!(is_session_expired(403));
         assert!(!is_session_expired(404));
         assert!(!is_session_expired(500));
-        assert_eq!(session_expired_error().code, ErrorCode::ProviderUnauthorized);
+        assert_eq!(
+            session_expired_error().code,
+            ErrorCode::ProviderUnauthorized
+        );
     }
 }

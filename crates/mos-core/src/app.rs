@@ -340,7 +340,12 @@ mod tests {
 
     /// Um `RegisteredApp` cru, do jeito que sai do banco. Os construtores
     /// validam entrada; aqui o que interessa e a leitura.
-    fn app_registrado(nome: &str, alvo: Option<&str>, origem: Option<&str>, escreve: bool) -> RegisteredApp {
+    fn app_registrado(
+        nome: &str,
+        alvo: Option<&str>,
+        origem: Option<&str>,
+        escreve: bool,
+    ) -> RegisteredApp {
         RegisteredApp {
             id: AppId::new(),
             name: nome.to_owned(),
@@ -361,12 +366,27 @@ mod tests {
 
     #[test]
     fn the_host_comes_out_of_every_url_shape_we_store() {
-        assert_eq!(host_of("https://m-finance-silk.vercel.app/"), Some("m-finance-silk.vercel.app"));
-        assert_eq!(host_of("https://m-finance-silk.vercel.app"), Some("m-finance-silk.vercel.app"));
-        assert_eq!(host_of("https://m-finance-silk.vercel.app/app/bills?m=8"), Some("m-finance-silk.vercel.app"));
+        assert_eq!(
+            host_of("https://m-finance-silk.vercel.app/"),
+            Some("m-finance-silk.vercel.app")
+        );
+        assert_eq!(
+            host_of("https://m-finance-silk.vercel.app"),
+            Some("m-finance-silk.vercel.app")
+        );
+        assert_eq!(
+            host_of("https://m-finance-silk.vercel.app/app/bills?m=8"),
+            Some("m-finance-silk.vercel.app")
+        );
         assert_eq!(host_of("http://localhost:3010/api"), Some("localhost"));
-        assert_eq!(host_of("https://user:senha@exemplo.com/x"), Some("exemplo.com"));
-        assert_eq!(host_of("m-finance-silk.vercel.app/x"), Some("m-finance-silk.vercel.app"));
+        assert_eq!(
+            host_of("https://user:senha@exemplo.com/x"),
+            Some("exemplo.com")
+        );
+        assert_eq!(
+            host_of("m-finance-silk.vercel.app/x"),
+            Some("m-finance-silk.vercel.app")
+        );
         assert_eq!(host_of(""), None);
         assert_eq!(host_of("https://"), None);
     }
@@ -375,7 +395,12 @@ mod tests {
     fn the_app_is_found_by_where_it_points() {
         let apps = vec![
             app_registrado("NexoDoc", Some("https://nexodoc.app"), None, true),
-            app_registrado("M-Finance", Some("https://m-finance-silk.vercel.app/"), None, true),
+            app_registrado(
+                "M-Finance",
+                Some("https://m-finance-silk.vercel.app/"),
+                None,
+                true,
+            ),
         ];
 
         let achado = app_targeting_host(&apps, "m-finance-silk.vercel.app").expect("achou o App");
@@ -387,19 +412,34 @@ mod tests {
     /// nenhum desses e problema nosso enquanto o alvo continuar o mesmo.
     #[test]
     fn the_name_does_not_matter_only_the_target() {
-        let apps = vec![app_registrado("Grana", Some("https://m-finance-silk.vercel.app/"), None, true)];
+        let apps = vec![app_registrado(
+            "Grana",
+            Some("https://m-finance-silk.vercel.app/"),
+            None,
+            true,
+        )];
         assert!(app_targeting_host(&apps, "m-finance-silk.vercel.app").is_some());
     }
 
     #[test]
     fn the_source_url_also_counts_when_there_is_no_launch_target() {
-        let apps = vec![app_registrado("M-Finance", None, Some("https://m-finance-silk.vercel.app"), true)];
+        let apps = vec![app_registrado(
+            "M-Finance",
+            None,
+            Some("https://m-finance-silk.vercel.app"),
+            true,
+        )];
         assert!(app_targeting_host(&apps, "m-finance-silk.vercel.app").is_some());
     }
 
     #[test]
     fn the_host_comparison_ignores_case() {
-        let apps = vec![app_registrado("M-Finance", Some("https://M-Finance-Silk.Vercel.App/"), None, true)];
+        let apps = vec![app_registrado(
+            "M-Finance",
+            Some("https://M-Finance-Silk.Vercel.App/"),
+            None,
+            true,
+        )];
         assert!(app_targeting_host(&apps, "m-finance-silk.vercel.app").is_some());
     }
 
@@ -408,15 +448,30 @@ mod tests {
     #[test]
     fn a_lookalike_host_is_not_a_match() {
         let apps = vec![
-            app_registrado("Falso", Some("https://m-finance-silk.vercel.app.evil.com/"), None, true),
-            app_registrado("Outro", Some("https://not-m-finance-silk.vercel.app/"), None, true),
+            app_registrado(
+                "Falso",
+                Some("https://m-finance-silk.vercel.app.evil.com/"),
+                None,
+                true,
+            ),
+            app_registrado(
+                "Outro",
+                Some("https://not-m-finance-silk.vercel.app/"),
+                None,
+                true,
+            ),
         ];
         assert!(app_targeting_host(&apps, "m-finance-silk.vercel.app").is_none());
     }
 
     #[test]
     fn no_registered_app_for_the_host_means_no_match() {
-        let apps = vec![app_registrado("NexoDoc", Some("https://nexodoc.app"), None, true)];
+        let apps = vec![app_registrado(
+            "NexoDoc",
+            Some("https://nexodoc.app"),
+            None,
+            true,
+        )];
         assert!(app_targeting_host(&apps, "m-finance-silk.vercel.app").is_none());
         assert!(app_targeting_host(&[], "m-finance-silk.vercel.app").is_none());
     }
@@ -425,7 +480,12 @@ mod tests {
     /// devolve o registro, e quem decide le o `can_write` dele.
     #[test]
     fn finding_the_app_is_not_the_same_as_granting_it() {
-        let apps = vec![app_registrado("M-Finance", Some("https://m-finance-silk.vercel.app/"), None, false)];
+        let apps = vec![app_registrado(
+            "M-Finance",
+            Some("https://m-finance-silk.vercel.app/"),
+            None,
+            false,
+        )];
         let achado = app_targeting_host(&apps, "m-finance-silk.vercel.app").expect("achou o App");
         assert!(!achado.can_write);
     }

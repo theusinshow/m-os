@@ -143,10 +143,7 @@ fn os_dois_canais_intercalam_preservando_a_origem() {
             MeetingChannel::Mic => "VOCE  ",
             MeetingChannel::System => "REMOTO",
         };
-        println!(
-            "  {:>7} ms  {quem}  {}",
-            segment.start_ms, segment.text
-        );
+        println!("  {:>7} ms  {quem}  {}", segment.start_ms, segment.text);
     }
 
     assert!(intercalados.len() >= 4);

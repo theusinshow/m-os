@@ -255,7 +255,10 @@ impl VoiceRepository for SqliteStorage {
             ));
         }
         connection
-            .execute("DELETE FROM voice_notes WHERE id = ?1", params![id.to_string()])
+            .execute(
+                "DELETE FROM voice_notes WHERE id = ?1",
+                params![id.to_string()],
+            )
             .map_err(map_sql_error)?;
         Ok(())
     }
@@ -264,9 +267,7 @@ impl VoiceRepository for SqliteStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mos_core::{
-        apply_voice, CaptureRepository, CaptureSource, VoiceTransition,
-    };
+    use mos_core::{apply_voice, CaptureRepository, CaptureSource, VoiceTransition};
 
     fn storage() -> (SqliteStorage, tempfile::TempDir) {
         let directory = tempfile::tempdir().unwrap();
@@ -300,8 +301,7 @@ mod tests {
         )
         .unwrap();
         let saved = storage.save_note(&recorded).unwrap();
-        let transcribing =
-            apply_voice(&saved, VoiceTransition::Transcribing, agora()).unwrap();
+        let transcribing = apply_voice(&saved, VoiceTransition::Transcribing, agora()).unwrap();
         storage.save_note(&transcribing).unwrap()
     }
 
@@ -451,9 +451,6 @@ mod tests {
         let (storage, _guard) = storage();
         let note = nota(&storage);
         storage.delete_note(note.id).unwrap();
-        assert_eq!(
-            storage.note(note.id).unwrap_err().code,
-            ErrorCode::NotFound
-        );
+        assert_eq!(storage.note(note.id).unwrap_err().code, ErrorCode::NotFound);
     }
 }

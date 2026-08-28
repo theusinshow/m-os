@@ -34,8 +34,15 @@ fn cenario(storage: &SqliteStorage) -> (mos_core::Subject, mos_core::Assignment,
         .unwrap();
     let materia = storage
         .create_subject(
-            NewSubject::create(semestre.id, "Estatica dos Corpos", "906216", "", "trigo", "")
-                .unwrap(),
+            NewSubject::create(
+                semestre.id,
+                "Estatica dos Corpos",
+                "906216",
+                "",
+                "trigo",
+                "",
+            )
+            .unwrap(),
         )
         .unwrap();
     let atividade = storage
@@ -92,7 +99,10 @@ fn ja_entreguei_marca_e_carimba_a_hora() {
         .set_assignment_decision(atividade.id, Decision::Done)
         .unwrap();
     assert_eq!(depois.decision, Decision::Done);
-    assert!(depois.decided_at.is_some(), "a hora da decisao vira historico");
+    assert!(
+        depois.decided_at.is_some(),
+        "a hora da decisao vira historico"
+    );
 }
 
 #[test]
@@ -271,11 +281,7 @@ fn ja_entreguei_sobrevive_ao_sync_que_ainda_diz_pendente() {
         AssignmentStatus::Pending,
         "o portal continua com a palavra dele"
     );
-    assert_eq!(
-        depois.decision,
-        Decision::Done,
-        "e eu continuo com a minha"
-    );
+    assert_eq!(depois.decision, Decision::Done, "e eu continuo com a minha");
 }
 
 /// O item descartado nao pode voltar a cobrar a cada rodada — e o §64 do

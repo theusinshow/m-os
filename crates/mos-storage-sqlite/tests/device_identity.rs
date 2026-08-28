@@ -5,8 +5,8 @@
 //! idempotencia da abertura e a sobrevivencia do id entre execucoes. Nada disso
 //! aparece num teste que troca o banco por um mapa em memoria.
 
-use mos_sync::{DeviceRepository, Platform};
 use mos_storage_sqlite::SqliteStorage;
+use mos_sync::{DeviceRepository, Platform};
 
 fn banco() -> (tempfile::TempDir, SqliteStorage) {
     let dir = tempfile::tempdir().unwrap();

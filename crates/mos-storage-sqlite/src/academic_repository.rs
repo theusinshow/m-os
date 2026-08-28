@@ -24,10 +24,10 @@
 //! campo nao serve para conjunto — e a mesma regra da §13 do `SYNC.md`.
 
 use mos_core::{
-    AcademicRepository, Decision, Plano, Assignment, AssignmentId, AssignmentStatus, CoreError, Day, ErrorCode, Exam,
-    ExamId, ExamStatus, LifecycleState, NewAssignment, NewExam, NewSemester, NewSubject, NewTask,
-    Pontuacao, Priority, Resource, ResourceId, Semester, SemesterId, StudySession, StudySessionId,
-    Subject, SubjectId, Task, TaskId, UpdateAssignment, UpdateExam,
+    AcademicRepository, Assignment, AssignmentId, AssignmentStatus, CoreError, Day, Decision,
+    ErrorCode, Exam, ExamId, ExamStatus, LifecycleState, NewAssignment, NewExam, NewSemester,
+    NewSubject, NewTask, Plano, Pontuacao, Priority, Resource, ResourceId, Semester, SemesterId,
+    StudySession, StudySessionId, Subject, SubjectId, Task, TaskId, UpdateAssignment, UpdateExam,
 };
 use rusqlite::{params, Connection, Row};
 use time::OffsetDateTime;
@@ -882,7 +882,10 @@ impl AcademicRepository for SqliteStorage {
         let id = exam.id;
         let now = format_time(exam.created_at)?;
         let at = format_time(exam.at)?;
-        let (score, max_score) = exam.pontuacao.map(Pontuacao::colunas).unwrap_or((None, None));
+        let (score, max_score) = exam
+            .pontuacao
+            .map(Pontuacao::colunas)
+            .unwrap_or((None, None));
         let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         transaction
@@ -1033,7 +1036,9 @@ impl AcademicRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
         let rows = statement
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
             .map_err(map_sql_error)?;
         let mut contagens = Vec::new();
         for row in rows {
@@ -1117,9 +1122,7 @@ impl AcademicRepository for SqliteStorage {
         // impedimento — ela pode corrigir os minutos depois.
         let abertas = query_studies(
             &transaction,
-            &format!(
-                "SELECT {STUDY_COLUMNS} FROM academic_study_sessions WHERE ended_at IS NULL"
-            ),
+            &format!("SELECT {STUDY_COLUMNS} FROM academic_study_sessions WHERE ended_at IS NULL"),
         )?;
         for aberta in abertas {
             let segundos = (agora - aberta.started_at).whole_seconds().max(0);

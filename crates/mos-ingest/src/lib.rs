@@ -286,7 +286,10 @@ mod tests {
     #[test]
     fn o_hash_avulso_bate_com_o_da_transferencia() {
         let (_directory, store) = store();
-        assert_eq!(hash_of(b"identico"), guardar(&store, b"identico", "txt").sha256);
+        assert_eq!(
+            hash_of(b"identico"),
+            guardar(&store, b"identico", "txt").sha256
+        );
     }
 
     #[test]
@@ -299,10 +302,7 @@ mod tests {
             "/etc/passwd",
             "outra-pasta/arquivo.pdf",
         ] {
-            assert!(
-                store.resolve(caminho).is_err(),
-                "deixou passar: {caminho}"
-            );
+            assert!(store.resolve(caminho).is_err(), "deixou passar: {caminho}");
         }
         assert!(store.resolve("drops/ab/cd/hash.pdf").is_ok());
     }

@@ -10,8 +10,8 @@ use mos_core::{
     AttentionRepository, Clock, LifecycleState, NewReminder, NewResource, ResourceKind,
     ResourceRepository, SystemClock,
 };
-use mos_sync::{DeviceRepository, OpBody, OutboxRepository};
 use mos_storage_sqlite::SqliteStorage;
+use mos_sync::{DeviceRepository, OpBody, OutboxRepository};
 use time::OffsetDateTime;
 
 fn com_sync() -> (tempfile::TempDir, SqliteStorage) {
@@ -106,7 +106,14 @@ fn criar_resource_emite_o_metadado() {
     let (_dir, storage) = com_sync();
     let recurso = storage
         .create_resource(
-            NewResource::create(ResourceKind::Site, "Allplan", "https://allplan.com", "", None).unwrap(),
+            NewResource::create(
+                ResourceKind::Site,
+                "Allplan",
+                "https://allplan.com",
+                "",
+                None,
+            )
+            .unwrap(),
         )
         .unwrap();
 
@@ -160,7 +167,9 @@ fn resource_derivado_de_capture_emite_as_duas_mudancas() {
 fn excluir_resource_de_vez_emite_delete() {
     let (_dir, storage) = com_sync();
     let recurso = storage
-        .create_resource(NewResource::create(ResourceKind::Site, "some", "https://x.com", "", None).unwrap())
+        .create_resource(
+            NewResource::create(ResourceKind::Site, "some", "https://x.com", "", None).unwrap(),
+        )
         .unwrap();
     storage
         .set_resource_lifecycle(recurso.id, LifecycleState::Archived)

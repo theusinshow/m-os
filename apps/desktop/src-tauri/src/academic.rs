@@ -11,8 +11,8 @@
 //! prova das 20h de sexta apareceria no sabado.
 
 use mos_core::{
-    AcademicDashboard, AcademicToday, Assignment, CoreError, Exam, Resource, Semester, StudySession,
-    Subject, Task,
+    AcademicDashboard, AcademicToday, Assignment, CoreError, Exam, Resource, Semester,
+    StudySession, Subject, Task,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
@@ -82,7 +82,8 @@ pub fn academic_update_semester<R: Runtime>(
     starts_on: String,
     ends_on: String,
 ) -> Result<Semester, CoreError> {
-    let semestre = servico(&app)?.update_semester(&id, &name, &institution, &starts_on, &ends_on)?;
+    let semestre =
+        servico(&app)?.update_semester(&id, &name, &institution, &starts_on, &ends_on)?;
     avisar(&app);
     Ok(semestre)
 }
@@ -244,10 +245,7 @@ pub fn academic_archive_assignment<R: Runtime>(
 
 /// Cria a Task do M/OS que executa esta atividade.
 #[tauri::command]
-pub fn academic_create_task<R: Runtime>(
-    app: AppHandle<R>,
-    id: String,
-) -> Result<Task, CoreError> {
+pub fn academic_create_task<R: Runtime>(app: AppHandle<R>, id: String) -> Result<Task, CoreError> {
     let task = servico(&app)?.create_task_for_assignment(&id)?;
     avisar(&app);
     Ok(task)
@@ -408,25 +406,31 @@ pub fn academic_discard_study<R: Runtime>(app: AppHandle<R>, id: String) -> Resu
 // ACADEMICO e o sync do Univirtus os escreve; estes sao a decisao de quem
 // estuda, e nenhum provedor externo os toca. Ver `mos_core::academic_decision`.
 
-fn repositorio<R: Runtime>(app: &AppHandle<R>) -> std::sync::Arc<mos_storage_sqlite::SqliteStorage> {
+fn repositorio<R: Runtime>(
+    app: &AppHandle<R>,
+) -> std::sync::Arc<mos_storage_sqlite::SqliteStorage> {
     app.state::<AppState>().storage.clone()
 }
 
-fn plano_de(planned_at: Option<String>, minutes: i64) -> Result<Option<mos_core::Plano>, CoreError> {
+fn plano_de(
+    planned_at: Option<String>,
+    minutes: i64,
+) -> Result<Option<mos_core::Plano>, CoreError> {
     let Some(bruto) = planned_at else {
         return Ok(None);
     };
     if bruto.trim().is_empty() {
         return Ok(None);
     }
-    let quando = time::OffsetDateTime::parse(&bruto, &time::format_description::well_known::Rfc3339)
-        .map_err(|_| {
-            CoreError::new(
-                mos_core::ErrorCode::InvalidInput,
-                "Data do plano invalida.",
-                false,
-            )
-        })?;
+    let quando =
+        time::OffsetDateTime::parse(&bruto, &time::format_description::well_known::Rfc3339)
+            .map_err(|_| {
+                CoreError::new(
+                    mos_core::ErrorCode::InvalidInput,
+                    "Data do plano invalida.",
+                    false,
+                )
+            })?;
     Ok(Some(mos_core::Plano::novo(quando, minutes)?))
 }
 

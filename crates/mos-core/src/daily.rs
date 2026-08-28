@@ -54,7 +54,11 @@ macro_rules! daily_id {
 
             pub fn parse(value: &str) -> Result<Self, CoreError> {
                 Uuid::parse_str(value).map(Self).map_err(|_| {
-                    CoreError::new(ErrorCode::InvalidInput, concat!($label, " invalido."), false)
+                    CoreError::new(
+                        ErrorCode::InvalidInput,
+                        concat!($label, " invalido."),
+                        false,
+                    )
                 })
             }
 
@@ -642,7 +646,12 @@ fn clamp(value: &str, limit: usize) -> String {
     if value.chars().count() <= limit {
         return value.to_owned();
     }
-    value.chars().take(limit).collect::<String>().trim().to_owned()
+    value
+        .chars()
+        .take(limit)
+        .collect::<String>()
+        .trim()
+        .to_owned()
 }
 
 // ------------------------------------------------------- o dia, resolvido
@@ -928,7 +937,10 @@ pub fn compose_context(input: ContextInput<'_>) -> DailyContext {
         if reminder.status.is_terminal() {
             continue;
         }
-        if matches!(reminder.priority, crate::Priority::High | crate::Priority::Urgent) {
+        if matches!(
+            reminder.priority,
+            crate::Priority::High | crate::Priority::Urgent
+        ) {
             context.high_priority += 1;
         }
         let Some(due) = reminder.next_due_at else {
@@ -994,7 +1006,13 @@ pub fn compose_context(input: ContextInput<'_>) -> DailyContext {
     // resposta a "o que eu estava fazendo": uma Task em andamento e sempre mais
     // candidata a objetivo do dia que uma do backlog editada na mesma hora.
     open.sort_by(|left, right| {
-        let rank = |task: &crate::Task| if task.state == crate::TaskState::Doing { 0 } else { 1 };
+        let rank = |task: &crate::Task| {
+            if task.state == crate::TaskState::Doing {
+                0
+            } else {
+                1
+            }
+        };
         rank(left)
             .cmp(&rank(right))
             .then_with(|| right.updated_at.cmp(&left.updated_at))
@@ -1049,11 +1067,7 @@ pub fn compose_context(input: ContextInput<'_>) -> DailyContext {
     // ontem para fora da primeira tela. Atraso vem antes de prazo de hoje, que
     // vem antes de estudo — a mesma ordem de urgencia do painel.
     if let Some(academico) = input.academic {
-        for item in academico
-            .overdue
-            .iter()
-            .chain(academico.due_today.iter())
-        {
+        for item in academico.overdue.iter().chain(academico.due_today.iter()) {
             context.academic.push(AcademicObjectiveSuggestion {
                 title: format!("Entregar {}", item.title),
                 detail: format!(
@@ -1251,7 +1265,10 @@ mod tests {
 
     fn task_link() -> (TaskId, ObjectiveLink) {
         let id = TaskId::parse("018f0000-0000-7000-8000-000000000001").unwrap();
-        (id, ObjectiveLink::new(LinkKind::Task, &id.to_string()).unwrap())
+        (
+            id,
+            ObjectiveLink::new(LinkKind::Task, &id.to_string()).unwrap(),
+        )
     }
 
     // ------------------------------------------------------------------ Day
@@ -1262,12 +1279,18 @@ mod tests {
         // decidido em UTC, o trabalho da madrugada cairia no dia seguinte.
         let noite = datetime!(2026-08-21 23:30 -03:00);
         assert_eq!(Day::from_local(noite).as_str(), "2026-08-21");
-        assert_eq!(Day::from_local(noite.to_offset(time::UtcOffset::UTC)).as_str(), "2026-08-22");
+        assert_eq!(
+            Day::from_local(noite.to_offset(time::UtcOffset::UTC)).as_str(),
+            "2026-08-22"
+        );
     }
 
     #[test]
     fn dia_invalido_e_recusado_em_vez_de_normalizado() {
-        assert!(Day::parse("2026-8-21").is_err(), "sem zero a esquerda cria uma segunda chave para o mesmo dia");
+        assert!(
+            Day::parse("2026-8-21").is_err(),
+            "sem zero a esquerda cria uma segunda chave para o mesmo dia"
+        );
         assert!(Day::parse("21/08/2026").is_err());
         assert!(Day::parse("").is_err());
         assert!(Day::parse("2026-02-30").is_err());
@@ -1276,10 +1299,19 @@ mod tests {
 
     #[test]
     fn o_dia_anterior_atravessa_mes_e_ano() {
-        assert_eq!(Day::parse("2026-03-01").unwrap().previous().as_str(), "2026-02-28");
-        assert_eq!(Day::parse("2026-01-01").unwrap().previous().as_str(), "2025-12-31");
+        assert_eq!(
+            Day::parse("2026-03-01").unwrap().previous().as_str(),
+            "2026-02-28"
+        );
+        assert_eq!(
+            Day::parse("2026-01-01").unwrap().previous().as_str(),
+            "2025-12-31"
+        );
         // 2028 e bissexto: a conta nao pode ser "menos um dia no numero".
-        assert_eq!(Day::parse("2028-03-01").unwrap().previous().as_str(), "2028-02-29");
+        assert_eq!(
+            Day::parse("2028-03-01").unwrap().previous().as_str(),
+            "2028-02-29"
+        );
     }
 
     // ----------------------------------------------------------- vocabulario
@@ -1289,19 +1321,39 @@ mod tests {
     /// nenhum dos dois lados. Mesmo teste que o `calendar.rs` tem.
     #[test]
     fn os_estados_atravessam_a_ponte_com_o_nome_de_disco() {
-        for status in [ObjectiveStatus::Pending, ObjectiveStatus::Completed, ObjectiveStatus::CarriedOver, ObjectiveStatus::Dropped] {
+        for status in [
+            ObjectiveStatus::Pending,
+            ObjectiveStatus::Completed,
+            ObjectiveStatus::CarriedOver,
+            ObjectiveStatus::Dropped,
+        ] {
             let json = serde_json::to_string(&status).unwrap();
             assert_eq!(json, format!("\"{}\"", status.as_str()));
             assert_eq!(ObjectiveStatus::parse(status.as_str()).unwrap(), status);
         }
         for priority in [ObjectivePriority::Main, ObjectivePriority::Secondary] {
-            assert_eq!(serde_json::to_string(&priority).unwrap(), format!("\"{}\"", priority.as_str()));
+            assert_eq!(
+                serde_json::to_string(&priority).unwrap(),
+                format!("\"{}\"", priority.as_str())
+            );
         }
         for mood in [DayMood::Productive, DayMood::Normal, DayMood::Blocked] {
-            assert_eq!(serde_json::to_string(&mood).unwrap(), format!("\"{}\"", mood.as_str()));
+            assert_eq!(
+                serde_json::to_string(&mood).unwrap(),
+                format!("\"{}\"", mood.as_str())
+            );
         }
-        for kind in [LinkKind::Task, LinkKind::Project, LinkKind::Capture, LinkKind::Resource, LinkKind::Meeting] {
-            assert_eq!(serde_json::to_string(&kind).unwrap(), format!("\"{}\"", kind.as_str()));
+        for kind in [
+            LinkKind::Task,
+            LinkKind::Project,
+            LinkKind::Capture,
+            LinkKind::Resource,
+            LinkKind::Meeting,
+        ] {
+            assert_eq!(
+                serde_json::to_string(&kind).unwrap(),
+                format!("\"{}\"", kind.as_str())
+            );
         }
     }
 
@@ -1310,8 +1362,14 @@ mod tests {
         // Ele existe para a interface nomear a ausencia. Uma LINHA gravada
         // dizendo "nao comecou" seria um estado que se contradiz.
         assert!(SessionStatus::parse("not_started").is_err());
-        assert_eq!(SessionStatus::parse("active").unwrap(), SessionStatus::Active);
-        assert_eq!(SessionStatus::parse("completed").unwrap(), SessionStatus::Completed);
+        assert_eq!(
+            SessionStatus::parse("active").unwrap(),
+            SessionStatus::Active
+        );
+        assert_eq!(
+            SessionStatus::parse("completed").unwrap(),
+            SessionStatus::Completed
+        );
         assert_eq!(SessionStatus::default(), SessionStatus::NotStarted);
     }
 
@@ -1322,16 +1380,30 @@ mod tests {
         let (_, link) = task_link();
         assert_eq!(link.kind, LinkKind::Task);
         assert!(ObjectiveLink::new(LinkKind::Task, "nao-e-uuid").is_err());
-        assert!(ObjectiveLink::from_columns("app", "018f0000-0000-7000-8000-000000000001").is_err(), "App nao e objetivo de dia");
+        assert!(
+            ObjectiveLink::from_columns("app", "018f0000-0000-7000-8000-000000000001").is_err(),
+            "App nao e objetivo de dia"
+        );
     }
 
     #[test]
     fn meio_vinculo_e_recusado() {
-        let draft = ObjectiveDraft { title: "x".into(), link_kind: "task".into(), ..Default::default() };
+        let draft = ObjectiveDraft {
+            title: "x".into(),
+            link_kind: "task".into(),
+            ..Default::default()
+        };
         assert!(draft.link().is_err());
-        let draft = ObjectiveDraft { title: "x".into(), link_id: "018f0000-0000-7000-8000-000000000001".into(), ..Default::default() };
+        let draft = ObjectiveDraft {
+            title: "x".into(),
+            link_id: "018f0000-0000-7000-8000-000000000001".into(),
+            ..Default::default()
+        };
         assert!(draft.link().is_err());
-        let livre = ObjectiveDraft { title: "x".into(), ..Default::default() };
+        let livre = ObjectiveDraft {
+            title: "x".into(),
+            ..Default::default()
+        };
         assert!(livre.link().unwrap().is_none());
     }
 
@@ -1340,15 +1412,37 @@ mod tests {
     #[test]
     fn objetivo_sem_titulo_e_recusado() {
         let id = DailySessionId::new();
-        assert!(NewDailyObjective::create(id, "   ", "", None, ObjectivePriority::Main, 0, datetime!(2026-08-21 09:00 UTC)).is_err());
+        assert!(NewDailyObjective::create(
+            id,
+            "   ",
+            "",
+            None,
+            ObjectivePriority::Main,
+            0,
+            datetime!(2026-08-21 09:00 UTC)
+        )
+        .is_err());
     }
 
     #[test]
     fn titulo_longo_e_cortado_e_nao_recusado() {
         let id = DailySessionId::new();
         let longo = "a".repeat(500);
-        let objetivo = NewDailyObjective::create(id, &longo, "", None, ObjectivePriority::Main, 0, datetime!(2026-08-21 09:00 UTC)).unwrap();
-        assert_eq!(objetivo.title.chars().count(), MAX_TITLE, "cortar mantem o gesto; recusar perderia o que a pessoa escreveu");
+        let objetivo = NewDailyObjective::create(
+            id,
+            &longo,
+            "",
+            None,
+            ObjectivePriority::Main,
+            0,
+            datetime!(2026-08-21 09:00 UTC),
+        )
+        .unwrap();
+        assert_eq!(
+            objetivo.title.chars().count(),
+            MAX_TITLE,
+            "cortar mantem o gesto; recusar perderia o que a pessoa escreveu"
+        );
     }
 
     // ------------------------------------------------------------- progresso
@@ -1361,15 +1455,37 @@ mod tests {
             status: SessionStatus::Active,
             session: Some(session("2026-08-21", SessionStatus::Active)),
             objectives: vec![
-                objective(id, "planta", ObjectivePriority::Main, ObjectiveStatus::Completed, None),
-                objective(id, "memorial", ObjectivePriority::Secondary, ObjectiveStatus::Pending, None),
-                objective(id, "desisti", ObjectivePriority::Secondary, ObjectiveStatus::Dropped, None),
+                objective(
+                    id,
+                    "planta",
+                    ObjectivePriority::Main,
+                    ObjectiveStatus::Completed,
+                    None,
+                ),
+                objective(
+                    id,
+                    "memorial",
+                    ObjectivePriority::Secondary,
+                    ObjectiveStatus::Pending,
+                    None,
+                ),
+                objective(
+                    id,
+                    "desisti",
+                    ObjectivePriority::Secondary,
+                    ObjectiveStatus::Dropped,
+                    None,
+                ),
             ],
             reflection: None,
             stale: None,
             stale_objectives: Vec::new(),
         };
-        assert_eq!(hoje.progress(), (1, 2), "o abandonado sai dos dois lados da fracao");
+        assert_eq!(
+            hoje.progress(),
+            (1, 2),
+            "o abandonado sai dos dois lados da fracao"
+        );
         assert_eq!(hoje.main().unwrap().title, "planta");
         assert_eq!(hoje.unresolved().len(), 1);
         assert!(hoje.is_open());
@@ -1380,9 +1496,27 @@ mod tests {
         let sessao = session("2026-08-20", SessionStatus::Completed);
         let id = sessao.id;
         let objetivos = vec![
-            objective(id, "planta", ObjectivePriority::Main, ObjectiveStatus::Completed, None),
-            objective(id, "memorial", ObjectivePriority::Secondary, ObjectiveStatus::CarriedOver, None),
-            objective(id, "largado", ObjectivePriority::Secondary, ObjectiveStatus::Dropped, None),
+            objective(
+                id,
+                "planta",
+                ObjectivePriority::Main,
+                ObjectiveStatus::Completed,
+                None,
+            ),
+            objective(
+                id,
+                "memorial",
+                ObjectivePriority::Secondary,
+                ObjectiveStatus::CarriedOver,
+                None,
+            ),
+            objective(
+                id,
+                "largado",
+                ObjectivePriority::Secondary,
+                ObjectiveStatus::Dropped,
+                None,
+            ),
         ];
         let resumo = summarize(sessao, &objetivos, Some(DayMood::Normal));
         assert_eq!((resumo.done, resumo.total), (1, 2));
@@ -1398,13 +1532,37 @@ mod tests {
         let outra = TaskId::parse("018f0000-0000-7000-8000-000000000009").unwrap();
         let project = ProjectId::parse("018f0000-0000-7000-8000-000000000002").unwrap();
 
-        let da_task = objective(sessao, "enviar", ObjectivePriority::Main, ObjectiveStatus::Pending, Some(link));
-        let do_project = objective(sessao, "avancar 063-26", ObjectivePriority::Secondary, ObjectiveStatus::Pending, Some(ObjectiveLink::new(LinkKind::Project, &project.to_string()).unwrap()));
-        let livre = objective(sessao, "pensar", ObjectivePriority::Secondary, ObjectiveStatus::Pending, None);
+        let da_task = objective(
+            sessao,
+            "enviar",
+            ObjectivePriority::Main,
+            ObjectiveStatus::Pending,
+            Some(link),
+        );
+        let do_project = objective(
+            sessao,
+            "avancar 063-26",
+            ObjectivePriority::Secondary,
+            ObjectiveStatus::Pending,
+            Some(ObjectiveLink::new(LinkKind::Project, &project.to_string()).unwrap()),
+        );
+        let livre = objective(
+            sessao,
+            "pensar",
+            ObjectivePriority::Secondary,
+            ObjectiveStatus::Pending,
+            None,
+        );
 
         assert!(completes_with_task(&da_task, task));
-        assert!(!completes_with_task(&da_task, outra), "outra Task nao fecha este objetivo");
-        assert!(!completes_with_task(&do_project, task), "um objetivo de Project e maior que uma Task dele");
+        assert!(
+            !completes_with_task(&da_task, outra),
+            "outra Task nao fecha este objetivo"
+        );
+        assert!(
+            !completes_with_task(&do_project, task),
+            "um objetivo de Project e maior que uma Task dele"
+        );
         assert!(!completes_with_task(&livre, task));
     }
 
@@ -1422,7 +1580,10 @@ mod tests {
     #[test]
     fn o_fim_do_dia_le_destinos_e_humor() {
         let entrada = EndDayInput {
-            resolutions: vec![ObjectiveResolution { objective_id: "018f0000-0000-7000-8000-000000000003".into(), status: "carried_over".into() }],
+            resolutions: vec![ObjectiveResolution {
+                objective_id: "018f0000-0000-7000-8000-000000000003".into(),
+                status: "carried_over".into(),
+            }],
             mood: "blocked".into(),
             summary: "o 063-26 tomou mais tempo".into(),
         };
@@ -1436,7 +1597,10 @@ mod tests {
     #[test]
     fn destino_desconhecido_e_recusado() {
         let entrada = EndDayInput {
-            resolutions: vec![ObjectiveResolution { objective_id: "018f0000-0000-7000-8000-000000000003".into(), status: "talvez".into() }],
+            resolutions: vec![ObjectiveResolution {
+                objective_id: "018f0000-0000-7000-8000-000000000003".into(),
+                status: "talvez".into(),
+            }],
             ..Default::default()
         };
         assert!(entrada.parsed_resolutions().is_err());
@@ -1444,7 +1608,12 @@ mod tests {
 
     // ---------------------------------------------------------------- contexto
 
-    fn task(title: &str, state: crate::TaskState, project: Option<ProjectId>, updated: OffsetDateTime) -> crate::Task {
+    fn task(
+        title: &str,
+        state: crate::TaskState,
+        project: Option<ProjectId>,
+        updated: OffsetDateTime,
+    ) -> crate::Task {
         crate::Task {
             id: TaskId::new(),
             title: title.to_owned(),
@@ -1468,7 +1637,12 @@ mod tests {
         let agora = datetime!(2026-08-21 09:00 -03:00);
         let tasks = [
             task("backlog recente", crate::TaskState::Backlog, None, agora),
-            task("em andamento antiga", crate::TaskState::Doing, None, agora - Duration::days(9)),
+            task(
+                "em andamento antiga",
+                crate::TaskState::Doing,
+                None,
+                agora - Duration::days(9),
+            ),
             task("concluida", crate::TaskState::Done, None, agora),
         ];
         let profundidade = sem_profundidade();
@@ -1500,7 +1674,10 @@ mod tests {
             trigger: crate::Trigger::At { instant: quando },
             priority: prioridade,
             status: crate::ReminderStatus::Scheduled,
-            policy: crate::DeliveryPolicy { snooze_allowed: true, privacy: crate::ContentPrivacy::ShowContent },
+            policy: crate::DeliveryPolicy {
+                snooze_allowed: true,
+                privacy: crate::ContentPrivacy::ShowContent,
+            },
             source: crate::ReminderSource::User,
             next_due_at: Some(quando),
             snooze_count: 0,
@@ -1539,10 +1716,34 @@ mod tests {
         let ontem = session("2026-08-20", SessionStatus::Completed);
         let id = ontem.id;
         let objetivos = vec![
-            objective(id, "pendente", ObjectivePriority::Main, ObjectiveStatus::Pending, None),
-            objective(id, "ja carregado", ObjectivePriority::Secondary, ObjectiveStatus::CarriedOver, None),
-            objective(id, "feito", ObjectivePriority::Secondary, ObjectiveStatus::Completed, None),
-            objective(id, "largado", ObjectivePriority::Secondary, ObjectiveStatus::Dropped, None),
+            objective(
+                id,
+                "pendente",
+                ObjectivePriority::Main,
+                ObjectiveStatus::Pending,
+                None,
+            ),
+            objective(
+                id,
+                "ja carregado",
+                ObjectivePriority::Secondary,
+                ObjectiveStatus::CarriedOver,
+                None,
+            ),
+            objective(
+                id,
+                "feito",
+                ObjectivePriority::Secondary,
+                ObjectiveStatus::Completed,
+                None,
+            ),
+            objective(
+                id,
+                "largado",
+                ObjectivePriority::Secondary,
+                ObjectiveStatus::Dropped,
+                None,
+            ),
         ];
         let profundidade = |_: DailyObjectiveId| 2usize;
         let contexto = compose_context(ContextInput {
@@ -1557,7 +1758,11 @@ mod tests {
             carry_depth: &profundidade,
         });
         assert_eq!(contexto.carry_over_day, "2026-08-20");
-        let titulos: Vec<_> = contexto.carry_over.iter().map(|item| item.title.as_str()).collect();
+        let titulos: Vec<_> = contexto
+            .carry_over
+            .iter()
+            .map(|item| item.title.as_str())
+            .collect();
         assert_eq!(titulos, ["pendente", "ja carregado"]);
         assert_eq!(contexto.carry_over[0].times_carried, 2);
     }

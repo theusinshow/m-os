@@ -59,15 +59,34 @@ fn rotulo_do_vinculo<R: Runtime>(app: &AppHandle<R>, link: &ObjectiveLink) -> Op
     let state = app.state::<AppState>();
     match link.kind {
         LinkKind::Task => state.work.task(&link.id).ok().map(|task| task.title),
-        LinkKind::Project => state.work.project(&link.id).ok().map(|project| project.name),
-        LinkKind::Capture => state.captures.get(&link.id).ok().map(|capture| capture.content),
-        LinkKind::Resource => state.memory.resource(&link.id).ok().map(|resource| resource.title),
-        LinkKind::Meeting => state.meetings.meeting(&link.id).ok().map(|meeting| meeting.title),
+        LinkKind::Project => state
+            .work
+            .project(&link.id)
+            .ok()
+            .map(|project| project.name),
+        LinkKind::Capture => state
+            .captures
+            .get(&link.id)
+            .ok()
+            .map(|capture| capture.content),
+        LinkKind::Resource => state
+            .memory
+            .resource(&link.id)
+            .ok()
+            .map(|resource| resource.title),
+        LinkKind::Meeting => state
+            .meetings
+            .meeting(&link.id)
+            .ok()
+            .map(|meeting| meeting.title),
     }
 }
 
 /// Completa o titulo de um rascunho a partir do vinculo, quando ele veio vazio.
-fn completar<R: Runtime>(app: &AppHandle<R>, draft: &ObjectiveDraft) -> Result<ObjectiveDraft, CoreError> {
+fn completar<R: Runtime>(
+    app: &AppHandle<R>,
+    draft: &ObjectiveDraft,
+) -> Result<ObjectiveDraft, CoreError> {
     if !draft.title.trim().is_empty() {
         return Ok(draft.clone());
     }
@@ -105,7 +124,11 @@ pub fn daily_today<R: Runtime>(app: AppHandle<R>) -> Result<DailyToday, CoreErro
 /// a Home nao pode ficar lenta por causa desta tela.
 pub fn contexto<R: Runtime>(app: &AppHandle<R>) -> Result<DailyContext, CoreError> {
     let state = app.try_state::<AppState>().ok_or_else(|| {
-        CoreError::new(ErrorCode::StorageUnavailable, "O M/OS ainda esta abrindo.", true)
+        CoreError::new(
+            ErrorCode::StorageUnavailable,
+            "O M/OS ainda esta abrindo.",
+            true,
+        )
     })?;
     let day = hoje(app);
 
@@ -149,17 +172,12 @@ pub fn daily_context<R: Runtime>(app: AppHandle<R>) -> Result<DailyContext, Core
 }
 
 #[tauri::command]
-pub fn daily_history<R: Runtime>(
-    app: AppHandle<R>,
-) -> Result<Vec<DailySessionSummary>, CoreError> {
+pub fn daily_history<R: Runtime>(app: AppHandle<R>) -> Result<Vec<DailySessionSummary>, CoreError> {
     crate::services(&app)?.daily.history(HISTORY_PAGE)
 }
 
 #[tauri::command]
-pub fn daily_session<R: Runtime>(
-    app: AppHandle<R>,
-    id: String,
-) -> Result<DailyToday, CoreError> {
+pub fn daily_session<R: Runtime>(app: AppHandle<R>, id: String) -> Result<DailyToday, CoreError> {
     crate::services(&app)?
         .daily
         .detail(DailySessionId::parse(&id)?)
@@ -235,10 +253,10 @@ pub fn daily_add_objective<R: Runtime>(
 ) -> Result<DailyToday, CoreError> {
     let priority = ObjectivePriority::parse(&priority)?;
     let draft = completar(&app, &draft)?;
-    let hoje_resolvido = app
-        .state::<AppState>()
-        .daily
-        .add_objective(&hoje(&app), &draft, priority)?;
+    let hoje_resolvido =
+        app.state::<AppState>()
+            .daily
+            .add_objective(&hoje(&app), &draft, priority)?;
     if let Ok(origem) = DailyObjectiveId::parse(&draft.carried_from) {
         let _ = app
             .state::<AppState>()
@@ -271,18 +289,16 @@ pub fn daily_set_objective_status<R: Runtime>(
     id: String,
     status: String,
 ) -> Result<DailyToday, CoreError> {
-    app.state::<AppState>()
-        .daily
-        .set_objective_status(DailyObjectiveId::parse(&id)?, ObjectiveStatus::parse(&status)?)?;
+    app.state::<AppState>().daily.set_objective_status(
+        DailyObjectiveId::parse(&id)?,
+        ObjectiveStatus::parse(&status)?,
+    )?;
     avisar(&app);
     daily_today(app)
 }
 
 #[tauri::command]
-pub fn daily_set_main<R: Runtime>(
-    app: AppHandle<R>,
-    id: String,
-) -> Result<DailyToday, CoreError> {
+pub fn daily_set_main<R: Runtime>(app: AppHandle<R>, id: String) -> Result<DailyToday, CoreError> {
     app.state::<AppState>()
         .daily
         .set_main(DailyObjectiveId::parse(&id)?)?;
@@ -488,7 +504,11 @@ pub fn weekly_week<R: Runtime>(
     app: AppHandle<R>,
     week: Option<String>,
 ) -> Result<mos_core::WeekSummary, CoreError> {
-    let alvo = match week.as_deref().map(str::trim).filter(|valor| !valor.is_empty()) {
+    let alvo = match week
+        .as_deref()
+        .map(str::trim)
+        .filter(|valor| !valor.is_empty())
+    {
         Some(valor) => mos_core::Week::parse(valor)?,
         None => mos_core::Week::containing(&hoje(&app))?,
     };
