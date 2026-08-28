@@ -106,6 +106,19 @@ impl AppState {
     /// reaproveita-la sem arrastar o Tauri junto.
     ///
     /// Sao clones baratos: cada servico guarda `Arc`, e nada e duplicado.
+    ///
+    /// # Por que ele ainda nao tem chamador
+    ///
+    /// Porque a metade que falta nao foi feita: o `run_action` do Hermes ainda
+    /// depende de `app.emit`, de `attention::poke` e do `daily.rs`, que sao do
+    /// desktop. Este metodo e a parte do desacoplamento que JA foi medida e
+    /// resolvida — era o maior dos acoplamentos, e o unico espalhado por todo o
+    /// `jarvis.rs`. O caminho que falta esta escrito no `apps/mos-web/README.md`.
+    ///
+    /// Apagar por estar sem uso desfaria trabalho concluido para refaze-lo
+    /// depois; o `allow` diz que a ausencia de chamador e esperada, e nao um
+    /// esquecimento.
+    #[allow(dead_code)]
     pub(crate) fn servicos(&self) -> mos_core::Servicos {
         mos_core::Servicos {
             captures: self.captures.clone(),

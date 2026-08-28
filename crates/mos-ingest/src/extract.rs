@@ -280,7 +280,7 @@ mod tests {
         let conteudo = format!("BT /F1 24 Tf 72 700 Td ({texto}) Tj ET");
         let mut pdf = String::from("%PDF-1.4\n");
         let mut offsets = Vec::new();
-        let mut push = |pdf: &mut String, offsets: &mut Vec<usize>, objeto: &str| {
+        let push = |pdf: &mut String, offsets: &mut Vec<usize>, objeto: &str| {
             offsets.push(pdf.len());
             pdf.push_str(objeto);
         };

@@ -1029,7 +1029,10 @@ pub fn compose_context(input: ContextInput<'_>) -> DailyContext {
         .collect();
 
     let mut projects_ranked = active_projects.clone();
-    projects_ranked.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    // Do mexido mais recentemente para o mais antigo. `Reverse` em vez de
+    // inverter os lados na comparacao: o mesmo resultado, e sem a chance de
+    // alguem ler `right.cmp(left)` como engano de digitacao e "consertar".
+    projects_ranked.sort_by_key(|project| std::cmp::Reverse(project.updated_at));
     context.suggested_projects = projects_ranked
         .iter()
         .take(MAX_SUGGESTIONS)

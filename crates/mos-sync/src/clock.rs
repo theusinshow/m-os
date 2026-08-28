@@ -122,8 +122,10 @@ impl HlcClock {
             self.ultimo
         };
         self.ultimo = base;
-        let emitido = self.tick(agora_ms.max(base.wall_ms));
-        emitido
+        // `max` e o ponto: o tick sai depois do relogio de parede E depois do
+        // que veio de fora, e e isso que impede um aparelho atrasado de emitir
+        // algo que se ordena antes do que ele acabou de receber.
+        self.tick(agora_ms.max(base.wall_ms))
     }
 
     pub fn device(&self) -> DeviceId {

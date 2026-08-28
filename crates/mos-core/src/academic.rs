@@ -1394,6 +1394,14 @@ pub struct NewAssignment {
 }
 
 impl NewAssignment {
+    /// Oito argumentos, e o `allow` e uma decisao e nao uma fuga.
+    ///
+    /// O que o lint pede — juntar os parametros numa struct — produziria uma
+    /// struct identica a `NewAssignment`, que e justamente o que esta funcao
+    /// devolve. O construtor passaria a receber o que constroi, e a validacao
+    /// que ele faz (peso nao negativo, pontuacao coerente) ficaria depois de o
+    /// valor ja existir montado — que e o contrario da razao de ele existir.
+    #[allow(clippy::too_many_arguments)]
     pub fn create(
         subject_id: SubjectId,
         title: &str,

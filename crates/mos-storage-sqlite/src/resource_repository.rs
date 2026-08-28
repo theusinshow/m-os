@@ -544,6 +544,116 @@ fn ensure_resource_changed(changed: usize) -> Result<(), CoreError> {
     }
 }
 
+/// Insere o Resource e sua projecao de busca DENTRO de uma transacao ja aberta.
+///
+/// Existe separado do comando porque o pipeline de ingestao precisa criar o
+/// Resource junto das relacoes e do fechamento da ingestao — tudo num commit so.
+/// A regra de proveniencia (a Capture precisa estar ativa, e uma Capture deriva
+/// no maximo um Resource) mora aqui, e nao no comando, para que os dois caminhos
+/// nao possam divergir.
+/// Insere o Resource e emite a operacao, na MESMA transacao.
+///
+/// Emitir aqui dentro, e nao no chamador, e o que garante que um caminho novo
+/// de criacao nao nasca sem rastro: quem esquecer de emitir tera esquecido
+/// tambem de inserir.
+pub(crate) fn insert_resource(
+    storage: &SqliteStorage,
+    transaction: &Transaction<'_>,
+    resource: NewResource,
+) -> Result<ResourceId, CoreError> {
+    if let Some(capture_id) = resource.source_capture_id {
+        let lifecycle = transaction
+            .query_row(
+                "SELECT lifecycle_state FROM captures WHERE id = ?1",
+                [capture_id.to_string()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(map_sql_error)?
+            .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "Capture nao encontrada.", false))?;
+        if lifecycle != "active" {
+            return Err(CoreError::new(
+                ErrorCode::InvalidTransition,
+                "Somente uma Capture ativa pode originar Resource.",
+                false,
+            ));
+        }
+        let already_derived: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM resources WHERE source_capture_id = ?1)",
+                [capture_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(map_sql_error)?;
+        if already_derived {
+            return Err(CoreError::new(
+                ErrorCode::InvalidTransition,
+                "Esta Capture ja originou um Resource.",
+                false,
+            ));
+        }
+    }
+
+    let now = format_time(resource.created_at)?;
+    let id = resource.id;
+    transaction
+        .execute(
+            "INSERT INTO resources (
+                id, kind, title, url, note, source_capture_id,
+                lifecycle_state, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?7)",
+            params![
+                resource.id.to_string(),
+                resource.kind.as_str(),
+                resource.title,
+                resource.url,
+                resource.note,
+                resource.source_capture_id.map(|value| value.to_string()),
+                now,
+            ],
+        )
+        .map_err(map_sql_error)?;
+    insert_resource_search(transaction, transaction.last_insert_rowid())?;
+    storage.emitir(
+        transaction,
+        mos_sync::EntityRef::new("resource", id.as_uuid()),
+        mos_sync::OpBody::Create {
+            fields: [
+                ("kind".to_owned(), serde_json::json!(resource.kind.as_str())),
+                ("title".to_owned(), serde_json::json!(resource.title)),
+                ("url".to_owned(), serde_json::json!(resource.url)),
+                ("note".to_owned(), serde_json::json!(resource.note)),
+                (
+                    "sourceCaptureId".to_owned(),
+                    serde_json::json!(resource.source_capture_id.map(|value| value.to_string())),
+                ),
+                ("createdAt".to_owned(), serde_json::json!(now)),
+            ]
+            .into_iter()
+            .collect(),
+        },
+    )?;
+    if let Some(capture_id) = resource.source_capture_id {
+        transaction
+            .execute(
+                "UPDATE captures
+                 SET processing_state = 'processed', updated_at = ?1
+                 WHERE id = ?2",
+                params![now, capture_id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        // A Capture muda de estado junto, e a mudanca dela viaja como dela: sao
+        // duas entidades, e do outro lado elas se reconciliam separadas.
+        storage.emitir_update(
+            transaction,
+            "capture",
+            capture_id.as_uuid(),
+            &[("processingState", serde_json::json!("processed"))],
+        )?;
+    }
+    Ok(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -718,114 +828,4 @@ mod tests {
             .unwrap();
         assert!(storage.resource_workspaces().unwrap().is_empty());
     }
-}
-
-/// Insere o Resource e sua projecao de busca DENTRO de uma transacao ja aberta.
-///
-/// Existe separado do comando porque o pipeline de ingestao precisa criar o
-/// Resource junto das relacoes e do fechamento da ingestao — tudo num commit so.
-/// A regra de proveniencia (a Capture precisa estar ativa, e uma Capture deriva
-/// no maximo um Resource) mora aqui, e nao no comando, para que os dois caminhos
-/// nao possam divergir.
-/// Insere o Resource e emite a operacao, na MESMA transacao.
-///
-/// Emitir aqui dentro, e nao no chamador, e o que garante que um caminho novo
-/// de criacao nao nasca sem rastro: quem esquecer de emitir tera esquecido
-/// tambem de inserir.
-pub(crate) fn insert_resource(
-    storage: &SqliteStorage,
-    transaction: &Transaction<'_>,
-    resource: NewResource,
-) -> Result<ResourceId, CoreError> {
-    if let Some(capture_id) = resource.source_capture_id {
-        let lifecycle = transaction
-            .query_row(
-                "SELECT lifecycle_state FROM captures WHERE id = ?1",
-                [capture_id.to_string()],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(map_sql_error)?
-            .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "Capture nao encontrada.", false))?;
-        if lifecycle != "active" {
-            return Err(CoreError::new(
-                ErrorCode::InvalidTransition,
-                "Somente uma Capture ativa pode originar Resource.",
-                false,
-            ));
-        }
-        let already_derived: bool = transaction
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM resources WHERE source_capture_id = ?1)",
-                [capture_id.to_string()],
-                |row| row.get(0),
-            )
-            .map_err(map_sql_error)?;
-        if already_derived {
-            return Err(CoreError::new(
-                ErrorCode::InvalidTransition,
-                "Esta Capture ja originou um Resource.",
-                false,
-            ));
-        }
-    }
-
-    let now = format_time(resource.created_at)?;
-    let id = resource.id;
-    transaction
-        .execute(
-            "INSERT INTO resources (
-                id, kind, title, url, note, source_capture_id,
-                lifecycle_state, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?7)",
-            params![
-                resource.id.to_string(),
-                resource.kind.as_str(),
-                resource.title,
-                resource.url,
-                resource.note,
-                resource.source_capture_id.map(|value| value.to_string()),
-                now,
-            ],
-        )
-        .map_err(map_sql_error)?;
-    insert_resource_search(transaction, transaction.last_insert_rowid())?;
-    storage.emitir(
-        transaction,
-        mos_sync::EntityRef::new("resource", id.as_uuid()),
-        mos_sync::OpBody::Create {
-            fields: [
-                ("kind".to_owned(), serde_json::json!(resource.kind.as_str())),
-                ("title".to_owned(), serde_json::json!(resource.title)),
-                ("url".to_owned(), serde_json::json!(resource.url)),
-                ("note".to_owned(), serde_json::json!(resource.note)),
-                (
-                    "sourceCaptureId".to_owned(),
-                    serde_json::json!(resource.source_capture_id.map(|value| value.to_string())),
-                ),
-                ("createdAt".to_owned(), serde_json::json!(now)),
-            ]
-            .into_iter()
-            .collect(),
-        },
-    )?;
-    if let Some(capture_id) = resource.source_capture_id {
-        transaction
-            .execute(
-                "UPDATE captures
-                 SET processing_state = 'processed', updated_at = ?1
-                 WHERE id = ?2",
-                params![now, capture_id.to_string()],
-            )
-            .map_err(map_sql_error)?;
-        // A Capture muda de estado junto, e a mudanca dela viaja como dela: sao
-        // duas entidades, e do outro lado elas se reconciliam separadas.
-        storage.emitir_update(
-            transaction,
-            "capture",
-            capture_id.as_uuid(),
-            &[("processingState", serde_json::json!("processed"))],
-        )?;
-    }
-    Ok(id)
 }
