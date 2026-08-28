@@ -210,10 +210,21 @@ pub struct FimRegistro {
     pub credencial: RegisterPublicKeyCredential,
 }
 
+/// Registrar TAMBEM abre a sessao.
+///
+/// A versao anterior so guardava a credencial, e a tela chamava o login em
+/// seguida — duas cerimonias, dois Face ID, e a segunda sem gesto do usuario
+/// atras dela. No iOS isso e um `NotAllowedError` calado: o Safari exige que a
+/// chamada do WebAuthn saia junto com o toque, e uma ida ao servidor no meio
+/// gasta essa permissao.
+///
+/// Alem disso a segunda cerimonia era redundante por definicao: quem acabou de
+/// provar que tem a chave nao precisa provar de novo dois segundos depois.
 pub async fn registro_fim(
     State(estado): State<Estado>,
+    jar: CookieJar,
     Json(pedido): Json<FimRegistro>,
-) -> Resultado<Json<serde_json::Value>> {
+) -> Resultado<(CookieJar, Json<serde_json::Value>)> {
     let banco = estado.banco.lock().map_err(|_| interno("banco ocupado"))?;
     let estado_registro: PasskeyRegistration = tomar_desafio(&banco, &pedido.desafio)?;
     let passkey = estado
@@ -222,11 +233,12 @@ pub async fn registro_fim(
         .finish_passkey_registration(&pedido.credencial, &estado_registro)
         .map_err(|causa| AuthError::Recusado(format!("Passkey recusada: {causa}")))?;
 
+    let credencial_id = uuid::Uuid::now_v7().to_string();
     banco
         .execute(
             "INSERT INTO credenciais (id, apelido, passkey, criada_em) VALUES (?1, ?2, ?3, ?4)",
             params![
-                uuid::Uuid::now_v7().to_string(),
+                credencial_id,
                 pedido.apelido.trim(),
                 serde_json::to_string(&passkey).map_err(interno)?,
                 iso(agora()),
@@ -234,7 +246,17 @@ pub async fn registro_fim(
         )
         .map_err(interno)?;
 
-    Ok(Json(serde_json::json!({ "ok": true })))
+    // Solto ANTES: `criar` toma o mesmo mutex.
+    drop(banco);
+    let token = estado
+        .sessoes
+        .criar(&credencial_id, agora())
+        .map_err(interno)?;
+
+    Ok((
+        jar.add(porta::cookie_de(token)),
+        Json(serde_json::json!({ "ok": true })),
+    ))
 }
 
 pub async fn login_inicio(State(estado): State<Estado>) -> Resultado<Json<DesafioResposta>> {

@@ -1,70 +1,116 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import {
-  entrar,
+  concluirLogin,
+  concluirRegistro,
   estadoDaPorta,
   passkeyDisponivel,
-  registrar,
+  prepararLogin,
+  prepararRegistro,
   type EstadoDaPorta,
+  type Preparado,
 } from "./cerimonia";
 
 /**
  * A tela de entrar.
  *
- * # Ela tem dois modos, e quem escolhe é o servidor
+ * # A regra que manda no formato desta tela
  *
- * Sem nenhum aparelho registrado, o que faz sentido é **registrar** — e um botão
- * "entrar" ali falharia com "nenhum aparelho registrado ainda", que é uma frase
- * verdadeira e inútil. Com aparelho registrado, o contrário: pedir o convite de
- * novo, todo dia, seria transformar um segredo de uso único em senha.
+ * **A chamada do WebAuthn tem que sair junto com o toque.** O Safari cancela
+ * `credentials.create/get` que não venha de uma ativação do usuário, e uma ida
+ * ao servidor no meio gasta essa ativação. O erro é `NotAllowedError` — que é a
+ * mesma coisa que o iPhone diz quando você simplesmente cancela o Face ID.
  *
- * # Por que o convite é um campo de texto comum
+ * Por isso o desafio é buscado ANTES: no `useEffect`, para entrar; num passo
+ * separado, para registrar. Quando o dedo toca no botão, não há mais nada a
+ * esperar — só o Face ID.
  *
- * Não é senha: ele não se repete, não identifica ninguém e é usado uma vez por
- * aparelho. Escondê-lo atrás de bolinhas obrigaria a digitar 32 caracteres
- * aleatórios no escuro, num teclado de celular — e o erro de digitação viraria
- * "convite inválido", indistinguível do convite errado.
+ * # Dois modos, e quem escolhe é o servidor
+ *
+ * Sem aparelho registrado, o que faz sentido é registrar — um "entrar" ali
+ * falharia com "nenhum aparelho registrado ainda", que é verdadeiro e inútil.
+ * Com aparelho registrado, o contrário: pedir o convite todo dia transformaria
+ * um segredo de uso único em senha.
  */
 export function Porta({ aoEntrar }: { aoEntrar: () => void }) {
   const [estado, setEstado] = useState<EstadoDaPorta | null>(null);
   const [convite, setConvite] = useState("");
   const [apelido, setApelido] = useState("iPhone");
+  const [preparado, setPreparado] = useState<Preparado | null>(null);
   const [recado, setRecado] = useState("");
   const [erro, setErro] = useState(false);
   const [ocupado, setOcupado] = useState(false);
-
-  useEffect(() => {
-    void estadoDaPorta()
-      .then(setEstado)
-      .catch(() => setEstado(null));
-  }, []);
 
   function contar(mensagem: string, falhou = false) {
     setRecado(mensagem);
     setErro(falhou);
   }
 
-  async function tentar(acao: () => Promise<void>) {
+  /** Busca um desafio de login e o deixa pronto para o próximo toque. */
+  const armarLogin = useCallback(async () => {
+    try {
+      setPreparado(await prepararLogin());
+    } catch (causa) {
+      contar(causa instanceof Error ? causa.message : String(causa), true);
+    }
+  }, []);
+
+  useEffect(() => {
+    void estadoDaPorta()
+      .then(async (proximo) => {
+        setEstado(proximo);
+        // Com aparelho registrado, o desafio já vem agora — para o botão de
+        // entrar não ter nada a esperar quando o dedo chegar nele.
+        if (proximo.registrado && proximo.passkey) await armarLogin();
+      })
+      .catch(() => setEstado(null));
+  }, [armarLogin]);
+
+  /** O passo de rede do registro: valida o convite e traz o desafio. */
+  async function conferirConvite(evento: FormEvent) {
+    evento.preventDefault();
+    if (!convite.trim()) return contar("O convite é obrigatório.", true);
     setOcupado(true);
     try {
-      await acao();
-      aoEntrar();
+      setPreparado(await prepararRegistro(convite.trim(), apelido.trim() || "Aparelho"));
+      // Sem recado: a tela inteira ja trocou para dizer que o convite passou, e
+      // repetir isso embaixo do botao e ruido em cima de ruido.
+      contar("");
     } catch (causa) {
-      contar(traduzir(causa), true);
+      contar(causa instanceof Error ? causa.message : String(causa), true);
     }
     setOcupado(false);
   }
 
-  async function aoRegistrar(evento: FormEvent) {
-    evento.preventDefault();
-    if (!convite.trim()) return contar("O convite é obrigatório.", true);
-    await tentar(async () => {
-      await registrar(convite.trim(), apelido.trim() || "Aparelho");
-      // Registrar não abre sessão — o servidor só guardou a credencial. Entrar
-      // em seguida é o que produz o cookie, e fazer isso aqui poupa um segundo
-      // Face ID que não explicaria a si mesmo.
-      await entrar();
-    });
+  /**
+   * O toque. Nada de `await` antes da chamada do WebAuthn lá dentro — é isso
+   * que mantém a ativação do usuário viva.
+   */
+  function registrar() {
+    if (!preparado) return;
+    setOcupado(true);
+    concluirRegistro(preparado, apelido.trim() || "Aparelho")
+      .then(aoEntrar)
+      .catch(async (causa) => {
+        contar(traduzir(causa), true);
+        // O desafio foi gasto na tentativa. Sem um novo, o segundo toque
+        // falharia com "Desafio expirado" — e o culpado pareceria ser o iPhone.
+        setPreparado(null);
+        setOcupado(false);
+      });
+  }
+
+  function entrar() {
+    if (!preparado) return;
+    setOcupado(true);
+    concluirLogin(preparado)
+      .then(aoEntrar)
+      .catch(async (causa) => {
+        contar(traduzir(causa), true);
+        setPreparado(null);
+        await armarLogin();
+        setOcupado(false);
+      });
   }
 
   if (!estado) {
@@ -109,20 +155,29 @@ export function Porta({ aoEntrar }: { aoEntrar: () => void }) {
           <button
             className="botao"
             type="button"
-            disabled={ocupado}
-            onClick={() => void tentar(entrar)}
+            disabled={ocupado || !preparado}
+            onClick={entrar}
           >
             Entrar
           </button>
-          <p className="rotulo">
-            OUTRO APARELHO? USE O CONVITE PARA REGISTRÁ-LO NELE.
+        </>
+      ) : preparado ? (
+        <>
+          <p className="explicacao">
+            Convite aceito. Toque abaixo e confirme com o Face ID — é ele que
+            passa a ser a sua entrada, e o convite não será pedido de novo neste
+            aparelho.
           </p>
+          <button className="botao" type="button" disabled={ocupado} onClick={registrar}>
+            Confirmar com Face ID
+          </button>
         </>
       ) : (
-        <form className="registro" onSubmit={aoRegistrar}>
+        <form className="registro" onSubmit={conferirConvite}>
           <p className="explicacao">
             Nenhum aparelho registrado ainda. O convite é o que decide quem pode
-            se tornar o dono — ele está no <code>/etc/mos-web.env</code> da VPS.
+            se tornar o dono — ele está no <code>/etc/mos-web.env</code> da VPS,
+            na linha <code>MOS_WEB_INVITE=</code>.
           </p>
           <label className="campo">
             <span>Convite</span>
@@ -131,6 +186,7 @@ export function Porta({ aoEntrar }: { aoEntrar: () => void }) {
               onChange={(evento) => setConvite(evento.currentTarget.value)}
               autoCapitalize="off"
               autoCorrect="off"
+              autoComplete="off"
               spellCheck={false}
             />
           </label>
@@ -142,8 +198,26 @@ export function Porta({ aoEntrar }: { aoEntrar: () => void }) {
             />
           </label>
           <button className="botao" type="submit" disabled={ocupado}>
-            Registrar este aparelho
+            Conferir convite
           </button>
+          {/* Colar existe porque o convite tem 32 caracteres aleatórios, e
+              digitá-los num teclado de celular erra. O botão só aparece onde o
+              navegador deixa ler a área de transferência. */}
+          {typeof navigator.clipboard?.readText === "function" ? (
+            <button
+              className="botao"
+              data-variante="quieto"
+              type="button"
+              onClick={() => {
+                void navigator.clipboard
+                  .readText()
+                  .then((texto) => setConvite(texto.trim()))
+                  .catch(() => contar("O aparelho não deixou ler a área de transferência.", true));
+              }}
+            >
+              Colar convite
+            </button>
+          ) : null}
         </form>
       )}
 
@@ -157,17 +231,16 @@ export function Porta({ aoEntrar }: { aoEntrar: () => void }) {
 /**
  * O que o navegador diz, e o que a pessoa precisa ouvir.
  *
- * `NotAllowedError` é o mesmo erro para "você cancelou", "expirou" e "este
- * aparelho recusou" — e mostrá-lo cru manda a pessoa procurar defeito onde
- * provavelmente não há.
+ * `NotAllowedError` é o mesmo erro para "você cancelou", "expirou" e "o toque
+ * não valeu" — e mostrá-lo cru manda a pessoa procurar defeito onde não há.
  */
 function traduzir(causa: unknown): string {
   if (causa instanceof DOMException) {
     if (causa.name === "NotAllowedError") {
-      return "Cancelado, ou o tempo acabou. Tente de novo.";
+      return "O Face ID não completou. Toque de novo e confirme na hora — sem trocar de app no meio.";
     }
     if (causa.name === "InvalidStateError") {
-      return "Este aparelho já está registrado. Toque em Entrar.";
+      return "Este aparelho já está registrado. Recarregue e toque em Entrar.";
     }
     if (causa.name === "SecurityError") {
       return "O endereço não confere com o que a passkey espera. Abra pelo mesmo domínio em que registrou.";

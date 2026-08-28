@@ -14,6 +14,18 @@
  * O arquivo se chama `cerimonia` e não `porta` porque `Porta.tsx` já existe, e
  * num sistema de arquivos que não distingue maiúscula os dois seriam o mesmo
  * módulo — o TypeScript recusa, e com razão.
+ *
+ * # Por que cada cerimônia é DUAS funções, e não uma
+ *
+ * Porque o Safari exige que `navigator.credentials.create/get` saia **junto com
+ * o toque**. Uma ida ao servidor antes da chamada gasta a "ativação do usuário"
+ * do iOS, e a chamada morre com `NotAllowedError` — que é a mesma coisa que ele
+ * diz quando você cancela o Face ID. Dois problemas, uma cara só, e nenhuma
+ * pista de qual é.
+ *
+ * Então `preparar*` busca o desafio (rede, fora do gesto) e `concluir*` chama o
+ * WebAuthn (dentro do gesto, sem `await` antes). A separação parece cerimônia
+ * desnecessária até a primeira vez que ela custa uma noite.
  */
 
 /** O que a tela precisa saber antes de qualquer login. */
@@ -57,31 +69,40 @@ function comBytes(
   );
 }
 
-/** Registra este aparelho. Precisa do convite. */
-export async function registrar(convite: string, apelido: string): Promise<void> {
-  const { desafio, opcoes } = await pedir("/api/porta/registro/inicio", {
-    convite,
-    apelido,
-  });
-  const cruas = opcoes.publicKey as OpcoesCruas;
+/** Um desafio já buscado, esperando o toque. */
+export type Preparado = { desafio: string; opcoes: Record<string, unknown> };
 
-  const credencial = (await navigator.credentials.create({
+/** Rede. Fora do gesto. Valida o convite de passagem. */
+export function prepararRegistro(convite: string, apelido: string): Promise<Preparado> {
+  return pedir("/api/porta/registro/inicio", { convite, apelido });
+}
+
+/**
+ * WebAuthn. DENTRO do gesto — sem nenhum `await` antes desta linha.
+ *
+ * Ao terminar, o servidor ja devolve a sessao: quem acabou de provar que tem a
+ * chave nao precisa provar de novo dois segundos depois.
+ */
+export async function concluirRegistro(
+  preparado: Preparado,
+  apelido: string,
+): Promise<void> {
+  const cruas = preparado.opcoes.publicKey as OpcoesCruas;
+  const criacao = navigator.credentials.create({
     publicKey: {
       ...cruas,
       challenge: paraBytes(cruas.challenge),
-      user: {
-        ...cruas.user,
-        id: paraBytes(cruas.user?.id ?? ""),
-      },
+      user: { ...cruas.user, id: paraBytes(cruas.user?.id ?? "") },
       excludeCredentials: comBytes(cruas.excludeCredentials),
     } as unknown as PublicKeyCredentialCreationOptions,
-  })) as PublicKeyCredential | null;
+  });
 
+  const credencial = (await criacao) as PublicKeyCredential | null;
   if (!credencial) throw new Error("O aparelho não devolveu credencial.");
   const resposta = credencial.response as AuthenticatorAttestationResponse;
 
   await pedir("/api/porta/registro/fim", {
-    desafio,
+    desafio: preparado.desafio,
     apelido,
     credencial: {
       id: credencial.id,
@@ -96,24 +117,28 @@ export async function registrar(convite: string, apelido: string): Promise<void>
   });
 }
 
-/** Entra. É aqui que o Face ID aparece. */
-export async function entrar(): Promise<void> {
-  const { desafio, opcoes } = await pedir("/api/porta/login/inicio", {});
-  const cruas = opcoes.publicKey as OpcoesCruas;
+/** Rede. Fora do gesto. */
+export function prepararLogin(): Promise<Preparado> {
+  return pedir("/api/porta/login/inicio", {});
+}
 
-  const credencial = (await navigator.credentials.get({
+/** O Face ID. DENTRO do gesto. */
+export async function concluirLogin(preparado: Preparado): Promise<void> {
+  const cruas = preparado.opcoes.publicKey as OpcoesCruas;
+  const pedidoDeChave = navigator.credentials.get({
     publicKey: {
       ...cruas,
       challenge: paraBytes(cruas.challenge),
       allowCredentials: comBytes(cruas.allowCredentials),
     } as unknown as PublicKeyCredentialRequestOptions,
-  })) as PublicKeyCredential | null;
+  });
 
+  const credencial = (await pedidoDeChave) as PublicKeyCredential | null;
   if (!credencial) throw new Error("O aparelho não devolveu credencial.");
   const resposta = credencial.response as AuthenticatorAssertionResponse;
 
   await pedir("/api/porta/login/fim", {
-    desafio,
+    desafio: preparado.desafio,
     credencial: {
       id: credencial.id,
       rawId: paraBase64Url(credencial.rawId),
@@ -150,9 +175,7 @@ export function passkeyDisponivel(): boolean {
 
 // --------------------------------------------------------------------- apoio
 
-type Desafio = { desafio: string; opcoes: Record<string, unknown> };
-
-async function pedir(caminho: string, corpo: unknown): Promise<Desafio> {
+async function pedir(caminho: string, corpo: unknown): Promise<Preparado> {
   const resposta = await fetch(caminho, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -162,7 +185,7 @@ async function pedir(caminho: string, corpo: unknown): Promise<Desafio> {
   if (!resposta.ok) {
     throw new Error(json?.erro ?? `A porta respondeu ${resposta.status}.`);
   }
-  return json as Desafio;
+  return json as Preparado;
 }
 
 /**
