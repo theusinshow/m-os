@@ -74,6 +74,14 @@ pub enum Nivel {
     Erro,
     /// Vale saber depois. Nao interrompeu ninguem.
     Aviso,
+    /// Deu certo, e o registro do que deu certo tem uso.
+    ///
+    /// Existe por causa da atualizacao. Um caderno que so guarda falha responde
+    /// "o que quebrou?" e nao responde "ele chegou a tentar?" — e essa segunda e
+    /// a pergunta de quem diz que a atualizacao "as vezes nao funciona": sem a
+    /// linha da verificacao que DEU certo, nao da para distinguir uma que falhou
+    /// de uma que nunca aconteceu.
+    Info,
 }
 
 impl Nivel {
@@ -82,6 +90,7 @@ impl Nivel {
             Nivel::Fatal => "FATAL",
             Nivel::Erro => "ERRO ",
             Nivel::Aviso => "AVISO",
+            Nivel::Info => "INFO ",
         }
     }
 
@@ -89,6 +98,7 @@ impl Nivel {
         match valor {
             "fatal" => Nivel::Fatal,
             "aviso" => Nivel::Aviso,
+            "info" => Nivel::Info,
             _ => Nivel::Erro,
         }
     }

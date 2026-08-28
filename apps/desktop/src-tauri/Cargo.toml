@@ -71,3 +71,8 @@ winreg = "0.52"
 # cada chamada manda o secret no header).
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 keyring = { version = "3", features = ["windows-native"] }
+
+[dev-dependencies]
+# So para os testes de `atualizacao.rs`, que escrevem um arquivo e leem o
+# carimbo dele de volta.
+tempfile = "3"

@@ -18,6 +18,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { finance } from "./finance";
 import { hermes, type HermesStatus } from "./hermes";
 import { Button } from "./Button";
+import { AtualizacaoPanel } from "./AtualizacaoPanel";
 import { MeetingSettings } from "./MeetingSettings";
 import { PaneHeader, Panel, StateMessage } from "./Surface";
 import type { FunctionIntentTarget } from "./functionIntents";
@@ -27,7 +28,7 @@ import { SETTINGS_SECTIONS, secaoVisivel } from "./settingsNav";
 import type {
   AppStatus, BackupInspection, Capture, FunctionDefinition, ImportReport, Ocorrencia,
   Project, RegisteredApp, Resource, SyncReport, SyncStatus, Task, UnivirtusStatus,
-  UpdateInfo, UpdateProgress, Workspace,
+  Workspace,
 } from "./types";
 
 /* O tema e um vocabulario da casca do app, e nao um conceito de dominio: ele
@@ -591,20 +592,6 @@ export function SettingsPage({ theme, setTheme, status, capturesArchived, captur
   const [messageState, setMessageState] = useState<"saved" | "error">("saved");
   const [inspection, setInspection] = useState<BackupInspection | null>(null);
   const [restorePath, setRestorePath] = useState("");
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
-  const [updateState, setUpdateState] = useState<"idle" | "checking" | "current" | "available" | "installing" | "error">("idle");
-  // A resposta do botao precisa morar ao lado do botao. Ela caia em `message`,
-  // que renderiza no rodape da pagina — depois de Archive/Trash e Integridade,
-  // varios scrolls abaixo de quem acabou de clicar. Estar atualizado e a
-  // resposta MAIS comum, e era justamente a invisivel: clicar e nao ver nada
-  // acontecer se le como botao morto.
-  const [updateNote, setUpdateNote] = useState("");
-  // A versao instalada, perguntada ao proprio app e nao ao resultado da
-  // verificacao. Ver `api.appVersion` para o porque: o painel dizia em que
-  // versao voce esta APENAS quando havia atualizacao — ou seja, nunca no caso
-  // comum.
-  const [installedVersion, setInstalledVersion] = useState("");
-  useEffect(() => { void api.appVersion().then(setInstalledVersion).catch(() => undefined); }, []);
   const [importing, setImporting] = useState(false);
   const [importReport, setImportReport] = useState<ImportReport | null>(null);
   const [importNote, setImportNote] = useState("");
@@ -612,7 +599,6 @@ export function SettingsPage({ theme, setTheme, status, capturesArchived, captur
   // deveria reabilitar um botão que não pode mais ser clicado.
   const [importedAt, setImportedAt] = useState<string | null>(null);
   useEffect(() => { void api.cronocadImportedAt().then(setImportedAt).catch(() => undefined); }, []);
-  const [updateProgress, setUpdateProgress] = useState<UpdateProgress>({ downloaded: 0, total: null });
   const [functions, setFunctions] = useState<FunctionDefinition[]>([]);
   const dialog = useRef<HTMLDialogElement>(null);
   // Exclusao definitiva nao tem Undo, entao nao pode seguir a regra de
@@ -668,54 +654,9 @@ export function SettingsPage({ theme, setTheme, status, capturesArchived, captur
     }
     setImporting(false);
   }
-  async function checkUpdates() {
-    setUpdateState("checking");
-    setUpdateInfo(null);
-    setUpdateProgress({ downloaded: 0, total: null });
-    setMessage("");
-    setUpdateNote("Consultando o GitHub Releases…");
-    try {
-      const update = await api.checkForUpdate();
-      setUpdateInfo(update);
-      setUpdateState(update ? "available" : "current");
-      setUpdateNote(update ? "" : "M/OS já está atualizado.");
-    } catch (error) {
-      setUpdateState("error");
-      setUpdateNote(appError(error).message);
-    }
-  }
   useEffect(() => {
-    if (intent?.target === "updates_check") void checkUpdates();
     if (intent?.target === "function_registry") window.requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-panel='FUNCTIONS']")?.scrollIntoView({ block: "start" }));
   }, [intent?.key]);
-  async function installUpdate() {
-    setUpdateState("installing");
-    setUpdateNote("");
-    try {
-      const fim = await api.installUpdate(setUpdateProgress);
-      // Instalada mas sem reiniciar nao e erro: a versao nova esta no disco, e o
-      // que falta e um passo do usuario. Dizer "reiniciando" quando o reinicio
-      // nao aconteceu deixa a pessoa esperando por uma janela que nao volta.
-      setUpdateNote(
-        fim === "reiniciando"
-          ? "Atualização instalada. Reiniciando M/OS…"
-          : "Atualização instalada. Feche e abra o M/OS para usar a versão nova.",
-      );
-      if (fim === "instalada") setUpdateState("current");
-    } catch (error) {
-      setUpdateState("error");
-      setUpdateNote(appError(error).message);
-    }
-  }
-  /** Uma linha so, sempre no mesmo lugar: o progresso enquanto baixa, o
-   *  recado nos demais estados. */
-  function updateStatusLine() {
-    if (updateNote) return updateNote;
-    if (updateState !== "installing") return null;
-    if (!updateProgress.total) return "Baixando pacote de atualização…";
-    const percent = Math.min(100, Math.round((updateProgress.downloaded / updateProgress.total) * 100));
-    return `Baixando atualização: ${percent}%`;
-  }
   const archivedProjects = projects.filter((project) => project.lifecycleState === "archived");
   const archivedTasks = tasks.filter((task) => task.lifecycleState === "archived");
   const archivedApps = apps.filter((app) => app.lifecycleState === "archived");
@@ -756,15 +697,7 @@ export function SettingsPage({ theme, setTheme, status, capturesArchived, captur
     aparencia: <><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" aria-label="Tema claro" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form>{/* A voz mora no mesmo Panel porque ela e a mesma captura por outra
      porta — separa-la num painel proprio a transformaria numa feature
      ao lado, que e exatamente o que o §Voz do design system recusa. */}<form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setVoiceShortcut(voiceShortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="voice-shortcut">Atalho da voz</label><p>{status?.voiceShortcut}</p><p className="support-copy">Segure para falar, solte para guardar. Vale de qualquer lugar do Windows, e o microfone só abre enquanto a tecla está pressionada.</p></div><div className="inline-form"><input id="voice-shortcut" value={voiceShortcut} onChange={(event) => setVoiceShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="ATALHOS"><p className="support-copy">O M/OS é operável quase inteiro pelo teclado. Nada aqui precisa ser decorado — esta lista existe para quando você quiser.</p><dl className="shortcut-list">{SHORTCUTS.map((entry) => <div key={entry.keys}><dt>{entry.keys}</dt><dd>{entry.does}</dd></div>)}</dl></Panel></>,
-    inicio: <><StartupSettings /><Panel label="ATUALIZAÇÕES"><div className="setting-row"><div><strong>Atualizar M/OS</strong>{/* A versao instalada esta sempre na tela, e nao so quando existe
-     atualizacao. Antes ela vinha do resultado da verificacao, que e `null`
-     quando o app ja esta em dia — o painel respondia "em que versao eu estou?"
-     exatamente nos casos em que a pergunta nao era urgente, e ficava mudo no
-     caso comum. */}<p className="tabular">Versão instalada: {installedVersion || "—"}{updateInfo ? ` · disponível: ${updateInfo.version}` : ""}</p>{updateInfo ? null : <p className="support-copy">Procura uma versão assinada publicada no GitHub Releases.</p>}{updateInfo?.body ? <p className="support-copy">{updateInfo.body}</p> : null}{updateStatusLine() ? <StateMessage state={updateState === "error" ? "error" : updateState === "checking" || updateState === "installing" ? "loading" : "saved"} label={updateStatusLine() ?? ""} /> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void checkUpdates()} disabled={updateState === "checking" || updateState === "installing"}>{updateState === "checking" ? "Verificando" : "Verificar atualizações"}</Button>{/* O botao segue existindo depois de um erro de instalacao.
-     Ele aparecia por ESTADO (`available` ou `installing`), e um erro no meio do
-     download trocava o estado para `error` — o botao sumia, e a unica saida era
-     verificar de novo para chegar ao mesmo lugar. Aparece por FATO: existe uma
-     atualizacao encontrada, entao existe o que instalar. */}{updateInfo && updateState !== "current" ? <Button variant="primary" onClick={() => void installUpdate()} disabled={updateState === "installing"}>{updateState === "installing" ? "Instalando" : updateState === "error" ? "Tentar de novo" : "Atualizar agora"}</Button> : null}</div></div></Panel></>,
+    inicio: <><StartupSettings /><AtualizacaoPanel verificarAoAbrir={intent?.target === "updates_check"} /></>,
     reunioes: <><MeetingSettings /></>,
     dados: <><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Project", project.name, () => api.deleteProject(project.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Workspace", workspace.name, () => api.deleteWorkspace(workspace.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("App", app.name, () => api.deleteRegisteredApp(app.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Task", task.title, () => api.deleteTask(task.id))}>Excluir</Button></div>)}</details></Panel><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel><DiagnosticoPanel />{message ? <StateMessage state={messageState} label={message} /> : null}<dialog ref={deleteDialog} className="restore-dialog" onCancel={() => { deleteDialog.current?.close(); setPendingDelete(null); }}><span className="micro-label">EXCLUSÃO DEFINITIVA</span><h2>Excluir {pendingDelete?.noun.toLowerCase()} “{pendingDelete?.label}”?</h2><p>Isto apaga o registro do banco. Não há Desfazer: o único caminho de volta é restaurar um backup anterior a esta ação.</p><div className="form-actions"><Button variant="ghost" onClick={() => { deleteDialog.current?.close(); setPendingDelete(null); }}>Cancelar</Button><Button variant="danger" onClick={() => void confirmDelete()}>Excluir</Button></div></dialog><dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></>,
     avancado: <><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="CRONOCAD"><div className="setting-row"><div><strong>Importar horas do CronoCAD</strong><p>Traz projetos, sessões e pendências para o M/OS. As horas passam a pertencer aos Projects daqui, e o valor/hora de cada sessão é preservado como estava na época.</p><p className="support-copy">Vem tudo: sessões, pendências, programas monitorados, o histórico observado pelo sistema e a sua configuração de arredondamento — sem ela o valor cobrável aqui daria diferente do que o CronoCAD mostra. Roda uma vez, e o banco de origem é aberto somente para leitura. Compare o total com a tela dele antes de desinstalar.</p>{importReport ? <p className="support-copy" aria-live="polite">{importReport.projects} {importReport.projects === 1 ? "project" : "projects"} · {importReport.entries} {importReport.entries === 1 ? "sessão" : "sessões"} · {importReport.tasks} {importReport.tasks === 1 ? "task" : "tasks"} · <strong>{(importReport.trackedSeconds / 3600).toFixed(1)} h</strong>{importReport.activityEvents ? ` · ${importReport.activityEvents} eventos observados` : ""}{importReport.monitoredApps ? ` · ${importReport.monitoredApps} programas` : ""}{importReport.clients ? ` · ${importReport.clients} clientes` : ""}</p> : null}{importNote ? <p className="support-copy" aria-live="polite">{importNote}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void importCronocad()} disabled={importing || Boolean(importedAt)}>{importing ? "Importando" : importedAt ? "Importado" : "Importar"}</Button></div></div></Panel></>,

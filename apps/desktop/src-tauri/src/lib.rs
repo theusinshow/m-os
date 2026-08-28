@@ -28,6 +28,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod academic;
 mod academic_sync;
+mod atualizacao;
 mod calendar;
 mod attention;
 mod daily;
@@ -171,6 +172,27 @@ pub(crate) struct UserSettings {
     /// voltar traria a faixa de novo no mesmo dia.
     #[serde(default)]
     pub(crate) sync_ultimo_resumo_em: String,
+    /// O que se sabe sobre atualizacao, gravado em vez de guardado na tela.
+    ///
+    /// O painel respondia "estou atualizado?" apenas nos segundos seguintes ao
+    /// clique: o estado morava em `useState`, e sair de Settings apagava a prova
+    /// de que a verificacao tinha acontecido. Pior, "nao ha versao nova" e "nao
+    /// consegui verificar" ficavam com a mesma cara — nenhuma —, que e de onde
+    /// sai a impressao de que a atualizacao "as vezes nao funciona".
+    ///
+    /// Ficam aqui, e nao no banco, porque sao fatos DESTE aparelho: a versao
+    /// instalada nao sincroniza, e mandar isto para o hub faria o celular achar
+    /// que tambem esta desatualizado. Ver `atualizacao.rs`.
+    #[serde(default)]
+    pub(crate) atualizacao_verificada_em: String,
+    #[serde(default)]
+    pub(crate) atualizacao_disponivel: String,
+    #[serde(default)]
+    pub(crate) atualizacao_publicada_em: String,
+    #[serde(default)]
+    pub(crate) atualizacao_falha: String,
+    #[serde(default)]
+    pub(crate) atualizacao_falha_em: String,
 }
 
 #[derive(Serialize)]
@@ -2440,6 +2462,9 @@ pub fn run() {
             diagnostico::diagnostico_registrar,
             diagnostico::diagnostico_recente,
             diagnostico::diagnostico_caminho,
+            atualizacao::atualizacao_estado,
+            atualizacao::atualizacao_anotar_verificacao,
+            atualizacao::atualizacao_anotar_falha,
             ]);
             move |invoke| {
                 // O caderno de ocorrencias atravessa o portao.

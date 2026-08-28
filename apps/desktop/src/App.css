@@ -5077,6 +5077,56 @@ input[type="checkbox"]:disabled {
   font: var(--text-small);
 }
 
+/* O SELO DA ATUALIZACAO.
+
+   Ele responde "estou em dia?" de relance, e por isso e a primeira coisa da
+   linha — antes da versao, antes da data. O painel antigo so respondia isso
+   depois de um clique, e por alguns segundos.
+
+   A cor NAO carrega a informacao sozinha: a palavra ao lado ja diz o estado, e
+   o ponto so lhe da um lugar fixo no olhar. Quem nao distingue verde de ambar
+   le exatamente a mesma coisa. */
+/* `inline-flex` para o selo ficar NA LINHA do titulo: "Atualizar M/OS · EM DIA"
+   e uma frase so, e a resposta encostada na pergunta e mais rapida de ler que a
+   resposta uma linha abaixo. Como ele e inline, a margem vertical nao teria
+   efeito nenhum — o afastamento e horizontal, e o resto do espaco vem do proprio
+   fluxo do paragrafo seguinte. */
+.update-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 0 var(--space-2);
+  color: var(--text-secondary);
+  font: var(--text-micro);
+  letter-spacing: 0.08em;
+}
+
+.update-badge i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* Em dia e a resposta comum, e ela e QUIETA: um verde vivo aqui competiria por
+   atencao com o que de fato pede acao no resto da tela. */
+.update-badge[data-situacao="em-dia"] {
+  color: var(--success);
+}
+
+/* Ha versao nova: e o unico estado que pede um gesto, e o unico com a cor de
+   sinal do M/OS. */
+.update-badge[data-situacao="atrasado"] {
+  color: var(--signal-ink);
+}
+
+/* Nao consegui conferir. Nao e "esta tudo bem" e nao e "ha uma nova" — e a
+   ausencia de resposta, e ela merece cor propria: era justamente este o estado
+   que se disfarcava de "em dia" e produzia o "as vezes nao funciona". */
+.update-badge[data-situacao="sem-resposta"] {
+  color: var(--danger);
+}
+
 .switch {
   display: grid;
   width: calc(var(--space-3) + var(--space-4));

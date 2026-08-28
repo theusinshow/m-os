@@ -2942,6 +2942,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tempfile",
  "time",
  "tokio",
  "windows-sys 0.61.2",

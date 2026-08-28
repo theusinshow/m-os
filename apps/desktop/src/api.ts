@@ -1,15 +1,36 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getVersion } from "@tauri-apps/api/app";
 import type { UndoStep } from "./hermes";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
+import type { EstadoDaAtualizacao } from "./atualizacao";
 import type { Ocorrencia } from "./types";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
   VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
   WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, AcademicDashboard, AcademicToday, Assignment, AssignmentStatus, Exam, ExamStatus, ReminderPriority, Semester, StaleView, SyncRound, SyncStatus, StudySession, Subject, Task, TaskState, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace, UnivirtusStatus, SyncReport, ProviderSubjectFact, Decision } from "./types";
 
+/**
+ * O `Update` que a ultima verificacao devolveu.
+ *
+ * Ele nao e so um objeto: cada `check()` abre um RECURSO do lado Rust, com um
+ * `rid` na tabela de recursos da webview. Verificar dez vezes abria dez, e
+ * nenhum era fechado — o `close()` do plugin nunca era chamado. Por isso
+ * `guardarPendente` fecha o anterior antes de guardar o novo, e por isso o
+ * `catch` do `checkForUpdate` limpa: um `Update` velho sobrevivendo a uma
+ * verificacao que FALHOU e um botao "Atualizar agora" que instala o que a
+ * verificacao de agora nao confirmou.
+ */
 let pendingUpdate: Update | null = null;
+
+async function guardarPendente(proximo: Update | null) {
+  // `close()` pode falhar se o recurso ja foi embora — e ai nao ha nada a
+  // fazer, e nada a dizer. O que nao pode e derrubar a verificacao por causa da
+  // faxina da anterior.
+  if (pendingUpdate && pendingUpdate !== proximo) {
+    await pendingUpdate.close().catch(() => undefined);
+  }
+  pendingUpdate = proximo;
+}
 
 /**
  * O recibo de uma aceitacao.
@@ -1143,21 +1164,19 @@ export const api = {
   diagnosticoCaminho() {
     return invoke<string>("diagnostico_caminho");
   },
-  /**
-   * A versao que esta instalada agora.
-   *
-   * Existe separada do `checkForUpdate` porque o `check()` devolve `null`
-   * quando o app ja esta em dia — e junto com o `null` ia embora o
-   * `currentVersion`, que era a unica fonte de "em que versao eu estou". O
-   * resultado era um painel que, no caso MAIS comum, nao sabia responder a
-   * pergunta mais basica dele.
-   */
-  appVersion() {
-    return getVersion();
-  },
   async checkForUpdate() {
-    const update = await check({ timeout: 30_000 });
-    pendingUpdate = update;
+    let update: Update | null;
+    try {
+      update = await check({ timeout: 30_000 });
+    } catch (causa) {
+      // A verificacao caiu, entao o que sobrou da anterior nao vale mais. Sem
+      // isto, o botao de instalar continuava vivo apontando para um resultado
+      // que ninguem confirmou — e instalar o que a rede nao confirmou e pior
+      // que nao instalar.
+      await guardarPendente(null);
+      throw causa;
+    }
+    await guardarPendente(update);
     if (!update) return null;
     return {
       currentVersion: update.currentVersion,
@@ -1165,6 +1184,26 @@ export const api = {
       date: update.date ?? null,
       body: update.body ?? "",
     } satisfies UpdateInfo;
+  },
+  /** O que o Rust guardou sobre atualizacao. Ver `atualizacao.rs`. */
+  updateStatus() {
+    return invoke<EstadoDaAtualizacao>("atualizacao_estado");
+  },
+  noteUpdateCheck(disponivel: string, publicadaEm: string) {
+    return invoke<void>("atualizacao_anotar_verificacao", { disponivel, publicadaEm });
+  },
+  noteUpdateFailure(motivo: string) {
+    return invoke<void>("atualizacao_anotar_falha", { motivo });
+  },
+  /**
+   * Anota uma ocorrencia no caderno local.
+   *
+   * A atualizacao usa isto porque ela falha LONGE de qualquer terminal, e
+   * "as vezes nao funciona" so vira defeito investigavel quando a falha deixa
+   * uma linha com hora e motivo. Ver `diagnostico.rs`.
+   */
+  registrarOcorrencia(nivel: "info" | "aviso" | "erro", origem: string, mensagem: string) {
+    return invoke<void>("diagnostico_registrar", { nivel, origem, mensagem });
   },
   /**
    * Baixa, instala e reinicia.
@@ -1192,7 +1231,7 @@ export const api = {
       if (event.event === "Finished") downloaded = total ?? downloaded;
       onProgress({ downloaded, total });
     });
-    pendingUpdate = null;
+    await guardarPendente(null);
     try {
       await relaunch();
       return "reiniciando" as const;
