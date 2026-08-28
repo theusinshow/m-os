@@ -31,10 +31,53 @@ pub enum SubidaError {
     Banco(String),
 }
 
+/// A vez do banco. Ver o campo `Estado::vez`.
+pub type Vez = Arc<std::sync::Mutex<()>>;
+
+/// Pega a vez, mesmo depois de um panico.
+///
+/// Um `Mutex` envenenado responde `Err` para sempre, e aqui isso seria trocar um
+/// travamento por outro. A vez nao guarda dado nenhum — ela guarda ORDEM —,
+/// entao nao ha estado corrompido a proteger: o que o panico interrompeu foi uma
+/// escrita, e essa ja falhou sozinha, com transacao desfeita pelo SQLite.
+pub fn tomar(vez: &Vez) -> std::sync::MutexGuard<'_, ()> {
+    vez.lock()
+        .unwrap_or_else(|envenenado| envenenado.into_inner())
+}
+
 /// Tudo o que as rotas precisam.
 #[derive(Clone)]
 pub struct Estado {
     pub storage: Arc<SqliteStorage>,
+    /// A vez do banco: uma ESCRITA e uma RODADA de sync nunca acontecem juntas.
+    ///
+    /// # O que ele impede, e por que nao da para viver sem ele
+    ///
+    /// O `SqliteStorage` tem dois cadeados — a conexao e o relogio logico — e os
+    /// dois caminhos os pegam em ORDEM CONTRARIA:
+    ///
+    /// | caminho | primeiro | depois |
+    /// |---|---|---|
+    /// | qualquer escrita (`emitir`) | conexao | relogio |
+    /// | uma rodada (`sincronizar_agora`) | relogio | conexao |
+    ///
+    /// Duas ordens contrarias sao um abraco mortal esperando a hora. E a hora
+    /// chega sozinha: TODA escrita dispara uma rodada em segundo plano, entao
+    /// basta a segunda escrita cair dentro da rodada da primeira. Duas capturas
+    /// seguidas no bolso — que e o uso normal — travavam o servidor **para
+    /// sempre**, sem log, sem erro e sem voltar; o unico sintoma era o app parar
+    /// de responder e continuar parado depois de fechar e abrir.
+    ///
+    /// Esta vez desfaz o encontro em vez de reordenar os cadeados: enquanto uma
+    /// rodada corre, a proxima escrita espera, e vice-versa. A ordem contraria
+    /// continua la dentro do `mos-storage-sqlite` — e ela **tambem** alcanca o
+    /// desktop, que emite escritas concorrentes de comandos diferentes. Arrumar
+    /// a ordem la e um conserto de outra caixa, e este aqui nao o dispensa.
+    ///
+    /// LEITURA nao pega a vez: uma leitura so toca a conexao, nunca o relogio, e
+    /// por isso nao participa do abraco. Fazer a inbox esperar por uma rodada de
+    /// rede seria pagar em tela travada por um risco que ela nao corre.
+    pub vez: Vez,
     pub captures: Arc<CaptureService>,
     pub work: Arc<WorkService>,
     /// Os lembretes, que e o que decide quando o celular vibra.
@@ -166,6 +209,7 @@ impl Estado {
         };
 
         Ok(Self {
+            vez: Arc::new(std::sync::Mutex::new(())),
             captures: Arc::new(CaptureService::new(Arc::clone(&storage) as Arc<_>)),
             work: Arc::new(WorkService::new(Arc::clone(&storage) as Arc<_>)),
             attention: Arc::new(AttentionService::new(

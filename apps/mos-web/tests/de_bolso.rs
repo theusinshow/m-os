@@ -155,6 +155,53 @@ async fn a_task_do_pc_aparece_no_bolso() {
     assert!(encontrada, "a Task do PC nao apareceu no bolso");
 }
 
+/// Escrever duas vezes seguidas nao trava o servidor.
+///
+/// # O defeito que este teste guarda
+///
+/// O `SqliteStorage` tem dois cadeados — a conexao e o relogio logico — e os
+/// dois caminhos os pegavam em ORDEM CONTRARIA: uma escrita fecha a conexao e
+/// depois pede o relogio; uma rodada de sync fecha o relogio e depois pede a
+/// conexao. Duas ordens contrarias sao um abraco mortal, e como TODA escrita
+/// dispara uma rodada em segundo plano, bastava a segunda escrita cair dentro da
+/// rodada da primeira.
+///
+/// Isso nao era um caso de borda: era capturar duas coisas seguidas. O servidor
+/// travava **para sempre**, calado — sem log, sem erro, sem 500 —, e continuava
+/// travado depois de fechar e abrir o app. Ver `estado::Estado::vez`.
+///
+/// Seis escritas seguidas, e nao duas, porque o encontro depende de a segunda
+/// cair DENTRO da rodada da primeira: uma so tentativa poderia passar por sorte
+/// de tempo, e um teste que passa por sorte nao guarda nada.
+#[tokio::test(flavor = "multi_thread")]
+async fn escrever_em_rajada_nao_trava() {
+    let hub = servir_hub().await;
+    let pasta = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    for numero in 0..6 {
+        let resposta = cliente
+            .post(format!("http://{web}/api/capturar"))
+            .json(&serde_json::json!({ "texto": format!("ideia {numero}") }))
+            .send()
+            .await
+            .unwrap();
+        assert!(resposta.status().is_success(), "a captura {numero} falhou");
+    }
+
+    // E o banco tem as seis: travar nao e o unico jeito de perder escrita.
+    let inbox: serde_json::Value = cliente
+        .get(format!("http://{web}/api/inbox"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(inbox.as_array().map(Vec::len), Some(6));
+}
+
 /// A PWA sai de dentro do binario.
 ///
 /// Sem isto o servidor sobe, a API responde e a pessoa ve uma pagina em branco —

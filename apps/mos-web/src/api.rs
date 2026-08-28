@@ -227,8 +227,49 @@ fn empurrar(estado: &Estado) {
         crate::sync::agora(
             std::sync::Arc::clone(&estado.storage),
             std::sync::Arc::clone(hub),
+            std::sync::Arc::clone(&estado.vez),
         );
     }
+}
+
+/// TODA escrita de dominio passa por aqui, e a razao nao e arrumacao.
+///
+/// # A vez
+///
+/// Uma escrita e uma rodada de sync pegam os dois cadeados do `SqliteStorage` em
+/// ordem contraria, e o encontro das duas trava o servidor **para sempre** — o
+/// desenho inteiro do abraco esta em `estado::Estado::vez`. Como toda escrita
+/// dispara uma rodada, o encontro nao e raro: e o que acontece quando alguem
+/// captura duas coisas seguidas.
+///
+/// Passar por uma funcao so e o que impede o conserto de envelhecer: uma rota
+/// nova escrita a mao nasceria sem a vez, e o defeito voltaria sem nada na tela
+/// dizendo isso.
+///
+/// # E por que `spawn_blocking`
+///
+/// O que corre aqui dentro e SQLite bloqueante, e agora ele tambem pode esperar
+/// uma rodada de rede terminar. Num worker do tokio isso prenderia a thread que
+/// serve as outras requisicoes — a inbox pararia de carregar porque alguem
+/// mandou uma captura.
+async fn escrever<T, F>(estado: &Estado, tarefa: F) -> Resultado<T>
+where
+    F: FnOnce(&Estado) -> Result<T, CoreError> + Send + 'static,
+    T: Send + 'static,
+{
+    let meu = estado.clone();
+    let feito = tokio::task::spawn_blocking(move || {
+        let _vez = crate::estado::tomar(&meu.vez);
+        tarefa(&meu)
+    })
+    .await
+    .map_err(|causa| Erro(StatusCode::INTERNAL_SERVER_ERROR, causa.to_string()))?
+    .map_err(de_core)?;
+
+    // Depois de soltar a vez, e nunca antes: a rodada que este empurrao dispara
+    // precisa dela.
+    empurrar(estado);
+    Ok(feito)
 }
 
 // ------------------------------------------------------------------ rotas
@@ -242,18 +283,17 @@ async fn capturar(
     State(estado): State<Estado>,
     Json(pedido): Json<Captura>,
 ) -> Resultado<Json<serde_json::Value>> {
-    let capture = estado
-        .captures
-        .create(CreateCaptureInput {
+    let capture = escrever(&estado, move |estado| {
+        estado.captures.create(CreateCaptureInput {
             content: pedido.texto,
             // A origem diz de ONDE veio, e isso e informacao de verdade: uma
             // captura feita no celular no meio da rua tem outra natureza da que
             // foi digitada no PC com o projeto aberto.
             source: CaptureSource::QuickCapture,
         })
-        .map_err(de_core)?;
+    })
+    .await?;
 
-    empurrar(&estado);
     Ok(Json(serde_json::json!({ "id": capture.id.to_string() })))
 }
 
@@ -280,17 +320,16 @@ async fn criar_task(
     State(estado): State<Estado>,
     Json(pedido): Json<NovaTask>,
 ) -> Resultado<Json<serde_json::Value>> {
-    let task = estado
-        .work
-        .create_task(CreateTaskInput {
+    let task = escrever(&estado, move |estado| {
+        estado.work.create_task(CreateTaskInput {
             title: pedido.titulo,
             description: pedido.descricao,
             project_id: pedido.project_id,
             source_capture_id: None,
         })
-        .map_err(de_core)?;
+    })
+    .await?;
 
-    empurrar(&estado);
     Ok(Json(serde_json::to_value(task).unwrap_or_default()))
 }
 
@@ -304,12 +343,11 @@ async fn mudar_estado(
     Path(id): Path<String>,
     Json(pedido): Json<MudarEstado>,
 ) -> Resultado<Json<serde_json::Value>> {
-    let task = estado
-        .work
-        .set_task_state(&id, pedido.estado)
-        .map_err(de_core)?;
+    let task = escrever(&estado, move |estado| {
+        estado.work.set_task_state(&id, pedido.estado)
+    })
+    .await?;
 
-    empurrar(&estado);
     Ok(Json(serde_json::to_value(task).unwrap_or_default()))
 }
 

@@ -33,9 +33,9 @@ recusa em toda linha.
 | Notificação (Web Push) | pronto |
 | Hermes com camada de ação | falta |
 
-Dois testes de ponta a ponta, com hub de verdade, `mos-web` de verdade e um
-segundo M/OS de verdade: a captura feita no bolso chega no PC, e a Task criada
-no PC aparece no bolso. Conferido que os dois caem quando o sync é desligado.
+Testes de ponta a ponta, com hub de verdade, `mos-web` de verdade e um segundo
+M/OS de verdade: a captura feita no bolso chega no PC e a Task criada no PC
+aparece no bolso. Conferido que todos caem quando o sync é desligado.
 
 ## As features, e por que elas existem
 
@@ -87,6 +87,39 @@ mos-web --gerar-vapid
 antiga, e o serviço de push recusa o que a nova assinar. O sintoma é o pior
 possível: tudo parece funcionar e nada chega.
 
+## O travamento que estava aqui desde sempre
+
+Duas escritas seguidas — capturar duas coisas, ou criar um lembrete e concluí-lo
+— **travavam o servidor para sempre**. Calado: sem log, sem erro, sem 500. O app
+parava de responder e continuava parado depois de fechar e abrir, porque o
+processo é que estava preso.
+
+A causa é um abraço mortal no `mos-storage-sqlite`, que tem dois cadeados e os
+entrega em ordem contrária conforme o caminho:
+
+| caminho | pega primeiro | depois |
+|---|---|---|
+| qualquer escrita (`emitir`) | a conexão | o relógio lógico |
+| uma rodada de sync (`sincronizar_agora`) | o relógio lógico | a conexão |
+
+E o encontro não é raro: **toda escrita dispara uma rodada em segundo plano**,
+então basta a segunda escrita cair dentro da rodada da primeira. Nunca tinha
+aparecido porque nenhum teste escrevia duas vezes seguidas — foi a aba de
+lembretes, que cria e conclui em sequência, que o tornou reprodutível.
+
+O conserto daqui **desfaz o encontro em vez de reordenar os cadeados**: uma
+escrita e uma rodada nunca acontecem juntas (`estado::Estado::vez`), e toda
+escrita passa por `api::escrever` — uma rota nova escrita à mão sem a vez faria o
+defeito voltar sem nada na tela dizendo isso. Leitura não pega a vez: ela só toca
+a conexão, nunca o relógio, e fazer a inbox esperar por uma rodada de rede seria
+pagar em tela travada por um risco que ela não corre.
+
+`tests/de_bolso.rs::escrever_em_rajada_nao_trava` guarda o conserto.
+
+**A ordem contrária continua lá dentro**, e ela alcança o desktop também — ele
+emite escritas concorrentes de comandos diferentes. Arrumar a ordem no
+`mos-storage-sqlite` é um conserto de outra caixa, e este aqui não o dispensa.
+
 ## A porta
 
 Duas metades, e a divisão não é arrumação:
@@ -136,11 +169,11 @@ pacote sem poder ler uma palavra dele.
 | Lembrete que venceu | um laço de 60s lê `attention.waiting()` e avisa uma vez cada |
 | Coisa nova vinda do PC | quando uma rodada de sync desce algo, diz **quantos** |
 
-O `mos-web` **lê** lembretes e **não escreve** nenhum. Marcar um Reminder como
-entregue sincronizaria para o PC, e o desktop tem o próprio agendador olhando os
-mesmos lembretes — dois aparelhos disputando o mesmo estado produziriam o
-lembrete que some do PC porque o celular achou que já tinha dado conta. O que já
-foi avisado mora no `push.db`, que é local e não sincroniza.
+O `mos-web` **lê** lembretes e **não escreve** nenhum. Marcar um Reminder como entregue
+sincronizaria para o PC, e o desktop tem o próprio agendador olhando os mesmos
+lembretes — dois aparelhos disputando o mesmo estado produziriam o lembrete que
+some do PC porque o celular achou que já tinha dado conta. O que já foi avisado
+mora no `push.db`, que é local e não sincroniza.
 
 ### O que o iPhone exige, e que nada no código resolve
 
