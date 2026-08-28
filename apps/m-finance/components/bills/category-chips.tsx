@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Check } from "lucide-react";
+import { useFormResetSignal } from "@/components/ui/validated-form";
 import { cn } from "@/lib/utils";
 
 type Category = { id: string; name: string };
@@ -20,6 +21,17 @@ export function CategoryChips({
   defaultValue?: string;
 }) {
   const [selected, setSelected] = useState(defaultValue);
+
+  // Zera junto com o reset do form. Ajuste durante a renderizacao, e nao em
+  // efeito: assim o chip nunca chega a ser pintado aceso depois de salvar.
+  const resetSignal = useFormResetSignal();
+  const [seenSignal, setSeenSignal] = useState(resetSignal);
+  if (resetSignal !== seenSignal) {
+    setSeenSignal(resetSignal);
+    if (resetSignal !== null) {
+      setSelected(defaultValue);
+    }
+  }
 
   if (categories.length === 0) {
     return null;

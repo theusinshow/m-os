@@ -46,6 +46,10 @@ export function QuickAddExpense({
         action={createBill}
         successMessage="Conta adicionada."
         resetOnSuccess
+        // `scheduleType` mora aqui em cima, fora do alcance do sinal de reset.
+        // Sem isto, uma conta "Recorrente, sem fim" deixava a proxima recorrente
+        // tambem — e a proxima nao gera uma linha, gera doze.
+        onSuccess={() => setScheduleType("once")}
         className="mt-6 border-t border-border-subtle pt-6"
       >
         {/* Amount is the hero: oversized tabular figures with a quiet R$ lead-in. */}

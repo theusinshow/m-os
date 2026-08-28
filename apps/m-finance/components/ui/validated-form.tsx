@@ -9,6 +9,27 @@ type FormAction = (prevState: FormState, formData: FormData) => Promise<FormStat
 
 const FieldErrorContext = createContext<Record<string, string>>({});
 
+/**
+ * Sinal de "o form acabou de se limpar".
+ *
+ * `form.reset()` e reset nativo do DOM: devolve os inputs ao `defaultValue` e
+ * nao tem como tocar em estado do React. Campo controlado dentro de um form com
+ * `resetOnSuccess` sobrevivia ao reset e seguia enviando o valor anterior — com
+ * o agravante de seguir ACESO na tela, entao o formulario parecia limpo e
+ * mentia. Foi assim que quatro contas seguidas nasceram na categoria da
+ * primeira, em 19/06/2026, cinco minutos depois do formulario existir.
+ *
+ * O sinal e o proprio objeto de estado da action, que nasce novo a cada retorno
+ * — comparar identidade basta, e nao custa um `useState` que so existiria para
+ * contar. Campo controlado que viva aqui dentro assina e se zera junto;
+ * `CategoryChips` e o exemplo.
+ */
+const FormResetContext = createContext<FormState | null>(null);
+
+export function useFormResetSignal() {
+  return useContext(FormResetContext);
+}
+
 function useFieldError(name: string) {
   return useContext(FieldErrorContext)[name];
 }
@@ -33,23 +54,36 @@ export function ValidatedForm({
   const { addToast } = useToast();
   const formRef = useRef<HTMLFormElement>(null);
 
+  // `onSuccess` chega como arrow inline em todos os seis usos, ou seja: muda de
+  // identidade a cada render. Como dependencia do efeito abaixo, qualquer render
+  // extra enquanto `state` seguisse em "success" repetiria o toast e o reset.
+  // A ref mantem a versao atual sem que a identidade entre nas dependencias.
+  const onSuccessRef = useRef(onSuccess);
+  useEffect(() => {
+    onSuccessRef.current = onSuccess;
+  });
+
   useEffect(() => {
     if (state.status === "success") {
       addToast(state.message ?? successMessage, "success");
       if (resetOnSuccess) {
         formRef.current?.reset();
       }
-      onSuccess?.();
+      onSuccessRef.current?.();
     } else if (state.status === "error" && state.message && !state.fieldErrors) {
       addToast(state.message, "error");
     }
-  }, [state, addToast, successMessage, resetOnSuccess, onSuccess]);
+  }, [state, addToast, successMessage, resetOnSuccess]);
 
   return (
     <FieldErrorContext.Provider value={state.fieldErrors ?? {}}>
-      <form action={formAction} className={cn(className)} ref={formRef}>
-        {children}
-      </form>
+      <FormResetContext.Provider
+        value={resetOnSuccess && state.status === "success" ? state : null}
+      >
+        <form action={formAction} className={cn(className)} ref={formRef}>
+          {children}
+        </form>
+      </FormResetContext.Provider>
     </FieldErrorContext.Provider>
   );
 }

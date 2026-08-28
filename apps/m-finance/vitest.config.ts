@@ -10,7 +10,11 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["**/*.test.ts"],
+    // `.tsx` entra para os testes de componente. O ambiente segue `node` por
+    // padrao — quem precisa de DOM pede jsdom no proprio arquivo, com
+    // `// @vitest-environment jsdom`, para nao cobrar o custo do jsdom dos 110
+    // testes que nao encostam em tela.
+    include: ["**/*.test.ts", "**/*.test.tsx"],
     exclude: ["node_modules/**", ".next/**"],
   },
 });

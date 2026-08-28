@@ -32,6 +32,8 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "latest",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.6",
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
@@ -39,6 +41,7 @@
     "drizzle-kit": "latest",
     "eslint": "latest",
     "eslint-config-next": "latest",
+    "jsdom": "^29.1.1",
     "tailwindcss": "latest",
     "typescript": "latest",
     "vitest": "^3.2.7"
