@@ -114,7 +114,7 @@ impl Estado {
             }
             None => {
                 eprintln!(
-                    "[web] AVISO: sem MOS_WEB_VAPID_PRIVADA. Nenhuma notificacao sai                      deste servidor, e a tela vai dizer isso."
+                    "[web] AVISO: sem MOS_WEB_VAPID_PRIVADA. Nenhuma notificacao sai deste servidor."
                 );
                 None
             }

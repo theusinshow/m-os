@@ -169,6 +169,11 @@ existir — antes disso, é superfície exposta sem cliente para usá-la.
 
 # A superfície de bolso (`mos-web`)
 
+> **Atalho:** `deploy/bootstrap-vps.sh` faz tudo o que está abaixo numa passada,
+> e é idempotente — rodar duas vezes não regenera segredo nenhum. Copie os dois
+> binários e as duas unidades para `/tmp/mos/` e rode como root. As seções
+> seguintes existem para quando um passo falhar e alguém precisar saber por quê.
+
 O hub acima faz dois aparelhos se alcançarem. Isto é o aparelho que você carrega
 no bolso: um M/OS pequeno, com banco próprio, que sincroniza pelo mesmo hub.
 
@@ -243,6 +248,25 @@ sudo systemctl enable --now mos-web
 curl -s http://127.0.0.1:9130/api/estado
 ```
 
+## 4.1 A porta — leia antes de apontar o DNS
+
+O `auth.rs` do `mos-web` tem passkey **escrito e não montado em rota nenhuma**.
+Enquanto isso for verdade, o binário não autentica ninguém: publicá-lo sem nada
+na frente entrega o M/OS inteiro a quem achar a URL.
+
+Por isso o binário **recusa a subir** quando `MOS_WEB_ORIGEM` está definida — a
+declaração de que ele é alcançável de fora — sem `MOS_WEB_PORTA_EXTERNA=1`. A
+versão anterior deste guardião só perguntava se o bind era local; atrás de um
+proxy reverso o bind **é** local, e ele deixava passar exatamente o caso que
+importa.
+
+Um servidor não enxerga o proxy à frente dele. O que ele consegue é exigir que
+alguém tenha pensado no assunto e escrito a resposta.
+
+Hoje a porta é **Basic Auth no Caddy**, sobre TLS. Não é a definitiva — passkey
+é —, mas é uma porta de verdade, e uma porta de verdade hoje vale mais que a
+porta certa na semana que vem com a casa aberta no meio.
+
 ## 5. O proxy com TLS — e por que ele não é opcional
 
 **Passkey exige origem HTTPS estável**, e o cookie de sessão é `Secure`: em HTTP
@@ -266,7 +290,10 @@ emissão).
 
 ```
 167-233-43-1.sslip.io {
-    reverse_proxy 127.0.0.1:9130
+	basic_auth {
+		matheus <hash-do-caddy-hash-password>
+	}
+	reverse_proxy 127.0.0.1:9130
 }
 ```
 

@@ -43,7 +43,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(9130);
 
-    conferir_a_porta(&bind)?;
+    if let Err(motivo) = conferir_a_porta(&bind) {
+        eprintln!(
+            "
+[web] RECUSADO A SUBIR
+
+{motivo}
+"
+        );
+        std::process::exit(1);
+    }
 
     let banco = std::env::var("MOS_WEB_DB").unwrap_or_else(|_| String::from("mos-web.db"));
     let backups = std::env::var("MOS_WEB_BACKUPS").unwrap_or_else(|_| String::from("backups"));
@@ -113,13 +122,69 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// A porta interna esta LIGADA?
+///
+/// Nao e o mesmo que "compilada". O `auth.rs` existe, compila com a feature
+/// `passkey` — e nao esta montado em rota nenhuma: nao ha `Router` de auth e
+/// nao ha middleware conferindo sessao. Enquanto isso for verdade, a feature
+/// nao protege coisa alguma, e um guardiao que confiasse nela daria a resposta
+/// mais perigosa possivel: "estou protegido" para um servidor aberto.
+///
+/// Vira `true` no commit que montar as rotas de `auth`, e nao antes.
+const PORTA_INTERNA_LIGADA: bool = false;
+
 /// Recusa combinacoes que nao deveriam existir.
 ///
-/// As duas metades sao independentes e as duas importam: subir sem porta
-/// nenhuma numa rede exposta entrega o cerebro do dono a quem achar a URL;
-/// subir sem porta nenhuma em localhost e so desenvolver.
+/// # O buraco que o bind sozinho nao ve
+///
+/// A versao anterior perguntava so uma coisa: o bind e local? Atras de um proxy
+/// reverso — que e exatamente como isto roda na VPS — o bind E local, o
+/// guardiao passa, e o M/OS inteiro fica publico sem porta nenhuma. O sinal que
+/// faltava nao esta no bind: esta em EXISTIR um endereco publico.
+///
+/// Entao `MOS_WEB_ORIGEM` passa a ser a declaracao de que este servidor e
+/// alcancavel de fora. Com ela, alguma porta precisa existir: a interna (quando
+/// ligada) ou uma externa que o operador afirma ter posto na frente
+/// (`MOS_WEB_PORTA_EXTERNA=1` — Basic Auth no Caddy, mTLS, o que for).
+///
+/// Afirmar e o ponto. Um servidor nao consegue enxergar o proxy que esta na
+/// frente dele; o que ele consegue e exigir que alguem tenha pensado no assunto
+/// e escrito a resposta. "Eu configuro depois" e como toda porta aberta comeca.
 fn conferir_a_porta(bind: &str) -> Result<(), String> {
     let local = bind == "127.0.0.1" || bind == "localhost" || bind == "::1";
+    let publicado = std::env::var("MOS_WEB_ORIGEM")
+        .map(|origem| !origem.trim().is_empty())
+        .unwrap_or(false);
+    let porta_externa = std::env::var("MOS_WEB_PORTA_EXTERNA")
+        .map(|valor| valor == "1")
+        .unwrap_or(false);
+
+    if publicado && !PORTA_INTERNA_LIGADA && !porta_externa {
+        // Linhas num array, e nao uma string com `\` no fim de cada linha: a
+        // continuacao de string do Rust nao come a indentacao de forma
+        // confiavel, e o resultado sai com um degrau de espacos no meio de uma
+        // mensagem que precisa ser lida com pressa.
+        return Err([
+            "MOS_WEB_ORIGEM esta definida, entao este servidor e alcancavel de fora —",
+            "e nao ha porta nenhuma na frente dele.",
+            "",
+            "A porta interna (passkey) esta escrita mas ainda NAO montada nas rotas.",
+            "Ponha autenticacao no proxy (Basic Auth no Caddy, por exemplo) e declare",
+            "isso com MOS_WEB_PORTA_EXTERNA=1.",
+            "",
+            "Atras desta URL esta o seu M/OS inteiro.",
+        ]
+        .join(
+            "
+",
+        ));
+    }
+
+    if publicado && porta_externa {
+        eprintln!(
+            "[web] publicado em modo PORTA EXTERNA: quem autentica e o proxy, e nao este binario."
+        );
+    }
 
     #[cfg(feature = "porta-aberta")]
     if !local {
@@ -137,7 +202,7 @@ fn conferir_a_porta(bind: &str) -> Result<(), String> {
     }
 
     #[cfg(not(feature = "passkey"))]
-    if local {
+    if local && !publicado {
         eprintln!("[web] AVISO: sem autenticacao. So vale porque o bind e local.");
     }
 
