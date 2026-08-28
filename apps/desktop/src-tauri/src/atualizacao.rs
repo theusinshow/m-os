@@ -22,10 +22,18 @@
 //!
 //! # O dia da versao que esta rodando
 //!
-//! Vem do carimbo do proprio executavel no disco, e nao de uma data compilada
-//! junto. Uma data embutida no binario responde "quando isto foi compilado", que
-//! nao e a pergunta: a pergunta e **desde quando este computador esta nesta
-//! versao**, e quem sabe disso e o arquivo que o instalador escreveu.
+//! Vem do carimbo do proprio executavel no disco. Isso responde **de quando e a
+//! versao que esta rodando**, e nao "desde quando este computador esta nela": o
+//! NSIS PRESERVA o carimbo dos arquivos que empacota, entao o `mos-desktop.exe`
+//! mantem a hora em que o CI o compilou, e nao a hora em que o instalador
+//! passou por aqui. Conferido em 28/08/2026: o executavel marcava 25/08 23:30,
+//! que e o build do release; o `uninstall.exe`, que o NSIS gera na hora, marcava
+//! 26/08 09:42, que e a instalacao.
+//!
+//! A pergunta que a tela faz e a primeira — "de que dia e a atualizacao que ele
+//! esta executando" —, entao o carimbo serve. O nome do campo diz isso, e nao
+//! "instalada em": um rotulo que promete a data da instalacao e entrega a da
+//! compilacao e uma mentira pequena que ninguem tem como perceber.
 
 use std::path::Path;
 
@@ -45,9 +53,10 @@ use crate::{load_settings, save_settings, AppState};
 pub struct EstadoDaAtualizacao {
     /// A versao que esta rodando agora.
     pub versao: String,
-    /// Quando esta versao chegou NESTE computador, em RFC 3339. Vazio quando o
-    /// carimbo do executavel nao pode ser lido — que acontece, e nao e erro.
-    pub instalada_em: String,
+    /// De quando E esta versao, em RFC 3339: o carimbo do executavel, que o
+    /// instalador preserva do build. Vazio quando ele nao pode ser lido — que
+    /// acontece, e nao e erro. Ver o cabecalho para por que nao e "instalada em".
+    pub versao_de: String,
     /// Quando a ultima verificacao BEM-SUCEDIDA aconteceu. Vazio significa
     /// nunca, e "nunca" e uma resposta que a tela precisa poder dar.
     pub verificada_em: String,
@@ -80,9 +89,11 @@ const ENDPOINT: &str = "https://github.com/theusinshow/m-os/releases/latest/down
 
 /// Quando o executavel que esta rodando foi escrito no disco.
 ///
-/// E a data em que o instalador colocou esta versao aqui. Falha em silencio —
-/// devolvendo vazio — porque nao saber a data e uma informacao a menos, e nao um
-/// motivo para o painel inteiro nao abrir.
+/// Na pratica, a hora em que o CI o compilou: o NSIS preserva o carimbo do que
+/// empacota. Ver o cabecalho.
+///
+/// Falha em silencio — devolvendo vazio — porque nao saber a data e uma
+/// informacao a menos, e nao um motivo para o painel inteiro nao abrir.
 fn carimbo_do_executavel() -> String {
     std::env::current_exe()
         .ok()
@@ -103,7 +114,7 @@ pub fn atualizacao_estado(
     let settings = load_settings(&state.settings_path);
     EstadoDaAtualizacao {
         versao: app.package_info().version.to_string(),
-        instalada_em: carimbo_do_executavel(),
+        versao_de: carimbo_do_executavel(),
         verificada_em: settings.atualizacao_verificada_em.clone(),
         disponivel: settings.atualizacao_disponivel.clone(),
         publicada_em: settings.atualizacao_publicada_em.clone(),

@@ -19,7 +19,7 @@ import {
 
 const VAZIO: EstadoDaAtualizacao = {
   versao: "0.3.1",
-  instaladaEm: "",
+  versaoDe: "",
   verificadaEm: "",
   disponivel: "",
   publicadaEm: "",
@@ -78,11 +78,14 @@ describe("qual das cinco", () => {
 });
 
 describe("a linha da versão", () => {
-  it("diz a versão e o dia em que ela chegou neste computador", () => {
-    const linha = linhaDaVersao({ ...VAZIO, instaladaEm: "2026-08-26T14:31:00Z" });
+  it("diz a versão e de que dia ela é", () => {
+    const linha = linhaDaVersao({ ...VAZIO, versaoDe: "2026-08-26T14:31:00Z" });
     expect(linha).toContain("0.3.1");
-    expect(linha).toContain("instalada em");
     expect(linha).toContain("26/08");
+    // "de", e nao "instalada em": o carimbo e o do build, porque o NSIS preserva
+    // o carimbo do que empacota. Prometer a data da instalacao e entregar a da
+    // compilacao seria uma mentira que ninguem tem como perceber.
+    expect(linha).not.toContain("instalada");
   });
 
   it("sem carimbo, diz a versão e para de falar", () => {

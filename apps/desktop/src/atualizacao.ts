@@ -23,8 +23,8 @@
 export type EstadoDaAtualizacao = {
   /** A versão que está rodando agora. */
   versao: string;
-  /** Quando esta versão chegou NESTE computador. RFC 3339, ou vazio. */
-  instaladaEm: string;
+  /** De quando é esta versão — o carimbo do executável. RFC 3339, ou vazio. */
+  versaoDe: string;
   /** A última verificação que deu certo. Vazio significa nunca. */
   verificadaEm: string;
   /** A versão nova que ela encontrou. Vazio significa que não havia. */
@@ -102,16 +102,17 @@ function data(iso: string): string {
 }
 
 /**
- * A primeira linha: o que está rodando, e desde quando.
+ * A primeira linha: o que está rodando, e de que dia é.
  *
- * A data vem do carimbo do executável, então ela responde "desde quando este
- * computador está nesta versão" — que é a pergunta —, e não "quando isto foi
- * compilado".
+ * "de 25/08" e não "instalada em 25/08", e a diferença não é preciosismo: o
+ * carimbo vem do executável, e o NSIS preserva o carimbo do que empacota — então
+ * ele é a hora em que o CI compilou a versão, não a hora em que ela chegou neste
+ * computador. As duas costumam ser dias diferentes. Ver `atualizacao.rs`.
  */
 export function linhaDaVersao(estado: EstadoDaAtualizacao | null): string {
   if (!estado?.versao) return "Versão —";
-  const quando = dia(estado.instaladaEm);
-  return quando ? `Versão ${estado.versao} · instalada em ${quando}` : `Versão ${estado.versao}`;
+  const quando = dia(estado.versaoDe);
+  return quando ? `Versão ${estado.versao} · de ${quando}` : `Versão ${estado.versao}`;
 }
 
 /**
