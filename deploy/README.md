@@ -117,9 +117,13 @@ Se isto não responder, nada adiante vai funcionar — resolva aqui, e não no P
 # Uma vez, para testar:
 ssh -N -L 9120:127.0.0.1:9120 hermes@167.233.43.1
 
-# Permanente, como o do Hermes (tarefa agendada no logon):
-scripts\sync-tunnel.ps1
+# Permanente (tarefa agendada no logon, sem admin):
+scripts\install-sync-tunnel.ps1
 ```
+
+O instalador copia o `sync-tunnel.ps1` para o perfil, registra a tarefa, sobe e
+**confere o `/health` do hub** — e não apenas se a porta abriu. Uma porta que
+aceita conexão sem ninguém atrás é o tipo de "está funcionando" que engana.
 
 Conferência no PC:
 
