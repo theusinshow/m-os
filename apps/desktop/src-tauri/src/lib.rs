@@ -17,7 +17,7 @@ use mos_core::{
 use mos_storage_sqlite::{SqliteStorage, StorageHealth};
 use serde::{Deserialize, Serialize};
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem},
     tray::TrayIconBuilder,
     AppHandle, Emitter, Listener, Manager, Runtime,
 };
@@ -149,6 +149,17 @@ pub(crate) struct UserSettings {
     /// segunda fonte de verdade que aquela ADR existe para evitar.
     #[serde(default)]
     start_minimized: bool,
+    /// A faixa de uso desligada de vez, pelo tray.
+    ///
+    /// `oculta` e nao `visivel` porque `#[serde(default)]` de um booleano e
+    /// `false`, e o padrao que se quer e a faixa APARECENDO. Um campo chamado
+    /// `visivel` precisaria de um `default` proprio so para nao nascer
+    /// desligado no primeiro `settings.json` que ainda nao o conhece.
+    #[serde(default)]
+    faixa_oculta: bool,
+    /// A faixa recolhida na lingueta. Mesma logica de nome do campo acima.
+    #[serde(default)]
+    faixa_recolhida: bool,
     /// Caminhos do transcritor local.
     ///
     /// Preferencia NOSSA, e nao do sistema, entao ela mora aqui — diferente de
@@ -1308,6 +1319,10 @@ pub struct TrayHandles {
     pub tray: tauri::tray::TrayIcon<tauri::Wry>,
     /// O item que carrega o relogio. Vive dentro de `live`.
     pub clock: tauri::menu::MenuItem<tauri::Wry>,
+    /// Os DOIS itens da faixa: um item so pertence a um menu, e o tray troca de
+    /// menu quando uma gravacao comeca. Marcar so um deixaria a marca errada
+    /// metade do tempo.
+    pub faixa: [CheckMenuItem<tauri::Wry>; 2],
     pub idle: Menu<tauri::Wry>,
     pub live: Menu<tauri::Wry>,
     /// Qual menu esta montado agora.
@@ -1318,7 +1333,11 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Abrir M/OS", true, None::<&str>)?;
     let capture = MenuItem::with_id(app, "capture", "Captura rapida", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-    let idle = Menu::with_items(app, &[&open, &capture, &quit])?;
+    // Marcado por padrao, e corrigido pela preferencia gravada assim que o laco
+    // de uso comeca: aqui o `AppState` ainda nao existe, e com ele nao existe o
+    // caminho do `settings.json`.
+    let faixa = CheckMenuItem::with_id(app, "faixa", "Faixa de uso", true, true, None::<&str>)?;
+    let idle = Menu::with_items(app, &[&open, &capture, &faixa, &quit])?;
 
     // Um item so pertence a um menu, entao o menu de gravacao tem instancias
     // proprias. Os ids sao os mesmos: quem trata o evento nao precisa saber
@@ -1328,7 +1347,19 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let open_live = MenuItem::with_id(app, "open", "Abrir M/OS", true, None::<&str>)?;
     let capture_live = MenuItem::with_id(app, "capture", "Captura rapida", true, None::<&str>)?;
     let quit_live = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-    let live = Menu::with_items(app, &[&clock, &stop, &open_live, &capture_live, &quit_live])?;
+    let faixa_live =
+        CheckMenuItem::with_id(app, "faixa", "Faixa de uso", true, true, None::<&str>)?;
+    let live = Menu::with_items(
+        app,
+        &[
+            &clock,
+            &stop,
+            &open_live,
+            &capture_live,
+            &faixa_live,
+            &quit_live,
+        ],
+    )?;
 
     let mut tray = TrayIconBuilder::new()
         .tooltip("M/OS")
@@ -1340,6 +1371,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             // exatamente nessa situacao que a pessoa precisa parar sem procurar
             // o aplicativo atras do Meet.
             "meeting_stop" => meeting::stop_from_tray(app),
+            "faixa" => usage::alternar_pela_bandeja(app),
             "quit" => app.exit(0),
             _ => {}
         });
@@ -1355,6 +1387,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     app.manage(TrayHandles {
         tray,
         clock,
+        faixa: [faixa, faixa_live],
         idle,
         live,
         live_shown: std::sync::atomic::AtomicBool::new(false),
@@ -2339,6 +2372,7 @@ pub fn run() {
                     usage::usage_faixa,
                     usage::faixa_painel_alternar,
                     usage::faixa_painel_fechar,
+                    usage::faixa_recolher,
                     usage::faixa_abrir_app,
                     daily::daily_today,
                     daily::daily_context,

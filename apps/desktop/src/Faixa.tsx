@@ -26,6 +26,19 @@ import type { AnelDaFaixa, Faixa } from "./types";
  * comparação. Aí o anel mostra o trilho e o valor absoluto, que é o que
  * `Ring.tsx` já manda fazer no zero.
  *
+ * # Esconder
+ *
+ * Dois gestos, e eles não são o mesmo. A lingueta de 12px na borda **recolhe**:
+ * o cartão some da tela e sobra só ela, um clique de distância — mas a janela
+ * continua onde estava, porque movê-la mata a entrada dela (ver `usage.rs`), e
+ * os 84px que o cartão ocupava seguem engolindo clique do desktop. O item
+ * "Faixa de uso" no tray **desliga**: a janela some inteira, e aí não sobra
+ * pixel nenhum no caminho. A escolha fica gravada nos dois casos.
+ *
+ * O laço de leitura continua rodando nos dois casos. Parar de contar enquanto a
+ * faixa está escondida perderia o consumo do período, e ao trazê-la de volta o
+ * pico — que é o único número que ela tem — estaria errado.
+ *
  * # Clique, e não hover
  *
  * O desenho de origem abria no hover. Ele não sobreviveu à tela: crescer a
@@ -86,7 +99,12 @@ function useFaixa() {
     return () => window.clearInterval(relogio);
   }, []);
 
-  return { aneis: faixa?.aneis ?? [], calibrando: faixa?.calibrando ?? false, agora };
+  return {
+    aneis: faixa?.aneis ?? [],
+    calibrando: faixa?.calibrando ?? false,
+    recolhida: faixa?.recolhida ?? false,
+    agora,
+  };
 }
 
 function Barra({ rotulo, valor, teto, nota, regua, contra }: {
@@ -121,7 +139,7 @@ function Barra({ rotulo, valor, teto, nota, regua, contra }: {
 
 /** A tira de anéis, na janela `faixa`. */
 export function FaixaDeUso() {
-  const { aneis, calibrando } = useFaixa();
+  const { aneis, calibrando, recolhida } = useFaixa();
   const [aberto, setAberto] = useState(false);
 
   /* Quem decide se o painel está aberto é a visibilidade da janela dele, do
@@ -131,32 +149,50 @@ export function FaixaDeUso() {
     void api.alternarPainelDaFaixa().then(setAberto).catch(() => undefined);
   }, []);
 
+  const recolher = useCallback((proxima: boolean) => {
+    void api.recolherFaixa(proxima).catch(() => undefined);
+  }, []);
+
   // Sem fonte a faixa não desenha nada. Ela não aparece vazia esperando um dado
   // que nunca virá — a janela some do caminho de quem está trabalhando.
   if (!aneis.length) return null;
 
   return (
-    <div className="faixa-tira" data-aberto={aberto || undefined}>
-      {aneis.map((anel) => {
-        const regua = temRegua(anel, calibrando);
-        const fracao = proporcao(anel.peso, anel.pico);
-        const valor = regua ? `${Math.round(fracao * 100)}%` : curto(anel.peso);
-        return (
-          <button
-            type="button"
-            className="faixa-anel"
-            key={anel.nome}
-            aria-expanded={aberto}
-            aria-label={`${anel.nome}: ${regua ? `${valor} do pico de consumo` : `${valor} tokens`}`}
-            onClick={alternar}
-          >
-            <Ring size={56} segments={regua ? [{ value: fracao }] : []}>
-              <RingLabel value={valor} />
-            </Ring>
-            <span className="micro-label">{regua ? "DO PICO" : calibrando ? "LENDO" : "SEM RÉGUA"}</span>
-          </button>
-        );
-      })}
+    <div className="faixa-shell" data-recolhida={recolhida || undefined}>
+      {/* Primeiro no DOM, e à direita na tela: o shell é `row-reverse`, para a
+          lingueta ficar colada na borda mesmo quando o cartão some. */}
+      <button
+        type="button"
+        className="faixa-lingueta"
+        aria-label={recolhida ? "Mostrar a faixa de uso" : "Recolher a faixa de uso"}
+        title={recolhida ? "Mostrar a faixa de uso" : "Recolher a faixa de uso"}
+        onClick={() => recolher(!recolhida)}
+      >
+        <span className="faixa-lingueta-marca" aria-hidden="true" />
+      </button>
+
+      <div className="faixa-tira">
+        {aneis.map((anel) => {
+          const regua = temRegua(anel, calibrando);
+          const fracao = proporcao(anel.peso, anel.pico);
+          const valor = regua ? `${Math.round(fracao * 100)}%` : curto(anel.peso);
+          return (
+            <button
+              type="button"
+              className="faixa-anel"
+              key={anel.nome}
+              aria-expanded={aberto}
+              aria-label={`${anel.nome}: ${regua ? `${valor} do pico de consumo` : `${valor} tokens`}`}
+              onClick={alternar}
+            >
+              <Ring size={56} segments={regua ? [{ value: fracao }] : []}>
+                <RingLabel value={valor} />
+              </Ring>
+              <span className="micro-label">{regua ? "DO PICO" : calibrando ? "LENDO" : "SEM RÉGUA"}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

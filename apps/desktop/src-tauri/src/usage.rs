@@ -73,9 +73,20 @@ pub struct Faixa {
     pub aneis: Vec<AnelDaFaixa>,
     /// A primeira carga ainda esta correndo: ha peso, mas nao ha regua.
     pub calibrando: bool,
+    /// A faixa esta na lingueta.
+    ///
+    /// Viaja junto do dado, e nao num comando proprio, porque a tira ja pede
+    /// isto na montagem e ja escuta o evento `usage` — um segundo caminho para
+    /// o mesmo estado e um segundo jeito de ele ficar dessincronizado.
+    pub recolhida: bool,
 }
 
-fn montar(leitura: LeituraDeUso, nome: &str, calibrando: bool) -> Result<Faixa, CoreError> {
+fn montar(
+    leitura: LeituraDeUso,
+    nome: &str,
+    calibrando: bool,
+    recolhida: bool,
+) -> Result<Faixa, CoreError> {
     let (peso, requisicoes, reseta_em) = match &leitura.sessao {
         Some(sessao) => (
             sessao.peso,
@@ -111,6 +122,7 @@ fn montar(leitura: LeituraDeUso, nome: &str, calibrando: bool) -> Result<Faixa, 
             janelas_conhecidas: leitura.janelas_conhecidas,
         }],
         calibrando,
+        recolhida,
     })
 }
 
@@ -124,15 +136,18 @@ pub fn usage_faixa<R: Runtime>(app: AppHandle<R>) -> Result<Faixa, CoreError> {
         return Ok(Faixa {
             aneis: Vec::new(),
             calibrando: false,
+            recolhida: false,
         });
     };
     let calibrando = app
         .try_state::<Uso>()
         .map(|uso| uso.calibrando.load(Ordering::Relaxed))
         .unwrap_or(false);
-    let storage = crate::services(&app)?.storage.clone();
+    let estado = crate::services(&app)?;
+    let recolhida = crate::load_settings(&estado.settings_path).faixa_recolhida;
+    let storage = estado.storage.clone();
     let leitura = storage.usage_leitura(crate::surface::now_local(&app))?;
-    montar(leitura, &fonte.nome, calibrando)
+    montar(leitura, &fonte.nome, calibrando, recolhida)
 }
 
 /// Abre e fecha o painel.
@@ -201,6 +216,23 @@ pub const JANELA_PAINEL: &str = "faixa-painel";
 /// sobravam cerca de 150.
 const LARGURA_FAIXA: f64 = 96.0;
 const ALTURA_FAIXA: f64 = 112.0;
+// A lingueta e desenhada em CSS, e nao ha constante para ela aqui.
+//
+// # Por que recolher nao mexe na janela
+//
+// Foram tentados os dois caminhos, e os dois morreram na tela:
+//
+// * `set_size` e IGNORADO numa janela `resizable: false`, e ligar
+//   `resizable: true` faz uma janela sem decoracao parar de receber qualquer
+//   evento de mouse no Windows;
+// * `set_position` funciona, e **mata a entrada da janela por uns quinze
+//   segundos**. Medido com seis cliques alternados: OK, morto, morto, morto,
+//   OK, morto. Um `hide` seguido de `show` depois do movimento nao recupera.
+//
+// Entao a janela da tira nasce onde vai morrer, e recolher e so uma classe no
+// CSS. O preco esta escrito no `App.css`: recolhida, os 84 pixels do cartao
+// continuam sendo janela transparente e continuam engolindo clique. Quem some
+// de verdade e o item do tray, que esconde a janela inteira.
 
 /// Cola a janela na borda direita, centrada na vertical.
 ///
@@ -209,12 +241,16 @@ const ALTURA_FAIXA: f64 = 112.0;
 /// canto de baixo, e a faixa no meio da direita, que e onde o olho passa sem
 /// procurar.
 ///
+/// Chamada UMA vez, quando a faixa aparece. Recolher nao passa por aqui: mover
+/// a janela mata a entrada dela — ver o comentario logo acima de
+/// `LARGURA_FAIXA`.
+///
 /// O tamanho e PERGUNTADO a janela, e nao derivado das constantes. O
 /// `tauri.conf.json` pede 96 de largura e o Windows entrega uma janela de 136:
 /// a medida do config e a area de cliente, e sobra moldura invisivel. Posicionar
 /// pela constante deixava 40 pixels da tira para fora da tela.
-fn posicionar<R: Runtime>(janela: &tauri::WebviewWindow<R>, largura: f64, altura: f64) {
-    let _ = janela.set_size(tauri::LogicalSize::new(largura, altura));
+fn posicionar<R: Runtime>(janela: &tauri::WebviewWindow<R>) {
+    let _ = janela.set_size(tauri::LogicalSize::new(LARGURA_FAIXA, ALTURA_FAIXA));
     let Ok(Some(monitor)) = janela.current_monitor() else {
         return;
     };
@@ -257,11 +293,98 @@ pub fn abrir<R: Runtime>(app: &AppHandle<R>) {
     let Some(janela) = app.get_webview_window(JANELA_FAIXA) else {
         return;
     };
-    posicionar(&janela, LARGURA_FAIXA, ALTURA_FAIXA);
+    if oculta(app) {
+        let _ = janela.hide();
+        return;
+    }
+    posicionar(&janela);
     let _ = janela.show();
     // Sem roubar o foco, pela mesma razao do lembrete: quem esta com as maos no
     // teclado nao pediu por uma janela nova.
     let _ = janela.set_always_on_top(true);
+}
+
+/// A faixa esta desligada pelo tray?
+///
+/// So esta preferencia chega ate aqui. `faixa_recolhida` nao: recolher nao mexe
+/// mais na janela, entao quem precisa dela e a tela, e ela viaja no payload de
+/// [`Faixa`].
+fn oculta<R: Runtime>(app: &AppHandle<R>) -> bool {
+    // Sem `setup` terminado o padrao e a faixa aparecendo, que e o que um
+    // `settings.json` sem o campo tambem diz.
+    crate::services(app)
+        .map(|estado| crate::load_settings(&estado.settings_path).faixa_oculta)
+        .unwrap_or(false)
+}
+
+/// Recolhe a faixa na lingueta, ou a traz de volta.
+///
+/// So grava a preferencia e avisa a tela: a JANELA nao se mexe, porque move-la
+/// mata a entrada dela. Quem esconde o cartao e o CSS.
+///
+/// Gravado no `settings.json` porque recolher e o gesto de quem nao quer ver
+/// aquilo agora — e uma faixa que voltasse inteira a cada abertura obrigaria a
+/// repetir o gesto todo dia.
+#[tauri::command]
+pub fn faixa_recolher<R: Runtime>(app: AppHandle<R>, recolhida: bool) -> Result<(), CoreError> {
+    let estado = crate::services(&app)?;
+    let mut settings = crate::load_settings(&estado.settings_path);
+    settings.faixa_recolhida = recolhida;
+    crate::save_settings(&estado.settings_path, &settings)?;
+
+    // Recolher com o painel aberto deixaria um cartao de 440px flutuando ao lado
+    // de uma lingueta de 12: o painel e do anel, e sem o anel na tela ele nao
+    // tem dono.
+    if recolhida {
+        if let Some(painel) = app.get_webview_window(JANELA_PAINEL) {
+            let _ = painel.hide();
+        }
+    }
+    emitir(&app);
+    Ok(())
+}
+
+/// Liga e desliga a faixa pelo item do tray.
+///
+/// Desligada, a janela some e o laco CONTINUA contando. Parar de ler seria
+/// perder o consumo do periodo em que a faixa esteve escondida, e ao religa-la
+/// o pico estaria errado — que e o unico numero que ela tem.
+pub fn alternar_pela_bandeja<R: Runtime>(app: &AppHandle<R>) {
+    let Ok(estado) = crate::services(app) else {
+        return;
+    };
+    let mut settings = crate::load_settings(&estado.settings_path);
+    settings.faixa_oculta = !settings.faixa_oculta;
+    let oculta = settings.faixa_oculta;
+    if crate::save_settings(&estado.settings_path, &settings).is_err() {
+        return;
+    }
+    if oculta {
+        for rotulo in [JANELA_FAIXA, JANELA_PAINEL] {
+            if let Some(janela) = app.get_webview_window(rotulo) {
+                let _ = janela.hide();
+            }
+        }
+    } else {
+        abrir(app);
+    }
+    marcar_na_bandeja(app, !oculta);
+}
+
+/// Poe a marca do item do tray de acordo com a preferencia gravada.
+pub fn marcar_na_bandeja<R: Runtime>(app: &AppHandle<R>, marcado: bool) {
+    if let Some(bandeja) = app.try_state::<crate::TrayHandles>() {
+        for item in &bandeja.faixa {
+            let _ = item.set_checked(marcado);
+        }
+    }
+}
+
+/// Manda a faixa redesenhar com o estado de agora.
+fn emitir<R: Runtime>(app: &AppHandle<R>) {
+    if let Ok(faixa) = usage_faixa(app.clone()) {
+        let _ = app.emit("usage", faixa);
+    }
 }
 
 /// Uma passada: le o que cresceu, grava, e avisa a faixa.
@@ -286,6 +409,7 @@ pub async fn run<R: Runtime>(app: AppHandle<R>) {
         uso.calibrando.store(true, Ordering::Relaxed);
     }
     let mut mostrada = false;
+    let mut marcou = false;
 
     loop {
         let storage = match crate::services(&app) {
@@ -333,15 +457,20 @@ pub async fn run<R: Runtime>(app: AppHandle<R>) {
             false
         };
 
+        // A marca do tray so pode ser corrigida depois do `setup`: e la que o
+        // caminho do `settings.json` passa a existir.
+        if !marcou {
+            marcar_na_bandeja(&app, !oculta(&app));
+            marcou = true;
+        }
+
         if !mostrada && novas.is_some() {
             abrir(&app);
             mostrada = true;
         }
 
         if primeira || novas.is_some_and(|quantas| quantas > 0) {
-            if let Ok(faixa) = usage_faixa(app.clone()) {
-                let _ = app.emit("usage", faixa);
-            }
+            emitir(&app);
         }
 
         tokio::time::sleep(INTERVALO).await;
@@ -372,7 +501,7 @@ mod tests {
 
     #[test]
     fn a_faixa_leva_o_pico_e_o_prazo() {
-        let faixa = montar(leitura(), "Claude Code", false).unwrap();
+        let faixa = montar(leitura(), "Claude Code", false, false).unwrap();
         let anel = &faixa.aneis[0];
         assert_eq!(anel.peso, 500_000);
         assert_eq!(anel.pico, 1_000_000);
@@ -386,7 +515,7 @@ mod tests {
             sessao: None,
             ..leitura()
         };
-        let anel = &montar(leitura, "Claude Code", false).unwrap().aneis[0];
+        let anel = &montar(leitura, "Claude Code", false, false).unwrap().aneis[0];
         assert_eq!(anel.peso, 0);
         assert_eq!(anel.requisicoes, 0);
         assert_eq!(anel.reseta_em, None, "sem janela nao ha o que resetar");
@@ -395,7 +524,7 @@ mod tests {
 
     #[test]
     fn calibrando_atravessa_ate_a_faixa() {
-        let faixa = montar(leitura(), "Claude Code", true).unwrap();
+        let faixa = montar(leitura(), "Claude Code", true, false).unwrap();
         assert!(faixa.calibrando);
     }
 }

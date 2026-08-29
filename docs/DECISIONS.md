@@ -3081,3 +3081,79 @@ quebra, evita exibir um anel vazio.
 
 O Claude Code passar a gravar o teto de cota ou a hora de reset. Aí a régua deixa
 de ser o pico e passa a ser o limite de verdade, e o rótulo muda junto.
+
+## ADR-060 — Esconder a faixa: a lingueta recolhe, o tray desliga
+
+**Estado:** Accepted · 2026-08-29
+
+### Contexto
+
+A faixa de uso fica sempre por cima, e sempre por cima incomoda. O pedido foi
+direto: ela tem que ser escondível.
+
+### Decisão
+
+**Dois gestos, e eles não são o mesmo.**
+
+A **lingueta** de 12px na borda recolhe: o cartão some e sobra ela, um clique de
+distância. A preferência vai para `faixa_recolhida` no `settings.json` — recolher
+é o gesto de quem não quer ver aquilo agora, e uma faixa que voltasse inteira a
+cada abertura obrigaria a repetir o gesto todo dia.
+
+O item **"Faixa de uso"** no tray desliga: a janela some inteira, e a escolha vai
+para `faixa_oculta`. São dois `CheckMenuItem`, um por menu, porque o tray troca
+de menu quando uma gravação começa e marcar só um deixaria a marca errada
+metade do tempo.
+
+Os campos se chamam `oculta` e `recolhida`, e não `visivel` e `inteira`, porque
+`#[serde(default)]` de um booleano é `false` e o padrão que se quer é a faixa
+aparecendo — um campo positivo precisaria de um `default` próprio só para não
+nascer desligado no primeiro `settings.json` que ainda não o conhece.
+
+**O laço continua contando com a faixa escondida.** Parar de ler perderia o
+consumo do período, e ao trazê-la de volta o pico — que é o único número que ela
+tem — estaria errado.
+
+**Recolher não mexe na janela.** Os dois caminhos óbvios foram tentados e os dois
+morreram na tela: `set_size` é ignorado numa janela `resizable: false`, e
+`set_position` funciona mas mata a entrada da janela por uns quinze segundos.
+Então recolher é uma classe no CSS, e o preço está escrito: recolhida, os 84
+pixels que o cartão ocupava continuam sendo janela transparente e continuam
+engolindo clique do desktop. Quem elimina isso é o tray.
+
+### O defeito conhecido
+
+**A janela da tira fica surda a clique de forma intermitente**, e isso não é do
+esconder: já estava na faixa da ADR-059, e passou porque os primeiros testes
+caíram nas janelas em que ela estava viva. Seis cliques alternados no mesmo
+processo deram `OK, morto, morto, morto, OK, morto`; às vezes ela nasce surda e
+nenhum clique funciona até o app reiniciar.
+
+Descartados, cada um com teste na tela:
+
+| tentativa | resultado |
+| --- | --- |
+| `resizable: true` | mata a entrada **sempre** |
+| `set_position` | mata por ~15s |
+| `hide()` + `show()` depois de mover | não recupera |
+| `focus: false` → `focus: true` | nenhuma diferença |
+| mostrar só depois da primeira passada | ajudou uma vez, não é confiável |
+
+A correlação que sobra: **o painel, escondido e mostrado a cada uso, nunca
+falhou; a tira, mostrada uma vez e deixada visível, é a que emudece.** É a mesma
+diferença do `lembrete` e do `reuniao-detectada`, que funcionam em produção e
+também são hide/show.
+
+### Consequências
+
+- O gesto do tray é o único caminho de esconder que não depende do clique na
+  tira, e por isso ele é o que sempre funciona.
+- O clique no item do tray não foi exercitado ponta a ponta: o Windows 11 não
+  expõe mais a bandeja pela API de toolbar antiga. O caminho que ele aciona —
+  gravar a preferência, esconder ou mostrar — está provado por outro meio.
+
+### Revisar quando
+
+A causa da surdez aparecer. A hipótese aberta é que uma janela sem decoração
+mostrada uma vez e deixada visível perca a entrada, e o teste dela é recriar ou
+re-mostrar a tira em vez de mantê-la viva.

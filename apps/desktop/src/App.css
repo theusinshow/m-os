@@ -11139,6 +11139,9 @@ button.daily-objective-title:focus-visible {
    A FAIXA DE USO
    ==========================================================================
 
+   Recolher tambem NAO mexe na janela: e uma classe no CSS que esconde o cartao
+   e deixa so a lingueta de 12px pintada.
+
    DUAS janelas `transparent`, e nao uma que cresce: a tira de 96x112 colada na
    borda direita, e o painel de 440x232 que aparece encostado a esquerda dela.
 
@@ -11151,7 +11154,69 @@ button.daily-objective-title:focus-visible {
    ocupam 100% dela: pixel transparente sobrando e clique roubado do desktop, o
    mesmo cuidado que o `.reminder-shell` registra. */
 
+/* A janela da tira e uma linha: o cartao, e a lingueta de 12px encostada na
+   borda da tela.
+
+   `row-reverse` com `flex-end` para que a lingueta fique SEMPRE colada na
+   direita, inclusive quando o cartao some: recolher e esconder o cartao aqui, e
+   nao mover a janela.
+
+   O preco de recolher por CSS esta escrito: os 84 pixels que o cartao ocupava
+   continuam sendo janela transparente, e janela transparente engole clique do
+   desktop. Quem some de verdade e o item "Faixa de uso" no tray, que esconde a
+   janela inteira. Mover a janela para fora da tela resolveria isso e nao e uma
+   opcao — ver o comentario de `posicionar` em `usage.rs`. */
+.faixa-shell {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+  align-items: stretch;
+  width: 100%;
+  height: 100%;
+}
+
+.faixa-shell[data-recolhida] .faixa-tira {
+  display: none;
+}
+
+/* A pega. Estreita de proposito: ela fica na tela o tempo todo quando a faixa
+   esta recolhida, e uma pega larga seria uma faixa menor em vez de uma faixa
+   escondida. */
+.faixa-lingueta {
+  flex: none;
+  width: 12px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: var(--line) solid var(--border-strong);
+  border-right: 0;
+  border-radius: var(--radius) 0 0 var(--radius);
+  background: var(--surface-raised);
+}
+
+/* Recolhida, a lingueta e a unica coisa pintada, e por isso ela ganha o raio
+   dos dois cantos: encostada em nada, uma quina viva de um lado so pareceria
+   metade de um cartao que nao esta la. */
+.faixa-shell[data-recolhida] .faixa-lingueta {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.faixa-lingueta:hover .faixa-lingueta-marca {
+  background: var(--text);
+}
+
+/* Dois pixels de traco, e nao uma seta: no estado recolhido isto e tudo o que
+   aparece na borda da tela, e um glifo de 12px viraria sujeira. */
+.faixa-lingueta-marca {
+  width: 2px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
 .faixa-tira {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -11163,12 +11228,12 @@ button.daily-objective-title:focus-visible {
   height: 100%;
   justify-content: center;
   padding: var(--space-3) var(--space-2);
-  border-radius: var(--radius) 0 0 var(--radius);
   background: var(--surface-raised);
   border: var(--line) solid var(--border-strong);
-  /* Sem borda na direita: ela encosta na borda da tela, e uma linha ali seria
-     uma linha pela metade. */
+  /* Sem borda na direita: a lingueta mora ali colada, e duas linhas juntas
+     viriam com o dobro da espessura. */
   border-right: 0;
+  border-radius: var(--radius) 0 0 var(--radius);
 }
 
 .faixa-anel {

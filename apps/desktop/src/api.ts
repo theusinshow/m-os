@@ -666,6 +666,10 @@ export const api = {
   fecharPainelDaFaixa() {
     return invoke<void>("faixa_painel_fechar");
   },
+  /** Recolhe a faixa na lingueta, ou a traz de volta. Grava a preferência. */
+  recolherFaixa(recolhida: boolean) {
+    return invoke<void>("faixa_recolher", { recolhida });
+  },
   /** Traz a janela principal para a frente. */
   abrirApp() {
     return invoke<void>("faixa_abrir_app");

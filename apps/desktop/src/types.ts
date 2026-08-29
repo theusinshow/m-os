@@ -1512,4 +1512,6 @@ export type Faixa = {
   aneis: AnelDaFaixa[];
   /** A primeira carga ainda está correndo: há peso, mas ainda não há régua. */
   calibrando: boolean;
+  /** A faixa está recolhida na lingueta. Preferência gravada, não estado de tela. */
+  recolhida: boolean;
 };
