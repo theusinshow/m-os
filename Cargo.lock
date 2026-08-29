@@ -2928,6 +2928,7 @@ dependencies = [
  "mos-sync",
  "mos-sync-http",
  "mos-transcribe",
+ "mos-usage",
  "printpdf",
  "reqwest 0.12.28",
  "serde",
@@ -2980,6 +2981,7 @@ dependencies = [
  "hex",
  "mos-core",
  "mos-sync",
+ "mos-usage",
  "rusqlite",
  "serde",
  "serde_json",
@@ -3044,6 +3046,16 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "mos-usage"
+version = "0.3.2"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
 ]
 
 [[package]]

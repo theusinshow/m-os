@@ -31,6 +31,8 @@ para Windows, da captura e acao organizada ate Resources reencontraveis.
 - backup `.mos-backup`, restore validado e safety backup;
 - export JSON legivel e versionado;
 - atualizacao manual assinada pelo Tauri Updater;
+- faixa de uso na borda da tela: quanto da janela de 5h do Claude Code ja foi,
+  medido contra o proprio pico observado (ver `DECISIONS.md`, ADR-059);
 - design system proprio com temas dark e light;
 - nenhuma rede no caminho de captura ou consulta.
 

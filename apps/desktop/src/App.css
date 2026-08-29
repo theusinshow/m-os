@@ -18,7 +18,11 @@ body,
 :root[data-janela="lembrete"],
 :root[data-janela="lembrete"] body,
 :root[data-janela="reuniao-detectada"],
-:root[data-janela="reuniao-detectada"] body {
+:root[data-janela="reuniao-detectada"] body,
+:root[data-janela="faixa"],
+:root[data-janela="faixa"] body,
+:root[data-janela="faixa-painel"],
+:root[data-janela="faixa-painel"] body {
   background: transparent;
 }
 
@@ -11129,4 +11133,127 @@ button.daily-objective-title:focus-visible {
   .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; }
   .settings-nav a { border-left: 0; border-bottom: 2px solid transparent; }
   .settings-nav a[data-selected] { border-left: 0; border-bottom-color: var(--signal-ink); }
+}
+
+/* ==========================================================================
+   A FAIXA DE USO
+   ==========================================================================
+
+   DUAS janelas `transparent`, e nao uma que cresce: a tira de 96x112 colada na
+   borda direita, e o painel de 440x232 que aparece encostado a esquerda dela.
+
+   A versao que crescia uma janela so nao sobreviveu a tela. `set_size` e
+   ignorado numa janela `resizable: false`, e ligar `resizable: true` faz uma
+   janela sem decoracao PARAR de receber evento de mouse no Windows — hover e
+   clique. Ver o comentario de `faixa_painel_alternar` em `usage.rs`.
+
+   Cada janela tem exatamente o tamanho do que pinta, e por isso os dois cartoes
+   ocupam 100% dela: pixel transparente sobrando e clique roubado do desktop, o
+   mesmo cuidado que o `.reminder-shell` registra. */
+
+.faixa-tira {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  /* Ocupa a janela inteira. Nao e estetica: o que sobrar ao redor e janela
+     transparente, e janela transparente engole clique do desktop que estiver
+     embaixo — o Tauri nao faz click-through por regiao. */
+  width: 100%;
+  height: 100%;
+  justify-content: center;
+  padding: var(--space-3) var(--space-2);
+  border-radius: var(--radius) 0 0 var(--radius);
+  background: var(--surface-raised);
+  border: var(--line) solid var(--border-strong);
+  /* Sem borda na direita: ela encosta na borda da tela, e uma linha ali seria
+     uma linha pela metade. */
+  border-right: 0;
+}
+
+.faixa-anel {
+  display: flex;
+  /* O rotulo nunca quebra: "SEM RÉGUA" em duas linhas empurraria o anel para
+     cima e o alinhamento mudaria conforme o estado do dado. */
+  white-space: nowrap;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.faixa-painel {
+  /* Janela propria, e por isso `height: 100%`: o cartao ocupa a janela inteira,
+     porque cada pixel que sobrasse ao redor seria transparente e engoliria o
+     clique do desktop. */
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='light'] .faixa-painel {
+  box-shadow: 0 6px 16px rgba(20, 24, 26, 0.16);
+}
+
+.faixa-painel-nome {
+  color: var(--text);
+  font: 500 15px/1.2 var(--font-product);
+}
+
+.faixa-painel-fonte {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.faixa-barra {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.faixa-barra-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.faixa-barra-nota,
+.faixa-barra-valor {
+  color: var(--text-system);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+}
+
+.faixa-trilho {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.faixa-carga {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--signal-fill);
+}
+
+/* A frase que diz de que e a porcentagem.
+   Ela nao e rodape decorativo: sem ela o "73%" seria lido como "73% do plano",
+   que e a leitura errada e a unica que o dado nao sustenta. */
+.faixa-regua {
+  margin: 0;
+  color: var(--text-system);
+  font: var(--text-micro);
+  line-height: 1.5;
 }

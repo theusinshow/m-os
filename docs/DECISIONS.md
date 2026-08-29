@@ -2994,3 +2994,90 @@ instante marcado, gravados pela própria pessoa.
 Aparecer avaliação cuja nota não seja um número numa escala — conceito (A/B/C),
 menção ou aprovado/reprovado. `Pontuacao` assume `f64` com teto, e conceito
 pediria outro tipo, não outro campo.
+
+## ADR-059 — O anel de consumo mede contra o próprio pico, e a faixa são duas janelas
+
+**Estado:** Accepted · 2026-08-29
+
+### Contexto
+
+O pedido veio de um mockup de menubar do macOS: uma tira preta na borda da tela
+com um anel por provedor de IA, o percentual embaixo e um popover com "sessão
+atual, reseta em 51 min, 73% usado".
+
+Os transcripts locais do Claude Code foram medidos antes de qualquer linha de
+código, e três fatos da máquina decidiram o desenho inteiro:
+
+- **507 MB em 18 projetos.** Reler tudo a cada tique está fora de questão.
+- **3277 linhas com `usage` para 2108 `requestId` únicos** no maior transcript.
+  Um terço das linhas repete um request já gravado.
+- **`cache_read: 73243` contra `output: 496`** num request qualquer.
+
+E um fato negativo, que é o que mais importa: o arquivo **não** traz teto de
+cota nem hora de reset. O "73%" do mockup não tem denominador nesta máquina.
+
+### Decisão
+
+**1. A régua é o pico observado, e o rótulo diz isso.** O anel mede a janela de
+cinco horas corrente contra a maior janela já vista aqui — a mesma doutrina que
+o `WeekRings` aplica contra o melhor dia da semana, e a mesma que o `Ring.tsx`
+exige ao proibir "um anel bonito preenchido com número inventado". Um teto
+declarado nas Settings foi considerado e recusado: dependeria de um número que a
+Anthropic não publica, e seria a mesma invenção com um passo a mais.
+
+Com UMA janela conhecida não há régua nenhuma — o pico É a sessão —, e aí a
+faixa mostra o trilho e o valor absoluto em vez de um 100% que significaria
+apenas falta de comparação.
+
+**2. A chave primária é o `requestId`.** A deduplicação de 36% não é
+otimização: somar linha a linha inflaria o consumo em cerca de 55%. Com a chave
+no lugar certo, `INSERT OR IGNORE` resolve por construção, e a varredura fica
+idempotente — o que rebaixa `usage_fonte` (o offset por arquivo) a otimização
+pura. Um bug de offset vira lentidão, nunca número errado.
+
+**3. O peso é ponderado pelo preço publicado**, normalizado ao token de input:
+input ×1, cache_creation ×1,25, cache_read ×0,1, output ×5. Não inverte a ordem
+das parcelas — o cache lido continua sendo a maior —, mas derruba a
+desproporção de 148× para cerca de 3×, e é essa diferença que decide se o anel
+mede consumo ou mede tamanho de contexto.
+
+**4. Instante gravado é sempre UTC.** As colunas são `TEXT` e a comparação é de
+texto: `"2026-08-29T14:00:00-03:00"` e `"2026-08-29T17:00:00Z"` são o mesmo
+momento e não se parecem como string. O deslocamento local continua sendo usado,
+mas só para decidir o que é "hoje" — cortar o dia em UTC zeraria o anel do dia
+às 21h.
+
+**5. A faixa são DUAS janelas de tamanho fixo, e o gesto é clique.** A primeira
+versão crescia uma janela só no hover. Ela nunca abriu, e o motivo só apareceu
+com o app na tela: `set_size` é ignorado numa janela `resizable: false`, e ligar
+`resizable: true` faz uma janela sem decoração **parar de receber qualquer
+evento de mouse** no Windows. Foi medido nos dois sentidos.
+
+Com duas janelas nada é redimensionado, `show`/`hide` funcionam sempre, e cada
+janela tem exatamente o tamanho do que pinta — que importa porque pixel
+transparente sobrando é clique roubado do desktop: o Tauri não faz click-through
+por região.
+
+**6. A janela só aparece depois da primeira passada.** Mostrada no `setup`, a
+tira desenhava certo — o `PrintWindow` provava — e não recebia clique nenhum: a
+webview ainda não havia navegado. Esperar o primeiro dado conserta isso e, de
+quebra, evita exibir um anel vazio.
+
+### Consequências
+
+- Crate `mos-usage` isolada, sem `mos-core` e sem SQLite. Ela analisa o formato
+  de arquivo de uma ferramenta de terceiro; quando ele mudar, o teste que quebra
+  aponta para um crate pequeno.
+- Migration `0036`, três tabelas, nenhuma chave estrangeira para o domínio.
+- A escrita de uso **não** passa pelo portão de escrita: ela não emite operação
+  de sync, e a primeira carga varre meio giga — segurar o portão por ela travaria
+  o sync por minutos sem ganho nenhum.
+- A faixa não monta em máquina sem Claude Code, e o laço nem começa.
+- OpenAI e outros provedores ficam fora do v1. O mockup mostra três anéis, e
+  três anéis com dois deles inventados seria o erro que esta ADR recusa, em
+  triplicado.
+
+### Revisar quando
+
+O Claude Code passar a gravar o teto de cota ou a hora de reset. Aí a régua deixa
+de ser o pico e passa a ser o limite de verdade, e o rótulo muda junto.

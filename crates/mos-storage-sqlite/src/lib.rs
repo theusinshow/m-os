@@ -16,6 +16,8 @@ mod sync_emit;
 mod sync_projecao;
 mod sync_repository;
 mod tracking_repository;
+mod usage_repository;
+pub use usage_repository::{LeituraDeUso, Sessao};
 mod voice_repository;
 mod work_repository;
 
@@ -33,7 +35,7 @@ use serde::Serialize;
 pub use academic_provider_repository::{AcademicProviderRepository, ProviderSubjectFact};
 pub use cronocad_import::ImportReport;
 
-const SCHEMA_VERSION: u32 = 35;
+const SCHEMA_VERSION: u32 = 36;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -83,6 +85,7 @@ const MIGRATION_032: &str = include_str!("../migrations/0032_academic_provider.s
 const MIGRATION_033: &str = include_str!("../migrations/0033_academic_provider_grades.sql");
 const MIGRATION_034: &str = include_str!("../migrations/0034_academic_decision.sql");
 const MIGRATION_035: &str = include_str!("../migrations/0035_sync_state.sql");
+const MIGRATION_036: &str = include_str!("../migrations/0036_usage.sql");
 
 pub struct SqliteStorage {
     /// O PORTAO: quem vai mexer na conexao E no relogio passa por aqui antes.
@@ -501,6 +504,11 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
             .execute_batch(MIGRATION_035)
             .map_err(map_sql_error)?;
     }
+    if current <= 35 {
+        connection
+            .execute_batch(MIGRATION_036)
+            .map_err(map_sql_error)?;
+    }
     if current < SCHEMA_VERSION {
         verify_foreign_keys(connection, &orfas_antes)?;
     }
@@ -857,6 +865,7 @@ mod tests {
             MIGRATION_033,
             MIGRATION_034,
             MIGRATION_035,
+            MIGRATION_036,
         ];
         for migration in migrations.into_iter().take(ate as usize) {
             connection.execute_batch(migration).unwrap();

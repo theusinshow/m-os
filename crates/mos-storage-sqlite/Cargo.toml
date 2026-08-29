@@ -11,6 +11,9 @@ mos-core = { path = "../mos-core" }
 # O motor de sincronizacao. Este crate implementa as portas dele — quem guarda
 # e o adaptador, e a regra fica no dominio.
 mos-sync = { path = "../mos-sync" }
+# O leitor dos transcripts. Este crate so guarda o que ele apura — o formato de
+# arquivo de terceiro fica isolado la, e uma mudanca dele nao chega ao SQL.
+mos-usage = { path = "../mos-usage" }
 hex = "0.4"
 rusqlite = { version = "0.40", features = ["backup", "bundled-full"] }
 serde.workspace = true

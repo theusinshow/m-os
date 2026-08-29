@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "faixa",
+  "description": "A faixa de uso na borda direita da tela, e o painel dela.",
+  "windows": [
+    "faixa",
+    "faixa-painel"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}

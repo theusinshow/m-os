@@ -43,6 +43,7 @@ mod surface;
 mod sync;
 mod tracking;
 mod univirtus;
+mod usage;
 mod voice;
 
 const DEFAULT_CAPTURE_SHORTCUT: &str = "Ctrl+Shift+Space";
@@ -2160,11 +2161,13 @@ pub fn run() {
             // milissegundos, e no fio da janela isso e um engasgo visivel a
             // cada cinco segundos.
             app.manage(monitor::Monitor::default());
+            app.manage(usage::Uso::default());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(monitor::run(handle));
             tauri::async_runtime::spawn(attention::run(app.handle().clone()));
             tauri::async_runtime::spawn(meeting::run(app.handle().clone()));
             tauri::async_runtime::spawn(meeting::run_levels(app.handle().clone()));
+            tauri::async_runtime::spawn(usage::run(app.handle().clone()));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -2333,6 +2336,10 @@ pub fn run() {
                     attention::attention_acknowledge,
                     attention::attention_cancel,
                     attention::attention_archive,
+                    usage::usage_faixa,
+                    usage::faixa_painel_alternar,
+                    usage::faixa_painel_fechar,
+                    usage::faixa_abrir_app,
                     daily::daily_today,
                     daily::daily_context,
                     daily::daily_history,

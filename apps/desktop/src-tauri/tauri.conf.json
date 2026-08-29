@@ -35,6 +35,38 @@
         "center": true
       },
       {
+        "label": "faixa-painel",
+        "title": "M/OS",
+        "width": 440,
+        "height": 232,
+        "transparent": true,
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "decorations": false,
+        "focus": false,
+        "shadow": false
+      },
+      {
+        "label": "faixa",
+        "title": "M/OS",
+        "width": 96,
+        "height": 112,
+        "transparent": true,
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "decorations": false,
+        "focus": false,
+        "shadow": false
+      },
+      {
         "label": "lembrete",
         "title": "M/OS",
         "width": 420,

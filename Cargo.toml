@@ -12,6 +12,7 @@ members = [
     "crates/mos-sync-http",
     "crates/mos-sync-server",
     "crates/mos-transcribe",
+    "crates/mos-usage",
 ]
 
 # O CronoCAD entrou no monorepo com o proprio `src-tauri`, e um pacote Rust

@@ -1,0 +1,23 @@
+[package]
+name = "mos-usage"
+version.workspace = true
+description = "Leitura do consumo de IA gravado localmente pelo Claude Code"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# Este crate NAO depende de `mos-core` nem de `mos-storage-sqlite`, e a ausencia
+# e a decisao. Ele analisa o formato de arquivo de uma ferramenta de TERCEIRO,
+# que pode mudar sem aviso e sem versao: quando mudar, o teste que quebra tem de
+# apontar para um crate pequeno e isolado, e nao para o dominio pessoal do M/OS.
+#
+# Pelo mesmo motivo ele nao escreve em lugar nenhum. Devolve fatos — evento,
+# peso, janela, ponteiro de leitura — e quem os grava e o repositorio.
+[dependencies]
+serde = { workspace = true }
+serde_json = "1"
+time = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

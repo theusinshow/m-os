@@ -34,6 +34,7 @@ import { MeetingsPage } from "./MeetingsPage";
 import { RecordingBar } from "./RecordingBar";
 import { Reminder } from "./Reminder";
 import { ReuniaoDetectada } from "./ReuniaoDetectada";
+import { FaixaDeUso, PainelDaFaixa } from "./Faixa";
 import { AttentionCenter } from "./AttentionCenter";
 import { ReminderComposer } from "./ReminderComposer";
 import { BudgetRing, hoursLabel, TodayHours, useTrackedTime, WeekByProject, weekSummary } from "./TimeWidgets";
@@ -3384,6 +3385,10 @@ export default function App() {
       return <ReuniaoDetectada />;
     case "lembrete":
       return <Reminder />;
+    case "faixa":
+      return <FaixaDeUso />;
+    case "faixa-painel":
+      return <PainelDaFaixa />;
     default:
       return <DesktopApp />;
   }

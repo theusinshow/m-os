@@ -1480,3 +1480,36 @@ export type SyncRound = {
    */
   error: string | null;
 };
+
+/**
+ * Um anel da faixa de uso.
+ *
+ * `peso` está em MILÉSIMOS de token-equivalente-de-input — a soma ponderada
+ * pelos multiplicadores de preço publicados, e não tokens crus. Ver
+ * `crates/mos-usage`.
+ *
+ * O que este tipo deliberadamente NÃO tem é porcentagem. Ela depende de haver
+ * régua, e a régua é o `pico`; com `janelasConhecidas` em 1 o pico É a sessão
+ * corrente, e uma porcentagem calculada ali marcaria 100% por falta de
+ * comparação e não por consumo alto.
+ */
+export type AnelDaFaixa = {
+  nome: string;
+  peso: number;
+  pico: number;
+  pesoHoje: number;
+  picoDia: number;
+  /** Requisições da janela corrente. */
+  requisicoes: number;
+  /** Requisições do dia. */
+  requisicoesHoje: number;
+  /** Quando a janela de 5h fecha. `null` quando não há janela aberta. */
+  resetaEm: string | null;
+  janelasConhecidas: number;
+};
+
+export type Faixa = {
+  aneis: AnelDaFaixa[];
+  /** A primeira carga ainda está correndo: há peso, mas ainda não há régua. */
+  calibrando: boolean;
+};

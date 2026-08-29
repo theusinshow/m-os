@@ -1,6 +1,6 @@
 # A faixa de uso — quanto da cota de IA já foi, sem inventar o teto — Design
 
-**Status:** aprovado, aguardando plano
+**Status:** implementado · ver `DECISIONS.md`, ADR-059, para o que a tela mudou no desenho (o hover virou clique, e a faixa virou duas janelas)
 
 **Data:** 2026-08-29
 
