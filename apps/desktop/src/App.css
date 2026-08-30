@@ -1813,28 +1813,17 @@ textarea::placeholder {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
-/* Duas colunas de peso diferente: o cronometro manda, os numeros acompanham.
+/* O cronometro sozinho, com a largura inteira da pagina.
 
-   `flex` com base, e nao `grid` com `@media`.
+   Ele dividia esta linha com o acumulado por Project (`data-cols="main"`, que
+   saiu), e ali era metade da tela. O que se vem fazer no Painel e comecar a
+   contar tempo, e o card mais usado nao disputa espaco com o que so se confere.
 
-   A media query media a VIEWPORT, e quem decide se as duas colunas cabem e a
-   largura do CONTEUDO — que muda tambem com o rail expandido (60px viram 224).
-   Em 1024 com o rail aberto sobram ~740px: as colunas espremiam e a regra de
-   860px nao disparava, porque a janela tinha 1024. Com `flex-wrap`, quem
-   empilha e a falta de espaco real, e o mesmo CSS serve para a janela estreita
-   e para o rail aberto sem saber da existencia de nenhum dos dois. */
-.tempo-cols[data-cols="main"] {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-5);
-}
-
-.tempo-cols[data-cols="main"] > :first-child {
-  flex: 1 1 520px;
-}
-
-.tempo-cols[data-cols="main"] > :last-child {
-  flex: 1 1 280px;
+   A conferencia desceu para a `[data-cols="3"]` logo abaixo, onde ela divide a
+   linha com os dois widgets de tempo — tres janelas diferentes do mesmo dado,
+   lado a lado. */
+.tempo-cols[data-cols="timer"] {
+  grid-template-columns: 1fr;
 }
 
 /* Um card sozinho na largura da pagina precisa do mesmo vao que a `.tempo-cols`

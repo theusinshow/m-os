@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Button } from "./Button";
-import { Card, ContextPath, EmptyState, PageHeader, Region, StatBand, Stat } from "./Surface";
+import { Card, ContextPath, EmptyState, PageHeader, Region } from "./Surface";
 import { TempoClients } from "./TempoClients";
 import { TempoHistory } from "./TempoHistory";
 import { TempoProjects } from "./TempoProjects";
@@ -11,7 +11,6 @@ import { TempoSessions } from "./TempoSessions";
 import { TempoTimeline } from "./TempoTimeline";
 import {
   DraftFields,
-  durationOf,
   emptyDraft,
   hoursOf,
   moneyOf,
@@ -19,8 +18,9 @@ import {
   secondsOf,
   type Draft,
 } from "./TempoShared";
+import { hoursLabel, TodayHours, useTrackedTime, WeekByProject, weekSummary } from "./TimeWidgets";
 import { Timer } from "./Timer";
-import type { Project, ProjectTracking, TimeEntry, Totals } from "./types";
+import type { Project, TimeEntry, Totals } from "./types";
 
 /**
  * As telas do Tempo.
@@ -61,7 +61,6 @@ export function TempoPage({ projects, openProject, receipt }: {
   receipt?: (action: { message: string; run: () => Promise<unknown> }) => void;
 }) {
   const [view, setView] = useState<View>("painel");
-  const [tracking, setTracking] = useState<Record<string, ProjectTracking>>({});
   const [totals, setTotals] = useState<Record<string, Totals>>({});
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [note, setNote] = useState("");
@@ -83,17 +82,16 @@ export function TempoPage({ projects, openProject, receipt }: {
   const [importNote, setImportNote] = useState("");
 
   const load = useCallback(async () => {
-    /* O tracking entra aqui por causa do `paidAt`: sem ele o Painel nao sabe
-       separar o que ja entrou do que ainda esta na rua, e o numero grande volta
-       a somar as duas coisas. */
-    const [nextTotals, nextEntries, nextTracking] = await Promise.all([
+    /* O `projectTracking` saiu daqui junto com as faixas de dinheiro: ele era
+       buscado por causa do `paidAt`, que separava "a receber" de "já pago". Sem
+       os dois números, era uma chamada por abertura de página para alimentar
+       nada. Quem ainda precisa do `paidAt` é Relatórios, e ele busca o seu. */
+    const [nextTotals, nextEntries] = await Promise.all([
       api.trackingTotals().catch(() => ({}) as Record<string, Totals>),
       api.trackingEntries().catch(() => [] as TimeEntry[]),
-      api.projectTracking().catch(() => [] as ProjectTracking[]),
     ]);
     setTotals(nextTotals);
     setEntries(nextEntries);
-    setTracking(Object.fromEntries(nextTracking.map((item) => [item.projectId, item])));
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -179,27 +177,27 @@ export function TempoPage({ projects, openProject, receipt }: {
     .filter(([, total]) => total.grossSeconds >= 60)
     .sort(([, left], [, right]) => right.grossSeconds - left.grossSeconds);
 
-  /* Duas colunas de dinheiro, e nao uma soma.
-   *
-   * "Acumulado R$ 780,00" somava o que ja foi pago com o que ainda nao — um
-   * numero que nao responde nem "quanto rendeu" nem "quanto me devem". O
-   * segundo e o que se olha num painel. */
   const trackedTotal = ranked.reduce((sum, [, total]) => sum + total.grossSeconds, 0);
-  const aReceber = ranked.reduce(
-    (sum, [id, total]) => (tracking[id]?.paidAt ? sum : sum + total.amountCents),
-    0,
-  );
-  const jaPago = ranked.reduce(
-    (sum, [id, total]) => (tracking[id]?.paidAt ? sum + total.amountCents : sum),
-    0,
-  );
 
-  // Horas de hoje, em dia LOCAL. `toDateString` compara ano, mês e dia sem
-  // passar por fuso — que é o que estraga a comparação depois das 21h.
-  const todayLabel = new Date().toDateString();
-  const todaySeconds = entries
-    .filter((entry) => new Date(entry.startedAt).toDateString() === todayLabel)
-    .reduce((sum, entry) => sum + Math.max(0, entry.durationSeconds), 0);
+  /* O dinheiro saiu do TOPO do Painel, e não do Painel.
+   *
+   * "A receber" e "já pago" eram as duas primeiras coisas que esta tela dizia,
+   * e nenhuma das duas muda o que se faz aqui: quem abre o Painel vai começar a
+   * contar tempo. Faturamento tem página inteira em Relatórios, e o acumulado
+   * por Project logo abaixo continua com o R$ para conferência.
+   *
+   * Com elas fora, a `StatBand` ficava com um número só — e o comentário dela
+   * dizia, por escrito, que existe "para o olho comparar os três sem descer".
+   * Uma faixa de um item não é uma faixa. "Trabalhado hoje" não se perdeu: é o
+   * número no centro do anel de HOJE, com a unidade virando CONTANDO enquanto o
+   * cronômetro corre — o mesmo dado, com o contexto que o número cru não tinha.
+   */
+
+  /* Os widgets carregam o próprio dado, fora do `load()` desta página — é o
+     mesmo arranjo que a Home usa, e é por isso que eles podem entrar aqui sem
+     mexer no carregamento do Painel. */
+  const trackedTime = useTrackedTime();
+  const weekTime = weekSummary(trackedTime, projects);
 
   const label = VIEWS.find((item) => item.value === view)?.label ?? "";
 
@@ -266,27 +264,12 @@ export function TempoPage({ projects, openProject, receipt }: {
               dizer alguma coisa. O leitor de tela continua recebendo o título. */}
           <h1 className="visually-hidden">Painel</h1>
 
-          {/* Os três números que mudam uma decisão, e só eles.
-              "Sessões registradas" e "Projects ativos" saíram: nenhum dos dois
-              muda o que se faz a seguir, e eram eles que faziam a coluna de
-              números ficar tão alta quanto o cronômetro ao lado. Em faixa, e não
-              em coluna, o olho compara os três sem descer. */}
-          {/* Faixa, e nao card. A moldura em volta de tres numeros era uma
-              caixa cujo unico conteudo era uma regua de leitura — e cardizar a
-              regua foi o que a auditoria chamou pelo nome. As reguas verticais
-              entre eles separam melhor do que a borda em volta dos tres. */}
-          <StatBand>
-            <Stat label="TRABALHADO HOJE" value={durationOf(todaySeconds)} />
-            <Stat label="A RECEBER" value={moneyOf(aReceber)} hint={`${hoursOf(trackedTotal)} rastreadas`} />
-            {/* So aparece quando ha: um "R$ 0,00 pago" fixo ocuparia a
-                faixa todo dia para dizer nada. */}
-            {jaPago ? <Stat label="JÁ PAGO" value={moneyOf(jaPago)} settled /> : null}
-          </StatBand>
-
-          {/* Duas colunas de peso diferente: o cronômetro é o que se usa, o
-              acumulado por Project é o que se confere. Empilham numa janela
-              estreita. */}
-          <div className="tempo-cols" data-cols="main">
+          {/* O cronômetro sozinho na primeira linha, e com a largura inteira.
+              Dividindo a linha com o acumulado por Project, ele era metade da
+              tela; e o que se vem fazer aqui é começar a contar tempo. Continua
+              sendo o único card elevado do Painel — é isso que lhe dá o peso,
+              não o tamanho. */}
+          <div className="tempo-cols" data-cols="timer">
             {/* A UNICA superficie elevada do Painel, e e por isso que ela
                 significa alguma coisa. Quando toda peca da tela tinha moldura,
                 estar dentro de uma nao dizia nada; agora dizer "isto e o que
@@ -320,6 +303,23 @@ export function TempoPage({ projects, openProject, receipt }: {
                 </details>
               ) : null}
             </Card>
+          </div>
+
+          {/* A linha de conferência: como foi hoje, para onde foi a semana, e o
+              acumulado de sempre. Três janelas de tempo diferentes lado a lado,
+              e os rótulos dizem qual é qual — sem isso, "SEMANA POR PROJECT" e
+              "POR PROJECT" leriam como a mesma coisa repetida. */}
+          <div className="tempo-cols" data-cols="3">
+            <Region label="HOJE" count={`PICO ${hoursLabel(weekTime.peakSeconds)}`}>
+              <TodayHours time={trackedTime} />
+            </Region>
+
+            <Region
+              label="SEMANA POR PROJECT"
+              count={weekTime.topProject ? `MAIOR: ${weekTime.topProject}` : undefined}
+            >
+              <WeekByProject time={trackedTime} projects={projects} onOpen={() => setView("projetos")} />
+            </Region>
 
             {/* "Projects" e o vocabulario do M/OS, e ele fica: renomear para
                 "Projetos" so aqui criaria dois nomes para a mesma entidade
@@ -330,7 +330,7 @@ export function TempoPage({ projects, openProject, receipt }: {
                 janela estreita da — o nome do Project truncava cedo e "16.1 h"
                 caia para uma segunda linha. O respiro vem do corpo do card, uma
                 vez so, e as celulas ficam com a largura toda. */}
-            <Region label="POR PROJECT" count={trackedTotal ? hoursOf(trackedTotal) : undefined}>
+            <Region label="TOTAL POR PROJECT" count={trackedTotal ? hoursOf(trackedTotal) : undefined}>
               {ranked.length ? (
                 <table className="tempo-table tempo-table-compact">
                   <tbody>

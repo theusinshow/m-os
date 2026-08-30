@@ -9,6 +9,19 @@
    O desktop não deve depender de rede para renderizar texto. */
 
 :root {
+  /* O que o NAVEGADOR desenha por conta propria.
+   *
+   * Nao e detalhe: sem esta linha, o popup de um `<select>` nasce com o fundo
+   * claro padrao do WebView2 enquanto as `<option>` herdam o `--text` quase
+   * branco da pagina. O resultado e branco no branco — uma lista aberta em que
+   * nao se le nenhuma opcao, que foi exatamente como o campo "Atividade" do
+   * Painel do CronoCAD passou a existir.
+   *
+   * Vale para tudo que o UA pinta e o CSS nao alcanca: popup de select,
+   * scrollbar nativa, spinner de numero, picker de data. Um conserto por tela
+   * nao existe para nenhum deles. */
+  color-scheme: dark;
+
   /* ---------- Tipografia ---------- */
   --font-product: 'Schibsted Grotesk', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-system: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -236,6 +249,10 @@
 }
 
 [data-theme='light'] {
+  /* O par obrigatorio do `color-scheme` do `:root`: sem ele o tema claro
+     manteria popup e scrollbar escuros sobre a pagina clara. */
+  color-scheme: light;
+
   --canvas: #F4F6F7;
   --surface: #FAFBFC;
   --surface-raised: #FFFFFF;
