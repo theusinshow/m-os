@@ -70,6 +70,16 @@ struct Mapa {
     /// da mesma coisa, e nao para virar valor de coluna. Sem isto o `WHERE id =
     /// '<uuid>'` nao acharia linha nenhuma e a configuracao nunca chegaria.
     linha_unica: Option<&'static str>,
+    /// O campo emitido de onde sai o VALOR da chave.
+    ///
+    /// Existe para chave composta. O id da entidade dessas linhas e derivado
+    /// (`sync_emit::id_composto`) e nao aparece em coluna nenhuma — enfia-lo em
+    /// `subject_id`, que referencia `academic_subjects`, seria uma chave
+    /// estrangeira apontando para uma disciplina que nao existe.
+    ///
+    /// Com isto a chave real viaja como campo, e a projecao a usa para achar e
+    /// gravar a linha.
+    chave_do_campo: Option<&'static str>,
 }
 
 /// As colunas de carimbo que uma tabela sincronizavel tem.
@@ -77,6 +87,9 @@ struct Mapa {
 enum Carimbos {
     Ambos,
     SoCriacao,
+    /// So `updated_at`. `academic_provider_subject_facts` guarda um fato do
+    /// provedor: quando ele foi informado importa, quando a linha nasceu nao.
+    SoAtualizacao,
     Nenhum,
 }
 
@@ -86,7 +99,7 @@ impl Carimbos {
     }
 
     fn tem_atualizacao(self) -> bool {
-        matches!(self, Self::Ambos)
+        matches!(self, Self::Ambos | Self::SoAtualizacao)
     }
 }
 
@@ -104,6 +117,7 @@ impl Mapa {
             chave: "id",
             carimbos: Carimbos::Ambos,
             linha_unica: None,
+            chave_do_campo: None,
         }
     }
 }
@@ -315,6 +329,23 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
             ],
             obrigatorias: &[],
             carimbos: Carimbos::Nenhum,
+            ..Mapa::padrao()
+        }),
+        // Chave composta `(provider, subject_id)`: o id da entidade e DERIVADO
+        // dela (`sync_emit::id_composto`), como a relacao ja fazia. `provider` e
+        // `subjectId` viajam como campos porque a chave nao e uma coluna so.
+        "academic_provider_subject_fact" => Some(Mapa {
+            tabela: "academic_provider_subject_facts",
+            chave: "subject_id",
+            chave_do_campo: Some("subjectId"),
+            carimbos: Carimbos::SoAtualizacao,
+            colunas: &[
+                ("provider", "provider"),
+                ("subjectId", "subject_id"),
+                ("situation", "situation"),
+                ("officialGrade", "official_grade"),
+            ],
+            obrigatorias: &[("provider", "'univirtus'")],
             ..Mapa::padrao()
         }),
         "client" => Some(Mapa {
@@ -622,13 +653,27 @@ impl SqliteStorage {
         // a linha era recusada antes de o `UPDATE` ter chance de acertar. O
         // provisorio existe para o campo que AINDA NAO CHEGOU, e nao para
         // substituir o que ja esta na mao.
+        // O VALOR da chave: do campo quando ela e composta, senao o id.
+        let valor_da_chave = match mapa.chave_do_campo {
+            Some(campo) => match estado.campos.get(campo) {
+                Some(resolvido) => match &resolvido.valor {
+                    serde_json::Value::String(texto) => texto.clone(),
+                    outro => outro.to_string(),
+                },
+                // O campo que carrega a chave ainda nao chegou. Sair sem
+                // materializar deixa a entidade nos pendentes, e a retentativa
+                // resolve quando ele vier.
+                None => return Ok(()),
+            },
+            None => id.to_string(),
+        };
         // Numa tabela de linha unica a chave e um literal, e nao o id: o
         // `?1` traria o UUID da entidade para uma coluna que guarda `1`.
         let chave_marcador = mapa.linha_unica.unwrap_or("?1");
         let mut nomes: Vec<&str> = vec![mapa.chave];
         let mut marcadores: Vec<String> = vec![chave_marcador.to_owned()];
         let mut valores: Vec<rusqlite::types::Value> = vec![
-            rusqlite::types::Value::Text(id.to_string()),
+            rusqlite::types::Value::Text(valor_da_chave.clone()),
             rusqlite::types::Value::Text(momento.clone()),
         ];
         if mapa.carimbos.tem_criacao() {
@@ -685,7 +730,7 @@ impl SqliteStorage {
                 rusqlite::params_from_iter(
                     mapa.linha_unica
                         .is_none()
-                        .then(|| rusqlite::types::Value::Text(id.to_string()))
+                        .then(|| rusqlite::types::Value::Text(valor_da_chave.clone()))
                         .iter()
                 ),
                 |_| Ok(()),
@@ -731,7 +776,7 @@ impl SqliteStorage {
             let alvo = match mapa.linha_unica {
                 Some(literal) => literal.to_owned(),
                 None => {
-                    valores.push(rusqlite::types::Value::Text(id.to_string()));
+                    valores.push(rusqlite::types::Value::Text(valor_da_chave.clone()));
                     format!("?{}", valores.len())
                 }
             };
@@ -1254,6 +1299,91 @@ mod tests {
         );
     }
 
+    /// Um semestre e uma disciplina minimos, direto no banco.
+    fn semear_disciplina(storage: &SqliteStorage, disciplina: uuid::Uuid) {
+        let semestre = uuid::Uuid::now_v7().to_string();
+        let conexao = storage.escrita().unwrap();
+        conexao
+            .execute(
+                "INSERT INTO academic_semesters
+                     (id, name, institution, starts_on, ends_on, lifecycle_state,
+                      created_at, updated_at)
+                 VALUES (?1, '2026.2', 'UFSC', '2026-08-01', '2026-11-30', 'active',
+                         '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z')",
+                rusqlite::params![semestre],
+            )
+            .unwrap();
+        conexao
+            .execute(
+                "INSERT INTO academic_subjects
+                     (id, semester_id, name, code, teacher, accent, notes,
+                      lifecycle_state, created_at, updated_at)
+                 VALUES (?1, ?2, 'Calculo III', 'MAT03', '', '', '', 'active',
+                         '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z')",
+                rusqlite::params![disciplina.to_string(), semestre],
+            )
+            .unwrap();
+    }
+
+    /// A chave e `(provider, subject_id)`, e nao um UUID.
+    ///
+    /// O `Op` exige `entity.id: Uuid`, entao o id e DERIVADO da chave composta —
+    /// o mesmo recurso que `mos_sync::Relacao` usa para as juncoes, e com a
+    /// mesma advertencia: o namespace nunca muda, porque muda-lo faria todas as
+    /// notas existentes ganharem ids novos e as antigas ficarem orfas.
+    #[test]
+    fn a_nota_oficial_atravessa_apesar_da_chave_composta() {
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        let disciplina = uuid::Uuid::now_v7();
+        // Semestre e disciplina nos DOIS lados: `subject_id` e chave
+        // estrangeira, e a nota de uma disciplina que nao existe e recusada
+        // antes de chegar a ser um problema de sincronizacao.
+        for banco in [&origem, &destino] {
+            semear_disciplina(banco, disciplina);
+        }
+        // A linha nasce por fora do repositorio de dominio: o que este teste
+        // exercita e a emissao e a projecao, e nao a importacao do provedor.
+        origem
+            .escrita()
+            .unwrap()
+            .execute(
+                "INSERT INTO academic_provider_subject_facts
+                     (provider, subject_id, situation, official_grade, updated_at)
+                 VALUES ('univirtus', ?1, 'aprovado', 8.5, '2026-08-31T00:00:00Z')",
+                rusqlite::params![disciplina.to_string()],
+            )
+            .unwrap();
+        SqliteStorage::emitir_fato_de_disciplina(
+            &origem,
+            "univirtus",
+            &disciplina.to_string(),
+            Some("aprovado"),
+            Some(8.5),
+        )
+        .unwrap();
+
+        receber(
+            &destino,
+            &ops_da_fila(&origem, "academic_provider_subject_fact"),
+        );
+
+        let (situacao, nota): (String, f64) = destino
+            .connection
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT situation, official_grade FROM academic_provider_subject_facts
+                 WHERE provider = 'univirtus' AND subject_id = ?1",
+                rusqlite::params![disciplina.to_string()],
+                |linha| Ok((linha.get(0)?, linha.get(1)?)),
+            )
+            .expect("a nota oficial nao atravessou");
+        assert_eq!(situacao, "aprovado");
+        assert_eq!(nota, 8.5);
+    }
+
     /// O arredondamento MUDA o numero cobravel.
     ///
     /// `cronocad_import.rs` ja registra isso para a importacao: trazer as horas
@@ -1495,6 +1625,7 @@ const TIPOS_CONHECIDOS: &[&str] = &[
     "weekly_review",
     "client",
     "tracking_settings",
+    "academic_provider_subject_fact",
 ];
 
 /// Enfileira um `Create` por linha existente da tabela daquele tipo.

@@ -42,6 +42,7 @@ pub(crate) const SINCRONIZAVEIS: &[&str] = &[
     "message_parts",
     "clients",
     "tracking_settings",
+    "academic_provider_subject_facts",
     "daily_sessions",
     "daily_objectives",
     "daily_reflections",
@@ -91,9 +92,8 @@ pub(crate) const LOCAIS: &[(&str, &str)] = &[
     ("workspace_hidden_widgets", "idem"),
     ("attention_notifications", "notificacao ja entregue nesta maquina"),
     // --- ainda nao decidido, e por isso listado ---
-    ("academic_external_refs", "PENDENTE: idem"),
-    ("academic_material_urls", "PENDENTE: idem"),
-    ("academic_provider_subject_facts", "PENDENTE: idem"),
+    ("academic_external_refs", "contabilidade do provedor NESTA maquina: `first_synced_at` e `last_synced_at` sao fatos locais, e as entidades que ela aponta ja viajam pelos ids proprios. Limite conhecido: se o Univirtus for conectado nos DOIS PCs, cada um importaria com ids proprios e criaria duplicata"),
+    ("academic_material_urls", "cache datado de uma `temporary_url` do provedor: o endereco expira, e mandar um link vencido para o outro PC e pior que nao mandar"),
 ];
 
 #[cfg(test)]

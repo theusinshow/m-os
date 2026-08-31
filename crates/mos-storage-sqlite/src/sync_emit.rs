@@ -214,3 +214,77 @@ fn gravar_relogio(transacao: &Connection, instante: Hlc) -> Result<(), CoreError
         .map_err(map_sql_error)?;
     Ok(())
 }
+
+/// O espaco de nomes dos ids derivados de chave composta.
+///
+/// Constante e arbitrario, como todo namespace de UUID v5 — e como o das
+/// relacoes (`mos_sync::Relacao`), inclusive na advertencia que vem junto: muda-lo
+/// faria todas as entidades existentes ganharem ids novos, e as antigas ficariam
+/// orfas no hub e nos dois aparelhos.
+const NAMESPACE_COMPOSTO: Uuid = Uuid::from_bytes([
+    0x6d, 0x6f, 0x73, 0x63, 0x68, 0x61, 0x76, 0x65, 0x63, 0x6f, 0x6d, 0x70, 0x6f, 0x73, 0x74, 0x61,
+]);
+
+/// O id de entidade de uma linha cuja chave primaria e composta.
+///
+/// Tres tabelas do M/OS tem chave `(provider, ...)` em vez de UUID, e o `Op`
+/// exige `entity.id: Uuid`. Derivar em vez de sortear e o que faz os dois
+/// aparelhos chegarem ao MESMO id sem se falarem — a mesma razao pela qual a
+/// relacao deriva o dela do par que ela liga.
+pub(crate) fn id_composto(kind: &str, partes: &[&str]) -> Uuid {
+    let mut semente = String::from(kind);
+    for parte in partes {
+        semente.push('\u{1f}');
+        semente.push_str(parte);
+    }
+    Uuid::new_v5(&NAMESPACE_COMPOSTO, semente.as_bytes())
+}
+
+impl SqliteStorage {
+    /// Emite a nota e a situacao que o provedor informou para uma disciplina.
+    ///
+    /// Separado do resto da importacao porque a importacao roda dentro da
+    /// transacao dela e este metodo precisa ser chamavel dos dois lugares: do
+    /// caminho do provedor e do backfill.
+    pub(crate) fn emitir_fato_de_disciplina(
+        &self,
+        provider: &str,
+        subject_id: &str,
+        situacao: Option<&str>,
+        nota: Option<f64>,
+    ) -> Result<(), CoreError> {
+        let connection = self.escrita()?;
+        let transacao = connection.unchecked_transaction().map_err(map_sql_error)?;
+        self.emitir_fato_de_disciplina_em(&transacao, provider, subject_id, situacao, nota)?;
+        transacao.commit().map_err(map_sql_error)?;
+        Ok(())
+    }
+
+    /// A mesma emissao, dentro de uma transacao que ja existe.
+    pub(crate) fn emitir_fato_de_disciplina_em(
+        &self,
+        transacao: &Connection,
+        provider: &str,
+        subject_id: &str,
+        situacao: Option<&str>,
+        nota: Option<f64>,
+    ) -> Result<(), CoreError> {
+        self.emitir_update(
+            transacao,
+            "academic_provider_subject_fact",
+            id_composto("academic_provider_subject_fact", &[provider, subject_id]),
+            &[
+                ("provider", serde_json::json!(provider)),
+                ("subjectId", serde_json::json!(subject_id)),
+                (
+                    "situation",
+                    situacao.map_or(serde_json::Value::Null, |valor| serde_json::json!(valor)),
+                ),
+                (
+                    "officialGrade",
+                    nota.map_or(serde_json::Value::Null, |valor| serde_json::json!(valor)),
+                ),
+            ],
+        )
+    }
+}

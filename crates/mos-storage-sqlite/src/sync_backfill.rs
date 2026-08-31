@@ -68,6 +68,7 @@ const ORDEM: &[&str] = &[
     "academic_assignment",
     "academic_exam",
     "academic_study_session",
+    "academic_provider_subject_fact",
 ];
 
 impl SqliteStorage {

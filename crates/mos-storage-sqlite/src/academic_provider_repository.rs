@@ -591,6 +591,16 @@ impl AcademicProviderRepository for SqliteStorage {
                     ],
                 )
                 .map_err(map_sql_error)?;
+            // A nota oficial e a situacao sao CONTEUDO, e nao contabilidade do
+            // provedor: elas viajam. O id da entidade e derivado da chave
+            // composta `(provider, subject_id)`.
+            self.emitir_fato_de_disciplina_em(
+                &transaction,
+                provider,
+                &local_id,
+                Some(item.situation.as_str()),
+                item.official_grade,
+            )?;
         }
 
         // O recorte desta rodada: as disciplinas sobre as quais o provedor foi
