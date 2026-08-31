@@ -63,6 +63,13 @@ struct Mapa {
     /// alternativa — alterar a tabela por migracao — foi recusada porque a
     /// 0027 nao tocou em nenhuma tabela existente de proposito (SYNC.md §6).
     carimbos: Carimbos,
+    /// O literal SQL da chave, quando a tabela tem UMA linha so.
+    ///
+    /// `tracking_settings` e `id INTEGER PRIMARY KEY` com a linha 1, sempre. O
+    /// id da entidade e um UUID fixo — ele existe para os dois aparelhos falarem
+    /// da mesma coisa, e nao para virar valor de coluna. Sem isto o `WHERE id =
+    /// '<uuid>'` nao acharia linha nenhuma e a configuracao nunca chegaria.
+    linha_unica: Option<&'static str>,
 }
 
 /// As colunas de carimbo que uma tabela sincronizavel tem.
@@ -96,9 +103,19 @@ impl Mapa {
             obrigatorias: &[],
             chave: "id",
             carimbos: Carimbos::Ambos,
+            linha_unica: None,
         }
     }
 }
+
+/// O id de entidade da linha unica de `tracking_settings`.
+///
+/// Constante e arbitrario, como o namespace das relacoes: o que importa e ser o
+/// MESMO nos dois aparelhos e nunca mudar. Muda-lo faria a configuracao existente
+/// virar orfa e uma nova nascer vazia.
+pub(crate) const ID_TRACKING_SETTINGS: uuid::Uuid = uuid::Uuid::from_bytes([
+    0x6d, 0x6f, 0x73, 0x74, 0x72, 0x61, 0x63, 0x6b, 0x73, 0x65, 0x74, 0x74, 0x69, 0x6e, 0x67, 0x73,
+]);
 
 /// Os tipos que este M/OS sabe materializar.
 ///
@@ -282,6 +299,24 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
         // `project_tracking.client_id` REFERENCIA esta tabela (migration 0013):
         // sincronizar a cobranca sem o cliente faz a linha ser recusada no
         // destino por chave estrangeira.
+        // Linha unica, e METADE dela. Arredondamento e emissor sao seus;
+        // ociosidade, monitoramento de processo e deteccao de reuniao descrevem
+        // a maquina, e replicados fariam este PC vigiar o que o outro vigia.
+        "tracking_settings" => Some(Mapa {
+            tabela: "tracking_settings",
+            linha_unica: Some("1"),
+            colunas: &[
+                ("roundingEnabled", "rounding_enabled"),
+                ("roundingIntervalMinutes", "rounding_interval_minutes"),
+                ("roundingMode", "rounding_mode"),
+                ("issuerName", "issuer_name"),
+                ("issuerDocument", "issuer_document"),
+                ("issuerContact", "issuer_contact"),
+            ],
+            obrigatorias: &[],
+            carimbos: Carimbos::Nenhum,
+            ..Mapa::padrao()
+        }),
         "client" => Some(Mapa {
             tabela: "clients",
             colunas: &[
@@ -587,8 +622,11 @@ impl SqliteStorage {
         // a linha era recusada antes de o `UPDATE` ter chance de acertar. O
         // provisorio existe para o campo que AINDA NAO CHEGOU, e nao para
         // substituir o que ja esta na mao.
+        // Numa tabela de linha unica a chave e um literal, e nao o id: o
+        // `?1` traria o UUID da entidade para uma coluna que guarda `1`.
+        let chave_marcador = mapa.linha_unica.unwrap_or("?1");
         let mut nomes: Vec<&str> = vec![mapa.chave];
-        let mut marcadores: Vec<String> = vec!["?1".into()];
+        let mut marcadores: Vec<String> = vec![chave_marcador.to_owned()];
         let mut valores: Vec<rusqlite::types::Value> = vec![
             rusqlite::types::Value::Text(id.to_string()),
             rusqlite::types::Value::Text(momento.clone()),
@@ -638,8 +676,18 @@ impl SqliteStorage {
         // pode ser corrigido.
         let ja_existe: bool = transacao
             .query_row(
-                &format!("SELECT 1 FROM {} WHERE {} = ?1", mapa.tabela, mapa.chave),
-                params![id.to_string()],
+                &format!(
+                    "SELECT 1 FROM {} WHERE {} = {chave_marcador}",
+                    mapa.tabela, mapa.chave
+                ),
+                // Numa tabela de linha unica a chave e literal, e ligar o id
+                // aqui seria um parametro a mais do que o comando referencia.
+                rusqlite::params_from_iter(
+                    mapa.linha_unica
+                        .is_none()
+                        .then(|| rusqlite::types::Value::Text(id.to_string()))
+                        .iter()
+                ),
                 |_| Ok(()),
             )
             .optional()
@@ -666,22 +714,34 @@ impl SqliteStorage {
             let Some(resolvido) = estado.campos.get(*campo) else {
                 continue;
             };
-            let valor = valor_sql(&resolvido.valor);
-            // O `updated_at` so entra se a tabela tiver a coluna. Uma tabela sem
-            // carimbo nao e descuido: `message_parts` e conteudo imutavel de uma
-            // mensagem, e nao tem quando-mudou porque nao muda.
+            // Os parametros sao montados junto com o SQL, e nao fixos em tres.
+            //
+            // Com `?2` e `?3` sempre ligados, uma tabela sem `updated_at` ou de
+            // linha unica recebia mais valores do que o comando referencia, e o
+            // `UPDATE` falhava — silenciosamente, porque a projecao manda a
+            // entidade para a fila de pendentes e tenta de novo. O sintoma era
+            // uma configuracao que emitia, viajava e nunca aparecia.
+            let mut valores: Vec<rusqlite::types::Value> = vec![valor_sql(&resolvido.valor)];
             let toque = if mapa.carimbos.tem_atualizacao() {
-                ", updated_at = ?2"
+                valores.push(rusqlite::types::Value::Text(momento.clone()));
+                format!(", updated_at = ?{}", valores.len())
             } else {
-                ""
+                String::new()
+            };
+            let alvo = match mapa.linha_unica {
+                Some(literal) => literal.to_owned(),
+                None => {
+                    valores.push(rusqlite::types::Value::Text(id.to_string()));
+                    format!("?{}", valores.len())
+                }
             };
             transacao
                 .execute(
                     &format!(
-                        "UPDATE {} SET {coluna} = ?1{toque} WHERE {} = ?3",
+                        "UPDATE {} SET {coluna} = ?1{toque} WHERE {} = {alvo}",
                         mapa.tabela, mapa.chave
                     ),
-                    params![valor, momento, id.to_string()],
+                    rusqlite::params_from_iter(valores.iter()),
                 )
                 .map_err(map_sql_error)?;
         }
@@ -876,7 +936,7 @@ impl<'a> ProjecaoSqlite<'a> {
     /// dependencias e do esquema, nao deste laco. Ele para quando uma rodada
     /// inteira nao resolve nada — e o que sobra continua guardado no estado, que
     /// e a fonte da verdade para reconciliar.
-    fn resolver_pendentes(&mut self) -> Vec<String> {
+    pub(crate) fn resolver_pendentes(&mut self) -> Vec<String> {
         while !self.pendentes.is_empty() {
             let tentativa = std::mem::take(&mut self.pendentes);
             let antes = tentativa.len();
@@ -1113,6 +1173,11 @@ mod tests {
     }
 
     /// Aplica em `destino` as operacoes como se tivessem vindo do hub.
+    ///
+    /// Drena os pendentes no fim, e falha se sobrar algum. Sem isso um teste
+    /// verde nao provaria nada: a projecao adia a materializacao que falha em
+    /// vez de estourar, e um erro de SQL viraria "a linha nao apareceu" sem
+    /// dizer por que.
     fn receber(destino: &SqliteStorage, ops: &[Op]) {
         let mut projecao = ProjecaoSqlite::nova(destino);
         for op in ops {
@@ -1120,6 +1185,8 @@ mod tests {
             let estado = mos_sync::aplicar(base, std::slice::from_ref(op)).estado;
             projecao.guardar(op, &estado).unwrap();
         }
+        let faltas = projecao.resolver_pendentes();
+        assert!(faltas.is_empty(), "a projecao nao materializou: {faltas:?}");
     }
 
     /// O diario JA emitia, e a operacao viajava — so nunca virava linha.
@@ -1184,6 +1251,62 @@ mod tests {
         assert!(
             !mensagens[0].parts.is_empty(),
             "a mensagem chegou sem as partes: o remetente atravessou e o texto nao"
+        );
+    }
+
+    /// O arredondamento MUDA o numero cobravel.
+    ///
+    /// `cronocad_import.rs` ja registra isso para a importacao: trazer as horas
+    /// sem a configuracao faz o M/OS mostrar um valor diferente do que o
+    /// CronoCAD mostrava. Entre dois PCs o estrago e o mesmo — as horas
+    /// atravessam, a regra nao, e os dois mostram totais faturaveis diferentes
+    /// para o mesmo trabalho.
+    ///
+    /// So a metade que e SUA viaja. Deteccao de ociosidade e monitoramento de
+    /// processo descrevem a maquina, e replicados fariam este PC vigiar o que o
+    /// outro vigia.
+    #[test]
+    fn a_regra_de_arredondamento_atravessa_e_a_config_de_maquina_nao() {
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        let mut regras = mos_core::TimeTrackingRepository::tracking_settings(&origem).unwrap();
+        regras.rounding.interval_minutes = 30;
+        regras.rounding.mode = mos_core::RoundingMode::Up;
+        mos_core::TimeTrackingRepository::set_tracking_settings(&origem, regras).unwrap();
+        // A metade de maquina nem aparece no tipo de dominio: mexo nela por SQL
+        // para provar que ela existe na origem e NAO viaja.
+        origem
+            .connection
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE tracking_settings SET idle_threshold_minutes = 99 WHERE id = 1",
+                [],
+            )
+            .unwrap();
+
+        receber(&destino, &ops_da_fila(&origem, "tracking_settings"));
+
+        let chegou = mos_core::TimeTrackingRepository::tracking_settings(&destino).unwrap();
+        assert_eq!(
+            chegou.rounding.interval_minutes, 30,
+            "o intervalo de arredondamento nao atravessou"
+        );
+        assert_eq!(chegou.rounding.mode, mos_core::RoundingMode::Up);
+        let ociosidade_no_destino: i64 = destino
+            .connection
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT idle_threshold_minutes FROM tracking_settings WHERE id = 1",
+                [],
+                |linha| linha.get(0),
+            )
+            .unwrap();
+        assert_ne!(
+            ociosidade_no_destino, 99,
+            "a config de maquina atravessou e nao devia"
         );
     }
 
@@ -1371,6 +1494,7 @@ const TIPOS_CONHECIDOS: &[&str] = &[
     "daily_reflection",
     "weekly_review",
     "client",
+    "tracking_settings",
 ];
 
 /// Enfileira um `Create` por linha existente da tabela daquele tipo.

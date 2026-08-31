@@ -913,8 +913,9 @@ impl TimeTrackingRepository for SqliteStorage {
         &self,
         settings: TrackingSettings,
     ) -> Result<TrackingSettings, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
-        connection
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        transaction
             .execute(
                 "UPDATE tracking_settings SET rounding_enabled = ?1, \
                  rounding_interval_minutes = ?2, rounding_mode = ?3 WHERE id = 1",
@@ -925,6 +926,28 @@ impl TimeTrackingRepository for SqliteStorage {
                 ],
             )
             .map_err(map_sql_error)?;
+        // So o arredondamento: a linha guarda tambem ociosidade e monitoramento
+        // de processo, que descrevem a maquina e nao viajam.
+        self.emitir_update(
+            &transaction,
+            "tracking_settings",
+            crate::sync_projecao::ID_TRACKING_SETTINGS,
+            &[
+                (
+                    "roundingEnabled",
+                    serde_json::json!(settings.rounding.enabled),
+                ),
+                (
+                    "roundingIntervalMinutes",
+                    serde_json::json!(settings.rounding.interval_minutes),
+                ),
+                (
+                    "roundingMode",
+                    serde_json::json!(settings.rounding.mode.as_str()),
+                ),
+            ],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         Ok(settings)
     }
 

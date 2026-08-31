@@ -42,6 +42,7 @@ const MARCA: &str = "sync_backfill_v1";
 /// lista ordenada.
 const ORDEM: &[&str] = &[
     // Sem pai nenhum.
+    "tracking_settings",
     "client",
     "workspace",
     "project",

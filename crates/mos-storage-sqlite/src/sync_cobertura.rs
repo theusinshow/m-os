@@ -41,6 +41,7 @@ pub(crate) const SINCRONIZAVEIS: &[&str] = &[
     "messages",
     "message_parts",
     "clients",
+    "tracking_settings",
     "daily_sessions",
     "daily_objectives",
     "daily_reflections",
@@ -73,7 +74,6 @@ pub(crate) const LOCAIS: &[(&str, &str)] = &[
     ("app_metadata", "idem"),
     ("monitored_apps", "o que esta maquina vigia"),
     ("active_timer", "cronometro em curso; replicado, dois PCs disputariam um so"),
-    ("tracking_settings", "metade e config de maquina (ociosidade, processos) e metade e sua (arredondamento, emissor) - ver a spec"),
     // --- o que guarda ARQUIVO em disco, e o hub so carrega campos ---
     ("meetings", "o audio mora em `audio_dir`; a linha sem o arquivo aponta para o nada"),
     ("meeting_segments", "idem"),
