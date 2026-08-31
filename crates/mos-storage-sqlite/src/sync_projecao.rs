@@ -166,6 +166,24 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("ends_on", "''"),
             ],
         }),
+        "time_entry" => Some(Mapa {
+            tabela: "time_entries",
+            colunas: &[
+                ("projectId", "project_id"),
+                ("startedAt", "started_at"),
+                ("endedAt", "ended_at"),
+                ("durationSeconds", "duration_seconds"),
+                ("idleSeconds", "idle_seconds"),
+                ("description", "description"),
+                ("activityType", "activity_type"),
+                ("billable", "billable"),
+                ("hourlyRateSnapshotCents", "hourly_rate_snapshot_cents"),
+                ("source", "source"),
+                ("deletedAt", "deleted_at"),
+                ("createdAt", "created_at"),
+            ],
+            obrigatorias: &[("project_id", "''"), ("started_at", "''")],
+        }),
         "academic_subject" => Some(Mapa {
             tabela: "academic_subjects",
             colunas: &[
@@ -833,5 +851,89 @@ impl SqliteStorage {
             ));
         }
         Ok(rodada)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mos_core::{NewProject, NewTimeEntry, TimeTrackingRepository, WorkRepository};
+    use mos_sync::{DeviceRepository, Op, Projecao};
+
+    use super::*;
+
+    fn storage_que_emite() -> (SqliteStorage, tempfile::TempDir) {
+        let pasta = tempfile::tempdir().unwrap();
+        let storage =
+            SqliteStorage::open(pasta.path().join("mos.db"), pasta.path().join("backups")).unwrap();
+        let dispositivo = storage
+            .este_dispositivo("teste", "windows", "0.0.0")
+            .unwrap();
+        storage.habilitar_sync(dispositivo.id).unwrap();
+        (storage, pasta)
+    }
+
+    /// As operacoes que este dispositivo tem para mandar.
+    fn ops_da_fila(storage: &SqliteStorage, kind: &str) -> Vec<Op> {
+        let conexao = storage.connection.lock().unwrap();
+        let mut consulta = conexao
+            .prepare("SELECT payload FROM sync_outbox WHERE entity_kind = ?1")
+            .unwrap();
+        let linhas = consulta
+            .query_map(rusqlite::params![kind], |linha| {
+                linha.get::<_, String>(0)
+            })
+            .unwrap();
+        linhas
+            .map(|payload| serde_json::from_str(&payload.unwrap()).unwrap())
+            .collect()
+    }
+
+    /// Aplica em `destino` as operacoes como se tivessem vindo do hub.
+    fn receber(destino: &SqliteStorage, ops: &[Op]) {
+        let mut projecao = ProjecaoSqlite::nova(destino);
+        for op in ops {
+            let base = projecao.estado_de(op);
+            let estado = mos_sync::aplicar(base, std::slice::from_ref(op)).estado;
+            projecao.guardar(op, &estado).unwrap();
+        }
+    }
+
+    #[test]
+    fn horas_registradas_num_pc_viram_linha_no_outro() {
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        // O projeto existe nos dois: ele ja sincroniza hoje, e sem ele a chave
+        // estrangeira de `time_entries` recusaria a linha no destino.
+        let projeto = NewProject::create("Rancho Queimado", "", "").unwrap();
+        let id_projeto = projeto.id;
+        origem.create_project(projeto.clone()).unwrap();
+        destino.create_project(projeto).unwrap();
+
+        origem
+            .create_time_entry(NewTimeEntry {
+                project_id: id_projeto,
+                started_at: time::OffsetDateTime::now_utc(),
+                ended_at: None,
+                duration_seconds: 3_600,
+                idle_seconds: 0,
+                description: String::from("desenho da prancha"),
+                activity_type: mos_core::ActivityType::Drawing,
+                billable: true,
+                hourly_rate_snapshot_cents: 12_000,
+                source: mos_core::EntrySource::Timer,
+            })
+            .unwrap();
+
+        receber(&destino, &ops_da_fila(&origem, "time_entry"));
+
+        let horas = destino.time_entries(None).unwrap();
+        assert_eq!(
+            horas.len(),
+            1,
+            "a hora registrada na origem nao virou linha no destino"
+        );
+        assert_eq!(horas[0].duration_seconds, 3_600);
+        assert_eq!(horas[0].description, "desenho da prancha");
     }
 }

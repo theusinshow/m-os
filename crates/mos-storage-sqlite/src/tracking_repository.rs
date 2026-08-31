@@ -96,13 +96,17 @@ fn build_entry(raw: RawEntry) -> Result<TimeEntry, CoreError> {
 
 impl TimeTrackingRepository for SqliteStorage {
     fn create_time_entry(&self, entry: NewTimeEntry) -> Result<TimeEntry, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        // `escrita` e nao `connection.lock`: esta escrita emite, e emitir toca o
+        // relogio. Pegar os dois cadeados a mao aqui e o abraco mortal que o
+        // portao existe para tornar impossivel — ver `SqliteStorage::portao`.
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let id = TimeEntryId::new();
         let now = format_time(time::OffsetDateTime::now_utc())?;
         let started = format_time(entry.started_at)?;
         let ended = entry.ended_at.map(format_time).transpose()?;
 
-        connection
+        transaction
             .execute(
                 "INSERT INTO time_entries (id, project_id, started_at, ended_at, \
                  duration_seconds, idle_seconds, description, activity_type, billable, \
@@ -125,14 +129,56 @@ impl TimeTrackingRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
 
-        let raw = connection
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("time_entry", id.as_uuid()),
+            mos_sync::OpBody::Create {
+                fields: [
+                    (
+                        "projectId".to_owned(),
+                        serde_json::json!(entry.project_id.to_string()),
+                    ),
+                    ("startedAt".to_owned(), serde_json::json!(started)),
+                    ("endedAt".to_owned(), serde_json::json!(ended)),
+                    (
+                        "durationSeconds".to_owned(),
+                        serde_json::json!(entry.duration_seconds.max(0)),
+                    ),
+                    (
+                        "idleSeconds".to_owned(),
+                        serde_json::json!(entry.idle_seconds.max(0)),
+                    ),
+                    (
+                        "description".to_owned(),
+                        serde_json::json!(entry.description),
+                    ),
+                    (
+                        "activityType".to_owned(),
+                        serde_json::json!(entry.activity_type.as_str()),
+                    ),
+                    ("billable".to_owned(), serde_json::json!(entry.billable)),
+                    (
+                        "hourlyRateSnapshotCents".to_owned(),
+                        serde_json::json!(entry.hourly_rate_snapshot_cents),
+                    ),
+                    ("source".to_owned(), serde_json::json!(entry.source.as_str())),
+                    ("createdAt".to_owned(), serde_json::json!(now)),
+                ]
+                .into_iter()
+                .collect(),
+            },
+        )?;
+
+        let raw = transaction
             .query_row(
                 &format!("SELECT {ENTRY_COLUMNS} FROM time_entries WHERE id = ?1"),
                 params![id.to_string()],
                 read_entry,
             )
             .map_err(map_sql_error)?;
-        build_entry(raw)
+        let construida = build_entry(raw)?;
+        transaction.commit().map_err(map_sql_error)?;
+        Ok(construida)
     }
 
     fn time_entries(&self, project_id: Option<ProjectId>) -> Result<Vec<TimeEntry>, CoreError> {
@@ -754,6 +800,7 @@ impl TimeTrackingRepository for SqliteStorage {
 #[cfg(test)]
 mod tests {
     use mos_core::{MonitoringRepository, NewProject, WorkRepository};
+    use mos_sync::DeviceRepository;
 
     use super::*;
 
@@ -772,6 +819,50 @@ mod tests {
             .create_project(NewProject::create("Rancho Queimado", "", "").unwrap())
             .unwrap()
             .id
+    }
+
+    /// Os tipos que estao na fila de sincronizacao agora.
+    ///
+    /// Le o `sync_outbox` direto porque a pergunta do teste e "a escrita
+    /// emitiu?", e nenhuma API de dominio responde isso — `quantidade_pendente`
+    /// devolve um numero, e um numero nao diz QUAL tipo foi esquecido.
+    fn kinds_na_fila(storage: &SqliteStorage) -> Vec<String> {
+        let connection = storage.connection.lock().unwrap();
+        let mut consulta = connection
+            .prepare("SELECT DISTINCT entity_kind FROM sync_outbox ORDER BY entity_kind")
+            .unwrap();
+        let linhas = consulta
+            .query_map([], |linha| linha.get::<_, String>(0))
+            .unwrap();
+        linhas.map(|linha| linha.unwrap()).collect()
+    }
+
+    /// Um storage com a emissao LIGADA.
+    ///
+    /// Sem `habilitar_sync` o `sync` fica em `None` e nenhuma escrita emite —
+    /// um teste de emissao montado sem isto passaria a mentir, porque a fila
+    /// vazia teria duas explicacoes.
+    fn storage_que_emite() -> (SqliteStorage, tempfile::TempDir) {
+        let (storage, guard) = temporary_storage();
+        let dispositivo = storage
+            .este_dispositivo("teste", "windows", "0.0.0")
+            .unwrap();
+        storage.habilitar_sync(dispositivo.id).unwrap();
+        (storage, guard)
+    }
+
+    #[test]
+    fn registrar_horas_emite_operacao() {
+        let (storage, _guard) = storage_que_emite();
+        let id = project(&storage);
+
+        storage.create_time_entry(entry(id, 3_600, 3_000)).unwrap();
+
+        let kinds = kinds_na_fila(&storage);
+        assert!(
+            kinds.iter().any(|kind| kind == "time_entry"),
+            "registrar horas nao emitiu operacao nenhuma; a fila tem {kinds:?}"
+        );
     }
 
     fn entry(project_id: ProjectId, duration: i64, rate: i64) -> NewTimeEntry {
