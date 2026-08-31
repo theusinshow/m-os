@@ -1512,21 +1512,36 @@ pub(crate) fn enfileirar_tabela(
     };
 
     let colunas: Vec<&str> = mapa.colunas.iter().map(|(_, coluna)| *coluna).collect();
-    let sql = format!(
-        "SELECT {}, {} FROM {}",
-        mapa.chave,
-        colunas.join(", "),
-        mapa.tabela
-    );
+    // Numa tabela de linha unica a chave nem e lida: ela e `1`, um inteiro que
+    // nao vira UUID, e o id da entidade e a constante conhecida pelos dois
+    // aparelhos. Ler a coluna aqui daria "Invalid column type Integer".
+    let id_fixo = match kind {
+        "tracking_settings" => Some(ID_TRACKING_SETTINGS),
+        _ => None,
+    };
+    let sql = if id_fixo.is_some() {
+        format!("SELECT {} FROM {}", colunas.join(", "), mapa.tabela)
+    } else {
+        format!(
+            "SELECT {}, {} FROM {}",
+            mapa.chave,
+            colunas.join(", "),
+            mapa.tabela
+        )
+    };
+    let deslocamento = usize::from(id_fixo.is_none());
     let mut consulta = transacao.prepare(&sql).map_err(map_sql_error)?;
     let linhas = consulta
         .query_map([], |linha| {
-            let chave: String = linha.get(0)?;
+            let chave = match id_fixo {
+                Some(fixo) => fixo.to_string(),
+                None => linha.get::<_, String>(0)?,
+            };
             let mut campos = Vec::with_capacity(mapa.colunas.len());
             for (indice, (campo, _)) in mapa.colunas.iter().enumerate() {
                 campos.push((
                     (*campo).to_owned(),
-                    json_de_sql(linha.get_ref(indice + 1)?),
+                    json_de_sql(linha.get_ref(indice + deslocamento)?),
                 ));
             }
             Ok((chave, campos))
