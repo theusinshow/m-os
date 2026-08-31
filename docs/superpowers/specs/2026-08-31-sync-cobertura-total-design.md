@@ -108,14 +108,34 @@ A alternativa — alterar essas tabelas por migração — foi recusada: a migra
 0027 não tocou em nenhuma tabela existente de propósito (SYNC.md §6), e não há
 razão para quebrar isso agora.
 
-### 2. O CronoCAD tem um caminho que passa por fora do repositório
+### 2. ~~O CronoCAD tem um caminho que passa por fora do repositório~~ — ERRADO
 
-`cronocad_import.rs:537` faz `INSERT INTO time_entries VALUES` em lote, cru, sem
-passar por `create_time_entry`. Emissão colocada apenas no repositório **não**
-cobre a importação.
+Escrito na primeira leitura: `cronocad_import.rs:537` faria `INSERT INTO
+time_entries VALUES` em lote, cru, por fora de `create_time_entry`.
 
-**Decisão:** esse caminho emite explicitamente, e o teste de cobertura inclui a
-importação em lote — não só a criação unitária.
+**Está errado.** A linha 537 fica **dentro do `#[cfg(test)]`**, que começa na
+linha 495 — é fixture de um banco CronoCAD falso para o teste da importação, não
+caminho de produção. O import real (`cronocad_import.rs:442`) chama
+`create_time_entry`, então herda a emissão de graça.
+
+Fica registrado em vez de apagado porque a lição é sobre método: `grep` por
+`INSERT INTO` acha a linha, e não diz se ela é produção. O que decide é ler onde
+o `#[cfg(test)]` começa.
+
+**O que sobra:** um teste que trava a herança
+(`a_importacao_do_cronocad_emite_operacao_por_hora`). Ele é guarda de regressão,
+não descoberta — passou de primeira, porque a emissão que ele protege já tinha
+entrado por `create_time_entry`.
+
+### 2b. O caminho que realmente estava mudo: parar o cronômetro
+
+`stop_timer` grava a sessão com um `INSERT` próprio, sem passar por
+`create_time_entry`. É o jeito **mais comum** de uma hora nascer, e emitia zero —
+o teste no vermelho mediu `left: 0`.
+
+Emite na mesma transação que grava a sessão e apaga o cronômetro. O
+`active_timer` em si continua sem emitir: cronômetro em curso é estado de
+máquina, e replicá-lo faria dois PCs disputarem um só.
 
 ### 3. Três tabelas acadêmicas têm chave composta, não UUID
 

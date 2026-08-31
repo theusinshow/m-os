@@ -587,6 +587,41 @@ mod tests {
         path
     }
 
+    /// A importacao e a OUTRA porta de entrada de horas, e a que traz o
+    /// historico inteiro de uma vez. Se ela nao emitir, o CronoCAD importado
+    /// existe so na maquina que importou — que e exatamente o defeito que esta
+    /// spec veio corrigir, reaparecendo por outra porta.
+    #[test]
+    fn a_importacao_do_cronocad_emite_operacao_por_hora() {
+        let (storage, directory) = m_os();
+        let dispositivo = {
+            use mos_sync::DeviceRepository;
+            storage
+                .este_dispositivo("teste", "windows", "0.0.0")
+                .unwrap()
+        };
+        storage.habilitar_sync(dispositivo.id).unwrap();
+        let source = cronocad(directory.path());
+
+        let report = storage.import_cronocad(&source).unwrap();
+
+        let emitidas: i64 = {
+            let conexao = storage.connection.lock().unwrap();
+            conexao
+                .query_row(
+                    "SELECT COUNT(*) FROM sync_outbox WHERE entity_kind = 'time_entry'",
+                    [],
+                    |linha| linha.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(
+            emitidas, report.entries as i64,
+            "a importacao trouxe {} horas mas emitiu {emitidas} operacoes",
+            report.entries
+        );
+    }
+
     #[test]
     fn the_import_brings_projects_sessions_and_todos() {
         let (storage, directory) = m_os();
