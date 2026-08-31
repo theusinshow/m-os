@@ -40,6 +40,10 @@ pub(crate) const SINCRONIZAVEIS: &[&str] = &[
     "conversations",
     "messages",
     "message_parts",
+    "daily_sessions",
+    "daily_objectives",
+    "daily_reflections",
+    "weekly_reviews",
     // Tabelas de juncao: viajam como `relation`, e nao como tipo proprio.
     "resource_projects",
     "resource_workspaces",
@@ -87,10 +91,6 @@ pub(crate) const LOCAIS: &[(&str, &str)] = &[
     ("attention_notifications", "notificacao ja entregue nesta maquina"),
     // --- ainda nao decidido, e por isso listado ---
     ("clients", "PENDENTE: e conteudo, entra no sync quando a emissao existir"),
-    ("daily_sessions", "PENDENTE: idem"),
-    ("daily_objectives", "PENDENTE: idem"),
-    ("daily_reflections", "PENDENTE: idem"),
-    ("weekly_reviews", "PENDENTE: idem"),
     ("academic_external_refs", "PENDENTE: idem"),
     ("academic_material_urls", "PENDENTE: idem"),
     ("academic_provider_subject_facts", "PENDENTE: idem"),

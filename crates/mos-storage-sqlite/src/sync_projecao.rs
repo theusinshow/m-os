@@ -223,6 +223,62 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
             ],
             ..Mapa::padrao()
         }),
+        // As quatro do diario JA emitiam antes desta spec — faltava so a linha
+        // aqui. A operacao viajava e o outro lado guardava o estado sem nunca
+        // materializar, que de fora e indistinguivel de nao sincronizar.
+        "daily_session" => Some(Mapa {
+            tabela: "daily_sessions",
+            colunas: &[
+                ("day", "day"),
+                ("status", "status"),
+                ("note", "note"),
+                ("startedAt", "started_at"),
+                ("endedAt", "ended_at"),
+            ],
+            obrigatorias: &[("day", "''"), ("status", "'active'"), ("started_at", "?2")],
+            ..Mapa::padrao()
+        }),
+        "daily_objective" => Some(Mapa {
+            tabela: "daily_objectives",
+            colunas: &[
+                ("sessionId", "session_id"),
+                ("title", "title"),
+                ("description", "description"),
+                ("linkKind", "link_kind"),
+                ("linkId", "link_id"),
+                ("priority", "priority"),
+                ("status", "status"),
+                ("position", "position"),
+                ("carriedFrom", "carried_from"),
+                ("completedAt", "completed_at"),
+            ],
+            obrigatorias: &[
+                ("session_id", "''"),
+                ("title", "'(sincronizando)'"),
+                ("priority", "'secondary'"),
+                ("status", "'pending'"),
+            ],
+            ..Mapa::padrao()
+        }),
+        // A chave e `session_id`: a reflexao e uma-para-uma com o dia, e ja
+        // viajava com o id da sessao como id de entidade.
+        "daily_reflection" => Some(Mapa {
+            tabela: "daily_reflections",
+            chave: "session_id",
+            colunas: &[("mood", "mood"), ("summary", "summary")],
+            obrigatorias: &[],
+            ..Mapa::padrao()
+        }),
+        "weekly_review" => Some(Mapa {
+            tabela: "weekly_reviews",
+            colunas: &[
+                ("weekStart", "week_start"),
+                ("summary", "summary"),
+                ("closedAt", "closed_at"),
+            ],
+            obrigatorias: &[("week_start", "''"), ("closed_at", "?2")],
+            ..Mapa::padrao()
+        }),
         "conversation" => Some(Mapa {
             tabela: "conversations",
             colunas: &[
@@ -1049,6 +1105,34 @@ mod tests {
         }
     }
 
+    /// O diario JA emitia, e a operacao viajava — so nunca virava linha.
+    ///
+    /// E o caso que o cabecalho do modulo descreve como "tipo desconhecido nao e
+    /// erro": o outro lado guardava o estado e nao materializava nada. Do lado
+    /// de fora e indistinguivel de nao sincronizar, e por isso o teste de
+    /// cobertura pergunta pelas duas metades e nao so pela emissao.
+    #[test]
+    fn o_dia_iniciado_num_pc_aparece_no_outro() {
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        let agora = time::OffsetDateTime::now_utc();
+        let dia = mos_core::Day::parse("2026-08-31").unwrap();
+        let nova =
+            mos_core::NewDailySession::create(dia.clone(), "fechar o Rancho", agora).unwrap();
+        let id = nova.id;
+        mos_core::DailyRepository::start_day(&origem, nova, Vec::new(), agora).unwrap();
+
+        receber(&destino, &ops_da_fila(&origem, "daily_session"));
+
+        let sessao = mos_core::DailyRepository::session(&destino, id).unwrap();
+        assert_eq!(
+            sessao.note, "fechar o Rancho",
+            "o dia iniciado na origem nao virou linha no destino"
+        );
+        assert_eq!(sessao.day, dia);
+    }
+
     /// `messages` so tem `created_at`; `message_parts` nao tem carimbo nenhum.
     ///
     /// Sao os dois tipos que exigem o `Carimbos`: escrever `updated_at` neles
@@ -1214,4 +1298,8 @@ const TIPOS_CONHECIDOS: &[&str] = &[
     "conversation",
     "message",
     "message_part",
+    "daily_session",
+    "daily_objective",
+    "daily_reflection",
+    "weekly_review",
 ];
