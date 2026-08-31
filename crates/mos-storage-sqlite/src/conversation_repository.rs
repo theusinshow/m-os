@@ -55,26 +55,51 @@ fn touch(
     Ok(())
 }
 
+/// Grava as partes de uma mensagem, e emite cada uma.
+///
+/// Recebe o `storage` so para emitir. Sem isso a mensagem atravessaria com
+/// remetente e sem texto — o corpo mora aqui, e uma conversa que chega vazia no
+/// outro PC e pior que uma que nao chega.
 fn insert_parts(
+    storage: &SqliteStorage,
     transaction: &Transaction<'_>,
     message_id: &str,
     parts: &[PartBody],
 ) -> Result<(), CoreError> {
     for (index, body) in parts.iter().enumerate() {
+        let part_id = MessagePartId::new();
+        let seq = index as i64 + 1;
+        let payload = body.to_payload()?;
+        let texto = body.searchable_text().unwrap_or_default();
         transaction
             .execute(
                 "INSERT INTO message_parts (id, message_id, seq, kind, payload, search_text)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
-                    MessagePartId::new().to_string(),
+                    part_id.to_string(),
                     message_id,
-                    index as i64 + 1,
+                    seq,
                     body.kind(),
-                    body.to_payload()?,
-                    body.searchable_text().unwrap_or_default(),
+                    payload,
+                    texto,
                 ],
             )
             .map_err(map_sql_error)?;
+        storage.emitir(
+            transaction,
+            mos_sync::EntityRef::new("message_part", part_id.as_uuid()),
+            mos_sync::OpBody::Create {
+                fields: [
+                    ("messageId".to_owned(), serde_json::json!(message_id)),
+                    ("seq".to_owned(), serde_json::json!(seq)),
+                    ("kind".to_owned(), serde_json::json!(body.kind())),
+                    ("payload".to_owned(), serde_json::json!(payload)),
+                    ("searchText".to_owned(), serde_json::json!(texto)),
+                ]
+                .into_iter()
+                .collect(),
+            },
+        )?;
     }
     Ok(())
 }
@@ -192,7 +217,7 @@ impl ConversationRepository for SqliteStorage {
         &self,
         conversation: NewConversation,
     ) -> Result<Conversation, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let now = format_time(conversation.created_at)?;
         transaction
@@ -203,6 +228,19 @@ impl ConversationRepository for SqliteStorage {
                 params![conversation.id.to_string(), conversation.title, now],
             )
             .map_err(map_sql_error)?;
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("conversation", conversation.id.as_uuid()),
+            mos_sync::OpBody::Create {
+                fields: [
+                    ("title".to_owned(), serde_json::json!(conversation.title)),
+                    ("lifecycleState".to_owned(), serde_json::json!("active")),
+                    ("createdAt".to_owned(), serde_json::json!(now)),
+                ]
+                .into_iter()
+                .collect(),
+            },
+        )?;
         let created = transaction
             .query_row(
                 &format!("SELECT {CONVERSATION_COLUMNS} FROM conversations WHERE id = ?1"),
@@ -275,8 +313,9 @@ impl ConversationRepository for SqliteStorage {
         id: ConversationId,
         title: &str,
     ) -> Result<Conversation, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
-        let changed = connection
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let changed = transaction
             .execute(
                 "UPDATE conversations SET title = ?2, updated_at = ?3 WHERE id = ?1",
                 params![
@@ -293,6 +332,13 @@ impl ConversationRepository for SqliteStorage {
                 false,
             ));
         }
+        self.emitir_update(
+            &transaction,
+            "conversation",
+            id.as_uuid(),
+            &[("title", serde_json::json!(title))],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         drop(connection);
         self.get_conversation(id)
     }
@@ -372,7 +418,7 @@ impl ConversationRepository for SqliteStorage {
     }
 
     fn append_message(&self, message: NewMessage) -> Result<Message, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let conversation_id = message.conversation_id.to_string();
 
@@ -414,7 +460,31 @@ impl ConversationRepository for SqliteStorage {
                 ],
             )
             .map_err(map_sql_error)?;
-        insert_parts(&transaction, &message_id, &message.parts)?;
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("message", message.id.as_uuid()),
+            mos_sync::OpBody::Create {
+                fields: [
+                    (
+                        "conversationId".to_owned(),
+                        serde_json::json!(conversation_id),
+                    ),
+                    ("seq".to_owned(), serde_json::json!(seq)),
+                    ("role".to_owned(), serde_json::json!(message.role.as_str())),
+                    (
+                        "status".to_owned(),
+                        serde_json::json!(message.status.as_str()),
+                    ),
+                    (
+                        "createdAt".to_owned(),
+                        serde_json::json!(format_time(message.created_at)?),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            },
+        )?;
+        insert_parts(self, &transaction, &message_id, &message.parts)?;
         touch(&transaction, &conversation_id, message.created_at)?;
 
         let stored = load_message(&transaction, &message_id)?;
@@ -458,7 +528,7 @@ impl ConversationRepository for SqliteStorage {
         status: MessageStatus,
         parts: Vec<PartBody>,
     ) -> Result<Message, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let message_id = id.to_string();
 
@@ -486,7 +556,7 @@ impl ConversationRepository for SqliteStorage {
                 [&message_id],
             )
             .map_err(map_sql_error)?;
-        insert_parts(&transaction, &message_id, &parts)?;
+        insert_parts(self, &transaction, &message_id, &parts)?;
         touch(&transaction, &conversation_id, OffsetDateTime::now_utc())?;
 
         let stored = load_message(&transaction, &message_id)?;
@@ -527,7 +597,7 @@ impl ConversationRepository for SqliteStorage {
         id: ConversationId,
         messages: Vec<NewMessage>,
     ) -> Result<(), CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let conversation_id = id.to_string();
 
@@ -554,7 +624,7 @@ impl ConversationRepository for SqliteStorage {
                     ],
                 )
                 .map_err(map_sql_error)?;
-            insert_parts(&transaction, &message_id, &message.parts)?;
+            insert_parts(self, &transaction, &message_id, &message.parts)?;
         }
         touch(&transaction, &conversation_id, OffsetDateTime::now_utc())?;
         transaction.commit().map_err(map_sql_error)?;

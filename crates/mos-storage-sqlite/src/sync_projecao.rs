@@ -223,6 +223,58 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
             ],
             ..Mapa::padrao()
         }),
+        "conversation" => Some(Mapa {
+            tabela: "conversations",
+            colunas: &[
+                ("title", "title"),
+                ("hermesSessionId", "hermes_session_id"),
+                ("lifecycleState", "lifecycle_state"),
+                ("createdAt", "created_at"),
+            ],
+            obrigatorias: &[],
+            ..Mapa::padrao()
+        }),
+        // `messages` so tem `created_at`: uma mensagem nao e editada, ela e
+        // fechada. O que muda depois e o `status`, e quando mudou esta no HLC da
+        // operacao — repetir isso numa coluna seria duas verdades sobre o mesmo
+        // instante.
+        "message" => Some(Mapa {
+            tabela: "messages",
+            carimbos: Carimbos::SoCriacao,
+            colunas: &[
+                ("conversationId", "conversation_id"),
+                ("seq", "seq"),
+                ("role", "role"),
+                ("status", "status"),
+            ],
+            obrigatorias: &[
+                ("conversation_id", "''"),
+                ("seq", "0"),
+                ("role", "'user'"),
+                ("status", "'done'"),
+            ],
+            ..Mapa::padrao()
+        }),
+        // Sem carimbo NENHUM, e nao por descuido: a parte e o conteudo imutavel
+        // de uma mensagem. Nao ter quando-mudou e a verdade sobre ela.
+        "message_part" => Some(Mapa {
+            tabela: "message_parts",
+            carimbos: Carimbos::Nenhum,
+            colunas: &[
+                ("messageId", "message_id"),
+                ("seq", "seq"),
+                ("kind", "kind"),
+                ("payload", "payload"),
+                ("searchText", "search_text"),
+            ],
+            obrigatorias: &[
+                ("message_id", "''"),
+                ("seq", "0"),
+                ("kind", "'text'"),
+                ("payload", "'{}'"),
+            ],
+            ..Mapa::padrao()
+        }),
         // Extensao 1:1 de `projects`: a chave e `project_id`, e nao existe
         // coluna `id`. O id da entidade E o id do projeto — os dois aparelhos
         // chegam ao mesmo sem combinar nada.
@@ -955,6 +1007,7 @@ impl SqliteStorage {
 #[cfg(test)]
 mod tests {
     use mos_core::{NewProject, NewTimeEntry, TimeTrackingRepository, WorkRepository};
+    use mos_core::ConversationRepository;
     use mos_sync::{DeviceRepository, Op, Projecao};
 
     use super::*;
@@ -994,6 +1047,43 @@ mod tests {
             let estado = mos_sync::aplicar(base, std::slice::from_ref(op)).estado;
             projecao.guardar(op, &estado).unwrap();
         }
+    }
+
+    /// `messages` so tem `created_at`; `message_parts` nao tem carimbo nenhum.
+    ///
+    /// Sao os dois tipos que exigem o `Carimbos`: escrever `updated_at` neles
+    /// seria SQL contra coluna inexistente. E o corpo da mensagem mora nas
+    /// partes — sem elas a conversa chega com remetente e sem texto, que e pior
+    /// que nao chegar.
+    #[test]
+    fn uma_conversa_do_hermes_chega_inteira_no_outro_pc() {
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        let conversa = origem
+            .create_conversation(mos_core::NewConversation::create())
+            .unwrap();
+        origem
+            .set_conversation_title(conversa.id, "Orcamento do Rancho")
+            .unwrap();
+        origem
+            .append_message(mos_core::NewMessage::user(conversa.id, "quanto ficou a obra?").unwrap())
+            .unwrap();
+
+        for kind in ["conversation", "message", "message_part"] {
+            receber(&destino, &ops_da_fila(&origem, kind));
+        }
+
+        let conversas = destino.conversations(false, 10).unwrap();
+        assert_eq!(conversas.len(), 1, "a conversa nao atravessou");
+        assert_eq!(conversas[0].title, "Orcamento do Rancho");
+
+        let mensagens = destino.messages(conversa.id).unwrap();
+        assert_eq!(mensagens.len(), 1, "a mensagem nao atravessou");
+        assert!(
+            !mensagens[0].parts.is_empty(),
+            "a mensagem chegou sem as partes: o remetente atravessou e o texto nao"
+        );
     }
 
     /// A chave de `project_tracking` e `project_id`, e nao `id`.
