@@ -722,10 +722,11 @@ impl TimeTrackingRepository for SqliteStorage {
 
     fn create_client(&self, input: ClientInput) -> Result<Client, CoreError> {
         let name = input.validated()?.to_owned();
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let id = ClientId::new();
         let now = format_time(time::OffsetDateTime::now_utc())?;
-        connection
+        transaction
             .execute(
                 "INSERT INTO clients (id, name, company_name, email, phone, notes, \
                  created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
@@ -740,6 +741,26 @@ impl TimeTrackingRepository for SqliteStorage {
                 ],
             )
             .map_err(map_sql_error)?;
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("client", id.as_uuid()),
+            mos_sync::OpBody::Create {
+                fields: [
+                    ("name".to_owned(), serde_json::json!(name)),
+                    (
+                        "companyName".to_owned(),
+                        serde_json::json!(input.company_name),
+                    ),
+                    ("email".to_owned(), serde_json::json!(input.email)),
+                    ("phone".to_owned(), serde_json::json!(input.phone)),
+                    ("notes".to_owned(), serde_json::json!(input.notes)),
+                    ("createdAt".to_owned(), serde_json::json!(now)),
+                ]
+                .into_iter()
+                .collect(),
+            },
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
 
         Ok(Client {
             id,
@@ -754,8 +775,9 @@ impl TimeTrackingRepository for SqliteStorage {
 
     fn update_client(&self, id: ClientId, input: ClientInput) -> Result<Client, CoreError> {
         let name = input.validated()?.to_owned();
-        let connection = self.connection.lock().map_err(map_lock_error)?;
-        let changed = connection
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let changed = transaction
             .execute(
                 "UPDATE clients SET name = ?2, company_name = ?3, email = ?4, phone = ?5, \
                  notes = ?6, updated_at = ?7 WHERE id = ?1",
@@ -777,6 +799,19 @@ impl TimeTrackingRepository for SqliteStorage {
                 false,
             ));
         }
+        self.emitir_update(
+            &transaction,
+            "client",
+            id.as_uuid(),
+            &[
+                ("name", serde_json::json!(name)),
+                ("companyName", serde_json::json!(input.company_name)),
+                ("email", serde_json::json!(input.email)),
+                ("phone", serde_json::json!(input.phone)),
+                ("notes", serde_json::json!(input.notes)),
+            ],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         drop(connection);
         self.clients(true)?
             .into_iter()
@@ -786,13 +821,14 @@ impl TimeTrackingRepository for SqliteStorage {
 
     fn set_client_archived(&self, id: ClientId, archived: bool) -> Result<Client, CoreError> {
         {
-            let connection = self.connection.lock().map_err(map_lock_error)?;
+            let connection = self.escrita()?;
+            let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
             let stamp = if archived {
                 Some(format_time(time::OffsetDateTime::now_utc())?)
             } else {
                 None
             };
-            let changed = connection
+            let changed = transaction
                 .execute(
                     "UPDATE clients SET archived_at = ?2, updated_at = ?3 WHERE id = ?1",
                     params![
@@ -809,6 +845,18 @@ impl TimeTrackingRepository for SqliteStorage {
                     false,
                 ));
             }
+            self.emitir_update(
+                &transaction,
+                "client",
+                id.as_uuid(),
+                &[(
+                    "archivedAt",
+                    stamp
+                        .as_deref()
+                        .map_or(serde_json::Value::Null, |quando| serde_json::json!(quando)),
+                )],
+            )?;
+            transaction.commit().map_err(map_sql_error)?;
         }
         self.clients(true)?
             .into_iter()

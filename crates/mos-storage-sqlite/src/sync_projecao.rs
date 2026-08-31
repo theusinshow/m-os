@@ -279,6 +279,23 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
             obrigatorias: &[("week_start", "''"), ("closed_at", "?2")],
             ..Mapa::padrao()
         }),
+        // `project_tracking.client_id` REFERENCIA esta tabela (migration 0013):
+        // sincronizar a cobranca sem o cliente faz a linha ser recusada no
+        // destino por chave estrangeira.
+        "client" => Some(Mapa {
+            tabela: "clients",
+            colunas: &[
+                ("name", "name"),
+                ("companyName", "company_name"),
+                ("email", "email"),
+                ("phone", "phone"),
+                ("notes", "notes"),
+                ("archivedAt", "archived_at"),
+                ("createdAt", "created_at"),
+            ],
+            obrigatorias: &[("name", "'(sincronizando)'")],
+            ..Mapa::padrao()
+        }),
         "conversation" => Some(Mapa {
             tabela: "conversations",
             colunas: &[
@@ -1170,6 +1187,57 @@ mod tests {
         );
     }
 
+    /// `project_tracking.client_id` e CHAVE ESTRANGEIRA para `clients`
+    /// (migration 0013). Sincronizar a cobranca sem o cliente faz a linha ser
+    /// recusada no destino — e o commit que ligou `project_tracking` sem ligar
+    /// `clients` introduziu exatamente isso.
+    #[test]
+    fn a_cobranca_com_cliente_nao_quebra_a_chave_estrangeira_no_destino() {
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        let projeto = NewProject::create("Rancho Queimado", "", "").unwrap();
+        let id_projeto = projeto.id;
+        origem.create_project(projeto.clone()).unwrap();
+        destino.create_project(projeto).unwrap();
+
+        let cliente = mos_core::TimeTrackingRepository::create_client(
+            &origem,
+            mos_core::ClientInput {
+                name: String::from("Juliano"),
+                company_name: String::new(),
+                email: String::new(),
+                phone: String::new(),
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+        origem
+            .set_project_tracking(mos_core::ProjectTracking {
+                project_id: id_projeto,
+                hourly_rate_cents: 12_000,
+                code: String::new(),
+                color: String::new(),
+                tracking_status: mos_core::TrackingStatus::Active,
+                client_id: Some(cliente.id),
+                budget_minutes: 0,
+                paid_at: None,
+            })
+            .unwrap();
+
+        receber(&destino, &ops_da_fila(&origem, "client"));
+        receber(&destino, &ops_da_fila(&origem, "project_tracking"));
+
+        let clientes = mos_core::TimeTrackingRepository::clients(&destino, false).unwrap();
+        assert_eq!(clientes.len(), 1, "o cliente nao atravessou");
+        let cobranca = destino.project_tracking().unwrap();
+        assert_eq!(
+            cobranca.first().and_then(|linha| linha.client_id),
+            Some(cliente.id),
+            "a cobranca chegou sem o cliente: a chave estrangeira foi recusada"
+        );
+    }
+
     /// A chave de `project_tracking` e `project_id`, e nao `id`.
     ///
     /// Este teste existe para o `INSERT` da projecao parar de assumir uma coluna
@@ -1302,4 +1370,5 @@ const TIPOS_CONHECIDOS: &[&str] = &[
     "daily_objective",
     "daily_reflection",
     "weekly_review",
+    "client",
 ];

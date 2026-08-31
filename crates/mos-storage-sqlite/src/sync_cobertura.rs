@@ -40,6 +40,7 @@ pub(crate) const SINCRONIZAVEIS: &[&str] = &[
     "conversations",
     "messages",
     "message_parts",
+    "clients",
     "daily_sessions",
     "daily_objectives",
     "daily_reflections",
@@ -90,7 +91,6 @@ pub(crate) const LOCAIS: &[(&str, &str)] = &[
     ("workspace_hidden_widgets", "idem"),
     ("attention_notifications", "notificacao ja entregue nesta maquina"),
     // --- ainda nao decidido, e por isso listado ---
-    ("clients", "PENDENTE: e conteudo, entra no sync quando a emissao existir"),
     ("academic_external_refs", "PENDENTE: idem"),
     ("academic_material_urls", "PENDENTE: idem"),
     ("academic_provider_subject_facts", "PENDENTE: idem"),

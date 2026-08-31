@@ -47,6 +47,11 @@ impl ClientId {
             .map(Self)
             .map_err(|_| CoreError::new(ErrorCode::InvalidInput, "Client ID invalido.", false))
     }
+
+    /// O UUID por baixo, para a operacao de sincronizacao.
+    pub fn as_uuid(&self) -> Uuid {
+        self.0
+    }
 }
 
 impl Default for ClientId {
