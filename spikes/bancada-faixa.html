@@ -1,0 +1,114 @@
+<!doctype html>
+<!--
+  Bancada da faixa de uso: o CSS REAL sobre um fundo claro.
+
+  Existe por um motivo que so aparece tentando: a captura da janela do Tauri usa
+  `PrintWindow`, que pinta o transparente de PRETO — e a calha da faixa tambem e
+  preta. A silhueta dela (o raio dos cantos, a seta do popover saindo pela
+  lateral) e invisivel na foto da janela real, e visivel aqui.
+
+  A marcacao e escrita A MAO e pode divergir do que o React gera. Ela serve para
+  ver FORMA e COR; quem responde por comportamento continua sendo a foto da
+  janela de verdade. Ver a skill `ver-o-app`.
+
+  Como usar:
+      cd <raiz do repo> && python -m http.server 8899 --bind 127.0.0.1
+      abra http://127.0.0.1:8899/spikes/bancada-faixa.html
+-->
+<meta charset="utf-8">
+<title>bancada da faixa</title>
+<link rel="stylesheet" href="/packages/design-system/tokens.css">
+<link rel="stylesheet" href="/packages/design-system/widgets.css">
+<link rel="stylesheet" href="/apps/desktop/src/App.css">
+<style>
+  html,body{margin:0;height:100%;overflow:hidden}
+  body{background:linear-gradient(120deg,#ffc08a,#ff86c0 30%,#8fd7ff 65%,#f2f2f2);
+       display:flex;align-items:center;justify-content:flex-end}
+  .janela{width:96px;height:296px}
+</style>
+<div style="width:440px;height:312px;margin-right:8px">
+  <div class="faixa-painel" role="group">
+    <div class="faixa-painel-corpo">
+      <div class="faixa-painel-fonte">
+        <span class="faixa-painel-nome">Claude Code</span>
+        <div class="faixa-barra">
+          <div class="faixa-barra-head"><span class="micro-label">SESSÃO · 5H</span><span class="faixa-barra-nota">reseta em 36 min</span></div>
+          <div class="faixa-trilho" data-degrau="calmo"><div class="faixa-carga" style="width:38%"></div></div>
+          <span class="faixa-barra-valor">38%</span>
+        </div>
+        <div class="faixa-barra">
+          <div class="faixa-barra-head"><span class="micro-label">SEMANA · 7D</span><span class="faixa-barra-nota">reseta em 6d13h</span></div>
+          <div class="faixa-trilho" data-degrau="limite"><div class="faixa-carga" style="width:84%"></div></div>
+          <span class="faixa-barra-valor">84%</span>
+        </div>
+        <p class="faixa-regua">Cota real do seu plano, dita pela Anthropic.</p>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="janela" style="margin-right:60px">
+  <div class="faixa-shell" data-recolhida>
+    <div class="faixa-conteudo">
+      <button type="button" class="faixa-lingueta"><span class="faixa-lingueta-marca"></span></button>
+      <div class="faixa-tira"></div>
+    </div>
+  </div>
+</div>
+<div class="janela">
+  <div class="faixa-shell">
+    <div class="faixa-conteudo">
+      <button type="button" class="faixa-lingueta"><span class="faixa-lingueta-marca"></span></button>
+      <div class="faixa-tira">
+        <button type="button" class="faixa-anel" data-degrau="calmo">
+          <span class="mos-ring-figure" data-size="44" style="width:44px;height:44px">
+            <svg class="mos-ring" width="44" height="44" viewBox="0 0 44 44">
+              <circle class="mos-ring-track" cx="22" cy="22" r="19" stroke-width="4"></circle>
+              <circle class="mos-ring-value" cx="22" cy="22" r="19" stroke-width="4"
+                stroke-dasharray="119.4" style="stroke-dashoffset:79"></circle>
+            </svg>
+            <span class="mos-ring-center"><span class="faixa-marca">
+              <svg viewBox="0 0 24 24" width="18" height="18">
+                <g stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+                  <line x1="12" y1="12" x2="12" y2="2.5"/><line x1="12" y1="12" x2="12" y2="2.5" transform="rotate(45 12 12)"/>
+                  <line x1="12" y1="12" x2="12" y2="2.5" transform="rotate(90 12 12)"/><line x1="12" y1="12" x2="12" y2="2.5" transform="rotate(135 12 12)"/>
+                  <line x1="12" y1="12" x2="12" y2="2.5" transform="rotate(180 12 12)"/><line x1="12" y1="12" x2="12" y2="2.5" transform="rotate(225 12 12)"/>
+                  <line x1="12" y1="12" x2="12" y2="2.5" transform="rotate(270 12 12)"/><line x1="12" y1="12" x2="12" y2="2.5" transform="rotate(315 12 12)"/>
+                </g></svg></span></span>
+          </span>
+          <span class="faixa-valor">34%</span>
+        </button>
+        <button type="button" class="faixa-anel" data-degrau="limite">
+          <span class="mos-ring-figure" data-size="44" style="width:44px;height:44px">
+            <svg class="mos-ring" width="44" height="44" viewBox="0 0 44 44">
+              <circle class="mos-ring-track" cx="22" cy="22" r="19" stroke-width="4"></circle>
+              <circle class="mos-ring-value" cx="22" cy="22" r="19" stroke-width="4"
+                stroke-dasharray="119.4" style="stroke-dashoffset:20"></circle>
+            </svg>
+            <span class="mos-ring-center"><span class="faixa-marca">
+              <svg viewBox="0 0 24 24" width="18" height="18">
+                <g fill="none" stroke="currentColor" stroke-width="1.15">
+                  <ellipse cx="12" cy="8" rx="3.6" ry="5.6"/><ellipse cx="12" cy="8" rx="3.6" ry="5.6" transform="rotate(60 12 12)"/>
+                  <ellipse cx="12" cy="8" rx="3.6" ry="5.6" transform="rotate(120 12 12)"/><ellipse cx="12" cy="8" rx="3.6" ry="5.6" transform="rotate(180 12 12)"/>
+                  <ellipse cx="12" cy="8" rx="3.6" ry="5.6" transform="rotate(240 12 12)"/><ellipse cx="12" cy="8" rx="3.6" ry="5.6" transform="rotate(300 12 12)"/>
+                </g></svg></span></span>
+          </span>
+          <span class="faixa-valor">87%</span>
+        </button>
+        <button type="button" class="faixa-anel" data-degrau="atencao">
+          <span class="mos-ring-figure" data-size="44" style="width:44px;height:44px">
+            <svg class="mos-ring" width="44" height="44" viewBox="0 0 44 44">
+              <circle class="mos-ring-track" cx="22" cy="22" r="19" stroke-width="4"></circle>
+              <circle class="mos-ring-value" cx="22" cy="22" r="19" stroke-width="4"
+                stroke-dasharray="119.4" style="stroke-dashoffset:57"></circle>
+            </svg>
+            <span class="mos-ring-center"><span class="faixa-marca">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+                <path d="M12 2.6 21 7.7v8.6L12 21.4 3 16.3V7.7z"/><path d="M3 7.7 12 12.8l9-5.1M12 12.8v8.6" opacity=".62"/>
+              </svg></span></span>
+          </span>
+          <span class="faixa-valor">52%</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

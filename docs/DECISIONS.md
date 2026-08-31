@@ -3499,3 +3499,118 @@ Três anéis é o teto. A partir daí a tira deixa de ser uma tira e vira uma co
 
 Alguém pedir a tela de Settings, ou uma quarta fonte. Aí a janela da tira precisa
 ser criada em código com altura calculada, em vez de nascer do `tauri.conf.json`.
+
+## ADR-064 — O anel abraça a marca, e a cor volta a significar
+
+**Estado:** Accepted · 2026-08-31
+
+### Contexto
+
+Depois das ADRs 061 a 063 a faixa sabia coisas novas — cota real, semana, vários
+provedores — e continuava **parecendo a mesma**. O dono olhou e perguntou por
+que o visual não tinha mudado, e a pergunta estava certa: as três ADRs mexeram
+no que os números significam, não em como eles aparecem.
+
+A referência trazida foi um HUD de borda de tela com três decisões visuais que a
+nossa não tinha: o anel envolvendo o **ícone** do provedor, o número **abaixo**,
+e a cor do anel mudando com o consumo.
+
+### Decisão
+
+**1. O anel abraça a marca; o número fica embaixo.** É a inversão que resolve o
+problema que a ADR-063 criou ao permitir três anéis: com o número dentro, três
+anéis empilhados são três números e nenhuma identidade — não dá para saber QUEM
+está em 73%. O ícone responde isso em meio segundo, que é o tempo que se olha
+uma tira na borda da tela.
+
+As marcas são desenhadas aqui, em `currentColor`, num viewBox de 24 — a mesma
+gramática dos `marks/`. Não são os logotipos oficiais e não tentam ser: o que a
+faixa precisa é de uma forma reconhecível, monocromática e legível a 18 pixels
+sobre preto. Nome que não casa com marca nenhuma recebe a inicial, que distingue
+"Codex" de "Cursor" sem fingir saber quem é.
+
+**2. A cor volta a significar.** O design system diz que "cor no M/OS significa
+atenção", e foi por isso que a faixa nasceu toda em sódio. Lendo a regra ao
+contrário: **um anel em 95% É atenção**, e negar cor a ele esconde o único
+momento em que a faixa tem algo urgente a dizer. O que a regra proíbe é cor sem
+significado; aqui cada degrau muda o que fazer — calmo abaixo de 50, atenção
+entre 50 e 80, limite acima de 80. Os cortes são os do `agent-notch`.
+
+Sem régua não há degrau — sem denominador, "alto" não quer dizer nada — e o anel
+volta ao sódio, a cor de "isto é uma medida, não um alarme". A barra do painel
+usa o mesmo semáforo: ela mede a mesma coisa que o anel, e duas cores diferentes
+para o mesmo número fariam procurar uma diferença que não existe.
+
+**3. A calha é preta fixa, e não segue o tema.** Esta é a única peça do M/OS que
+não vira com o tema, e não vira porque **não é parte da janela do app**: ela
+flutua sobre o desktop. Seguir o tema deixaria a calha branca no tema claro sobre
+um papel de parede escuro, que é a única combinação em que ela some.
+
+**4. O painel virou popover, com seta.** A seta é o que transforma "uma janela
+que apareceu do lado" em "isto pertence àquele anel". E o painel passou a ser
+centrado na tira, não alinhado pelo topo: a seta sai do meio da borda direita, e
+alinhar topos a faria apontar para o vazio acima do primeiro anel numa janela
+que agora cabe três.
+
+**5. O movimento é curto e só na entrada.** Cascata de 70ms por anel — três
+anéis entrando juntos leem como um bloco, e com o atraso leem como três coisas.
+No hover, 2px para fora, como se o anel fosse puxado da calha. Nada mais: uma
+peça que se anima na periferia da visão vira distração. A troca de cor tem 480ms
+de transição, e isso é deliberado — um verde que vira amarelo entre dois quadros
+não é visto por quem não estava olhando.
+
+### O que a tela pegou e o teste não
+
+- **os "cantos que derretem" não funcionam aqui.** O truque do entalhe do macOS
+  preenche o VÃO entre um canto arredondado e a borda; a nossa calha já encosta
+  na borda com o canto direito reto, e não há vão. O pseudo-elemento virava um
+  caroço preto saindo do topo e do pé;
+- **a seta do popover era desenhada em cima do cartão.** `right` posiciona a
+  borda direita do elemento: com 10px de largura e `-1px`, a seta caía inteira
+  sobre o cartão, preta sobre preta;
+- **`overflow` recortava a seta.** Com a rolagem no próprio cartão, o
+  pseudo-elemento que sai para fora era cortado. Duas camadas: o cartão desenha
+  a seta, o corpo rola;
+- **a sombra de um cartão fantasma, recolhida.** O invólucro guardava a sombra e
+  o raio do conjunto e continuava com os 96px da janela depois que o cartão
+  sumia. `box-shadow` desenha em volta da caixa mesmo com fundo transparente, e
+  o que ficava na tela era o contorno de um cartão de 96×112 ao lado da pega —
+  exatamente o que uma faixa RECOLHIDA não pode deixar. Recolhida, a sombra e o
+  raio passam a ser da lingueta;
+- **e uma regressão que esta ADR criou e a mesma foto pegou.** Medir um invólucro
+  único (em vez da união de dois elementos, como a ADR-061 fazia) simplificou o
+  código e trouxe de volta o defeito que a ADR-061 existe para não ter: com
+  `width: 100%`, o invólucro reivindicava os 96px mesmo recolhido, e os 82px do
+  buraco voltavam a engolir clique do desktop. `width: fit-content`, e o cartão
+  com largura fixa em vez de `flex: 1` — sem isso ele não tem de quem sobrar e
+  colapsa. Medido de novo na tela: o buraco atravessa.
+
+### A foto da janela não serve para esta ADR
+
+A faixa é preta e o `PrintWindow` pinta o pixel transparente de preto: a
+silhueta da calha — raio dos cantos, seta saindo pela lateral — é **invisível**
+na foto da janela real. Pré-encher o bitmap com magenta também não resolve, o
+`PrintWindow` sobrescreve tudo.
+
+Quem respondeu foi uma bancada com o CSS real sobre fundo claro, em
+`spikes/bancada-faixa.html`. Ela responde por FORMA; comportamento continua
+sendo a foto da janela de verdade.
+
+### E um achado de produção
+
+Rodando de verdade, o servidor devolveu **429 Too Many Requests**. Não é este
+laço sozinho: o próprio Claude Code consulta o mesmo endpoint enquanto trabalha,
+e os dois somados passam do que ele aceita. O intervalo foi de um minuto para
+dois — numa janela de cinco horas, dois minutos são 0,7% dela, e nenhuma decisão
+muda por causa disso. Insistir compraria precisão que ninguém usa ao preço de um
+429, que custa a leitura inteira porque o recuo joga a próxima tentativa para
+longe.
+
+Um teste caiu junto, e ele estava certo: o limiar de "valor velho" é um intervalo
+e meio, e subiu com a constante.
+
+### Revisar quando
+
+O dono quiser o popover no hover em vez do clique. A ADR-059 recusou hover
+porque a tira abria sozinha quando o ponteiro passava a caminho de outra coisa —
+e depois da ADR-061 isso mudou: a tira só recebe evento onde ela pinta.

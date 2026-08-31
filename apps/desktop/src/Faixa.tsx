@@ -2,7 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { Button } from "./Button";
-import { Ring, RingLabel } from "./Ring";
+import { MarcaDeIA } from "./MarcaDeIA";
+import { Ring } from "./Ring";
 import type { AnelDaFaixa, Faixa, JanelaDaFaixa } from "./types";
 
 /**
@@ -129,11 +130,43 @@ export function rotuloDaRegua(r: Regua, anel: AnelDaFaixa): string {
   return curto(anel.peso);
 }
 
-/** O que a régua se chama, embaixo do anel. */
+/** O que a régua se chama. Vai no rótulo acessível e no painel, não na tira. */
 export function nomeDaRegua(r: Regua, calibrando: boolean): string {
   if (r.tipo === "cota") return "DA SESSÃO";
   if (r.tipo === "pico") return "DO PICO";
   return calibrando ? "LENDO" : "SEM RÉGUA";
+}
+
+/**
+ * O semáforo do anel.
+ *
+ * # Por que a cor entra aqui, e só aqui
+ *
+ * O design system diz que "cor no M/OS significa atenção", e é por isso que a
+ * faixa nasceu toda em sódio: um anel colorido a mais seria uma segunda cor de
+ * sinal por acidente. Relendo a regra ao contrário: **um anel em 95% É
+ * atenção**, e negar cor a ele é justamente esconder o único momento em que a
+ * faixa tem algo urgente a dizer.
+ *
+ * O que a regra continua proibindo — e continua valendo — é cor sem
+ * significado. Aqui cada degrau significa uma coisa que muda o que fazer:
+ *
+ * - **calmo** (< 50%) — a janela aguenta o que você planejou;
+ * - **atenção** (50–80%) — dá para terminar, não dá para recomeçar;
+ * - **limite** (≥ 80%) — o resto da janela é contado.
+ *
+ * Os cortes são os do `agent-notch`, e não inventados aqui: 50 e 80.
+ *
+ * Sem régua não há degrau — sem denominador, "alto" não quer dizer nada — e o
+ * anel volta ao sódio, que é a cor de "isto é uma medida, não um alarme".
+ */
+export function degrau(r: Regua): "calmo" | "atencao" | "limite" | undefined {
+  const percentual =
+    r.tipo === "cota" ? r.janela.percentual : r.tipo === "pico" ? r.fracao * 100 : undefined;
+  if (percentual === undefined) return undefined;
+  if (percentual >= 80) return "limite";
+  if (percentual >= 50) return "atencao";
+  return "calmo";
 }
 
 export function proporcao(valor: number, teto: number) {
@@ -170,6 +203,13 @@ function useFaixa() {
   };
 }
 
+/** O degrau de uma barra, a partir da fração que ela pinta. */
+function degrauDaFracao(fracao: number): "calmo" | "atencao" | "limite" {
+  if (fracao >= 0.8) return "limite";
+  if (fracao >= 0.5) return "atencao";
+  return "calmo";
+}
+
 function Barra({ rotulo, valor, teto, nota, regua, exato }: {
   rotulo: string;
   valor: number;
@@ -188,7 +228,10 @@ function Barra({ rotulo, valor, teto, nota, regua, exato }: {
         <span className="micro-label">{rotulo}</span>
         <span className="faixa-barra-nota">{nota}</span>
       </div>
-      <div className="faixa-trilho">
+      {/* O mesmo semáforo do anel, pelo mesmo motivo: a barra e o anel medem a
+          MESMA coisa, e duas cores diferentes para o mesmo número fariam a
+          pessoa procurar a diferença que não existe. */}
+      <div className="faixa-trilho" data-degrau={regua ? degrauDaFracao(fracao) : undefined}>
         {/* Sem régua não se pinta nada: uma barra cheia contra um teto que não
             existe é a mentira que o trilho vazio evita. */}
         {regua ? <div className="faixa-carga" style={{ width: `${fracao * 100}%` }} /> : null}
@@ -294,11 +337,10 @@ export function FaixaDeUso() {
       </button>
 
       <div className="faixa-tira">
-        {aneis.map((anel) => {
+        {aneis.map((anel, indice) => {
           const r = regua(anel, calibrando);
           const valor = rotuloDaRegua(r, anel);
-          const nome = nomeDaRegua(r, calibrando);
-          /* O anel é limitado a 1 e o rótulo NÃO: acima de 100% o arco não tem
+          /* O anel satura em 1 e o número NÃO: acima de 100% o arco não tem
              para onde crescer, e o número é justamente o que importa ali. */
           const fracao =
             r.tipo === "cota" ? Math.min(1, r.janela.percentual / 100)
@@ -309,6 +351,11 @@ export function FaixaDeUso() {
               type="button"
               className="faixa-anel"
               key={anel.nome}
+              data-degrau={degrau(r)}
+              /* A cascata é por anel, e não por quadro: três anéis entrando
+                 juntos leem como um bloco; entrando em 40ms de diferença, leem
+                 como três coisas. */
+              style={{ ["--faixa-atraso" as string]: `${indice * 70}ms` }}
               aria-expanded={aberto}
               aria-label={
                 r.tipo === "cota"
@@ -319,10 +366,17 @@ export function FaixaDeUso() {
               }
               onClick={alternar}
             >
-              <Ring size={56} segments={r.tipo === "nenhuma" ? [] : [{ value: fracao }]}>
-                <RingLabel value={valor} />
+              {/* O anel ABRAÇA a marca, em vez de conter o número. É a inversão
+                  que o desenho de referência faz e que resolve o problema de
+                  três anéis empilhados: com o número dentro, três anéis são
+                  três números e nenhuma identidade — não dá para saber QUEM
+                  está em 73%. */}
+              <Ring size={44} segments={r.tipo === "nenhuma" ? [] : [{ value: fracao }]}>
+                <span className="faixa-marca">
+                  <MarcaDeIA nome={anel.nome} />
+                </span>
               </Ring>
-              <span className="micro-label">{nome}</span>
+              <span className="faixa-valor">{valor}</span>
             </button>
           );
         })}
@@ -416,6 +470,11 @@ export function PainelDaFaixa() {
 
   return (
     <div className="faixa-painel" role="group" aria-label="Consumo de IA">
+      {/* O que ROLA é o corpo, e não o cartão.
+          A seta que aponta para a calha é um pseudo-elemento que sai para fora
+          do cartão, e `overflow` num elemento recorta o que sai dele — a seta
+          sumia. Duas camadas: o cartão desenha a seta, o corpo rola. */}
+      <div className="faixa-painel-corpo">
       {conteudo}
       <div className="button-line">
         <Button variant="secondary" onClick={() => void api.abrirApp().catch(() => undefined)}>
@@ -424,6 +483,7 @@ export function PainelDaFaixa() {
         <Button variant="ghost" onClick={() => void api.fecharPainelDaFaixa().catch(() => undefined)}>
           Fechar
         </Button>
+      </div>
       </div>
     </div>
   );

@@ -511,9 +511,16 @@ const VIGIA_PERTO: StdDuration = StdDuration::from_millis(16);
 
 /// De quanto em quanto tempo a cota e perguntada ao servidor.
 ///
-/// Um minuto porque e o que o proprio CLI usa, e porque a janela medida e de
-/// cinco horas: um minuto de atraso e um terco de por cento dela.
-const COTA_INTERVALO: StdDuration = StdDuration::from_secs(60);
+/// Comecou em um minuto, que e o que o `agent-notch` usa. Rodando de verdade,
+/// o servidor devolveu **429 Too Many Requests** — e nao por causa deste laco
+/// sozinho: o proprio Claude Code consulta o mesmo endpoint enquanto trabalha,
+/// e os dois somados passam do que ele aceita.
+///
+/// Dois minutos, entao. A janela medida e de CINCO HORAS: dois minutos de
+/// atraso sao 0,7% dela, e nenhuma decisao muda por causa disso. Insistir em um
+/// minuto compraria precisao que ninguem usa ao preco de um 429 — que custa a
+/// leitura inteira, porque o recuo joga a proxima tentativa para longe.
+const COTA_INTERVALO: StdDuration = StdDuration::from_secs(120);
 
 /// O teto do recuo depois de uma falha.
 ///
@@ -600,11 +607,20 @@ fn encostar_a_esquerda<R: Runtime>(
     painel: &tauri::WebviewWindow<R>,
     tira: &tauri::WebviewWindow<R>,
 ) {
-    let (Ok(onde), Ok(tamanho)) = (tira.outer_position(), painel.outer_size()) else {
+    let (Ok(onde), Ok(tira_tamanho), Ok(tamanho)) = (
+        tira.outer_position(),
+        tira.outer_size(),
+        painel.outer_size(),
+    ) else {
         return;
     };
     let x = onde.x - tamanho.width as i32;
-    let _ = painel.set_position(tauri::PhysicalPosition::new(x, onde.y));
+    // Centrado na tira, e nao alinhado pelo topo dela. A seta do painel sai do
+    // meio da borda direita, e alinhar topos faria a seta apontar para o vazio
+    // acima do primeiro anel numa janela que agora cabe tres.
+    let meio = onde.y + tira_tamanho.height as i32 / 2;
+    let y = meio - tamanho.height as i32 / 2;
+    let _ = painel.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
 /// Pergunta a cota ao servidor da Anthropic, de minuto em minuto.
@@ -1306,9 +1322,15 @@ mod tests {
 
     /// Uma leitura que nao renovou continua na tela, MARCADA. Apaga-la seria
     /// trocar informacao velha por nenhuma.
+    ///
+    /// Quatro minutos porque o limiar e um intervalo e meio, e o intervalo virou
+    /// dois minutos quando o servidor devolveu 429. Este teste ja falhou uma vez
+    /// por causa disso — a amostra de dois minutos deixou de ser velha no mesmo
+    /// commit em que a constante mudou —, e a licao esta no nome do numero: ele
+    /// acompanha `COTA_INTERVALO`, nao um relogio de parede.
     #[test]
     fn a_cota_que_nao_renovou_fica_marcada_como_velha() {
-        let faixa = montar(leitura(), "Claude Code", false, false, Some(observada(2)), &[], AGORA)
+        let faixa = montar(leitura(), "Claude Code", false, false, Some(observada(4)), &[], AGORA)
             .unwrap();
         let sessao = faixa.aneis[0].cota_sessao.as_ref().unwrap();
         assert_eq!(sessao.percentual, 23);

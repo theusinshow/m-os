@@ -11184,11 +11184,21 @@ button.daily-objective-title:focus-visible {
 }
 
 .faixa-conteudo {
+  position: relative;
   display: flex;
   flex-direction: row-reverse;
   justify-content: flex-start;
   align-items: stretch;
-  width: 100%;
+  /* `fit-content`, e nao `100%`. E o involucro que o `useMedirZona` mede, e com
+     largura fixa da janela ele reivindicava os 96px inteiros mesmo recolhido —
+     quando so a lingueta de 14 esta pintada. Os 82px do buraco voltavam a
+     engolir clique do desktop, que e o preco que a ADR-061 existe para nao
+     pagar. */
+  width: fit-content;
+  /* A sombra e do CONJUNTO, e nao do cartao: com ela no cartao, a costura com a
+     lingueta ganhava um degrau de sombra no meio da peca. */
+  box-shadow: -2px 0 24px rgba(0, 0, 0, 0.45);
+  border-radius: 20px 0 0 20px;
 }
 
 .faixa-shell[data-recolhida] .faixa-tira {
@@ -11202,51 +11212,105 @@ button.daily-objective-title:focus-visible {
   height: 112px;
 }
 
+/* Recolhida, a sombra e o raio passam a ser DA LINGUETA, e o involucro perde os
+   dois.
+
+   O involucro continua com os 96px de largura da janela e deixa de pintar
+   qualquer coisa — mas `box-shadow` desenha em volta da caixa mesmo com fundo
+   transparente. O resultado na tela era o contorno de um cartao fantasma de
+   96x112 ao lado da pega, que e exatamente o que uma faixa RECOLHIDA nao pode
+   deixar na tela. */
+.faixa-shell[data-recolhida] .faixa-conteudo {
+  box-shadow: none;
+  border-radius: 0;
+}
+
 /* A pega. Estreita de proposito: ela fica na tela o tempo todo quando a faixa
    esta recolhida, e uma pega larga seria uma faixa menor em vez de uma faixa
    escondida. */
+/* O trilho do anel, dentro da calha: branco rebaixado, e nao a `--border` do
+   app — sobre preto ela desaparece. */
+.faixa-tira .mos-ring-track {
+  stroke: rgba(255, 255, 255, 0.14);
+}
+
+/* A lingueta e o MESMO preto da calha, sem borda entre as duas.
+
+   Antes ela era um cartao proprio encostado no outro, e a costura aparecia: uma
+   linha clara no meio de uma peca que deveria ser uma so. No desenho de
+   referencia a calha e um bloco continuo, e a pega e um detalhe DENTRO dele. */
 .faixa-lingueta {
   flex: none;
-  width: 12px;
-  /* Acompanha o cartao ao lado. Recolhida, ela ganha altura propria logo acima:
-     sem o cartao nao ha de quem herdar, e ela viraria um traco de zero pixel. */
+  width: 14px;
   align-self: stretch;
   display: grid;
   place-items: center;
   padding: 0;
-  border: var(--line) solid var(--border-strong);
-  border-right: 0;
-  border-radius: var(--radius) 0 0 var(--radius);
-  background: var(--surface-raised);
+  border: 0;
+  border-radius: 0;
+  background: rgba(9, 9, 11, 0.96);
+  cursor: default;
 }
 
-/* Recolhida, a lingueta e a unica coisa pintada, e por isso ela ganha o raio
-   dos dois cantos: encostada em nada, uma quina viva de um lado so pareceria
-   metade de um cartao que nao esta la. */
+/* Recolhida, a lingueta e a unica coisa pintada, e por isso ela ganha o raio e
+   a sombra que eram do cartao: encostada em nada, uma quina viva de um lado so
+   pareceria metade de uma peca que nao esta la. */
 .faixa-shell[data-recolhida] .faixa-lingueta {
-  border-radius: var(--radius) 0 0 var(--radius);
+  border-radius: 10px 0 0 10px;
+  box-shadow: -2px 0 16px rgba(0, 0, 0, 0.4);
 }
 
 .faixa-lingueta:hover .faixa-lingueta-marca {
-  background: var(--text);
+  background: #fff;
 }
 
 /* Dois pixels de traco, e nao uma seta: no estado recolhido isto e tudo o que
    aparece na borda da tela, e um glifo de 12px viraria sujeira. */
 .faixa-lingueta-marca {
   width: 2px;
-  height: 24px;
+  height: 26px;
   border-radius: 999px;
-  background: var(--border-strong);
+  background: rgba(255, 255, 255, 0.28);
+  transition: background-color 160ms ease;
+}
+
+/* ---- O semaforo do anel ----
+
+   O design system diz que "cor no M/OS significa atencao", e a faixa nasceu
+   toda em sodio por causa disso. Lendo a regra ao contrario: um anel em 95% E
+   atencao, e negar cor a ele esconde o unico momento em que a faixa tem algo
+   urgente a dizer.
+
+   O que a regra proibe e cor SEM significado. Aqui cada degrau muda o que
+   fazer, e os cortes (50 e 80) sao os do `agent-notch`. Sem regua nao ha
+   degrau, e o anel volta ao sodio — a cor de "isto e uma medida, nao um
+   alarme".
+
+   Sao valores proprios e nao os `--success`/`--danger` do app: aqueles foram
+   calibrados para texto sobre a superficie clara ou escura DO M/OS, e aqui o
+   fundo e preto fixo. O verde de interface fica sujo sobre preto num traco de
+   4px. */
+.faixa-anel[data-degrau="calmo"] {
+  --signal-fill: #3ddc84;
+}
+.faixa-anel[data-degrau="atencao"] {
+  --signal-fill: #f2c33d;
+}
+.faixa-anel[data-degrau="limite"] {
+  --signal-fill: #ff5a3c;
 }
 
 .faixa-tira {
-  flex: 1;
+  position: relative;
+  /* Largura FIXA, e nao `flex: 1`: com o involucro em `fit-content`, um filho
+     que so quer "o que sobrar" nao tem de quem sobrar, e o cartao colapsava. */
+  width: 82px;
+  flex: none;
   min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-3);
+  gap: 16px;
   /* Ocupa a janela inteira. Nao e estetica: o que sobrar ao redor e janela
      transparente, e janela transparente engole clique do desktop que estiver
      embaixo — o Tauri nao faz click-through por regiao. */
@@ -11254,15 +11318,37 @@ button.daily-objective-title:focus-visible {
      de preencher uma janela de tamanho fixo que cabe tres. */
   width: 100%;
   justify-content: center;
-  padding: var(--space-3) var(--space-2);
-  background: var(--surface-raised);
-  border: var(--line) solid var(--border-strong);
-  /* Sem borda na direita: a lingueta mora ali colada, e duas linhas juntas
-     viriam com o dobro da espessura. */
-  border-right: 0;
-  border-radius: var(--radius) 0 0 var(--radius);
+  padding: 14px 6px;
+  /* ---- Preto fixo, e nao `--surface-raised` ----
+
+     A tira nao flutua sobre o M/OS: ela flutua sobre o DESKTOP. Seguir o tema
+     do app faria a calha ficar branca no tema claro sobre um papel de parede
+     escuro, que e a unica combinacao em que ela some. Preto quase puro funciona
+     sobre qualquer fundo, e e por isso que todo HUD de borda de tela usa preto.
+
+     A consequencia esta assumida: esta e a unica peca do M/OS que nao vira com
+     o tema, e ela nao vira porque nao e parte da janela do app. */
+  background: rgba(9, 9, 11, 0.96);
+  border: 0;
+  color: #fff;
+  /* O raio grande e o que faz a calha parecer uma peca de hardware colada na
+     borda, e nao um cartao que por acaso encostou nela. So a ESQUERDA: a
+     direita esta encostada no fim da tela e nao tem canto para arredondar. */
+  border-radius: 20px 0 0 20px;
 }
 
+/* ---- Sobre os cantos que "derretem" ----
+
+   O desenho de referencia parece fundir a calha na borda da tela com uma curva
+   concava, o truque do entalhe do macOS. Foi tentado e sai errado AQUI, e o
+   motivo e geometrico: aquele truque preenche o VAO entre um canto arredondado
+   e a borda. A nossa calha ja encosta na borda com o canto direito reto — nao
+   ha vao. O pseudo-elemento nao tinha o que preencher e virava um caroco preto
+   saindo do topo e do pe, que na tela lia como defeito de renderizacao.
+
+   O que sobrou e o que de fato carrega a forma: raio grande so na ESQUERDA, e
+   a peca inteira num preto so. Visto na bancada sobre fundo claro, e a
+   silhueta certa. */
 /* O aviso de demonstração.
 
    Uma borda tracejada, e não uma cor: cor no M/OS significa atenção, e isto não
@@ -11278,17 +11364,89 @@ button.daily-objective-title:focus-visible {
   padding-left: var(--space-2);
 }
 
+/* A marca dentro do anel, sobre um disco proprio.
+
+   O disco existe para separar o icone do trilho: sem ele, a 18px, o traco da
+   marca encosta no anel e os dois viram uma mancha so. */
+.faixa-marca {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* O numero embaixo do anel, e nao dentro.
+
+   Dentro, tres aneis empilhados sao tres numeros e nenhuma identidade: nao da
+   para saber QUEM esta em 73%. Fora, o anel fica livre para a marca e o numero
+   ganha a largura da calha inteira. */
+.faixa-valor {
+  font: 600 12px/1 var(--font-mono, ui-monospace, monospace);
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.88);
+  font-variant-numeric: tabular-nums;
+}
+
 .faixa-anel {
   display: flex;
-  /* O rotulo nunca quebra: "SEM RÉGUA" em duas linhas empurraria o anel para
-     cima e o alinhamento mudaria conforme o estado do dado. */
   white-space: nowrap;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-1);
+  gap: 5px;
   padding: 0;
   border: 0;
   background: none;
+  cursor: default;
+  /* A entrada, em cascata. `--faixa-atraso` vem do React, um por anel: tres
+     aneis entrando juntos leem como um bloco; com 70ms entre eles, leem como
+     tres coisas. */
+  animation: faixa-anel-entra 320ms var(--ease-enter, cubic-bezier(0.2, 0, 0, 1)) both;
+  animation-delay: var(--faixa-atraso, 0ms);
+  transition: transform 160ms var(--ease-enter, cubic-bezier(0.2, 0, 0, 1));
+}
+
+@keyframes faixa-anel-entra {
+  from {
+    opacity: 0;
+    /* Entra pela DIREITA, de onde a calha veio. Entrar de baixo faria o anel
+       parecer um item de lista, e nao uma peca que desliza da borda. */
+    transform: translateX(10px) scale(0.94);
+  }
+}
+
+/* O toque de vida no hover: o anel avanca 2px para fora da borda, como se
+   estivesse sendo puxado da calha. Nada mais — a tira fica sempre por cima, e
+   uma peca que se anima muito na periferia da visao vira distracao. */
+.faixa-anel:hover {
+  transform: translateX(-2px);
+}
+
+.faixa-anel:hover .faixa-marca {
+  background: rgba(255, 255, 255, 0.13);
+  color: #fff;
+}
+
+.faixa-marca {
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+/* A cor do anel muda quando o consumo cruza um degrau, e a transicao existe
+   para que a mudanca seja PERCEBIDA: um verde que vira amarelo entre dois
+   quadros nao e visto por quem nao estava olhando. */
+.faixa-anel .mos-ring-value {
+  transition: stroke 480ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .faixa-anel {
+    animation: none;
+    transition: none;
+  }
 }
 
 .faixa-painel {
@@ -11296,6 +11454,53 @@ button.daily-objective-title:focus-visible {
      porque cada pixel que sobrasse ao redor seria transparente e engoliria o
      clique do desktop. */
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  /* O MESMO preto da calha, pelo mesmo motivo: o painel abre sobre o desktop,
+     e nao dentro do M/OS. Duas pecas do mesmo gesto com fundos diferentes
+     leriam como duas coisas que por acaso apareceram juntas. */
+  border: 0;
+  color: #fff;
+  border-radius: 16px;
+  background: rgba(9, 9, 11, 0.97);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+  /* Espaco a direita para a seta morar sem encostar no texto. */
+  margin-right: 9px;
+}
+
+/* A seta que aponta para a calha.
+
+   Ela e o que transforma "uma janela que apareceu do lado" em "isto pertence
+   aquele anel". Sem ela, o painel e a tira sao dois retangulos vizinhos; com
+   ela, um explica o outro. */
+.faixa-painel::after {
+  content: "";
+  position: absolute;
+  /* -9px, e nao -1px: `right` posiciona a BORDA DIREITA do elemento, entao com
+     10px de largura e -1px a seta caia inteira em cima do cartao — preta sobre
+     preta, invisivel. -9px a joga para dentro do respiro que o `margin-right`
+     reservou. */
+  right: -9px;
+  top: 50%;
+  width: 10px;
+  height: 18px;
+  transform: translateY(-50%);
+  background: rgba(9, 9, 11, 0.97);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  pointer-events: none;
+}
+
+/* O painel e a janela inteira, e a seta mora fora do cartao: sem `relative` no
+   proprio painel ela se ancoraria no `body`. */
+.faixa-painel {
+  position: relative;
+}
+
+/* O corpo e quem ROLA. A separacao existe por causa da seta: `overflow` recorta
+   o que sai do elemento, e com a rolagem no cartao a seta era cortada fora. */
+.faixa-painel-corpo {
   display: flex;
   flex-direction: column;
   /* `safe center` e nao `center`: centralizado, um conteudo maior que a janela
@@ -11307,12 +11512,49 @@ button.daily-objective-title:focus-visible {
      janela alta o bastante para tres fontes, que com UMA — o caso normal —
      ficaria dois tercos vazia de cartao opaco. */
   overflow-y: auto;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  border: var(--line) solid var(--border-strong);
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+  height: 100%;
+  gap: 14px;
+  padding: 14px 16px;
+  /* A barra de rolagem do Chromium, discreta sobre o preto. */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+/* Sobre o preto, os tons do app somem. */
+.faixa-painel .faixa-painel-nome {
+  color: #fff;
+}
+.faixa-painel .micro-label {
+  color: rgba(255, 255, 255, 0.55);
+}
+.faixa-painel .faixa-barra-nota {
+  color: rgba(255, 255, 255, 0.45);
+}
+.faixa-painel .faixa-barra-valor {
+  color: rgba(255, 255, 255, 0.9);
+}
+.faixa-painel .faixa-trilho {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* O mesmo semaforo do anel. Os valores sao repetidos e nao herdados de uma
+   variavel comum porque o anel e a barra vivem em janelas DIFERENTES: uma
+   variavel no `:root` de uma nao chega na outra. */
+.faixa-trilho[data-degrau="calmo"] .faixa-carga {
+  background: #3ddc84;
+}
+.faixa-trilho[data-degrau="atencao"] .faixa-carga {
+  background: #f2c33d;
+}
+.faixa-trilho[data-degrau="limite"] .faixa-carga {
+  background: #ff5a3c;
+}
+
+.faixa-carga {
+  transition: background-color 480ms ease;
+}
+.faixa-painel .faixa-regua {
+  color: rgba(255, 255, 255, 0.5);
 }
 
 [data-theme='light'] .faixa-painel {

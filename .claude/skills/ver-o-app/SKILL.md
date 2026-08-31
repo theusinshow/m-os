@@ -131,6 +131,23 @@ painel, e o processo ainda mantém duas auxiliares de 16×16.
 O painel só existe depois de um clique no anel, e ele **se fecha sozinho** em
 poucos segundos — clique e fotografe no mesmo comando.
 
+## A calha preta some na foto
+
+A faixa e preta, e o `PrintWindow` pinta o pixel transparente de preto. A
+silhueta dela — o raio dos cantos, a seta do popover saindo pela lateral — **nao
+aparece** na foto da janela real. Pre-encher o bitmap com magenta tambem nao
+resolve: o `PrintWindow` sobrescreve tudo.
+
+Para ver forma e cor, use a bancada com o CSS real sobre fundo claro:
+
+```bash
+cd <raiz> && python -m http.server 8899 --bind 127.0.0.1
+# http://127.0.0.1:8899/spikes/bancada-faixa.html
+```
+
+A marcacao dela e escrita a mao e pode divergir do React. Ela responde por
+FORMA; comportamento continua sendo a foto da janela de verdade.
+
 ## Antes de dizer que está pronto
 
 Para mudança visual, a bancada headless (`packages/design-system/tokens.css` +
