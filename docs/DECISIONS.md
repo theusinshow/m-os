@@ -3157,3 +3157,345 @@ também são hide/show.
 A causa da surdez aparecer. A hipótese aberta é que uma janela sem decoração
 mostrada uma vez e deixada visível perca a entrada, e o teste dela é recriar ou
 re-mostrar a tira em vez de mantê-la viva.
+
+> **Resolvido pela ADR-061**, e sem descobrir a causa. O clique deixou de ser
+> decidido pelo Windows: a tira só o reivindica onde ela pinta, e a decisão é
+> reafirmada a cada travessia da borda. O preço dos 84 pixels também caiu.
+
+## ADR-061 — A tira só recebe clique onde ela pinta
+
+**Estado:** Accepted · 2026-08-30
+
+### Contexto
+
+A ADR-060 fechou com duas coisas em aberto, e as duas eram a mesma:
+
+- **um preço declarado.** Recolhida, os 84 pixels que o cartão ocupava
+  continuavam sendo janela transparente, e janela transparente engole o clique
+  do desktop que está embaixo;
+- **um defeito conhecido.** A tira ficava surda a clique de forma intermitente.
+  Cinco tentativas de conserto morreram na tela, cada uma com teste: `resizable`,
+  `set_position`, `hide`/`show` depois de mover, `focus`, e mostrar só depois da
+  primeira passada.
+
+O `agent-notch` — um HUD de cota em Electron, no mesmo canto da tela e com o
+mesmo propósito — não tem nenhum dos dois. E o motivo não é o Electron: é que
+ele **não deixa o Windows decidir** quem recebe o clique. Ele decide, com
+`setIgnoreMouseEvents(true, { forward: true })`.
+
+Isso é o que as cinco tentativas tinham em comum: todas mexiam na janela e
+torciam para o hit-test implícito por alpha acertar sozinho. Numa janela
+transparente, sem decoração e sempre por cima, ele às vezes não acerta.
+
+### Decisão
+
+**A tira só reivindica o clique onde ela está pintada.** Um laço em Rust lê a
+posição do ponteiro, compara com a zona opaca e chama
+`set_ignore_cursor_events` na troca. Aberta, a zona é a janela inteira;
+recolhida, são os 12 pixels da lingueta — e os 84 do buraco voltam a ser do
+desktop.
+
+O Tauri tem `set_ignore_cursor_events(bool)` e **não** tem o `{ forward: true }`
+do Electron: no Windows ele liga `WS_EX_TRANSPARENT`, e aí a webview para de
+receber `mousemove` — de dentro, é impossível perceber o ponteiro voltando. Por
+isso quem rastreia é o Rust, e não o renderer.
+
+**A cadência é adaptativa**, e não um número só: 16 ms com o ponteiro a menos de
+240 px da zona, 120 ms fora disso. Correr a 60 Hz o dia inteiro seria acordar o
+processo sessenta vezes por segundo para responder "o ponteiro continua do outro
+lado da tela", que é a resposta em quase todo tique.
+
+Medido na tela, 15 amostras de cada, do instante em que o ponteiro pousa até a
+janela aceitar o clique:
+
+| chegada | mediana | máximo |
+| --- | --- | --- |
+| atravessando os 240 px (uma mão) | 2 ms | 18 ms |
+| teleporte de 2100 px (só um script faz) | 17 ms | 125 ms |
+
+O caso que importa é o de cima: um quadro. O de baixo é o limite do
+`VIGIA_LONGE`, e nenhuma mão chega assim.
+
+**O espelho de `recolhida` mora na memória.** O laço precisa desse booleano
+dezenas de vezes por segundo, e ler o `settings.json` do disco nessa cadência
+seria I/O contínuo para receber sempre a mesma resposta. Quem escreve no espelho
+é quem já estava lendo o arquivo de qualquer jeito.
+
+**O painel fica de fora.** Ele é mostrado e escondido a cada uso, nunca falhou, e
+pinta a janela inteira — não há pixel morto nele para devolver a ninguém.
+
+### A causa raiz continua desconhecida
+
+Esta ADR **não** descobriu por que a tira emudecia. O que ela fez foi tirar a
+decisão do Windows e reafirmá-la toda vez que o ponteiro cruza a borda do que
+está pintado. Daí vem a propriedade que importa mais que o conserto: **a surdez
+deixa de ser permanente**. Se a entrada da janela se perder, o próximo tique com
+o cursor sobre o cartão a devolve. O que emudecia até o app reiniciar passa a
+emudecer, no pior caso, por um quadro.
+
+### Como isto foi verificado
+
+Teste automatizado só cobre a geometria — a zona opaca por estado, a escala do
+monitor, as bordas. O resto exige a tela, e foi medido lendo
+`WS_EX_TRANSPARENT` e `WindowFromPoint` da janela real enquanto o cursor era
+movido:
+
+- sobre o cartão e sobre a lingueta a janela reivindica o clique; a 1 px da
+  borda, e no buraco de 84 px do estado recolhido, ela não reivindica;
+- um clique de verdade na lingueta de 12 px virou `faixa_recolhida` de `true`
+  para `false` no `settings.json`, e um clique no cartão abriu o painel de
+  440×232 encostado à esquerda da tira.
+
+Uma armadilha ficou registrada porque custou duas rodadas de investigação
+falsas: **`SetCursorPos` numa máquina em uso é desfeito pela mão do dono**, e a
+medida feita depois disso mede outro lugar. A sonda confere que o cursor ficou
+onde foi posto, antes e depois de ler, e descarta a amostra quando não ficou.
+
+### E um terceiro caminho para esconder: `Ctrl+Shift+U`
+
+A ADR-060 registrou que *"o gesto do tray é o único caminho de esconder que não
+depende do clique na tira"*. Consertado o clique, ficam dois caminhos que
+dependem dele (a lingueta e o anel) e um que não (o tray). O atalho global é o
+segundo que não depende: dois caminhos independentes para o mesmo gesto, e
+nenhum deles precisa que o outro funcione.
+
+Fixo, e não configurável como os atalhos da Captura e da Voz. Aqueles competem
+por teclas que o dono usa o dia inteiro e por isso ganharam tela de Settings;
+este liga e desliga uma tira de 96 pixels. Colidindo com um dos outros dois, o
+registro nem é tentado, o log diz, e os outros caminhos continuam ali.
+
+Medido na tela: dois toques, `faixaOculta` indo de `false` a `true` e de volta,
+com a janela da tira sumindo e voltando junto.
+
+### Revisar quando
+
+O Tauri ganhar hit-test por região, ou o equivalente do `{ forward: true }`. Aí
+o rastreio em Rust vira o rodeio que ele hoje não tem como não ser.
+
+## ADR-062 — A régua deixou de ser o pico: a cota tem denominador
+
+**Estado:** Accepted · 2026-08-30
+
+### Contexto
+
+A ADR-059 mediu os transcripts antes de escrever uma linha e concluiu, com
+razão, que **o arquivo não traz teto de cota nem hora de reset**. Daí veio a
+régua honesta possível: o anel media contra o maior consumo já observado nesta
+máquina. O "Revisar quando" dela dizia, textualmente: *"O Claude Code passar a
+gravar o teto de cota ou a hora de reset. Aí a régua deixa de ser o pico e passa
+a ser o limite de verdade, e o rótulo muda junto."*
+
+O que faltava não estava no arquivo. Estava no servidor, e o próprio CLI já o
+consulta. O `agent-notch` — um HUD de cota em Electron, mesmo canto de tela,
+mesmo propósito — mostrou o caminho: ele não lê transcript nenhum para o Claude
+Code. Ele lê a credencial e pergunta.
+
+Medido nesta máquina antes de qualquer decisão:
+
+```
+GET https://api.anthropic.com/api/oauth/usage
+Authorization: Bearer <de ~/.claude/.credentials.json>
+anthropic-beta: oauth-2025-04-20 · x-app: cli · User-Agent: claude-cli/...
+
+200 → limits[]: { kind: "session",     percent: 23, resets_at: "…T03:50:00Z" }
+                { kind: "weekly_all",  percent:  3, resets_at: "…T17:00:00Z" }
+                { kind: "weekly_scoped", percent: 0, scope: { model: … } }
+```
+
+Teto real, hora de reset real, e uma janela que o transcript nunca teve como
+conhecer: **a semana**.
+
+### Decisão
+
+**1. A cota manda quando responde; o pico responde quando ela não.** São três
+estados, nesta ordem — `cota`, `pico`, `nenhuma` — e o rótulo diz qual está
+valendo, que é a regra da ADR-059 preservada inteira. O pico não foi removido:
+ele continua sendo calculado, gravado e enviado, porque é ele que atende sem
+credencial, com o token vencido, sem rede, ou no dia em que a Anthropic mudar o
+formato. Uma régua de reserva que nunca roda é uma régua que não existe.
+
+**2. O endereço não é uma API publicada, e o desenho assume isso.** O protocolo
+inteiro — endereço, cabeçalhos, formato — mora em `mos-usage::cota`, isolado
+pelo mesmo motivo que a ADR-059 isolou o crate: quando mudar, o teste que quebra
+aponta para um arquivo pequeno, e a faixa cai na régua do pico sem que nada mais
+precise saber.
+
+**3. `mos-usage` continua sem falar com rede.** O módulo guarda o protocolo e lê
+a resposta; quem faz o pedido é o app, que já tem `reqwest` por causa do sync. A
+divisão não é cerimônia: é ela que deixa `ler_resposta` testável contra um corpo
+gravado.
+
+**4. Fronteira de espectador na credencial.** Lemos `~/.claude/.credentials.json`
+e **nunca** o escrevemos. Não renovamos token, não reescrevemos o arquivo. Token
+vencido é `None`, e a faixa volta ao pico — que é exatamente para esta hora que
+ele continua ali.
+
+**5. `weekly_scoped` fica de fora.** Ele é o limite de UM modelo. Na resposta
+medida ele marcava 97% enquanto a semana inteira marcava 3%: trocar um pelo
+outro seria a diferença entre "tranquilo" e "acabou".
+
+**6. Um valor velho é melhor que nenhum, desde que ele se apresente como velho.**
+Falhando a renovação, o último número bom continua na tela marcado com `~` por
+até cinco minutos, e depois some. Isso não fere a doutrina do `Ring.tsx`: ela
+proíbe número **inventado**, e um número de quatro minutos atrás não é
+inventado — é velho. Apagá-lo "some a única informação que ainda valia", a mesma
+frase que o `atualizacao.rs` já usa para não apagar a data da última
+verificação. O recuo é exponencial, de um minuto até cinco.
+
+**7. O prazo passou a ter degrau de dias.** A semana reseta em seis dias, e
+"reseta em 159h50" é aritmeticamente certo e ilegível.
+
+**8. O valor da barra é só o símbolo, e igual nas três.** A primeira versão
+escrevia a régua dentro do valor — "27% da sessão", "3% da semana", "15% do
+maior dia" — para que duas réguas diferentes não parecessem a mesma. A
+preocupação continua certa; a resposta mudou de lugar. Quem diz a régua agora é
+o rótulo da barra (`SESSÃO · 5H`, `SEMANA · 7D`, `HOJE · MAIOR DIA`) e o
+parágrafo embaixo, uma vez cada — em vez de três frases repetindo o que o
+rótulo ao lado já dizia. O que sobra na coluna da direita é `29%`, `3%`, `16%`,
+que é o que se lê de relance.
+
+**9. Existe um modo de demonstração, e ele grita.** Para conferir o anel em 95%
+era preciso chegar a 95% — o que na prática significava não conferir.
+`MOS_FAIXA_DEMO=95,72` injeta sessão e semana e o laço **não fala com rede**.
+
+O aviso é a metade que importa: a tira ganha borda tracejada e o painel escreve
+"DEMONSTRAÇÃO. Estes números vêm do MOS_FAIXA_DEMO e não são o seu consumo".
+Uma demonstração indistinguível do real seria pior que o número inventado que o
+`Ring.tsx` proíbe — teria cara de cota conferida. Tracejado e não colorido
+porque cor no M/OS significa atenção, e isto não é atenção: é "o que você está
+vendo não é seu".
+
+A cota da demonstração é gravada com carimbo no futuro, de propósito, para
+nunca ganhar o `~` de valor velho — que ali seria uma segunda mentira em cima
+da primeira. E `HOJE` continua real: a demonstração troca a cota, não o
+histórico.
+
+### O que a foto pegou e o teste não
+
+O painel foi fotografado com dado real antes de isto ser dado como pronto, e a
+foto encontrou dois defeitos que os vinte e dois testes tinham deixado passar:
+
+- **"reseta em 159h50"** — o item 7 acima só existe por causa dela;
+- **os botões cortados.** A terceira barra não cabia nos 232px do cartão, e o
+  "Abrir o M/OS" ficou metade fora da janela. Altura para 312;
+- **"reseta agora", para sempre.** A primeira versão da demonstração usava um
+  instante fixo, bom para a bancada capturar sempre o mesmo texto. Passada a
+  data, o painel passou a dizer que a janela resetava agora. Prazo relativo ao
+  agora, com teste.
+
+Nenhum dos dois é bug de lógica, e é justamente por isso que nenhum teste os
+veria.
+
+### Consequências
+
+- A faixa passa a fazer UM pedido de rede por minuto. É o primeiro caminho de
+  rede da faixa, e ele não toca captura nem consulta — o que o README promete
+  continua valendo onde foi prometido.
+- A janela do painel cresceu de 232 para 312 pixels.
+- A cota mora na memória, nunca no banco: ela vale minutos, e um número de cota
+  que sobrevivesse a um reinício seria um número velho apresentado como novo.
+- Outros provedores deixaram de ser impossíveis. A ADR-059 os recusou porque
+  "três anéis com dois deles inventados" seria o erro em triplicado — e o motivo
+  era a invenção, não a quantidade. O Codex tem `~/.codex/auth.json` e o mesmo
+  desenho serve.
+
+### Revisar quando
+
+O endereço parar de responder, ou a Anthropic publicar um oficial. Nos dois
+casos o que muda é `mos-usage::cota`, e a régua do pico segura enquanto isso.
+
+## ADR-063 — Um provedor entra na faixa por um comando, e a janela não cresce
+
+**Estado:** Accepted · 2026-08-30
+
+### Contexto
+
+A ADR-059 deixou OpenAI e os outros de fora com um argumento que continua certo:
+*"o mockup mostra três anéis, e três anéis com dois deles inventados seria o
+erro que esta ADR recusa, em triplicado"*.
+
+O motivo da recusa era a **invenção**, não a quantidade. A ADR-062 já desfez
+isso para o Claude Code — o número passou a ter origem. Falta o resto.
+
+### Decisão
+
+**1. O contrato é o do `agent-notch`.** Um comando que imprime no stdout:
+
+```json
+{ "sessionUsedPercent": 25, "weeklyUsedPercent": 60 }
+```
+
+`sessionResetsAt` e `weeklyResetsAt` em RFC 3339 são opcionais. Os nomes são
+dele porque um contrato que alguém já escreveu vale mais que um contrato melhor
+que só o M/OS entende.
+
+Campo que falta vira **ausência, nunca zero**: um anel em 0% diz "não consumi
+nada", que é uma frase diferente de "não sei". E o JSON é procurado entre a
+primeira chave e a última — um comando raramente imprime só o objeto, e exigir
+o stdout limpo faria o contrato falhar por causa de um banner.
+
+**2. O comando roda sem shell, com prazo, e é o dono quem o aponta.**
+`programa` e `argumentos` separados: uma linha única passada a um shell
+transformaria um caminho com espaço em dois argumentos e um `&` num segundo
+comando. Cinco segundos e ele é morto — um comando pendurado seguraria a
+passada dos outros. Vale a mesma fronteira de espectador da ADR-062: o M/OS não
+descobre binário sozinho, não adivinha argumento e não escreve nada.
+
+**3. Sem tela de Settings.** Editado à mão no `settings.json`. Quem tem um
+segundo agente de código com um comando de cota em JSON é alguém que edita
+JSON, e uma tela custaria hoje mais do que valeria. Quando houver um segundo
+interessado, ela nasce.
+
+**4. Uma fonte que não respondeu não vira anel.** Um anel permanente marcado
+"SEM RÉGUA" para um comando quebrado seria ocupar a borda da tela com a
+lembrança de um erro de configuração. E uma falha zera só a vaga dela: recomeçar
+a lista a cada volta faria um comando ruim derrubar os anéis que estavam certos.
+
+**5. `HOJE` não existe para fonte externa.** Ela manda cota, não histórico.
+`peso` e `pico` viriam zerados, e uma barra vazia rotulada HOJE diria "não
+consumiu nada hoje" — frase diferente de "esta fonte não me conta isso". Pelo
+mesmo motivo a nota vira "sem prazo" e não "sem janela aberta", que é uma frase
+sobre transcript.
+
+### A janela não cresce, e é a ADR-061 que paga essa conta
+
+`set_size` é ignorado numa janela `resizable: false`, e ligar `resizable: true`
+mata a entrada dela no Windows — as duas coisas medidas na tela e registradas na
+ADR-059. Então a tira **nasce do tamanho de três anéis (296px) e nunca muda**.
+
+Com um anel só, dois terços dela sobram. Isso teria sido inaceitável antes: pixel
+transparente engolia clique do desktop. Depois da ADR-061 custa nada — a zona de
+clique segue o que está PINTADO, e não a janela.
+
+O que mudou na ADR-061 para isso funcionar: **quem mede é a tela**. A versão
+dela calculava a zona no Rust a partir de `LARGURA_LINGUETA`, um espelho do
+`App.css` — e espelho de CSS envelhece calado. Com número variável de anéis a
+altura pintada passa a depender de quantas fontes responderam, e o Rust não tem
+como saber. Agora o React mede o invólucro e chama `faixa_zona`; o cálculo antigo
+fica como reserva até a primeira medida chegar, errando para o lado seguro.
+
+Medido na tela, com dois anéis numa janela de 296px: o vazio transparente acima e
+abaixo do cartão atravessa para o desktop, e os dois anéis e a lingueta recebem o
+clique. Seis pontos, seis acertos.
+
+### O limite conhecido
+
+**O painel rola.** Com mais de uma fonte o conteúdo passa dos 312px e a janela
+dele também não cresce. A alternativa era uma janela alta o bastante para três
+fontes, que com UMA — o caso normal — ficaria dois terços vazia de cartão
+opaco. Rolar é o preço, e está escrito.
+
+Três anéis é o teto. A partir daí a tira deixa de ser uma tira e vira uma coluna.
+
+### O que a foto pegou e o teste não
+
+- **"sem janela aberta" numa fonte externa** — a frase é sobre transcript, e ali
+  ela dizia algo que a fonte nunca prometeu contar;
+- **o topo do painel cortado.** `justify-content: center` com `overflow` deixa o
+  começo do conteúdo inalcançável pela rolagem. `safe center` desliga a
+  centralização exatamente quando ela passaria a esconder o começo.
+
+### Revisar quando
+
+Alguém pedir a tela de Settings, ou uma quarta fonte. Aí a janela da tira precisa
+ser criada em código com altura calculada, em vez de nascer do `tauri.conf.json`.

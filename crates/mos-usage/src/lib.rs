@@ -26,6 +26,7 @@
 //! que ele caiu. Quem transforma isso em proporção é quem conhece o histórico —
 //! e a régua é o próprio pico observado, nunca um teto inventado.
 
+pub mod cota;
 pub mod leitura;
 
 pub use leitura::{varrer, Fonte, Ponteiro, Varredura};

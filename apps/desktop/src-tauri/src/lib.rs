@@ -160,6 +160,15 @@ pub(crate) struct UserSettings {
     /// A faixa recolhida na lingueta. Mesma logica de nome do campo acima.
     #[serde(default)]
     faixa_recolhida: bool,
+    /// Provedores de IA ALEM do Claude Code, cada um com o comando que sabe
+    /// dizer a propria cota. Ver [`usage::FonteExterna`] e a ADR-063.
+    ///
+    /// Editado a mao neste arquivo, e sem tela de Settings. Nao e esquecimento:
+    /// quem tem um segundo agente de codigo com um comando de cota em JSON e
+    /// alguem que edita JSON, e uma tela para isso custaria mais do que ela
+    /// valeria hoje. Quando houver um segundo interessado, ela nasce.
+    #[serde(default)]
+    pub(crate) faixa_fontes: Vec<usage::FonteExterna>,
     /// Caminhos do transcritor local.
     ///
     /// Preferencia NOSSA, e nao do sistema, entao ela mora aqui — diferente de
@@ -1925,6 +1934,19 @@ pub fn run() {
                         }
                         return;
                     }
+                    // A faixa vem ANTES da Captura rapida porque o ramo dela e
+                    // o fallback: qualquer atalho registrado que nao seja o da
+                    // voz cai la, e sem esta guarda o atalho da faixa abriria a
+                    // Captura.
+                    let faixa = usage::ATALHO
+                        .parse::<tauri_plugin_global_shortcut::Shortcut>()
+                        .is_ok_and(|parsed| &parsed == shortcut);
+                    if faixa {
+                        if event.state == ShortcutState::Pressed {
+                            usage::alternar_pela_bandeja(app);
+                        }
+                        return;
+                    }
                     if event.state == ShortcutState::Pressed {
                         reveal_window(app, "quick-capture");
                     }
@@ -2159,6 +2181,25 @@ pub fn run() {
             // O atalho da voz e registrado DEPOIS, e a falha dele nao derruba o
             // outro: quem perde a voz continua tendo a captura por texto, que e
             // o caminho que sempre funciona.
+            // O atalho da faixa e registrado por ULTIMO e a falha dele nao
+            // derruba nada: quem o perde continua com o item do tray e com o
+            // clique na lingueta. E o terceiro caminho, nao o unico.
+            if usage::ATALHO != configured_shortcut && usage::ATALHO != configured_voice_shortcut {
+                if let Err(causa) = app.global_shortcut().register(usage::ATALHO) {
+                    diagnostico::escrever(
+                        diagnostico::Nivel::Aviso,
+                        "faixa",
+                        &format!("o atalho {} nao registrou: {causa}", usage::ATALHO),
+                    );
+                }
+            } else {
+                diagnostico::escrever(
+                    diagnostico::Nivel::Aviso,
+                    "faixa",
+                    &format!("o atalho {} ja pertence a outro gesto", usage::ATALHO),
+                );
+            }
+
             let voice_status = if configured_voice_shortcut == configured_shortcut {
                 "Conflito com o atalho da Captura rapida.".to_owned()
             } else {
@@ -2374,6 +2415,7 @@ pub fn run() {
                     usage::faixa_painel_fechar,
                     usage::faixa_recolher,
                     usage::faixa_abrir_app,
+                    usage::faixa_zona,
                     daily::daily_today,
                     daily::daily_context,
                     daily::daily_history,

@@ -11150,22 +11150,56 @@ button.daily-objective-title:focus-visible {
    direita, inclusive quando o cartao some: recolher e esconder o cartao aqui, e
    nao mover a janela.
 
-   O preco de recolher por CSS esta escrito: os 84 pixels que o cartao ocupava
-   continuam sendo janela transparente, e janela transparente engole clique do
-   desktop. Quem some de verdade e o item "Faixa de uso" no tray, que esconde a
-   janela inteira. Mover a janela para fora da tela resolveria isso e nao e uma
-   opcao — ver o comentario de `posicionar` em `usage.rs`. */
+   Recolher por CSS custava caro ate a ADR-061: os 84 pixels que o cartao
+   ocupava continuavam sendo janela transparente, e janela transparente engolia
+   o clique do desktop. Nao custa mais. O `vigiar_o_cursor` em `usage.rs` liga e
+   desliga o clique da janela conforme o ponteiro entra e sai do que esta
+   PINTADO, e recolhido o que esta pintado e so a lingueta.
+
+   O que segue valendo: a janela nao se mexe. Mover a tira para fora da tela
+   mataria a entrada dela — ver o comentario de `posicionar` em `usage.rs`. */
+/* `center` e nao `stretch`: a janela e alta o bastante para TRES aneis e nunca
+   muda de tamanho, entao com um anel so ela sobra. Esticado, o cartao ficaria
+   com 296px de altura para desenhar 112 de conteudo, e a lingueta viraria uma
+   barra da altura da tela.
+
+   O que sobra e transparente e nao engole clique: quem impede isso e o
+   `useMedirZona`, que conta ao Rust onde a tira de fato pintou. */
+/* Duas camadas, e a de fora existe so para centralizar.
+
+   A janela da tira cabe TRES aneis e nunca muda de tamanho — redimensiona-la
+   mata a entrada dela no Windows (ADR-059). Com um anel so, dois tercos dela
+   sobram, e o cartao tem de flutuar no meio em vez de esticar.
+
+   O `.faixa-conteudo` e que tem a altura do que esta pintado, e e ele que o
+   `useMedirZona` mede. Sem essa camada a medida daria a janela inteira: a
+   lingueta precisa se esticar ate a altura do CARTAO, e num flex esticar e
+   esticar ate o container. */
 .faixa-shell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  height: 100%;
+}
+
+.faixa-conteudo {
   display: flex;
   flex-direction: row-reverse;
   justify-content: flex-start;
   align-items: stretch;
   width: 100%;
-  height: 100%;
 }
 
 .faixa-shell[data-recolhida] .faixa-tira {
   display: none;
+}
+
+/* Sem o cartao ao lado, a lingueta nao tem de quem herdar altura. 112px e a
+   altura que o cartao tinha com um anel: recolher nao pode mudar o tamanho da
+   pega, senao ela pula na tela ao ir e voltar. */
+.faixa-shell[data-recolhida] .faixa-lingueta {
+  height: 112px;
 }
 
 /* A pega. Estreita de proposito: ela fica na tela o tempo todo quando a faixa
@@ -11174,6 +11208,9 @@ button.daily-objective-title:focus-visible {
 .faixa-lingueta {
   flex: none;
   width: 12px;
+  /* Acompanha o cartao ao lado. Recolhida, ela ganha altura propria logo acima:
+     sem o cartao nao ha de quem herdar, e ela viraria um traco de zero pixel. */
+  align-self: stretch;
   display: grid;
   place-items: center;
   padding: 0;
@@ -11213,8 +11250,9 @@ button.daily-objective-title:focus-visible {
   /* Ocupa a janela inteira. Nao e estetica: o que sobrar ao redor e janela
      transparente, e janela transparente engole clique do desktop que estiver
      embaixo — o Tauri nao faz click-through por regiao. */
+  /* Sem `height: 100%`: o cartao agora cresce com os aneis dentro dele, em vez
+     de preencher uma janela de tamanho fixo que cabe tres. */
   width: 100%;
-  height: 100%;
   justify-content: center;
   padding: var(--space-3) var(--space-2);
   background: var(--surface-raised);
@@ -11223,6 +11261,21 @@ button.daily-objective-title:focus-visible {
      viriam com o dobro da espessura. */
   border-right: 0;
   border-radius: var(--radius) 0 0 var(--radius);
+}
+
+/* O aviso de demonstração.
+
+   Uma borda tracejada, e não uma cor: cor no M/OS significa atenção, e isto não
+   é atenção — é "o que você está vendo não é seu". Tracejado é a convenção de
+   provisório, e sobrevive ao tema claro e ao escuro sem precisar de token novo. */
+.faixa-shell[data-demonstracao] .faixa-tira,
+.faixa-shell[data-demonstracao] .faixa-lingueta {
+  border-style: dashed;
+}
+
+.faixa-regua[data-demonstracao] {
+  border-left: 2px dashed var(--border-strong);
+  padding-left: var(--space-2);
 }
 
 .faixa-anel {
@@ -11245,7 +11298,15 @@ button.daily-objective-title:focus-visible {
   height: 100%;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  /* `safe center` e nao `center`: centralizado, um conteudo maior que a janela
+     tem o TOPO cortado e inalcancavel pela rolagem. `safe` desliga a
+     centralizacao exatamente quando ela passaria a esconder o comeco. */
+  justify-content: safe center;
+  /* Com mais de uma fonte o conteudo passa dos 312px da janela, e a janela nao
+     cresce (ver a ADR-063). Rolar e o limite conhecido: a alternativa era uma
+     janela alta o bastante para tres fontes, que com UMA — o caso normal —
+     ficaria dois tercos vazia de cartao opaco. */
+  overflow-y: auto;
   gap: var(--space-3);
   padding: var(--space-3);
   border: var(--line) solid var(--border-strong);

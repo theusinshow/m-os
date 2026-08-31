@@ -111,6 +111,26 @@ Se faltar sinal, **faça o app falar**: renderize o estado num elemento da tela 
 leia esse elemento. Vale mais que dez inspeções — foi o que finalmente resolveu a
 investigação do `span`.
 
+## Ver a faixa de uso em qualquer estado
+
+Conferir o anel em 95% exigia chegar a 95%. Não exige mais:
+
+```bash
+MOS_FAIXA_DEMO=95,72 <caminho>/mos-desktop.exe    # sessão, semana
+```
+
+A faixa desenha os números pedidos e **não fala com rede**. Ela também se
+denuncia — borda tracejada na tira, aviso no painel — e isso é de propósito: um
+print de demonstração que pareça real vira, semanas depois, um print de consumo
+real. Ver `DECISIONS.md`, ADR-062.
+
+Para fotografar a tira e o painel, eles são janelas separadas com o mesmo
+título `M/OS`. Escolha pela LARGURA, e não pelo título: 96 é a tira, 440 é o
+painel, e o processo ainda mantém duas auxiliares de 16×16.
+
+O painel só existe depois de um clique no anel, e ele **se fecha sozinho** em
+poucos segundos — clique e fotografe no mesmo comando.
+
 ## Antes de dizer que está pronto
 
 Para mudança visual, a bancada headless (`packages/design-system/tokens.css` +

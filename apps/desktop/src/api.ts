@@ -674,6 +674,17 @@ export const api = {
   abrirApp() {
     return invoke<void>("faixa_abrir_app");
   },
+  /**
+   * A tira diz onde ela PINTOU, para o Rust saber onde aceitar clique.
+   *
+   * Em pixels lógicos relativos à janela. A janela da tira é alta o bastante
+   * para três anéis e nunca muda de tamanho (ela não pode: redimensioná-la mata
+   * a entrada dela no Windows), então o que sobra é transparente — e transparente
+   * só não engole clique do desktop porque esta medida chega.
+   */
+  medirFaixa(x: number, y: number, largura: number, altura: number) {
+    return invoke<void>("faixa_zona", { x, y, largura, altura });
+  },
   snoozeReminder(id: string, until: Date) {
     return invoke<Reminder>("attention_snooze", { id, until: until.toISOString() });
   },

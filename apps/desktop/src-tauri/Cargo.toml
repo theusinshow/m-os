@@ -40,7 +40,9 @@ mos-usage = { path = "../../../crates/mos-usage" }
 mos-sync-http = { path = "../../../crates/mos-sync-http" }
 # A identidade do dispositivo e o motor de sincronizacao. Ver `docs/SYNC.md`.
 mos-sync = { path = "../../../crates/mos-sync" }
-tokio = { version = "1", features = ["rt", "sync", "macros"] }
+# "process" pela faixa: uma fonte externa e um comando que o dono aponta, e
+# ele roda com prazo. "time" vem junto porque o prazo e um `timeout`.
+tokio = { version = "1", features = ["rt", "sync", "macros", "process", "time"] }
 serde.workspace = true
 serde_json = "1"
 # Declarado porque o `mos-core` expoe `OffsetDateTime` na API publica: quem

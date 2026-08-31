@@ -1506,6 +1506,31 @@ export type AnelDaFaixa = {
   /** Quando a janela de 5h fecha. `null` quando não há janela aberta. */
   resetaEm: string | null;
   janelasConhecidas: number;
+  /**
+   * A cota REAL da janela de cinco horas, quando o servidor da Anthropic
+   * responde. Presente, ela é a régua e o `pico` deixa de ser usado; ausente,
+   * tudo volta a medir contra o pico observado (ADR-062).
+   */
+  cotaSessao: JanelaDaFaixa | null;
+  /** A janela de sete dias. Só existe com cota — o transcript não a conhece. */
+  cotaSemana: JanelaDaFaixa | null;
+  /**
+   * Esta fonte tem transcript lido daqui, e não só um número de cota. Falso nas
+   * fontes externas, e é o que impede o painel de desenhar a barra HOJE para
+   * elas: uma barra vazia rotulada HOJE diria "não consumiu nada hoje", que é
+   * uma frase diferente de "esta fonte não me conta o histórico dela".
+   */
+  temHistorico: boolean;
+};
+
+/** Uma janela de cota vinda do servidor, com denominador de verdade. */
+export type JanelaDaFaixa = {
+  /** Quanto da janela já foi, contra o teto do plano. Pode passar de 100. */
+  percentual: number;
+  /** Quando ela zera, dito pelo servidor — e não calculado aqui. */
+  resetaEm: string | null;
+  /** Este número é o último que deu certo, e a renovação está falhando. */
+  obsoleta: boolean;
 };
 
 export type Faixa = {
@@ -1514,4 +1539,11 @@ export type Faixa = {
   calibrando: boolean;
   /** A faixa está recolhida na lingueta. Preferência gravada, não estado de tela. */
   recolhida: boolean;
+  /**
+   * Os números são INVENTADOS, pedidos pelo `MOS_FAIXA_DEMO`. A tela é obrigada
+   * a dizer isso: uma demonstração indistinguível do real seria pior que o
+   * número inventado que o `Ring.tsx` proíbe, porque teria cara de cota
+   * conferida.
+   */
+  demonstracao: boolean;
 };

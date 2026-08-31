@@ -31,9 +31,13 @@ para Windows, da captura e acao organizada ate Resources reencontraveis.
 - backup `.mos-backup`, restore validado e safety backup;
 - export JSON legivel e versionado;
 - atualizacao manual assinada pelo Tauri Updater;
-- faixa de uso na borda da tela: quanto da janela de 5h do Claude Code ja foi,
-  medido contra o proprio pico observado, com lingueta para recolher e item no
-  tray para desligar (ver `DECISIONS.md`, ADR-059 e ADR-060);
+- faixa de uso na borda da tela: quanto da janela de 5h e da semana do Claude
+  Code ja foi, contra a cota real perguntada ao servidor da Anthropic — e contra
+  o proprio pico observado quando ele nao responde. Lingueta para recolher, item
+  no tray para desligar, `Ctrl+Shift+U` para ligar e desligar, e clique so onde
+  a tira pinta. Outros provedores entram por um comando que imprime a propria
+  cota em JSON, declarado em `faixaFontes` no `settings.json` (ver
+  `DECISIONS.md`, ADR-059 a ADR-063);
 - design system proprio com temas dark e light;
 - nenhuma rede no caminho de captura ou consulta.
 
