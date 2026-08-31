@@ -1166,3 +1166,52 @@ mod tests {
         assert_eq!(horas[0].description, "desenho da prancha");
     }
 }
+
+/// Se alguma entrada de `mapa_de` materializa nesta tabela.
+///
+/// Existe para o teste de cobertura: ele conhece tabelas, e o mapa e indexado
+/// por tipo. Sem isto, a lista de tipos seria uma TERCEIRA lista a manter em
+/// acordo com as outras duas — que e o problema, e nao a solucao.
+pub(crate) fn tem_mapa_para_tabela(tabela: &str) -> bool {
+    // Uma tabela de juncao nao tem entrada em `mapa_de`: ela viaja como
+    // `relation`, e quem sabe materializa-la e `juncao_de`. Perguntar as duas e
+    // o que faz o teste aceitar as duas formas de atravessar sem precisar saber
+    // qual e qual.
+    TIPOS_DE_VINCULO
+        .iter()
+        .any(|kind| juncao_de(kind).is_some_and(|(juncao, _, _)| juncao == tabela))
+        || TIPOS_CONHECIDOS
+            .iter()
+            .any(|kind| mapa_de(kind).is_some_and(|mapa| mapa.tabela == tabela))
+}
+
+/// Os tipos de vinculo que `juncao_de` responde.
+const TIPOS_DE_VINCULO: &[&str] = &[
+    "resourceProject",
+    "resourceWorkspace",
+    "projectWorkspace",
+    "academic_subject_resource",
+];
+
+/// Os tipos que `mapa_de` responde. Enumerar um `match` nao e possivel em Rust,
+/// entao a lista existe — e o teste de cobertura a mantem honesta comparando com
+/// as tabelas.
+const TIPOS_CONHECIDOS: &[&str] = &[
+    "task",
+    "project",
+    "workspace",
+    "capture",
+    "resource",
+    "reminder",
+    "academic_semester",
+    "academic_subject",
+    "academic_assignment",
+    "academic_exam",
+    "academic_study_session",
+    "academic_subject_resource",
+    "time_entry",
+    "project_tracking",
+    "conversation",
+    "message",
+    "message_part",
+];

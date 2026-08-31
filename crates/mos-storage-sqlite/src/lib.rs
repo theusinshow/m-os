@@ -12,6 +12,7 @@ mod meeting_repository;
 mod monitoring_repository;
 mod repository;
 mod resource_repository;
+mod sync_cobertura;
 mod sync_emit;
 mod sync_projecao;
 mod sync_repository;
