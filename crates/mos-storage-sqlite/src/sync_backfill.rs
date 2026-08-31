@@ -233,3 +233,113 @@ mod tests {
         );
     }
 }
+
+/// Ensaio contra um banco REAL, fora da suite.
+///
+/// Ignorado por padrao: ele depende de um arquivo que so existe na maquina de
+/// quem roda. Existe porque banco de teste tem tres linhas e banco de verdade
+/// tem historico — colunas nulas, entidades orfas, dados de versoes antigas do
+/// esquema. Um backfill que passa nos dois e um backfill testado.
+///
+/// ```text
+/// MOS_BANCO_DE_PROVA=C:\caminho\m-os.db cargo test -p mos-storage-sqlite \
+///     --lib ensaio_contra_banco_real -- --ignored --nocapture
+/// ```
+#[cfg(test)]
+#[test]
+#[ignore = "precisa de um banco real apontado por MOS_BANCO_DE_PROVA"]
+fn ensaio_contra_banco_real() {
+    use mos_sync::DeviceRepository;
+
+    let Ok(caminho) = std::env::var("MOS_BANCO_DE_PROVA") else {
+        panic!("aponte MOS_BANCO_DE_PROVA para uma COPIA do banco");
+    };
+    let banco = std::path::PathBuf::from(caminho);
+    let backups = banco.parent().unwrap().join("backups");
+    let storage = crate::SqliteStorage::open(banco, backups).unwrap();
+
+    let antes: i64 = {
+        let conexao = storage.connection.lock().unwrap();
+        conexao
+            .query_row("SELECT COUNT(*) FROM sync_outbox", [], |l| l.get(0))
+            .unwrap()
+    };
+
+    let dispositivo = storage
+        .este_dispositivo("prova", "windows", "0.0.0")
+        .unwrap();
+    storage.habilitar_sync(dispositivo.id).unwrap();
+    let enfileiradas = storage.backfill_do_sync().unwrap();
+
+    let (linhas, ops): (Vec<(String, i64)>, Vec<mos_sync::Op>) = {
+        let conexao = storage.connection.lock().unwrap();
+        let mut consulta = conexao
+            .prepare(
+                "SELECT entity_kind, COUNT(*) FROM sync_outbox \
+                 WHERE status = 'pending' GROUP BY entity_kind ORDER BY 2 DESC",
+            )
+            .unwrap();
+        let contagem: Vec<(String, i64)> = consulta
+            .query_map([], |l| Ok((l.get(0)?, l.get(1)?)))
+            .unwrap()
+            .map(|l| l.unwrap())
+            .collect();
+        let mut cargas = conexao
+            .prepare("SELECT payload FROM sync_outbox WHERE status = 'pending'")
+            .unwrap();
+        let operacoes: Vec<mos_sync::Op> = cargas
+            .query_map([], |l| l.get::<_, String>(0))
+            .unwrap()
+            .map(|p| serde_json::from_str(&p.unwrap()).unwrap())
+            .collect();
+        (contagem, operacoes)
+    };
+
+    println!("\n=== BACKFILL CONTRA O BANCO REAL ===");
+    println!("fila antes: {antes}");
+    println!("enfileiradas agora: {enfileiradas}");
+    println!("--- pendentes por tipo ---");
+    for (tipo, quantas) in &linhas {
+        println!("  {tipo:34} {quantas:>5}");
+    }
+    assert!(enfileiradas > 0, "o backfill nao enfileirou nada");
+
+    // A prova que importa: as operacoes viram LINHA num banco vazio, que e o
+    // que o outro PC faz ao puxar. Contar a fila prova que saiu; so isto prova
+    // que chegou.
+    let vazio = tempfile::tempdir().unwrap();
+    let outro = crate::SqliteStorage::open(
+        vazio.path().join("mos.db"),
+        vazio.path().join("backups"),
+    )
+    .unwrap();
+    let seu_id = outro.este_dispositivo("outro", "windows", "0.0.0").unwrap();
+    outro.habilitar_sync(seu_id.id).unwrap();
+
+    {
+        use mos_sync::Projecao;
+        let mut projecao = crate::sync_projecao::ProjecaoSqlite::nova(&outro);
+        for op in &ops {
+            let base = projecao.estado_de(op);
+            let estado = mos_sync::aplicar(base, std::slice::from_ref(op)).estado;
+            projecao.guardar(op, &estado).unwrap();
+        }
+        let faltas = projecao.resolver_pendentes();
+        assert!(faltas.is_empty(), "nao materializou: {faltas:?}");
+    }
+
+    println!("--- linhas no banco VAZIO depois de aplicar ---");
+    let conexao = outro.connection.lock().unwrap();
+    let mut total = 0i64;
+    for tabela in crate::sync_cobertura::SINCRONIZAVEIS {
+        let n: i64 = conexao
+            .query_row(&format!("SELECT COUNT(*) FROM {tabela}"), [], |l| l.get(0))
+            .unwrap();
+        if n > 0 {
+            println!("  {tabela:34} {n:>5}");
+            total += n;
+        }
+    }
+    println!("  {:34} {total:>5}", "TOTAL");
+    assert!(total > 100, "chegaram so {total} linhas do outro lado");
+}

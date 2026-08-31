@@ -116,6 +116,48 @@ duplicar Task, Reminder, Capture nem Resource — e o teste
 
 ---
 
+## 5.1 O que atravessa, e o que fica
+
+Desde 31/08/2026 a resposta nao e mais "os tipos que alguem lembrou de ligar".
+**Toda tabela do esquema esta classificada**, em `sync_cobertura.rs`, e um teste
+recusa tabela nova sem decisao. As duas listas sao `SINCRONIZAVEIS` e `LOCAIS`,
+e a segunda exige o motivo escrito ao lado.
+
+Isso existe por causa de um defeito real: o CronoCAD gravava horas desde sempre
+e **nunca emitiu uma operacao**. Nao deu erro, nao apareceu em log, nao quebrou
+teste — vinte e duas horas de trabalho existiam num PC e nao no outro. A causa
+nao foi distracao: criar uma tabela e escrever nela sao dois atos completos por
+si, e sincroniza-la era um terceiro que ninguem era forcado a considerar.
+
+Nao ha lista certa. `usage_requisicao` fora do sync esta tao correto quanto
+`time_entries` dentro. O que estava errado era nao ter escolhido.
+
+Fica de fora, em resumo: a maquinaria do proprio sync; a telemetria de uso e de
+atividade; o que descreve a maquina (apps monitorados, cronometro em curso,
+deteccao de ociosidade); o que guarda ARQUIVO em disco, porque o hub carrega
+campos e nao blobs (reunioes, notas de voz, ingestoes); a sessao do provedor
+academico; e o arranjo de tela, porque os dois monitores sao diferentes.
+
+## 5.2 O backfill
+
+A operacao so nasce na mesma transacao da mudanca. Isso significa que **ligar a
+sincronizacao nao move nada do que ja estava no banco** — um M/OS com historico
+mandaria para o outro aparelho apenas o que fosse tocado dali em diante.
+
+`sync_backfill.rs` faz a passagem unica. Ele nao e uma migration: precisa do
+HLC, e o HLC so existe depois de `habilitar_sync` — antes disso o dispositivo
+nem tem identidade. Roda logo depois dela, no desktop e no `mos-web`, e falhar
+nao impede o app de abrir.
+
+Le as colunas pelo proprio `Mapa` da projecao, e nao por uma lista propria: o
+que o backfill manda e exatamente o que a emissao mandaria. A ordem e de
+dependencia — `project_tracking` antes de `project` bateria na chave
+estrangeira.
+
+**Ele nao funde duplicata.** Se a mesma coisa foi criada nos dois PCs de forma
+independente, sao duas entidades com ids diferentes, e as duas aparecem. O sync
+nao tem como adivinhar que sao a mesma.
+
 ## 6. As tabelas
 
 | Tabela | Para quê |
