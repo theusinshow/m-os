@@ -2032,6 +2032,24 @@ pub fn run() {
                     Ok(device) => {
                         if let Err(causa) = storage.habilitar_sync(device.id) {
                             eprintln!("[sync] emissao desligada: {causa}");
+                        } else {
+                            // A passagem unica do que ja existia antes do sync.
+                            //
+                            // Depois de `habilitar_sync` porque precisa do
+                            // relogio, e aqui e nao numa migration porque uma
+                            // migration roda antes de o dispositivo ter
+                            // identidade. Ela se marca como feita e as proximas
+                            // aberturas devolvem zero sem varrer nada.
+                            //
+                            // Falhar aqui tambem nao impede o M/OS de abrir,
+                            // pelo mesmo motivo do bloco acima.
+                            match storage.backfill_do_sync() {
+                                Ok(0) => {}
+                                Ok(quantas) => {
+                                    eprintln!("[sync] backfill inicial: {quantas} operacoes")
+                                }
+                                Err(causa) => eprintln!("[sync] backfill nao passou: {causa}"),
+                            }
                         }
                     }
                     Err(causa) => eprintln!("[sync] dispositivo nao registrado: {causa}"),

@@ -1372,3 +1372,74 @@ const TIPOS_CONHECIDOS: &[&str] = &[
     "weekly_review",
     "client",
 ];
+
+/// Enfileira um `Create` por linha existente da tabela daquele tipo.
+///
+/// Le as colunas pelo proprio `Mapa`, e nao por uma lista escrita a mao aqui: o
+/// que o backfill manda tem que ser exatamente o que a emissao mandaria, e duas
+/// listas divergem.
+pub(crate) fn enfileirar_tabela(
+    storage: &SqliteStorage,
+    transacao: &Connection,
+    kind: &str,
+) -> Result<usize, CoreError> {
+    let Some(mapa) = mapa_de(kind) else {
+        return Ok(0);
+    };
+
+    let colunas: Vec<&str> = mapa.colunas.iter().map(|(_, coluna)| *coluna).collect();
+    let sql = format!(
+        "SELECT {}, {} FROM {}",
+        mapa.chave,
+        colunas.join(", "),
+        mapa.tabela
+    );
+    let mut consulta = transacao.prepare(&sql).map_err(map_sql_error)?;
+    let linhas = consulta
+        .query_map([], |linha| {
+            let chave: String = linha.get(0)?;
+            let mut campos = Vec::with_capacity(mapa.colunas.len());
+            for (indice, (campo, _)) in mapa.colunas.iter().enumerate() {
+                campos.push((
+                    (*campo).to_owned(),
+                    json_de_sql(linha.get_ref(indice + 1)?),
+                ));
+            }
+            Ok((chave, campos))
+        })
+        .map_err(map_sql_error)?;
+
+    let mut quantas = 0;
+    for linha in linhas {
+        let (chave, campos) = linha.map_err(map_sql_error)?;
+        // Uma chave que nao e UUID nao tem como virar id de entidade. Pular e
+        // certo: as tabelas de chave composta viajam por outro caminho, e
+        // inventar um id aqui criaria uma entidade que so existe neste banco.
+        let Ok(id) = uuid::Uuid::parse_str(&chave) else {
+            continue;
+        };
+        storage.emitir(
+            transacao,
+            mos_sync::EntityRef::new(kind, id),
+            mos_sync::OpBody::Create {
+                fields: campos.into_iter().collect(),
+            },
+        )?;
+        quantas += 1;
+    }
+    Ok(quantas)
+}
+
+/// Um valor do banco como o JSON que a operacao carrega.
+fn json_de_sql(valor: rusqlite::types::ValueRef<'_>) -> serde_json::Value {
+    use rusqlite::types::ValueRef;
+    match valor {
+        ValueRef::Null => serde_json::Value::Null,
+        ValueRef::Integer(numero) => serde_json::json!(numero),
+        ValueRef::Real(numero) => serde_json::json!(numero),
+        ValueRef::Text(texto) => serde_json::json!(String::from_utf8_lossy(texto)),
+        // Nenhuma coluna sincronizavel e BLOB hoje. Virar texto perdido e melhor
+        // que entrar em panico numa passagem que roda uma vez so.
+        ValueRef::Blob(bytes) => serde_json::json!(String::from_utf8_lossy(bytes)),
+    }
+}

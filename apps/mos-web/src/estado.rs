@@ -117,6 +117,17 @@ impl Estado {
             .habilitar_sync(device.id)
             .map_err(|causa| SubidaError::Banco(causa.message))?;
 
+        // A passagem unica do que ja existia antes do sync.
+        //
+        // Nao derruba a subida se falhar: o `mos-web` sem backfill continua um
+        // M/OS inteiro, e recusar-se a subir por causa dela deixaria o dono sem
+        // a superficie de bolso para consertar uma coisa que ele nem viu.
+        match storage.backfill_do_sync() {
+            Ok(0) => {}
+            Ok(quantas) => eprintln!("[sync] backfill inicial: {quantas} operacoes"),
+            Err(causa) => eprintln!("[sync] backfill nao passou: {}", causa.message),
+        }
+
         let sessoes = match &porta {
             Some(porta) => Some(Arc::new(
                 Sessoes::abrir(&porta.banco)
