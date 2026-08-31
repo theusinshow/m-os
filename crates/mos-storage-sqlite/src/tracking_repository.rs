@@ -361,12 +361,13 @@ impl TimeTrackingRepository for SqliteStorage {
         &self,
         tracking: ProjectTracking,
     ) -> Result<ProjectTracking, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let now = format_time(time::OffsetDateTime::now_utc())?;
         // `created_at` sobrevive ao upsert: quando esta linha nasceu e um fato, e
         // reescreve-lo a cada edicao de valor/hora apagaria desde quando aquele
         // Project e cobrado.
-        connection
+        transaction
             .execute(
                 "INSERT INTO project_tracking (project_id, hourly_rate_cents, code, color, \
                  tracking_status, client_id, budget_minutes, paid_at, created_at, updated_at) \
@@ -389,6 +390,32 @@ impl TimeTrackingRepository for SqliteStorage {
                 ],
             )
             .map_err(map_sql_error)?;
+
+        self.emitir_update(
+            &transaction,
+            "project_tracking",
+            tracking.project_id.as_uuid(),
+            &[
+                (
+                    "hourlyRateCents",
+                    serde_json::json!(tracking.hourly_rate_cents),
+                ),
+                ("code", serde_json::json!(tracking.code)),
+                ("color", serde_json::json!(tracking.color)),
+                (
+                    "trackingStatus",
+                    serde_json::json!(tracking.tracking_status.as_str()),
+                ),
+                (
+                    "clientId",
+                    serde_json::json!(tracking.client_id.map(|id| id.to_string())),
+                ),
+                ("budgetMinutes", serde_json::json!(tracking.budget_minutes)),
+                ("paidAt", serde_json::json!(tracking.paid_at)),
+                ("createdAt", serde_json::json!(now)),
+            ],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         Ok(tracking)
     }
 

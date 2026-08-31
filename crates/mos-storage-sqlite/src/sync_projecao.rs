@@ -48,6 +48,56 @@ struct Mapa {
     /// entidade nunca apareceria. O `UPDATE` logo em seguida os substitui assim
     /// que o campo de verdade chega.
     obrigatorias: &'static [(&'static str, &'static str)],
+    /// A coluna que identifica a linha.
+    ///
+    /// Quase sempre `id`, e por isso ela era fixa no codigo. Mas
+    /// `project_tracking` e uma extensao 1:1 de `projects` e nao tem coluna
+    /// `id` nenhuma — a chave dela e `project_id`. Assumir `id` gerava um SQL
+    /// contra uma coluna inexistente, e o valor/hora do projeto e um dado que
+    /// vira fatura.
+    chave: &'static str,
+    /// Quais colunas de carimbo a tabela tem.
+    ///
+    /// `message_parts` nao tem nenhuma e `messages` so tem `created_at`.
+    /// Escrever `updated_at` nelas seria SQL contra coluna que nao existe; a
+    /// alternativa — alterar a tabela por migracao — foi recusada porque a
+    /// 0027 nao tocou em nenhuma tabela existente de proposito (SYNC.md §6).
+    carimbos: Carimbos,
+}
+
+/// As colunas de carimbo que uma tabela sincronizavel tem.
+#[derive(Clone, Copy, PartialEq)]
+enum Carimbos {
+    Ambos,
+    SoCriacao,
+    Nenhum,
+}
+
+impl Carimbos {
+    fn tem_criacao(self) -> bool {
+        matches!(self, Self::Ambos | Self::SoCriacao)
+    }
+
+    fn tem_atualizacao(self) -> bool {
+        matches!(self, Self::Ambos)
+    }
+}
+
+impl Mapa {
+    /// O caso comum: chave `id`, os dois carimbos.
+    ///
+    /// Existe para uma entrada do mapa declarar so o que a distingue. Doze das
+    /// treze entradas nao mencionam chave nem carimbo, e e assim que deve ser:
+    /// o que aparece escrito e a excecao.
+    const fn padrao() -> Self {
+        Self {
+            tabela: "",
+            colunas: &[],
+            obrigatorias: &[],
+            chave: "id",
+            carimbos: Carimbos::Ambos,
+        }
+    }
 }
 
 /// Os tipos que este M/OS sabe materializar.
@@ -69,6 +119,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("title", "'(sem titulo)'"), ("description", "''")],
+            ..Mapa::padrao()
         }),
         "project" => Some(Mapa {
             tabela: "projects",
@@ -80,6 +131,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("name", "'(sem nome)'"), ("description", "''")],
+            ..Mapa::padrao()
         }),
         "workspace" => Some(Mapa {
             tabela: "workspaces",
@@ -91,6 +143,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
             ],
             // `name` tem `CHECK (length(trim(name)) > 0)`.
             obrigatorias: &[("name", "'(sincronizando)'"), ("description", "''")],
+            ..Mapa::padrao()
         }),
         "capture" => Some(Mapa {
             tabela: "captures",
@@ -109,6 +162,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("source_kind", "'home'"),
                 ("captured_at", "?2"),
             ],
+            ..Mapa::padrao()
         }),
         "resource" => Some(Mapa {
             tabela: "resources",
@@ -122,6 +176,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("kind", "'link'"), ("title", "'(sem titulo)'")],
+            ..Mapa::padrao()
         }),
         "reminder" => Some(Mapa {
             tabela: "reminders",
@@ -149,6 +204,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("status", "'scheduled'"),
                 ("source", "'system'"),
             ],
+            ..Mapa::padrao()
         }),
         "academic_semester" => Some(Mapa {
             tabela: "academic_semesters",
@@ -165,6 +221,26 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("starts_on", "''"),
                 ("ends_on", "''"),
             ],
+            ..Mapa::padrao()
+        }),
+        // Extensao 1:1 de `projects`: a chave e `project_id`, e nao existe
+        // coluna `id`. O id da entidade E o id do projeto — os dois aparelhos
+        // chegam ao mesmo sem combinar nada.
+        "project_tracking" => Some(Mapa {
+            tabela: "project_tracking",
+            chave: "project_id",
+            colunas: &[
+                ("hourlyRateCents", "hourly_rate_cents"),
+                ("code", "code"),
+                ("color", "color"),
+                ("trackingStatus", "tracking_status"),
+                ("clientId", "client_id"),
+                ("budgetMinutes", "budget_minutes"),
+                ("paidAt", "paid_at"),
+                ("createdAt", "created_at"),
+            ],
+            obrigatorias: &[],
+            ..Mapa::padrao()
         }),
         "time_entry" => Some(Mapa {
             tabela: "time_entries",
@@ -183,6 +259,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("project_id", "''"), ("started_at", "''")],
+            ..Mapa::padrao()
         }),
         "academic_subject" => Some(Mapa {
             tabela: "academic_subjects",
@@ -197,6 +274,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("semester_id", "''"), ("name", "'(sincronizando)'")],
+            ..Mapa::padrao()
         }),
         "academic_assignment" => Some(Mapa {
             tabela: "academic_assignments",
@@ -215,6 +293,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("subject_id", "''"), ("title", "'(sincronizando)'")],
+            ..Mapa::padrao()
         }),
         "academic_exam" => Some(Mapa {
             tabela: "academic_exams",
@@ -236,6 +315,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("name", "'(sincronizando)'"),
                 ("at", "''"),
             ],
+            ..Mapa::padrao()
         }),
         "academic_study_session" => Some(Mapa {
             tabela: "academic_study_sessions",
@@ -249,6 +329,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("subject_id", "''"), ("started_at", "''")],
+            ..Mapa::padrao()
         }),
         // `relation` fica de fora, e nao por esquecimento: uma relacao do
         // Knowledge Graph nao e linha de tabela propria — ela e uma aresta com
@@ -363,8 +444,9 @@ impl SqliteStorage {
             transacao
                 .execute(
                     &format!(
-                        "UPDATE {} SET lifecycle_state = 'trashed', updated_at = ?1 WHERE id = ?2",
-                        mapa.tabela
+                        "UPDATE {} SET lifecycle_state = 'trashed', updated_at = ?1 \
+                         WHERE {} = ?2",
+                        mapa.tabela, mapa.chave
                     ),
                     params![momento, id.to_string()],
                 )
@@ -380,12 +462,20 @@ impl SqliteStorage {
         // a linha era recusada antes de o `UPDATE` ter chance de acertar. O
         // provisorio existe para o campo que AINDA NAO CHEGOU, e nao para
         // substituir o que ja esta na mao.
-        let mut nomes: Vec<&str> = vec!["id", "created_at", "updated_at"];
-        let mut marcadores: Vec<String> = vec!["?1".into(), "?2".into(), "?2".into()];
+        let mut nomes: Vec<&str> = vec![mapa.chave];
+        let mut marcadores: Vec<String> = vec!["?1".into()];
         let mut valores: Vec<rusqlite::types::Value> = vec![
             rusqlite::types::Value::Text(id.to_string()),
             rusqlite::types::Value::Text(momento.clone()),
         ];
+        if mapa.carimbos.tem_criacao() {
+            nomes.push("created_at");
+            marcadores.push("?2".into());
+        }
+        if mapa.carimbos.tem_atualizacao() {
+            nomes.push("updated_at");
+            marcadores.push("?2".into());
+        }
         for (campo, coluna) in mapa.colunas {
             // `created_at` ja entrou como o instante de agora; sobrescrever
             // aqui duplicaria a coluna no `INSERT`. O `UPDATE` abaixo poe o
@@ -423,7 +513,7 @@ impl SqliteStorage {
         // pode ser corrigido.
         let ja_existe: bool = transacao
             .query_row(
-                &format!("SELECT 1 FROM {} WHERE id = ?1", mapa.tabela),
+                &format!("SELECT 1 FROM {} WHERE {} = ?1", mapa.tabela, mapa.chave),
                 params![id.to_string()],
                 |_| Ok(()),
             )
@@ -452,11 +542,19 @@ impl SqliteStorage {
                 continue;
             };
             let valor = valor_sql(&resolvido.valor);
+            // O `updated_at` so entra se a tabela tiver a coluna. Uma tabela sem
+            // carimbo nao e descuido: `message_parts` e conteudo imutavel de uma
+            // mensagem, e nao tem quando-mudou porque nao muda.
+            let toque = if mapa.carimbos.tem_atualizacao() {
+                ", updated_at = ?2"
+            } else {
+                ""
+            };
             transacao
                 .execute(
                     &format!(
-                        "UPDATE {} SET {coluna} = ?1, updated_at = ?2 WHERE id = ?3",
-                        mapa.tabela
+                        "UPDATE {} SET {coluna} = ?1{toque} WHERE {} = ?3",
+                        mapa.tabela, mapa.chave
                     ),
                     params![valor, momento, id.to_string()],
                 )
@@ -896,6 +994,47 @@ mod tests {
             let estado = mos_sync::aplicar(base, std::slice::from_ref(op)).estado;
             projecao.guardar(op, &estado).unwrap();
         }
+    }
+
+    /// A chave de `project_tracking` e `project_id`, e nao `id`.
+    ///
+    /// Este teste existe para o `INSERT` da projecao parar de assumir uma coluna
+    /// chamada `id`: a tabela nao tem nenhuma, e o valor/hora do projeto e um
+    /// dado que vira FATURA — errar aqui e errar quanto se cobra.
+    #[test]
+    fn o_valor_hora_do_projeto_atravessa_mesmo_sem_coluna_id() {
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        let projeto = NewProject::create("Rancho Queimado", "", "").unwrap();
+        let id_projeto = projeto.id;
+        origem.create_project(projeto.clone()).unwrap();
+        destino.create_project(projeto).unwrap();
+
+        origem
+            .set_project_tracking(mos_core::ProjectTracking {
+                project_id: id_projeto,
+                hourly_rate_cents: 12_000,
+                code: String::from("043"),
+                color: String::new(),
+                tracking_status: mos_core::TrackingStatus::Active,
+                client_id: None,
+                budget_minutes: 2_400,
+                paid_at: None,
+            })
+            .unwrap();
+
+        receber(&destino, &ops_da_fila(&origem, "project_tracking"));
+
+        let cobranca = destino.project_tracking().unwrap();
+        assert_eq!(
+            cobranca.len(),
+            1,
+            "o valor/hora do projeto nao atravessou"
+        );
+        assert_eq!(cobranca[0].hourly_rate_cents, 12_000);
+        assert_eq!(cobranca[0].code, "043");
+        assert_eq!(cobranca[0].budget_minutes, 2_400);
     }
 
     #[test]
