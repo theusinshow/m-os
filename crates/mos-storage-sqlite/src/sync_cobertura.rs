@@ -22,6 +22,10 @@
 /// Tabelas cujo conteudo atravessa entre aparelhos.
 ///
 /// Estar aqui obriga a existir entrada em `mapa_de` e emissao no repositorio.
+/// Compilada sempre, mesmo so lida por teste: ela e o REGISTRO da decisao, e um
+/// registro que some do binario de release e um registro que ninguem encontra
+/// quando for procurar por que uma tabela sincroniza.
+#[allow(dead_code)]
 pub(crate) const SINCRONIZAVEIS: &[&str] = &[
     "tasks",
     "projects",
@@ -57,6 +61,7 @@ pub(crate) const SINCRONIZAVEIS: &[&str] = &[
 ///
 /// O motivo e obrigatorio: "nao sincroniza" sem porque e o mesmo esquecimento
 /// de antes, so que por escrito.
+#[allow(dead_code)]
 pub(crate) const LOCAIS: &[(&str, &str)] = &[
     // --- a maquinaria do proprio sync ---
     ("sync_outbox", "a fila deste aparelho; replica-la faria cada PC reenviar o trabalho do outro em laco"),

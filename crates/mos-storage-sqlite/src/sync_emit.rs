@@ -246,6 +246,7 @@ impl SqliteStorage {
     /// Separado do resto da importacao porque a importacao roda dentro da
     /// transacao dela e este metodo precisa ser chamavel dos dois lugares: do
     /// caminho do provedor e do backfill.
+    #[cfg(test)]
     pub(crate) fn emitir_fato_de_disciplina(
         &self,
         provider: &str,

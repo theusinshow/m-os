@@ -1577,6 +1577,7 @@ mod tests {
 /// Existe para o teste de cobertura: ele conhece tabelas, e o mapa e indexado
 /// por tipo. Sem isto, a lista de tipos seria uma TERCEIRA lista a manter em
 /// acordo com as outras duas — que e o problema, e nao a solucao.
+#[cfg(test)]
 pub(crate) fn tem_mapa_para_tabela(tabela: &str) -> bool {
     // Uma tabela de juncao nao tem entrada em `mapa_de`: ela viaja como
     // `relation`, e quem sabe materializa-la e `juncao_de`. Perguntar as duas e
@@ -1591,6 +1592,7 @@ pub(crate) fn tem_mapa_para_tabela(tabela: &str) -> bool {
 }
 
 /// Os tipos de vinculo que `juncao_de` responde.
+#[cfg(test)]
 const TIPOS_DE_VINCULO: &[&str] = &[
     "resourceProject",
     "resourceWorkspace",
@@ -1598,6 +1600,7 @@ const TIPOS_DE_VINCULO: &[&str] = &[
     "academic_subject_resource",
 ];
 
+#[cfg(test)]
 /// Os tipos que `mapa_de` responde. Enumerar um `match` nao e possivel em Rust,
 /// entao a lista existe — e o teste de cobertura a mantem honesta comparando com
 /// as tabelas.
