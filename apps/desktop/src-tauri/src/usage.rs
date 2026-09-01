@@ -26,8 +26,8 @@ use std::{
 use mos_core::CoreError;
 use mos_storage_sqlite::{LeituraDeUso, SqliteStorage};
 use mos_usage::{cota, varrer, Fonte};
-use time::OffsetDateTime;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
+use time::OffsetDateTime;
 
 /// De quanto em quanto tempo o laco volta a olhar o disco.
 ///
@@ -811,7 +811,6 @@ async fn rodar(fonte: &FonteExterna) -> Result<cota::Cota, String> {
     #[cfg(windows)]
     {
         // Sem janela de console piscando na cara de quem esta trabalhando.
-        use std::os::windows::process::CommandExt;
         comando.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
 
@@ -837,9 +836,7 @@ async fn buscar(cliente: &reqwest::Client) -> Result<cota::Cota, String> {
         return Err("o token do Claude Code venceu".to_string());
     }
 
-    let mut pedido = cliente
-        .get(cota::ENDERECO)
-        .bearer_auth(&credencial.token);
+    let mut pedido = cliente.get(cota::ENDERECO).bearer_auth(&credencial.token);
     for (nome, valor) in cota::CABECALHOS {
         pedido = pedido.header(nome, valor);
     }
@@ -1309,8 +1306,16 @@ mod tests {
     /// viajando junto, porque e ele que responde quando a cota some.
     #[test]
     fn a_cota_do_servidor_chega_a_faixa() {
-        let faixa = montar(leitura(), "Claude Code", false, false, Some(observada(0)), &[], AGORA)
-            .unwrap();
+        let faixa = montar(
+            leitura(),
+            "Claude Code",
+            false,
+            false,
+            Some(observada(0)),
+            &[],
+            AGORA,
+        )
+        .unwrap();
         let anel = &faixa.aneis[0];
         let sessao = anel.cota_sessao.as_ref().expect("sessão");
         assert_eq!(sessao.percentual, 23);
@@ -1330,8 +1335,16 @@ mod tests {
     /// acompanha `COTA_INTERVALO`, nao um relogio de parede.
     #[test]
     fn a_cota_que_nao_renovou_fica_marcada_como_velha() {
-        let faixa = montar(leitura(), "Claude Code", false, false, Some(observada(4)), &[], AGORA)
-            .unwrap();
+        let faixa = montar(
+            leitura(),
+            "Claude Code",
+            false,
+            false,
+            Some(observada(4)),
+            &[],
+            AGORA,
+        )
+        .unwrap();
         let sessao = faixa.aneis[0].cota_sessao.as_ref().unwrap();
         assert_eq!(sessao.percentual, 23);
         assert!(sessao.obsoleta);
@@ -1359,7 +1372,10 @@ mod tests {
     fn sem_cota_a_faixa_e_a_da_adr_059() {
         let faixa = montar(leitura(), "Claude Code", false, false, None, &[], AGORA).unwrap();
         assert!(faixa.aneis[0].cota_sessao.is_none());
-        assert!(faixa.aneis[0].reseta_em.is_some(), "o prazo calculado continua");
+        assert!(
+            faixa.aneis[0].reseta_em.is_some(),
+            "o prazo calculado continua"
+        );
     }
 
     fn externa(nome: &str, sessao: u16, minutos_atras: i64) -> (String, Option<CotaObservada>) {
@@ -1395,7 +1411,10 @@ mod tests {
         assert_eq!(faixa.aneis.len(), 2);
         assert_eq!(faixa.aneis[1].nome, "Codex");
         assert_eq!(faixa.aneis[1].cota_sessao.as_ref().unwrap().percentual, 42);
-        assert!(!faixa.aneis[1].tem_historico, "ela nao conta o historico dela");
+        assert!(
+            !faixa.aneis[1].tem_historico,
+            "ela nao conta o historico dela"
+        );
         assert!(faixa.aneis[0].tem_historico, "e o Claude Code conta");
     }
 
@@ -1528,7 +1547,9 @@ mod tests {
             sessao: None,
             ..leitura()
         };
-        let anel = &montar(leitura, "Claude Code", false, false, None, &[], AGORA).unwrap().aneis[0];
+        let anel = &montar(leitura, "Claude Code", false, false, None, &[], AGORA)
+            .unwrap()
+            .aneis[0];
         assert_eq!(anel.peso, 0);
         assert_eq!(anel.requisicoes, 0);
         assert_eq!(anel.reseta_em, None, "sem janela nao ha o que resetar");

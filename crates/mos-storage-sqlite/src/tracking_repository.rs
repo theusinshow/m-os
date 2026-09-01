@@ -161,7 +161,10 @@ impl TimeTrackingRepository for SqliteStorage {
                         "hourlyRateSnapshotCents".to_owned(),
                         serde_json::json!(entry.hourly_rate_snapshot_cents),
                     ),
-                    ("source".to_owned(), serde_json::json!(entry.source.as_str())),
+                    (
+                        "source".to_owned(),
+                        serde_json::json!(entry.source.as_str()),
+                    ),
                     ("createdAt".to_owned(), serde_json::json!(now)),
                 ]
                 .into_iter()
@@ -267,7 +270,10 @@ impl TimeTrackingRepository for SqliteStorage {
             "time_entry",
             id.as_uuid(),
             &[
-                ("startedAt", serde_json::json!(format_time(edit.started_at)?)),
+                (
+                    "startedAt",
+                    serde_json::json!(format_time(edit.started_at)?),
+                ),
                 ("endedAt", serde_json::json!(format_time(ended)?)),
                 (
                     "durationSeconds",
@@ -662,7 +668,10 @@ impl TimeTrackingRepository for SqliteStorage {
                         serde_json::json!(timer.activity_type.as_str()),
                     ),
                     ("billable".to_owned(), serde_json::json!(true)),
-                    ("hourlyRateSnapshotCents".to_owned(), serde_json::json!(rate)),
+                    (
+                        "hourlyRateSnapshotCents".to_owned(),
+                        serde_json::json!(rate),
+                    ),
                     ("source".to_owned(), serde_json::json!("timer")),
                     ("createdAt".to_owned(), serde_json::json!(stamp)),
                 ]

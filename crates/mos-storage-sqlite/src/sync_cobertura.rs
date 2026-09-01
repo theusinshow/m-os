@@ -176,6 +176,9 @@ mod tests {
             .iter()
             .filter(|tabela| LOCAIS.iter().any(|(local, _)| local == *tabela))
             .collect();
-        assert!(nos_dois.is_empty(), "tabela em SINCRONIZAVEIS e em LOCAIS: {nos_dois:?}");
+        assert!(
+            nos_dois.is_empty(),
+            "tabela em SINCRONIZAVEIS e em LOCAIS: {nos_dois:?}"
+        );
     }
 }

@@ -731,7 +731,7 @@ impl SqliteStorage {
                     mapa.linha_unica
                         .is_none()
                         .then(|| rusqlite::types::Value::Text(valor_da_chave.clone()))
-                        .iter()
+                        .iter(),
                 ),
                 |_| Ok(()),
             )
@@ -1182,10 +1182,155 @@ impl SqliteStorage {
     }
 }
 
+/// Se alguma entrada de `mapa_de` materializa nesta tabela.
+///
+/// Existe para o teste de cobertura: ele conhece tabelas, e o mapa e indexado
+/// por tipo. Sem isto, a lista de tipos seria uma TERCEIRA lista a manter em
+/// acordo com as outras duas — que e o problema, e nao a solucao.
+#[cfg(test)]
+pub(crate) fn tem_mapa_para_tabela(tabela: &str) -> bool {
+    // Uma tabela de juncao nao tem entrada em `mapa_de`: ela viaja como
+    // `relation`, e quem sabe materializa-la e `juncao_de`. Perguntar as duas e
+    // o que faz o teste aceitar as duas formas de atravessar sem precisar saber
+    // qual e qual.
+    TIPOS_DE_VINCULO
+        .iter()
+        .any(|kind| juncao_de(kind).is_some_and(|(juncao, _, _)| juncao == tabela))
+        || TIPOS_CONHECIDOS
+            .iter()
+            .any(|kind| mapa_de(kind).is_some_and(|mapa| mapa.tabela == tabela))
+}
+
+/// Os tipos de vinculo que `juncao_de` responde.
+#[cfg(test)]
+const TIPOS_DE_VINCULO: &[&str] = &[
+    "resourceProject",
+    "resourceWorkspace",
+    "projectWorkspace",
+    "academic_subject_resource",
+];
+
+#[cfg(test)]
+/// Os tipos que `mapa_de` responde. Enumerar um `match` nao e possivel em Rust,
+/// entao a lista existe — e o teste de cobertura a mantem honesta comparando com
+/// as tabelas.
+const TIPOS_CONHECIDOS: &[&str] = &[
+    "task",
+    "project",
+    "workspace",
+    "capture",
+    "resource",
+    "reminder",
+    "academic_semester",
+    "academic_subject",
+    "academic_assignment",
+    "academic_exam",
+    "academic_study_session",
+    "academic_subject_resource",
+    "time_entry",
+    "project_tracking",
+    "conversation",
+    "message",
+    "message_part",
+    "daily_session",
+    "daily_objective",
+    "daily_reflection",
+    "weekly_review",
+    "client",
+    "tracking_settings",
+    "academic_provider_subject_fact",
+];
+
+/// Enfileira um `Create` por linha existente da tabela daquele tipo.
+///
+/// Le as colunas pelo proprio `Mapa`, e nao por uma lista escrita a mao aqui: o
+/// que o backfill manda tem que ser exatamente o que a emissao mandaria, e duas
+/// listas divergem.
+pub(crate) fn enfileirar_tabela(
+    storage: &SqliteStorage,
+    transacao: &Connection,
+    kind: &str,
+) -> Result<usize, CoreError> {
+    let Some(mapa) = mapa_de(kind) else {
+        return Ok(0);
+    };
+
+    let colunas: Vec<&str> = mapa.colunas.iter().map(|(_, coluna)| *coluna).collect();
+    // Numa tabela de linha unica a chave nem e lida: ela e `1`, um inteiro que
+    // nao vira UUID, e o id da entidade e a constante conhecida pelos dois
+    // aparelhos. Ler a coluna aqui daria "Invalid column type Integer".
+    let id_fixo = match kind {
+        "tracking_settings" => Some(ID_TRACKING_SETTINGS),
+        _ => None,
+    };
+    let sql = if id_fixo.is_some() {
+        format!("SELECT {} FROM {}", colunas.join(", "), mapa.tabela)
+    } else {
+        format!(
+            "SELECT {}, {} FROM {}",
+            mapa.chave,
+            colunas.join(", "),
+            mapa.tabela
+        )
+    };
+    let deslocamento = usize::from(id_fixo.is_none());
+    let mut consulta = transacao.prepare(&sql).map_err(map_sql_error)?;
+    let linhas = consulta
+        .query_map([], |linha| {
+            let chave = match id_fixo {
+                Some(fixo) => fixo.to_string(),
+                None => linha.get::<_, String>(0)?,
+            };
+            let mut campos = Vec::with_capacity(mapa.colunas.len());
+            for (indice, (campo, _)) in mapa.colunas.iter().enumerate() {
+                campos.push((
+                    (*campo).to_owned(),
+                    json_de_sql(linha.get_ref(indice + deslocamento)?),
+                ));
+            }
+            Ok((chave, campos))
+        })
+        .map_err(map_sql_error)?;
+
+    let mut quantas = 0;
+    for linha in linhas {
+        let (chave, campos) = linha.map_err(map_sql_error)?;
+        // Uma chave que nao e UUID nao tem como virar id de entidade. Pular e
+        // certo: as tabelas de chave composta viajam por outro caminho, e
+        // inventar um id aqui criaria uma entidade que so existe neste banco.
+        let Ok(id) = uuid::Uuid::parse_str(&chave) else {
+            continue;
+        };
+        storage.emitir(
+            transacao,
+            mos_sync::EntityRef::new(kind, id),
+            mos_sync::OpBody::Create {
+                fields: campos.into_iter().collect(),
+            },
+        )?;
+        quantas += 1;
+    }
+    Ok(quantas)
+}
+
+/// Um valor do banco como o JSON que a operacao carrega.
+fn json_de_sql(valor: rusqlite::types::ValueRef<'_>) -> serde_json::Value {
+    use rusqlite::types::ValueRef;
+    match valor {
+        ValueRef::Null => serde_json::Value::Null,
+        ValueRef::Integer(numero) => serde_json::json!(numero),
+        ValueRef::Real(numero) => serde_json::json!(numero),
+        ValueRef::Text(texto) => serde_json::json!(String::from_utf8_lossy(texto)),
+        // Nenhuma coluna sincronizavel e BLOB hoje. Virar texto perdido e melhor
+        // que entrar em panico numa passagem que roda uma vez so.
+        ValueRef::Blob(bytes) => serde_json::json!(String::from_utf8_lossy(bytes)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use mos_core::{NewProject, NewTimeEntry, TimeTrackingRepository, WorkRepository};
     use mos_core::ConversationRepository;
+    use mos_core::{NewProject, NewTimeEntry, TimeTrackingRepository, WorkRepository};
     use mos_sync::{DeviceRepository, Op, Projecao};
 
     use super::*;
@@ -1208,9 +1353,7 @@ mod tests {
             .prepare("SELECT payload FROM sync_outbox WHERE entity_kind = ?1")
             .unwrap();
         let linhas = consulta
-            .query_map(rusqlite::params![kind], |linha| {
-                linha.get::<_, String>(0)
-            })
+            .query_map(rusqlite::params![kind], |linha| linha.get::<_, String>(0))
             .unwrap();
         linhas
             .map(|payload| serde_json::from_str(&payload.unwrap()).unwrap())
@@ -1280,7 +1423,9 @@ mod tests {
             .set_conversation_title(conversa.id, "Orcamento do Rancho")
             .unwrap();
         origem
-            .append_message(mos_core::NewMessage::user(conversa.id, "quanto ficou a obra?").unwrap())
+            .append_message(
+                mos_core::NewMessage::user(conversa.id, "quanto ficou a obra?").unwrap(),
+            )
             .unwrap();
 
         for kind in ["conversation", "message", "message_part"] {
@@ -1522,11 +1667,7 @@ mod tests {
         receber(&destino, &ops_da_fila(&origem, "project_tracking"));
 
         let cobranca = destino.project_tracking().unwrap();
-        assert_eq!(
-            cobranca.len(),
-            1,
-            "o valor/hora do projeto nao atravessou"
-        );
+        assert_eq!(cobranca.len(), 1, "o valor/hora do projeto nao atravessou");
         assert_eq!(cobranca[0].hourly_rate_cents, 12_000);
         assert_eq!(cobranca[0].code, "043");
         assert_eq!(cobranca[0].budget_minutes, 2_400);
@@ -1569,150 +1710,5 @@ mod tests {
         );
         assert_eq!(horas[0].duration_seconds, 3_600);
         assert_eq!(horas[0].description, "desenho da prancha");
-    }
-}
-
-/// Se alguma entrada de `mapa_de` materializa nesta tabela.
-///
-/// Existe para o teste de cobertura: ele conhece tabelas, e o mapa e indexado
-/// por tipo. Sem isto, a lista de tipos seria uma TERCEIRA lista a manter em
-/// acordo com as outras duas — que e o problema, e nao a solucao.
-#[cfg(test)]
-pub(crate) fn tem_mapa_para_tabela(tabela: &str) -> bool {
-    // Uma tabela de juncao nao tem entrada em `mapa_de`: ela viaja como
-    // `relation`, e quem sabe materializa-la e `juncao_de`. Perguntar as duas e
-    // o que faz o teste aceitar as duas formas de atravessar sem precisar saber
-    // qual e qual.
-    TIPOS_DE_VINCULO
-        .iter()
-        .any(|kind| juncao_de(kind).is_some_and(|(juncao, _, _)| juncao == tabela))
-        || TIPOS_CONHECIDOS
-            .iter()
-            .any(|kind| mapa_de(kind).is_some_and(|mapa| mapa.tabela == tabela))
-}
-
-/// Os tipos de vinculo que `juncao_de` responde.
-#[cfg(test)]
-const TIPOS_DE_VINCULO: &[&str] = &[
-    "resourceProject",
-    "resourceWorkspace",
-    "projectWorkspace",
-    "academic_subject_resource",
-];
-
-#[cfg(test)]
-/// Os tipos que `mapa_de` responde. Enumerar um `match` nao e possivel em Rust,
-/// entao a lista existe — e o teste de cobertura a mantem honesta comparando com
-/// as tabelas.
-const TIPOS_CONHECIDOS: &[&str] = &[
-    "task",
-    "project",
-    "workspace",
-    "capture",
-    "resource",
-    "reminder",
-    "academic_semester",
-    "academic_subject",
-    "academic_assignment",
-    "academic_exam",
-    "academic_study_session",
-    "academic_subject_resource",
-    "time_entry",
-    "project_tracking",
-    "conversation",
-    "message",
-    "message_part",
-    "daily_session",
-    "daily_objective",
-    "daily_reflection",
-    "weekly_review",
-    "client",
-    "tracking_settings",
-    "academic_provider_subject_fact",
-];
-
-/// Enfileira um `Create` por linha existente da tabela daquele tipo.
-///
-/// Le as colunas pelo proprio `Mapa`, e nao por uma lista escrita a mao aqui: o
-/// que o backfill manda tem que ser exatamente o que a emissao mandaria, e duas
-/// listas divergem.
-pub(crate) fn enfileirar_tabela(
-    storage: &SqliteStorage,
-    transacao: &Connection,
-    kind: &str,
-) -> Result<usize, CoreError> {
-    let Some(mapa) = mapa_de(kind) else {
-        return Ok(0);
-    };
-
-    let colunas: Vec<&str> = mapa.colunas.iter().map(|(_, coluna)| *coluna).collect();
-    // Numa tabela de linha unica a chave nem e lida: ela e `1`, um inteiro que
-    // nao vira UUID, e o id da entidade e a constante conhecida pelos dois
-    // aparelhos. Ler a coluna aqui daria "Invalid column type Integer".
-    let id_fixo = match kind {
-        "tracking_settings" => Some(ID_TRACKING_SETTINGS),
-        _ => None,
-    };
-    let sql = if id_fixo.is_some() {
-        format!("SELECT {} FROM {}", colunas.join(", "), mapa.tabela)
-    } else {
-        format!(
-            "SELECT {}, {} FROM {}",
-            mapa.chave,
-            colunas.join(", "),
-            mapa.tabela
-        )
-    };
-    let deslocamento = usize::from(id_fixo.is_none());
-    let mut consulta = transacao.prepare(&sql).map_err(map_sql_error)?;
-    let linhas = consulta
-        .query_map([], |linha| {
-            let chave = match id_fixo {
-                Some(fixo) => fixo.to_string(),
-                None => linha.get::<_, String>(0)?,
-            };
-            let mut campos = Vec::with_capacity(mapa.colunas.len());
-            for (indice, (campo, _)) in mapa.colunas.iter().enumerate() {
-                campos.push((
-                    (*campo).to_owned(),
-                    json_de_sql(linha.get_ref(indice + deslocamento)?),
-                ));
-            }
-            Ok((chave, campos))
-        })
-        .map_err(map_sql_error)?;
-
-    let mut quantas = 0;
-    for linha in linhas {
-        let (chave, campos) = linha.map_err(map_sql_error)?;
-        // Uma chave que nao e UUID nao tem como virar id de entidade. Pular e
-        // certo: as tabelas de chave composta viajam por outro caminho, e
-        // inventar um id aqui criaria uma entidade que so existe neste banco.
-        let Ok(id) = uuid::Uuid::parse_str(&chave) else {
-            continue;
-        };
-        storage.emitir(
-            transacao,
-            mos_sync::EntityRef::new(kind, id),
-            mos_sync::OpBody::Create {
-                fields: campos.into_iter().collect(),
-            },
-        )?;
-        quantas += 1;
-    }
-    Ok(quantas)
-}
-
-/// Um valor do banco como o JSON que a operacao carrega.
-fn json_de_sql(valor: rusqlite::types::ValueRef<'_>) -> serde_json::Value {
-    use rusqlite::types::ValueRef;
-    match valor {
-        ValueRef::Null => serde_json::Value::Null,
-        ValueRef::Integer(numero) => serde_json::json!(numero),
-        ValueRef::Real(numero) => serde_json::json!(numero),
-        ValueRef::Text(texto) => serde_json::json!(String::from_utf8_lossy(texto)),
-        // Nenhuma coluna sincronizavel e BLOB hoje. Virar texto perdido e melhor
-        // que entrar em panico numa passagem que roda uma vez so.
-        ValueRef::Blob(bytes) => serde_json::json!(String::from_utf8_lossy(bytes)),
     }
 }

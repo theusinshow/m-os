@@ -81,7 +81,11 @@ struct OauthGravado {
 /// Onde o Claude Code guarda a credencial nesta máquina.
 pub fn caminho_da_credencial() -> Option<PathBuf> {
     let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))?;
-    Some(PathBuf::from(home).join(".claude").join(".credentials.json"))
+    Some(
+        PathBuf::from(home)
+            .join(".claude")
+            .join(".credentials.json"),
+    )
 }
 
 /// Lê a credencial, se ela existir e for legível.
@@ -365,10 +369,16 @@ mod tests {
         let cota = ler_resposta(RESPOSTA).expect("a resposta tem as duas janelas");
         let sessao = cota.sessao.expect("sessão");
         assert_eq!(sessao.percentual, 23);
-        assert_eq!(sessao.reseta_em, Some(datetime!(2026-08-31 03:50:00.018221 UTC)));
+        assert_eq!(
+            sessao.reseta_em,
+            Some(datetime!(2026-08-31 03:50:00.018221 UTC))
+        );
         let semana = cota.semana.expect("semana");
         assert_eq!(semana.percentual, 3);
-        assert_eq!(semana.reseta_em, Some(datetime!(2026-09-06 17:00:00.018249 UTC)));
+        assert_eq!(
+            semana.reseta_em,
+            Some(datetime!(2026-09-06 17:00:00.018249 UTC))
+        );
     }
 
     /// O `weekly_scoped` de 97% não pode virar "a semana". Ele é de um modelo só,
@@ -431,7 +441,14 @@ mod tests {
         assert_eq!(uma.sessao.unwrap().percentual, 40);
         assert!(uma.semana.is_none());
 
-        assert_eq!(demo_de(" 7 , 8 ", AGORA).unwrap().sessao.unwrap().percentual, 7);
+        assert_eq!(
+            demo_de(" 7 , 8 ", AGORA)
+                .unwrap()
+                .sessao
+                .unwrap()
+                .percentual,
+            7
+        );
     }
 
     /// O prazo da demonstração é sempre no FUTURO. A primeira versão usava um
@@ -454,8 +471,8 @@ mod tests {
 
     #[test]
     fn o_contrato_externo_e_o_do_agent_notch() {
-        let cota = ler_fonte_externa(r#"{"sessionUsedPercent": 25, "weeklyUsedPercent": 60}"#)
-            .unwrap();
+        let cota =
+            ler_fonte_externa(r#"{"sessionUsedPercent": 25, "weeklyUsedPercent": 60}"#).unwrap();
         assert_eq!(cota.sessao.unwrap().percentual, 25);
         assert_eq!(cota.semana.unwrap().percentual, 60);
         assert_eq!(cota.sessao.unwrap().reseta_em, None);
@@ -469,7 +486,10 @@ lendo credenciais...
                      {\"sessionUsedPercent\": 8}
 feito.
 ";
-        assert_eq!(ler_fonte_externa(saida).unwrap().sessao.unwrap().percentual, 8);
+        assert_eq!(
+            ler_fonte_externa(saida).unwrap().sessao.unwrap().percentual,
+            8
+        );
     }
 
     #[test]
@@ -521,7 +541,11 @@ feito.
         std::fs::write(&vazio, "{}").unwrap();
         assert!(credencial_em(&vazio).is_none());
         let sem_token = pasta.path().join("sem.json");
-        std::fs::write(&sem_token, r#"{"claudeAiOauth":{"accessToken":"","expiresAt":1}}"#).unwrap();
+        std::fs::write(
+            &sem_token,
+            r#"{"claudeAiOauth":{"accessToken":"","expiresAt":1}}"#,
+        )
+        .unwrap();
         assert!(credencial_em(&sem_token).is_none());
     }
 }

@@ -308,11 +308,9 @@ fn ensaio_contra_banco_real() {
     // que o outro PC faz ao puxar. Contar a fila prova que saiu; so isto prova
     // que chegou.
     let vazio = tempfile::tempdir().unwrap();
-    let outro = crate::SqliteStorage::open(
-        vazio.path().join("mos.db"),
-        vazio.path().join("backups"),
-    )
-    .unwrap();
+    let outro =
+        crate::SqliteStorage::open(vazio.path().join("mos.db"), vazio.path().join("backups"))
+            .unwrap();
     let seu_id = outro.este_dispositivo("outro", "windows", "0.0.0").unwrap();
     outro.habilitar_sync(seu_id.id).unwrap();
 
