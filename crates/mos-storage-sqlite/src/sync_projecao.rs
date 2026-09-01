@@ -48,7 +48,88 @@ struct Mapa {
     /// entidade nunca apareceria. O `UPDATE` logo em seguida os substitui assim
     /// que o campo de verdade chega.
     obrigatorias: &'static [(&'static str, &'static str)],
+    /// A coluna que identifica a linha.
+    ///
+    /// Quase sempre `id`, e por isso ela era fixa no codigo. Mas
+    /// `project_tracking` e uma extensao 1:1 de `projects` e nao tem coluna
+    /// `id` nenhuma — a chave dela e `project_id`. Assumir `id` gerava um SQL
+    /// contra uma coluna inexistente, e o valor/hora do projeto e um dado que
+    /// vira fatura.
+    chave: &'static str,
+    /// Quais colunas de carimbo a tabela tem.
+    ///
+    /// `message_parts` nao tem nenhuma e `messages` so tem `created_at`.
+    /// Escrever `updated_at` nelas seria SQL contra coluna que nao existe; a
+    /// alternativa — alterar a tabela por migracao — foi recusada porque a
+    /// 0027 nao tocou em nenhuma tabela existente de proposito (SYNC.md §6).
+    carimbos: Carimbos,
+    /// O literal SQL da chave, quando a tabela tem UMA linha so.
+    ///
+    /// `tracking_settings` e `id INTEGER PRIMARY KEY` com a linha 1, sempre. O
+    /// id da entidade e um UUID fixo — ele existe para os dois aparelhos falarem
+    /// da mesma coisa, e nao para virar valor de coluna. Sem isto o `WHERE id =
+    /// '<uuid>'` nao acharia linha nenhuma e a configuracao nunca chegaria.
+    linha_unica: Option<&'static str>,
+    /// O campo emitido de onde sai o VALOR da chave.
+    ///
+    /// Existe para chave composta. O id da entidade dessas linhas e derivado
+    /// (`sync_emit::id_composto`) e nao aparece em coluna nenhuma — enfia-lo em
+    /// `subject_id`, que referencia `academic_subjects`, seria uma chave
+    /// estrangeira apontando para uma disciplina que nao existe.
+    ///
+    /// Com isto a chave real viaja como campo, e a projecao a usa para achar e
+    /// gravar a linha.
+    chave_do_campo: Option<&'static str>,
 }
+
+/// As colunas de carimbo que uma tabela sincronizavel tem.
+#[derive(Clone, Copy, PartialEq)]
+enum Carimbos {
+    Ambos,
+    SoCriacao,
+    /// So `updated_at`. `academic_provider_subject_facts` guarda um fato do
+    /// provedor: quando ele foi informado importa, quando a linha nasceu nao.
+    SoAtualizacao,
+    Nenhum,
+}
+
+impl Carimbos {
+    fn tem_criacao(self) -> bool {
+        matches!(self, Self::Ambos | Self::SoCriacao)
+    }
+
+    fn tem_atualizacao(self) -> bool {
+        matches!(self, Self::Ambos | Self::SoAtualizacao)
+    }
+}
+
+impl Mapa {
+    /// O caso comum: chave `id`, os dois carimbos.
+    ///
+    /// Existe para uma entrada do mapa declarar so o que a distingue. Doze das
+    /// treze entradas nao mencionam chave nem carimbo, e e assim que deve ser:
+    /// o que aparece escrito e a excecao.
+    const fn padrao() -> Self {
+        Self {
+            tabela: "",
+            colunas: &[],
+            obrigatorias: &[],
+            chave: "id",
+            carimbos: Carimbos::Ambos,
+            linha_unica: None,
+            chave_do_campo: None,
+        }
+    }
+}
+
+/// O id de entidade da linha unica de `tracking_settings`.
+///
+/// Constante e arbitrario, como o namespace das relacoes: o que importa e ser o
+/// MESMO nos dois aparelhos e nunca mudar. Muda-lo faria a configuracao existente
+/// virar orfa e uma nova nascer vazia.
+pub(crate) const ID_TRACKING_SETTINGS: uuid::Uuid = uuid::Uuid::from_bytes([
+    0x6d, 0x6f, 0x73, 0x74, 0x72, 0x61, 0x63, 0x6b, 0x73, 0x65, 0x74, 0x74, 0x69, 0x6e, 0x67, 0x73,
+]);
 
 /// Os tipos que este M/OS sabe materializar.
 ///
@@ -69,6 +150,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("title", "'(sem titulo)'"), ("description", "''")],
+            ..Mapa::padrao()
         }),
         "project" => Some(Mapa {
             tabela: "projects",
@@ -80,6 +162,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("name", "'(sem nome)'"), ("description", "''")],
+            ..Mapa::padrao()
         }),
         "workspace" => Some(Mapa {
             tabela: "workspaces",
@@ -91,6 +174,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
             ],
             // `name` tem `CHECK (length(trim(name)) > 0)`.
             obrigatorias: &[("name", "'(sincronizando)'"), ("description", "''")],
+            ..Mapa::padrao()
         }),
         "capture" => Some(Mapa {
             tabela: "captures",
@@ -109,6 +193,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("source_kind", "'home'"),
                 ("captured_at", "?2"),
             ],
+            ..Mapa::padrao()
         }),
         "resource" => Some(Mapa {
             tabela: "resources",
@@ -122,6 +207,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("kind", "'link'"), ("title", "'(sem titulo)'")],
+            ..Mapa::padrao()
         }),
         "reminder" => Some(Mapa {
             tabela: "reminders",
@@ -149,6 +235,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("status", "'scheduled'"),
                 ("source", "'system'"),
             ],
+            ..Mapa::padrao()
         }),
         "academic_semester" => Some(Mapa {
             tabela: "academic_semesters",
@@ -165,6 +252,205 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("starts_on", "''"),
                 ("ends_on", "''"),
             ],
+            ..Mapa::padrao()
+        }),
+        // As quatro do diario JA emitiam antes desta spec — faltava so a linha
+        // aqui. A operacao viajava e o outro lado guardava o estado sem nunca
+        // materializar, que de fora e indistinguivel de nao sincronizar.
+        "daily_session" => Some(Mapa {
+            tabela: "daily_sessions",
+            colunas: &[
+                ("day", "day"),
+                ("status", "status"),
+                ("note", "note"),
+                ("startedAt", "started_at"),
+                ("endedAt", "ended_at"),
+            ],
+            obrigatorias: &[("day", "''"), ("status", "'active'"), ("started_at", "?2")],
+            ..Mapa::padrao()
+        }),
+        "daily_objective" => Some(Mapa {
+            tabela: "daily_objectives",
+            colunas: &[
+                ("sessionId", "session_id"),
+                ("title", "title"),
+                ("description", "description"),
+                ("linkKind", "link_kind"),
+                ("linkId", "link_id"),
+                ("priority", "priority"),
+                ("status", "status"),
+                ("position", "position"),
+                ("carriedFrom", "carried_from"),
+                ("completedAt", "completed_at"),
+            ],
+            obrigatorias: &[
+                ("session_id", "''"),
+                ("title", "'(sincronizando)'"),
+                ("priority", "'secondary'"),
+                ("status", "'pending'"),
+            ],
+            ..Mapa::padrao()
+        }),
+        // A chave e `session_id`: a reflexao e uma-para-uma com o dia, e ja
+        // viajava com o id da sessao como id de entidade.
+        "daily_reflection" => Some(Mapa {
+            tabela: "daily_reflections",
+            chave: "session_id",
+            colunas: &[("mood", "mood"), ("summary", "summary")],
+            obrigatorias: &[],
+            ..Mapa::padrao()
+        }),
+        "weekly_review" => Some(Mapa {
+            tabela: "weekly_reviews",
+            colunas: &[
+                ("weekStart", "week_start"),
+                ("summary", "summary"),
+                ("closedAt", "closed_at"),
+            ],
+            obrigatorias: &[("week_start", "''"), ("closed_at", "?2")],
+            ..Mapa::padrao()
+        }),
+        // `project_tracking.client_id` REFERENCIA esta tabela (migration 0013):
+        // sincronizar a cobranca sem o cliente faz a linha ser recusada no
+        // destino por chave estrangeira.
+        // Linha unica, e METADE dela. Arredondamento e emissor sao seus;
+        // ociosidade, monitoramento de processo e deteccao de reuniao descrevem
+        // a maquina, e replicados fariam este PC vigiar o que o outro vigia.
+        "tracking_settings" => Some(Mapa {
+            tabela: "tracking_settings",
+            linha_unica: Some("1"),
+            colunas: &[
+                ("roundingEnabled", "rounding_enabled"),
+                ("roundingIntervalMinutes", "rounding_interval_minutes"),
+                ("roundingMode", "rounding_mode"),
+                ("issuerName", "issuer_name"),
+                ("issuerDocument", "issuer_document"),
+                ("issuerContact", "issuer_contact"),
+            ],
+            obrigatorias: &[],
+            carimbos: Carimbos::Nenhum,
+            ..Mapa::padrao()
+        }),
+        // Chave composta `(provider, subject_id)`: o id da entidade e DERIVADO
+        // dela (`sync_emit::id_composto`), como a relacao ja fazia. `provider` e
+        // `subjectId` viajam como campos porque a chave nao e uma coluna so.
+        "academic_provider_subject_fact" => Some(Mapa {
+            tabela: "academic_provider_subject_facts",
+            chave: "subject_id",
+            chave_do_campo: Some("subjectId"),
+            carimbos: Carimbos::SoAtualizacao,
+            colunas: &[
+                ("provider", "provider"),
+                ("subjectId", "subject_id"),
+                ("situation", "situation"),
+                ("officialGrade", "official_grade"),
+            ],
+            obrigatorias: &[("provider", "'univirtus'")],
+            ..Mapa::padrao()
+        }),
+        "client" => Some(Mapa {
+            tabela: "clients",
+            colunas: &[
+                ("name", "name"),
+                ("companyName", "company_name"),
+                ("email", "email"),
+                ("phone", "phone"),
+                ("notes", "notes"),
+                ("archivedAt", "archived_at"),
+                ("createdAt", "created_at"),
+            ],
+            obrigatorias: &[("name", "'(sincronizando)'")],
+            ..Mapa::padrao()
+        }),
+        "conversation" => Some(Mapa {
+            tabela: "conversations",
+            colunas: &[
+                ("title", "title"),
+                ("hermesSessionId", "hermes_session_id"),
+                ("lifecycleState", "lifecycle_state"),
+                ("createdAt", "created_at"),
+            ],
+            obrigatorias: &[],
+            ..Mapa::padrao()
+        }),
+        // `messages` so tem `created_at`: uma mensagem nao e editada, ela e
+        // fechada. O que muda depois e o `status`, e quando mudou esta no HLC da
+        // operacao — repetir isso numa coluna seria duas verdades sobre o mesmo
+        // instante.
+        "message" => Some(Mapa {
+            tabela: "messages",
+            carimbos: Carimbos::SoCriacao,
+            colunas: &[
+                ("conversationId", "conversation_id"),
+                ("seq", "seq"),
+                ("role", "role"),
+                ("status", "status"),
+            ],
+            obrigatorias: &[
+                ("conversation_id", "''"),
+                ("seq", "0"),
+                ("role", "'user'"),
+                ("status", "'done'"),
+            ],
+            ..Mapa::padrao()
+        }),
+        // Sem carimbo NENHUM, e nao por descuido: a parte e o conteudo imutavel
+        // de uma mensagem. Nao ter quando-mudou e a verdade sobre ela.
+        "message_part" => Some(Mapa {
+            tabela: "message_parts",
+            carimbos: Carimbos::Nenhum,
+            colunas: &[
+                ("messageId", "message_id"),
+                ("seq", "seq"),
+                ("kind", "kind"),
+                ("payload", "payload"),
+                ("searchText", "search_text"),
+            ],
+            obrigatorias: &[
+                ("message_id", "''"),
+                ("seq", "0"),
+                ("kind", "'text'"),
+                ("payload", "'{}'"),
+            ],
+            ..Mapa::padrao()
+        }),
+        // Extensao 1:1 de `projects`: a chave e `project_id`, e nao existe
+        // coluna `id`. O id da entidade E o id do projeto — os dois aparelhos
+        // chegam ao mesmo sem combinar nada.
+        "project_tracking" => Some(Mapa {
+            tabela: "project_tracking",
+            chave: "project_id",
+            colunas: &[
+                ("hourlyRateCents", "hourly_rate_cents"),
+                ("code", "code"),
+                ("color", "color"),
+                ("trackingStatus", "tracking_status"),
+                ("clientId", "client_id"),
+                ("budgetMinutes", "budget_minutes"),
+                ("paidAt", "paid_at"),
+                ("createdAt", "created_at"),
+            ],
+            obrigatorias: &[],
+            ..Mapa::padrao()
+        }),
+        "time_entry" => Some(Mapa {
+            tabela: "time_entries",
+            colunas: &[
+                ("projectId", "project_id"),
+                ("startedAt", "started_at"),
+                ("endedAt", "ended_at"),
+                ("durationSeconds", "duration_seconds"),
+                ("idleSeconds", "idle_seconds"),
+                ("description", "description"),
+                ("activityType", "activity_type"),
+                ("billable", "billable"),
+                ("hourlyRateSnapshotCents", "hourly_rate_snapshot_cents"),
+                ("source", "source"),
+                ("deletedAt", "deleted_at"),
+                ("createdAt", "created_at"),
+            ],
+            obrigatorias: &[("project_id", "''"), ("started_at", "''")],
+            ..Mapa::padrao()
         }),
         "academic_subject" => Some(Mapa {
             tabela: "academic_subjects",
@@ -179,6 +465,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("semester_id", "''"), ("name", "'(sincronizando)'")],
+            ..Mapa::padrao()
         }),
         "academic_assignment" => Some(Mapa {
             tabela: "academic_assignments",
@@ -197,6 +484,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("subject_id", "''"), ("title", "'(sincronizando)'")],
+            ..Mapa::padrao()
         }),
         "academic_exam" => Some(Mapa {
             tabela: "academic_exams",
@@ -218,6 +506,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("name", "'(sincronizando)'"),
                 ("at", "''"),
             ],
+            ..Mapa::padrao()
         }),
         "academic_study_session" => Some(Mapa {
             tabela: "academic_study_sessions",
@@ -231,6 +520,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("subject_id", "''"), ("started_at", "''")],
+            ..Mapa::padrao()
         }),
         // `relation` fica de fora, e nao por esquecimento: uma relacao do
         // Knowledge Graph nao e linha de tabela propria — ela e uma aresta com
@@ -345,8 +635,9 @@ impl SqliteStorage {
             transacao
                 .execute(
                     &format!(
-                        "UPDATE {} SET lifecycle_state = 'trashed', updated_at = ?1 WHERE id = ?2",
-                        mapa.tabela
+                        "UPDATE {} SET lifecycle_state = 'trashed', updated_at = ?1 \
+                         WHERE {} = ?2",
+                        mapa.tabela, mapa.chave
                     ),
                     params![momento, id.to_string()],
                 )
@@ -362,12 +653,37 @@ impl SqliteStorage {
         // a linha era recusada antes de o `UPDATE` ter chance de acertar. O
         // provisorio existe para o campo que AINDA NAO CHEGOU, e nao para
         // substituir o que ja esta na mao.
-        let mut nomes: Vec<&str> = vec!["id", "created_at", "updated_at"];
-        let mut marcadores: Vec<String> = vec!["?1".into(), "?2".into(), "?2".into()];
+        // O VALOR da chave: do campo quando ela e composta, senao o id.
+        let valor_da_chave = match mapa.chave_do_campo {
+            Some(campo) => match estado.campos.get(campo) {
+                Some(resolvido) => match &resolvido.valor {
+                    serde_json::Value::String(texto) => texto.clone(),
+                    outro => outro.to_string(),
+                },
+                // O campo que carrega a chave ainda nao chegou. Sair sem
+                // materializar deixa a entidade nos pendentes, e a retentativa
+                // resolve quando ele vier.
+                None => return Ok(()),
+            },
+            None => id.to_string(),
+        };
+        // Numa tabela de linha unica a chave e um literal, e nao o id: o
+        // `?1` traria o UUID da entidade para uma coluna que guarda `1`.
+        let chave_marcador = mapa.linha_unica.unwrap_or("?1");
+        let mut nomes: Vec<&str> = vec![mapa.chave];
+        let mut marcadores: Vec<String> = vec![chave_marcador.to_owned()];
         let mut valores: Vec<rusqlite::types::Value> = vec![
-            rusqlite::types::Value::Text(id.to_string()),
+            rusqlite::types::Value::Text(valor_da_chave.clone()),
             rusqlite::types::Value::Text(momento.clone()),
         ];
+        if mapa.carimbos.tem_criacao() {
+            nomes.push("created_at");
+            marcadores.push("?2".into());
+        }
+        if mapa.carimbos.tem_atualizacao() {
+            nomes.push("updated_at");
+            marcadores.push("?2".into());
+        }
         for (campo, coluna) in mapa.colunas {
             // `created_at` ja entrou como o instante de agora; sobrescrever
             // aqui duplicaria a coluna no `INSERT`. O `UPDATE` abaixo poe o
@@ -405,8 +721,18 @@ impl SqliteStorage {
         // pode ser corrigido.
         let ja_existe: bool = transacao
             .query_row(
-                &format!("SELECT 1 FROM {} WHERE id = ?1", mapa.tabela),
-                params![id.to_string()],
+                &format!(
+                    "SELECT 1 FROM {} WHERE {} = {chave_marcador}",
+                    mapa.tabela, mapa.chave
+                ),
+                // Numa tabela de linha unica a chave e literal, e ligar o id
+                // aqui seria um parametro a mais do que o comando referencia.
+                rusqlite::params_from_iter(
+                    mapa.linha_unica
+                        .is_none()
+                        .then(|| rusqlite::types::Value::Text(valor_da_chave.clone()))
+                        .iter()
+                ),
                 |_| Ok(()),
             )
             .optional()
@@ -433,14 +759,34 @@ impl SqliteStorage {
             let Some(resolvido) = estado.campos.get(*campo) else {
                 continue;
             };
-            let valor = valor_sql(&resolvido.valor);
+            // Os parametros sao montados junto com o SQL, e nao fixos em tres.
+            //
+            // Com `?2` e `?3` sempre ligados, uma tabela sem `updated_at` ou de
+            // linha unica recebia mais valores do que o comando referencia, e o
+            // `UPDATE` falhava — silenciosamente, porque a projecao manda a
+            // entidade para a fila de pendentes e tenta de novo. O sintoma era
+            // uma configuracao que emitia, viajava e nunca aparecia.
+            let mut valores: Vec<rusqlite::types::Value> = vec![valor_sql(&resolvido.valor)];
+            let toque = if mapa.carimbos.tem_atualizacao() {
+                valores.push(rusqlite::types::Value::Text(momento.clone()));
+                format!(", updated_at = ?{}", valores.len())
+            } else {
+                String::new()
+            };
+            let alvo = match mapa.linha_unica {
+                Some(literal) => literal.to_owned(),
+                None => {
+                    valores.push(rusqlite::types::Value::Text(valor_da_chave.clone()));
+                    format!("?{}", valores.len())
+                }
+            };
             transacao
                 .execute(
                     &format!(
-                        "UPDATE {} SET {coluna} = ?1, updated_at = ?2 WHERE id = ?3",
-                        mapa.tabela
+                        "UPDATE {} SET {coluna} = ?1{toque} WHERE {} = {alvo}",
+                        mapa.tabela, mapa.chave
                     ),
-                    params![valor, momento, id.to_string()],
+                    rusqlite::params_from_iter(valores.iter()),
                 )
                 .map_err(map_sql_error)?;
         }
@@ -635,7 +981,7 @@ impl<'a> ProjecaoSqlite<'a> {
     /// dependencias e do esquema, nao deste laco. Ele para quando uma rodada
     /// inteira nao resolve nada — e o que sobra continua guardado no estado, que
     /// e a fonte da verdade para reconciliar.
-    fn resolver_pendentes(&mut self) -> Vec<String> {
+    pub(crate) fn resolver_pendentes(&mut self) -> Vec<String> {
         while !self.pendentes.is_empty() {
             let tentativa = std::mem::take(&mut self.pendentes);
             let antes = tentativa.len();
@@ -833,5 +1179,537 @@ impl SqliteStorage {
             ));
         }
         Ok(rodada)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mos_core::{NewProject, NewTimeEntry, TimeTrackingRepository, WorkRepository};
+    use mos_core::ConversationRepository;
+    use mos_sync::{DeviceRepository, Op, Projecao};
+
+    use super::*;
+
+    fn storage_que_emite() -> (SqliteStorage, tempfile::TempDir) {
+        let pasta = tempfile::tempdir().unwrap();
+        let storage =
+            SqliteStorage::open(pasta.path().join("mos.db"), pasta.path().join("backups")).unwrap();
+        let dispositivo = storage
+            .este_dispositivo("teste", "windows", "0.0.0")
+            .unwrap();
+        storage.habilitar_sync(dispositivo.id).unwrap();
+        (storage, pasta)
+    }
+
+    /// As operacoes que este dispositivo tem para mandar.
+    fn ops_da_fila(storage: &SqliteStorage, kind: &str) -> Vec<Op> {
+        let conexao = storage.connection.lock().unwrap();
+        let mut consulta = conexao
+            .prepare("SELECT payload FROM sync_outbox WHERE entity_kind = ?1")
+            .unwrap();
+        let linhas = consulta
+            .query_map(rusqlite::params![kind], |linha| {
+                linha.get::<_, String>(0)
+            })
+            .unwrap();
+        linhas
+            .map(|payload| serde_json::from_str(&payload.unwrap()).unwrap())
+            .collect()
+    }
+
+    /// Aplica em `destino` as operacoes como se tivessem vindo do hub.
+    ///
+    /// Drena os pendentes no fim, e falha se sobrar algum. Sem isso um teste
+    /// verde nao provaria nada: a projecao adia a materializacao que falha em
+    /// vez de estourar, e um erro de SQL viraria "a linha nao apareceu" sem
+    /// dizer por que.
+    fn receber(destino: &SqliteStorage, ops: &[Op]) {
+        let mut projecao = ProjecaoSqlite::nova(destino);
+        for op in ops {
+            let base = projecao.estado_de(op);
+            let estado = mos_sync::aplicar(base, std::slice::from_ref(op)).estado;
+            projecao.guardar(op, &estado).unwrap();
+        }
+        let faltas = projecao.resolver_pendentes();
+        assert!(faltas.is_empty(), "a projecao nao materializou: {faltas:?}");
+    }
+
+    /// O diario JA emitia, e a operacao viajava — so nunca virava linha.
+    ///
+    /// E o caso que o cabecalho do modulo descreve como "tipo desconhecido nao e
+    /// erro": o outro lado guardava o estado e nao materializava nada. Do lado
+    /// de fora e indistinguivel de nao sincronizar, e por isso o teste de
+    /// cobertura pergunta pelas duas metades e nao so pela emissao.
+    #[test]
+    fn o_dia_iniciado_num_pc_aparece_no_outro() {
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        let agora = time::OffsetDateTime::now_utc();
+        let dia = mos_core::Day::parse("2026-08-31").unwrap();
+        let nova =
+            mos_core::NewDailySession::create(dia.clone(), "fechar o Rancho", agora).unwrap();
+        let id = nova.id;
+        mos_core::DailyRepository::start_day(&origem, nova, Vec::new(), agora).unwrap();
+
+        receber(&destino, &ops_da_fila(&origem, "daily_session"));
+
+        let sessao = mos_core::DailyRepository::session(&destino, id).unwrap();
+        assert_eq!(
+            sessao.note, "fechar o Rancho",
+            "o dia iniciado na origem nao virou linha no destino"
+        );
+        assert_eq!(sessao.day, dia);
+    }
+
+    /// `messages` so tem `created_at`; `message_parts` nao tem carimbo nenhum.
+    ///
+    /// Sao os dois tipos que exigem o `Carimbos`: escrever `updated_at` neles
+    /// seria SQL contra coluna inexistente. E o corpo da mensagem mora nas
+    /// partes — sem elas a conversa chega com remetente e sem texto, que e pior
+    /// que nao chegar.
+    #[test]
+    fn uma_conversa_do_hermes_chega_inteira_no_outro_pc() {
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        let conversa = origem
+            .create_conversation(mos_core::NewConversation::create())
+            .unwrap();
+        origem
+            .set_conversation_title(conversa.id, "Orcamento do Rancho")
+            .unwrap();
+        origem
+            .append_message(mos_core::NewMessage::user(conversa.id, "quanto ficou a obra?").unwrap())
+            .unwrap();
+
+        for kind in ["conversation", "message", "message_part"] {
+            receber(&destino, &ops_da_fila(&origem, kind));
+        }
+
+        let conversas = destino.conversations(false, 10).unwrap();
+        assert_eq!(conversas.len(), 1, "a conversa nao atravessou");
+        assert_eq!(conversas[0].title, "Orcamento do Rancho");
+
+        let mensagens = destino.messages(conversa.id).unwrap();
+        assert_eq!(mensagens.len(), 1, "a mensagem nao atravessou");
+        assert!(
+            !mensagens[0].parts.is_empty(),
+            "a mensagem chegou sem as partes: o remetente atravessou e o texto nao"
+        );
+    }
+
+    /// Um semestre e uma disciplina minimos, direto no banco.
+    fn semear_disciplina(storage: &SqliteStorage, disciplina: uuid::Uuid) {
+        let semestre = uuid::Uuid::now_v7().to_string();
+        let conexao = storage.escrita().unwrap();
+        conexao
+            .execute(
+                "INSERT INTO academic_semesters
+                     (id, name, institution, starts_on, ends_on, lifecycle_state,
+                      created_at, updated_at)
+                 VALUES (?1, '2026.2', 'UFSC', '2026-08-01', '2026-11-30', 'active',
+                         '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z')",
+                rusqlite::params![semestre],
+            )
+            .unwrap();
+        conexao
+            .execute(
+                "INSERT INTO academic_subjects
+                     (id, semester_id, name, code, teacher, accent, notes,
+                      lifecycle_state, created_at, updated_at)
+                 VALUES (?1, ?2, 'Calculo III', 'MAT03', '', '', '', 'active',
+                         '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z')",
+                rusqlite::params![disciplina.to_string(), semestre],
+            )
+            .unwrap();
+    }
+
+    /// A chave e `(provider, subject_id)`, e nao um UUID.
+    ///
+    /// O `Op` exige `entity.id: Uuid`, entao o id e DERIVADO da chave composta —
+    /// o mesmo recurso que `mos_sync::Relacao` usa para as juncoes, e com a
+    /// mesma advertencia: o namespace nunca muda, porque muda-lo faria todas as
+    /// notas existentes ganharem ids novos e as antigas ficarem orfas.
+    #[test]
+    fn a_nota_oficial_atravessa_apesar_da_chave_composta() {
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        let disciplina = uuid::Uuid::now_v7();
+        // Semestre e disciplina nos DOIS lados: `subject_id` e chave
+        // estrangeira, e a nota de uma disciplina que nao existe e recusada
+        // antes de chegar a ser um problema de sincronizacao.
+        for banco in [&origem, &destino] {
+            semear_disciplina(banco, disciplina);
+        }
+        // A linha nasce por fora do repositorio de dominio: o que este teste
+        // exercita e a emissao e a projecao, e nao a importacao do provedor.
+        origem
+            .escrita()
+            .unwrap()
+            .execute(
+                "INSERT INTO academic_provider_subject_facts
+                     (provider, subject_id, situation, official_grade, updated_at)
+                 VALUES ('univirtus', ?1, 'aprovado', 8.5, '2026-08-31T00:00:00Z')",
+                rusqlite::params![disciplina.to_string()],
+            )
+            .unwrap();
+        SqliteStorage::emitir_fato_de_disciplina(
+            &origem,
+            "univirtus",
+            &disciplina.to_string(),
+            Some("aprovado"),
+            Some(8.5),
+        )
+        .unwrap();
+
+        receber(
+            &destino,
+            &ops_da_fila(&origem, "academic_provider_subject_fact"),
+        );
+
+        let (situacao, nota): (String, f64) = destino
+            .connection
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT situation, official_grade FROM academic_provider_subject_facts
+                 WHERE provider = 'univirtus' AND subject_id = ?1",
+                rusqlite::params![disciplina.to_string()],
+                |linha| Ok((linha.get(0)?, linha.get(1)?)),
+            )
+            .expect("a nota oficial nao atravessou");
+        assert_eq!(situacao, "aprovado");
+        assert_eq!(nota, 8.5);
+    }
+
+    /// O arredondamento MUDA o numero cobravel.
+    ///
+    /// `cronocad_import.rs` ja registra isso para a importacao: trazer as horas
+    /// sem a configuracao faz o M/OS mostrar um valor diferente do que o
+    /// CronoCAD mostrava. Entre dois PCs o estrago e o mesmo — as horas
+    /// atravessam, a regra nao, e os dois mostram totais faturaveis diferentes
+    /// para o mesmo trabalho.
+    ///
+    /// So a metade que e SUA viaja. Deteccao de ociosidade e monitoramento de
+    /// processo descrevem a maquina, e replicados fariam este PC vigiar o que o
+    /// outro vigia.
+    #[test]
+    fn a_regra_de_arredondamento_atravessa_e_a_config_de_maquina_nao() {
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        let mut regras = mos_core::TimeTrackingRepository::tracking_settings(&origem).unwrap();
+        regras.rounding.interval_minutes = 30;
+        regras.rounding.mode = mos_core::RoundingMode::Up;
+        mos_core::TimeTrackingRepository::set_tracking_settings(&origem, regras).unwrap();
+        // A metade de maquina nem aparece no tipo de dominio: mexo nela por SQL
+        // para provar que ela existe na origem e NAO viaja.
+        origem
+            .connection
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE tracking_settings SET idle_threshold_minutes = 99 WHERE id = 1",
+                [],
+            )
+            .unwrap();
+
+        receber(&destino, &ops_da_fila(&origem, "tracking_settings"));
+
+        let chegou = mos_core::TimeTrackingRepository::tracking_settings(&destino).unwrap();
+        assert_eq!(
+            chegou.rounding.interval_minutes, 30,
+            "o intervalo de arredondamento nao atravessou"
+        );
+        assert_eq!(chegou.rounding.mode, mos_core::RoundingMode::Up);
+        let ociosidade_no_destino: i64 = destino
+            .connection
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT idle_threshold_minutes FROM tracking_settings WHERE id = 1",
+                [],
+                |linha| linha.get(0),
+            )
+            .unwrap();
+        assert_ne!(
+            ociosidade_no_destino, 99,
+            "a config de maquina atravessou e nao devia"
+        );
+    }
+
+    /// `project_tracking.client_id` e CHAVE ESTRANGEIRA para `clients`
+    /// (migration 0013). Sincronizar a cobranca sem o cliente faz a linha ser
+    /// recusada no destino — e o commit que ligou `project_tracking` sem ligar
+    /// `clients` introduziu exatamente isso.
+    #[test]
+    fn a_cobranca_com_cliente_nao_quebra_a_chave_estrangeira_no_destino() {
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        let projeto = NewProject::create("Rancho Queimado", "", "").unwrap();
+        let id_projeto = projeto.id;
+        origem.create_project(projeto.clone()).unwrap();
+        destino.create_project(projeto).unwrap();
+
+        let cliente = mos_core::TimeTrackingRepository::create_client(
+            &origem,
+            mos_core::ClientInput {
+                name: String::from("Juliano"),
+                company_name: String::new(),
+                email: String::new(),
+                phone: String::new(),
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+        origem
+            .set_project_tracking(mos_core::ProjectTracking {
+                project_id: id_projeto,
+                hourly_rate_cents: 12_000,
+                code: String::new(),
+                color: String::new(),
+                tracking_status: mos_core::TrackingStatus::Active,
+                client_id: Some(cliente.id),
+                budget_minutes: 0,
+                paid_at: None,
+            })
+            .unwrap();
+
+        receber(&destino, &ops_da_fila(&origem, "client"));
+        receber(&destino, &ops_da_fila(&origem, "project_tracking"));
+
+        let clientes = mos_core::TimeTrackingRepository::clients(&destino, false).unwrap();
+        assert_eq!(clientes.len(), 1, "o cliente nao atravessou");
+        let cobranca = destino.project_tracking().unwrap();
+        assert_eq!(
+            cobranca.first().and_then(|linha| linha.client_id),
+            Some(cliente.id),
+            "a cobranca chegou sem o cliente: a chave estrangeira foi recusada"
+        );
+    }
+
+    /// A chave de `project_tracking` e `project_id`, e nao `id`.
+    ///
+    /// Este teste existe para o `INSERT` da projecao parar de assumir uma coluna
+    /// chamada `id`: a tabela nao tem nenhuma, e o valor/hora do projeto e um
+    /// dado que vira FATURA — errar aqui e errar quanto se cobra.
+    #[test]
+    fn o_valor_hora_do_projeto_atravessa_mesmo_sem_coluna_id() {
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        let projeto = NewProject::create("Rancho Queimado", "", "").unwrap();
+        let id_projeto = projeto.id;
+        origem.create_project(projeto.clone()).unwrap();
+        destino.create_project(projeto).unwrap();
+
+        origem
+            .set_project_tracking(mos_core::ProjectTracking {
+                project_id: id_projeto,
+                hourly_rate_cents: 12_000,
+                code: String::from("043"),
+                color: String::new(),
+                tracking_status: mos_core::TrackingStatus::Active,
+                client_id: None,
+                budget_minutes: 2_400,
+                paid_at: None,
+            })
+            .unwrap();
+
+        receber(&destino, &ops_da_fila(&origem, "project_tracking"));
+
+        let cobranca = destino.project_tracking().unwrap();
+        assert_eq!(
+            cobranca.len(),
+            1,
+            "o valor/hora do projeto nao atravessou"
+        );
+        assert_eq!(cobranca[0].hourly_rate_cents, 12_000);
+        assert_eq!(cobranca[0].code, "043");
+        assert_eq!(cobranca[0].budget_minutes, 2_400);
+    }
+
+    #[test]
+    fn horas_registradas_num_pc_viram_linha_no_outro() {
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        // O projeto existe nos dois: ele ja sincroniza hoje, e sem ele a chave
+        // estrangeira de `time_entries` recusaria a linha no destino.
+        let projeto = NewProject::create("Rancho Queimado", "", "").unwrap();
+        let id_projeto = projeto.id;
+        origem.create_project(projeto.clone()).unwrap();
+        destino.create_project(projeto).unwrap();
+
+        origem
+            .create_time_entry(NewTimeEntry {
+                project_id: id_projeto,
+                started_at: time::OffsetDateTime::now_utc(),
+                ended_at: None,
+                duration_seconds: 3_600,
+                idle_seconds: 0,
+                description: String::from("desenho da prancha"),
+                activity_type: mos_core::ActivityType::Drawing,
+                billable: true,
+                hourly_rate_snapshot_cents: 12_000,
+                source: mos_core::EntrySource::Timer,
+            })
+            .unwrap();
+
+        receber(&destino, &ops_da_fila(&origem, "time_entry"));
+
+        let horas = destino.time_entries(None).unwrap();
+        assert_eq!(
+            horas.len(),
+            1,
+            "a hora registrada na origem nao virou linha no destino"
+        );
+        assert_eq!(horas[0].duration_seconds, 3_600);
+        assert_eq!(horas[0].description, "desenho da prancha");
+    }
+}
+
+/// Se alguma entrada de `mapa_de` materializa nesta tabela.
+///
+/// Existe para o teste de cobertura: ele conhece tabelas, e o mapa e indexado
+/// por tipo. Sem isto, a lista de tipos seria uma TERCEIRA lista a manter em
+/// acordo com as outras duas — que e o problema, e nao a solucao.
+pub(crate) fn tem_mapa_para_tabela(tabela: &str) -> bool {
+    // Uma tabela de juncao nao tem entrada em `mapa_de`: ela viaja como
+    // `relation`, e quem sabe materializa-la e `juncao_de`. Perguntar as duas e
+    // o que faz o teste aceitar as duas formas de atravessar sem precisar saber
+    // qual e qual.
+    TIPOS_DE_VINCULO
+        .iter()
+        .any(|kind| juncao_de(kind).is_some_and(|(juncao, _, _)| juncao == tabela))
+        || TIPOS_CONHECIDOS
+            .iter()
+            .any(|kind| mapa_de(kind).is_some_and(|mapa| mapa.tabela == tabela))
+}
+
+/// Os tipos de vinculo que `juncao_de` responde.
+const TIPOS_DE_VINCULO: &[&str] = &[
+    "resourceProject",
+    "resourceWorkspace",
+    "projectWorkspace",
+    "academic_subject_resource",
+];
+
+/// Os tipos que `mapa_de` responde. Enumerar um `match` nao e possivel em Rust,
+/// entao a lista existe — e o teste de cobertura a mantem honesta comparando com
+/// as tabelas.
+const TIPOS_CONHECIDOS: &[&str] = &[
+    "task",
+    "project",
+    "workspace",
+    "capture",
+    "resource",
+    "reminder",
+    "academic_semester",
+    "academic_subject",
+    "academic_assignment",
+    "academic_exam",
+    "academic_study_session",
+    "academic_subject_resource",
+    "time_entry",
+    "project_tracking",
+    "conversation",
+    "message",
+    "message_part",
+    "daily_session",
+    "daily_objective",
+    "daily_reflection",
+    "weekly_review",
+    "client",
+    "tracking_settings",
+    "academic_provider_subject_fact",
+];
+
+/// Enfileira um `Create` por linha existente da tabela daquele tipo.
+///
+/// Le as colunas pelo proprio `Mapa`, e nao por uma lista escrita a mao aqui: o
+/// que o backfill manda tem que ser exatamente o que a emissao mandaria, e duas
+/// listas divergem.
+pub(crate) fn enfileirar_tabela(
+    storage: &SqliteStorage,
+    transacao: &Connection,
+    kind: &str,
+) -> Result<usize, CoreError> {
+    let Some(mapa) = mapa_de(kind) else {
+        return Ok(0);
+    };
+
+    let colunas: Vec<&str> = mapa.colunas.iter().map(|(_, coluna)| *coluna).collect();
+    // Numa tabela de linha unica a chave nem e lida: ela e `1`, um inteiro que
+    // nao vira UUID, e o id da entidade e a constante conhecida pelos dois
+    // aparelhos. Ler a coluna aqui daria "Invalid column type Integer".
+    let id_fixo = match kind {
+        "tracking_settings" => Some(ID_TRACKING_SETTINGS),
+        _ => None,
+    };
+    let sql = if id_fixo.is_some() {
+        format!("SELECT {} FROM {}", colunas.join(", "), mapa.tabela)
+    } else {
+        format!(
+            "SELECT {}, {} FROM {}",
+            mapa.chave,
+            colunas.join(", "),
+            mapa.tabela
+        )
+    };
+    let deslocamento = usize::from(id_fixo.is_none());
+    let mut consulta = transacao.prepare(&sql).map_err(map_sql_error)?;
+    let linhas = consulta
+        .query_map([], |linha| {
+            let chave = match id_fixo {
+                Some(fixo) => fixo.to_string(),
+                None => linha.get::<_, String>(0)?,
+            };
+            let mut campos = Vec::with_capacity(mapa.colunas.len());
+            for (indice, (campo, _)) in mapa.colunas.iter().enumerate() {
+                campos.push((
+                    (*campo).to_owned(),
+                    json_de_sql(linha.get_ref(indice + deslocamento)?),
+                ));
+            }
+            Ok((chave, campos))
+        })
+        .map_err(map_sql_error)?;
+
+    let mut quantas = 0;
+    for linha in linhas {
+        let (chave, campos) = linha.map_err(map_sql_error)?;
+        // Uma chave que nao e UUID nao tem como virar id de entidade. Pular e
+        // certo: as tabelas de chave composta viajam por outro caminho, e
+        // inventar um id aqui criaria uma entidade que so existe neste banco.
+        let Ok(id) = uuid::Uuid::parse_str(&chave) else {
+            continue;
+        };
+        storage.emitir(
+            transacao,
+            mos_sync::EntityRef::new(kind, id),
+            mos_sync::OpBody::Create {
+                fields: campos.into_iter().collect(),
+            },
+        )?;
+        quantas += 1;
+    }
+    Ok(quantas)
+}
+
+/// Um valor do banco como o JSON que a operacao carrega.
+fn json_de_sql(valor: rusqlite::types::ValueRef<'_>) -> serde_json::Value {
+    use rusqlite::types::ValueRef;
+    match valor {
+        ValueRef::Null => serde_json::Value::Null,
+        ValueRef::Integer(numero) => serde_json::json!(numero),
+        ValueRef::Real(numero) => serde_json::json!(numero),
+        ValueRef::Text(texto) => serde_json::json!(String::from_utf8_lossy(texto)),
+        // Nenhuma coluna sincronizavel e BLOB hoje. Virar texto perdido e melhor
+        // que entrar em panico numa passagem que roda uma vez so.
+        ValueRef::Blob(bytes) => serde_json::json!(String::from_utf8_lossy(bytes)),
     }
 }

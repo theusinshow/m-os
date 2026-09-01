@@ -47,6 +47,11 @@ impl ClientId {
             .map(Self)
             .map_err(|_| CoreError::new(ErrorCode::InvalidInput, "Client ID invalido.", false))
     }
+
+    /// O UUID por baixo, para a operacao de sincronizacao.
+    pub fn as_uuid(&self) -> Uuid {
+        self.0
+    }
 }
 
 impl Default for ClientId {
@@ -70,6 +75,15 @@ impl TimeEntryId {
         Uuid::parse_str(value)
             .map(Self)
             .map_err(|_| CoreError::new(ErrorCode::InvalidInput, "Time entry ID invalido.", false))
+    }
+
+    /// O UUID por baixo, para a operacao de sincronizacao.
+    ///
+    /// Continua sem `From<Uuid>`, pela mesma razao que `CaptureId`: construir
+    /// um id a partir de um UUID qualquer e o caminho para um id que nao existe
+    /// em lugar nenhum. Quem entra vem de `parse`, que valida.
+    pub fn as_uuid(&self) -> Uuid {
+        self.0
     }
 }
 

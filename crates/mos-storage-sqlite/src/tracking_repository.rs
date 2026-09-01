@@ -96,13 +96,17 @@ fn build_entry(raw: RawEntry) -> Result<TimeEntry, CoreError> {
 
 impl TimeTrackingRepository for SqliteStorage {
     fn create_time_entry(&self, entry: NewTimeEntry) -> Result<TimeEntry, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        // `escrita` e nao `connection.lock`: esta escrita emite, e emitir toca o
+        // relogio. Pegar os dois cadeados a mao aqui e o abraco mortal que o
+        // portao existe para tornar impossivel — ver `SqliteStorage::portao`.
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let id = TimeEntryId::new();
         let now = format_time(time::OffsetDateTime::now_utc())?;
         let started = format_time(entry.started_at)?;
         let ended = entry.ended_at.map(format_time).transpose()?;
 
-        connection
+        transaction
             .execute(
                 "INSERT INTO time_entries (id, project_id, started_at, ended_at, \
                  duration_seconds, idle_seconds, description, activity_type, billable, \
@@ -125,14 +129,56 @@ impl TimeTrackingRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
 
-        let raw = connection
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("time_entry", id.as_uuid()),
+            mos_sync::OpBody::Create {
+                fields: [
+                    (
+                        "projectId".to_owned(),
+                        serde_json::json!(entry.project_id.to_string()),
+                    ),
+                    ("startedAt".to_owned(), serde_json::json!(started)),
+                    ("endedAt".to_owned(), serde_json::json!(ended)),
+                    (
+                        "durationSeconds".to_owned(),
+                        serde_json::json!(entry.duration_seconds.max(0)),
+                    ),
+                    (
+                        "idleSeconds".to_owned(),
+                        serde_json::json!(entry.idle_seconds.max(0)),
+                    ),
+                    (
+                        "description".to_owned(),
+                        serde_json::json!(entry.description),
+                    ),
+                    (
+                        "activityType".to_owned(),
+                        serde_json::json!(entry.activity_type.as_str()),
+                    ),
+                    ("billable".to_owned(), serde_json::json!(entry.billable)),
+                    (
+                        "hourlyRateSnapshotCents".to_owned(),
+                        serde_json::json!(entry.hourly_rate_snapshot_cents),
+                    ),
+                    ("source".to_owned(), serde_json::json!(entry.source.as_str())),
+                    ("createdAt".to_owned(), serde_json::json!(now)),
+                ]
+                .into_iter()
+                .collect(),
+            },
+        )?;
+
+        let raw = transaction
             .query_row(
                 &format!("SELECT {ENTRY_COLUMNS} FROM time_entries WHERE id = ?1"),
                 params![id.to_string()],
                 read_entry,
             )
             .map_err(map_sql_error)?;
-        build_entry(raw)
+        let construida = build_entry(raw)?;
+        transaction.commit().map_err(map_sql_error)?;
+        Ok(construida)
     }
 
     fn time_entries(&self, project_id: Option<ProjectId>) -> Result<Vec<TimeEntry>, CoreError> {
@@ -179,12 +225,13 @@ impl TimeTrackingRepository for SqliteStorage {
         id: TimeEntryId,
         edit: TimeEntryEdit,
     ) -> Result<TimeEntry, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         // `ended_at` deriva do inicio mais a duracao em vez de ser editado
         // separado: dois campos que precisam concordar acabam discordando, e o
         // que o usuario corrige e "quanto tempo durou", nao "quando terminou".
         let ended = edit.started_at + time::Duration::seconds(edit.duration_seconds.max(0));
-        let changed = connection
+        let changed = transaction
             .execute(
                 "UPDATE time_entries SET started_at = ?2, ended_at = ?3, \
                  duration_seconds = ?4, idle_seconds = ?5, description = ?6, \
@@ -211,20 +258,48 @@ impl TimeTrackingRepository for SqliteStorage {
             ));
         }
 
-        let raw = connection
+        // So os campos que a edicao mexe. Mandar a entidade inteira faria uma
+        // correcao de duracao sobrescrever, no outro aparelho, um campo que
+        // ninguem tocou — e e exatamente o que o LWW por campo existe para
+        // evitar (SYNC.md §4).
+        self.emitir_update(
+            &transaction,
+            "time_entry",
+            id.as_uuid(),
+            &[
+                ("startedAt", serde_json::json!(format_time(edit.started_at)?)),
+                ("endedAt", serde_json::json!(format_time(ended)?)),
+                (
+                    "durationSeconds",
+                    serde_json::json!(edit.duration_seconds.max(0)),
+                ),
+                ("idleSeconds", serde_json::json!(edit.idle_seconds.max(0))),
+                ("description", serde_json::json!(edit.description)),
+                (
+                    "activityType",
+                    serde_json::json!(edit.activity_type.as_str()),
+                ),
+                ("billable", serde_json::json!(edit.billable)),
+            ],
+        )?;
+
+        let raw = transaction
             .query_row(
                 &format!("SELECT {ENTRY_COLUMNS} FROM time_entries WHERE id = ?1"),
                 params![id.to_string()],
                 read_entry,
             )
             .map_err(map_sql_error)?;
-        build_entry(raw)
+        let construida = build_entry(raw)?;
+        transaction.commit().map_err(map_sql_error)?;
+        Ok(construida)
     }
 
     fn trash_time_entry(&self, id: TimeEntryId) -> Result<(), CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let now = format_time(time::OffsetDateTime::now_utc())?;
-        let changed = connection
+        let changed = transaction
             .execute(
                 "UPDATE time_entries SET deleted_at = ?2, updated_at = ?2 \
                  WHERE id = ?1 AND deleted_at IS NULL",
@@ -238,12 +313,24 @@ impl TimeTrackingRepository for SqliteStorage {
                 false,
             ));
         }
+        // Mudanca de CAMPO, e nao `OpBody::Delete` — a mesma escolha que
+        // `repository.rs` documenta para a lixeira da capture: jogar fora aqui
+        // e restaurar no outro aparelho tem que ser decidido pelo instante, e
+        // nao pela regra de "apagar ganha".
+        self.emitir_update(
+            &transaction,
+            "time_entry",
+            id.as_uuid(),
+            &[("deletedAt", serde_json::json!(now))],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         Ok(())
     }
 
     fn restore_time_entry(&self, id: TimeEntryId) -> Result<(), CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
-        let changed = connection
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let changed = transaction
             .execute(
                 "UPDATE time_entries SET deleted_at = NULL, updated_at = ?2 \
                  WHERE id = ?1 AND deleted_at IS NOT NULL",
@@ -260,6 +347,13 @@ impl TimeTrackingRepository for SqliteStorage {
                 false,
             ));
         }
+        self.emitir_update(
+            &transaction,
+            "time_entry",
+            id.as_uuid(),
+            &[("deletedAt", serde_json::Value::Null)],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         Ok(())
     }
 
@@ -267,12 +361,13 @@ impl TimeTrackingRepository for SqliteStorage {
         &self,
         tracking: ProjectTracking,
     ) -> Result<ProjectTracking, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let now = format_time(time::OffsetDateTime::now_utc())?;
         // `created_at` sobrevive ao upsert: quando esta linha nasceu e um fato, e
         // reescreve-lo a cada edicao de valor/hora apagaria desde quando aquele
         // Project e cobrado.
-        connection
+        transaction
             .execute(
                 "INSERT INTO project_tracking (project_id, hourly_rate_cents, code, color, \
                  tracking_status, client_id, budget_minutes, paid_at, created_at, updated_at) \
@@ -295,6 +390,32 @@ impl TimeTrackingRepository for SqliteStorage {
                 ],
             )
             .map_err(map_sql_error)?;
+
+        self.emitir_update(
+            &transaction,
+            "project_tracking",
+            tracking.project_id.as_uuid(),
+            &[
+                (
+                    "hourlyRateCents",
+                    serde_json::json!(tracking.hourly_rate_cents),
+                ),
+                ("code", serde_json::json!(tracking.code)),
+                ("color", serde_json::json!(tracking.color)),
+                (
+                    "trackingStatus",
+                    serde_json::json!(tracking.tracking_status.as_str()),
+                ),
+                (
+                    "clientId",
+                    serde_json::json!(tracking.client_id.map(|id| id.to_string())),
+                ),
+                ("budgetMinutes", serde_json::json!(tracking.budget_minutes)),
+                ("paidAt", serde_json::json!(tracking.paid_at)),
+                ("createdAt", serde_json::json!(now)),
+            ],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         Ok(tracking)
     }
 
@@ -470,9 +591,11 @@ impl TimeTrackingRepository for SqliteStorage {
         let now = time::OffsetDateTime::now_utc();
         let duration = timer.elapsed(now);
 
-        let connection = self.connection.lock().map_err(map_lock_error)?;
-        // Gravar a sessao e apagar o cronometro na MESMA transacao. Separados,
-        // uma queda entre os dois deixaria a hora contada duas vezes ou nenhuma.
+        let connection = self.escrita()?;
+        // Gravar a sessao, emitir a operacao e apagar o cronometro na MESMA
+        // transacao. Separados, uma queda entre os dois deixaria a hora contada
+        // duas vezes ou nenhuma — e, desde que a emissao entrou aqui, deixaria
+        // tambem uma hora que existe neste PC e nunca sai dele.
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
 
         // A taxa vem do Project no momento do encerramento e vira snapshot da
@@ -510,6 +633,43 @@ impl TimeTrackingRepository for SqliteStorage {
         transaction
             .execute("DELETE FROM active_timer WHERE singleton = 1", [])
             .map_err(map_sql_error)?;
+
+        // O `active_timer` NAO emite — cronometro em curso e estado desta
+        // maquina, e replica-lo faria dois PCs disputarem um so. O que
+        // atravessa e a sessao que ele fechou.
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("time_entry", id.as_uuid()),
+            mos_sync::OpBody::Create {
+                fields: [
+                    (
+                        "projectId".to_owned(),
+                        serde_json::json!(timer.project_id.to_string()),
+                    ),
+                    (
+                        "startedAt".to_owned(),
+                        serde_json::json!(format_time(timer.started_at)?),
+                    ),
+                    ("endedAt".to_owned(), serde_json::json!(stamp)),
+                    ("durationSeconds".to_owned(), serde_json::json!(duration)),
+                    ("idleSeconds".to_owned(), serde_json::json!(0)),
+                    (
+                        "description".to_owned(),
+                        serde_json::json!(timer.description),
+                    ),
+                    (
+                        "activityType".to_owned(),
+                        serde_json::json!(timer.activity_type.as_str()),
+                    ),
+                    ("billable".to_owned(), serde_json::json!(true)),
+                    ("hourlyRateSnapshotCents".to_owned(), serde_json::json!(rate)),
+                    ("source".to_owned(), serde_json::json!("timer")),
+                    ("createdAt".to_owned(), serde_json::json!(stamp)),
+                ]
+                .into_iter()
+                .collect(),
+            },
+        )?;
 
         let raw = transaction
             .query_row(
@@ -562,10 +722,11 @@ impl TimeTrackingRepository for SqliteStorage {
 
     fn create_client(&self, input: ClientInput) -> Result<Client, CoreError> {
         let name = input.validated()?.to_owned();
-        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let id = ClientId::new();
         let now = format_time(time::OffsetDateTime::now_utc())?;
-        connection
+        transaction
             .execute(
                 "INSERT INTO clients (id, name, company_name, email, phone, notes, \
                  created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
@@ -580,6 +741,26 @@ impl TimeTrackingRepository for SqliteStorage {
                 ],
             )
             .map_err(map_sql_error)?;
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("client", id.as_uuid()),
+            mos_sync::OpBody::Create {
+                fields: [
+                    ("name".to_owned(), serde_json::json!(name)),
+                    (
+                        "companyName".to_owned(),
+                        serde_json::json!(input.company_name),
+                    ),
+                    ("email".to_owned(), serde_json::json!(input.email)),
+                    ("phone".to_owned(), serde_json::json!(input.phone)),
+                    ("notes".to_owned(), serde_json::json!(input.notes)),
+                    ("createdAt".to_owned(), serde_json::json!(now)),
+                ]
+                .into_iter()
+                .collect(),
+            },
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
 
         Ok(Client {
             id,
@@ -594,8 +775,9 @@ impl TimeTrackingRepository for SqliteStorage {
 
     fn update_client(&self, id: ClientId, input: ClientInput) -> Result<Client, CoreError> {
         let name = input.validated()?.to_owned();
-        let connection = self.connection.lock().map_err(map_lock_error)?;
-        let changed = connection
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let changed = transaction
             .execute(
                 "UPDATE clients SET name = ?2, company_name = ?3, email = ?4, phone = ?5, \
                  notes = ?6, updated_at = ?7 WHERE id = ?1",
@@ -617,6 +799,19 @@ impl TimeTrackingRepository for SqliteStorage {
                 false,
             ));
         }
+        self.emitir_update(
+            &transaction,
+            "client",
+            id.as_uuid(),
+            &[
+                ("name", serde_json::json!(name)),
+                ("companyName", serde_json::json!(input.company_name)),
+                ("email", serde_json::json!(input.email)),
+                ("phone", serde_json::json!(input.phone)),
+                ("notes", serde_json::json!(input.notes)),
+            ],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         drop(connection);
         self.clients(true)?
             .into_iter()
@@ -626,13 +821,14 @@ impl TimeTrackingRepository for SqliteStorage {
 
     fn set_client_archived(&self, id: ClientId, archived: bool) -> Result<Client, CoreError> {
         {
-            let connection = self.connection.lock().map_err(map_lock_error)?;
+            let connection = self.escrita()?;
+            let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
             let stamp = if archived {
                 Some(format_time(time::OffsetDateTime::now_utc())?)
             } else {
                 None
             };
-            let changed = connection
+            let changed = transaction
                 .execute(
                     "UPDATE clients SET archived_at = ?2, updated_at = ?3 WHERE id = ?1",
                     params![
@@ -649,6 +845,18 @@ impl TimeTrackingRepository for SqliteStorage {
                     false,
                 ));
             }
+            self.emitir_update(
+                &transaction,
+                "client",
+                id.as_uuid(),
+                &[(
+                    "archivedAt",
+                    stamp
+                        .as_deref()
+                        .map_or(serde_json::Value::Null, |quando| serde_json::json!(quando)),
+                )],
+            )?;
+            transaction.commit().map_err(map_sql_error)?;
         }
         self.clients(true)?
             .into_iter()
@@ -705,8 +913,9 @@ impl TimeTrackingRepository for SqliteStorage {
         &self,
         settings: TrackingSettings,
     ) -> Result<TrackingSettings, CoreError> {
-        let connection = self.connection.lock().map_err(map_lock_error)?;
-        connection
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        transaction
             .execute(
                 "UPDATE tracking_settings SET rounding_enabled = ?1, \
                  rounding_interval_minutes = ?2, rounding_mode = ?3 WHERE id = 1",
@@ -717,6 +926,28 @@ impl TimeTrackingRepository for SqliteStorage {
                 ],
             )
             .map_err(map_sql_error)?;
+        // So o arredondamento: a linha guarda tambem ociosidade e monitoramento
+        // de processo, que descrevem a maquina e nao viajam.
+        self.emitir_update(
+            &transaction,
+            "tracking_settings",
+            crate::sync_projecao::ID_TRACKING_SETTINGS,
+            &[
+                (
+                    "roundingEnabled",
+                    serde_json::json!(settings.rounding.enabled),
+                ),
+                (
+                    "roundingIntervalMinutes",
+                    serde_json::json!(settings.rounding.interval_minutes),
+                ),
+                (
+                    "roundingMode",
+                    serde_json::json!(settings.rounding.mode.as_str()),
+                ),
+            ],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
         Ok(settings)
     }
 
@@ -754,6 +985,7 @@ impl TimeTrackingRepository for SqliteStorage {
 #[cfg(test)]
 mod tests {
     use mos_core::{MonitoringRepository, NewProject, WorkRepository};
+    use mos_sync::DeviceRepository;
 
     use super::*;
 
@@ -772,6 +1004,148 @@ mod tests {
             .create_project(NewProject::create("Rancho Queimado", "", "").unwrap())
             .unwrap()
             .id
+    }
+
+    /// Os tipos que estao na fila de sincronizacao agora.
+    ///
+    /// Le o `sync_outbox` direto porque a pergunta do teste e "a escrita
+    /// emitiu?", e nenhuma API de dominio responde isso — `quantidade_pendente`
+    /// devolve um numero, e um numero nao diz QUAL tipo foi esquecido.
+    fn kinds_na_fila(storage: &SqliteStorage) -> Vec<String> {
+        let connection = storage.connection.lock().unwrap();
+        let mut consulta = connection
+            .prepare("SELECT DISTINCT entity_kind FROM sync_outbox ORDER BY entity_kind")
+            .unwrap();
+        let linhas = consulta
+            .query_map([], |linha| linha.get::<_, String>(0))
+            .unwrap();
+        linhas.map(|linha| linha.unwrap()).collect()
+    }
+
+    /// Um storage com a emissao LIGADA.
+    ///
+    /// Sem `habilitar_sync` o `sync` fica em `None` e nenhuma escrita emite —
+    /// um teste de emissao montado sem isto passaria a mentir, porque a fila
+    /// vazia teria duas explicacoes.
+    fn storage_que_emite() -> (SqliteStorage, tempfile::TempDir) {
+        let (storage, guard) = temporary_storage();
+        let dispositivo = storage
+            .este_dispositivo("teste", "windows", "0.0.0")
+            .unwrap();
+        storage.habilitar_sync(dispositivo.id).unwrap();
+        (storage, guard)
+    }
+
+    /// Quantas operacoes daquele tipo estao na fila.
+    fn ops_do_tipo(storage: &SqliteStorage, kind: &str) -> usize {
+        let connection = storage.connection.lock().unwrap();
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM sync_outbox WHERE entity_kind = ?1",
+                params![kind],
+                |linha| linha.get::<_, i64>(0),
+            )
+            .unwrap() as usize
+    }
+
+    #[test]
+    fn corrigir_horas_emite_operacao() {
+        let (storage, _guard) = storage_que_emite();
+        let id = project(&storage);
+        let criada = storage.create_time_entry(entry(id, 3_600, 3_000)).unwrap();
+        let depois_de_criar = ops_do_tipo(&storage, "time_entry");
+
+        storage
+            .update_time_entry(
+                criada.id,
+                TimeEntryEdit {
+                    started_at: criada.started_at,
+                    duration_seconds: 7_200,
+                    idle_seconds: 0,
+                    description: String::from("corrigido"),
+                    activity_type: ActivityType::Drawing,
+                    billable: true,
+                },
+            )
+            .unwrap();
+
+        assert!(
+            ops_do_tipo(&storage, "time_entry") > depois_de_criar,
+            "corrigir uma hora nao emitiu operacao: a fila continuou com {depois_de_criar}"
+        );
+    }
+
+    #[test]
+    fn jogar_horas_fora_emite_operacao() {
+        let (storage, _guard) = storage_que_emite();
+        let id = project(&storage);
+        let criada = storage.create_time_entry(entry(id, 3_600, 3_000)).unwrap();
+        let depois_de_criar = ops_do_tipo(&storage, "time_entry");
+
+        storage.trash_time_entry(criada.id).unwrap();
+
+        assert!(
+            ops_do_tipo(&storage, "time_entry") > depois_de_criar,
+            "jogar uma hora fora nao emitiu operacao: a fila continuou com {depois_de_criar}"
+        );
+    }
+
+    #[test]
+    fn restaurar_horas_emite_operacao() {
+        let (storage, _guard) = storage_que_emite();
+        let id = project(&storage);
+        let criada = storage.create_time_entry(entry(id, 3_600, 3_000)).unwrap();
+        storage.trash_time_entry(criada.id).unwrap();
+        let depois_de_jogar_fora = ops_do_tipo(&storage, "time_entry");
+
+        storage.restore_time_entry(criada.id).unwrap();
+
+        assert!(
+            ops_do_tipo(&storage, "time_entry") > depois_de_jogar_fora,
+            "restaurar uma hora nao emitiu operacao: a fila continuou com \
+             {depois_de_jogar_fora}"
+        );
+    }
+
+    #[test]
+    fn parar_o_cronometro_emite_operacao() {
+        let (storage, _guard) = storage_que_emite();
+        let id = project(&storage);
+        storage
+            .set_project_tracking(ProjectTracking {
+                project_id: id,
+                hourly_rate_cents: 3_000,
+                code: String::new(),
+                color: String::new(),
+                tracking_status: TrackingStatus::Active,
+                client_id: None,
+                budget_minutes: 0,
+                paid_at: None,
+            })
+            .unwrap();
+        storage.start_timer(start(id)).unwrap();
+
+        storage.stop_timer().unwrap();
+
+        assert_eq!(
+            ops_do_tipo(&storage, "time_entry"),
+            1,
+            "parar o cronometro gravou a sessao mas nao emitiu operacao"
+        );
+    }
+
+    #[test]
+    fn registrar_horas_emite_operacao() {
+        let (storage, _guard) = storage_que_emite();
+        let id = project(&storage);
+
+        storage.create_time_entry(entry(id, 3_600, 3_000)).unwrap();
+
+        let kinds = kinds_na_fila(&storage);
+        assert!(
+            kinds.iter().any(|kind| kind == "time_entry"),
+            "registrar horas nao emitiu operacao nenhuma; a fila tem {kinds:?}"
+        );
     }
 
     fn entry(project_id: ProjectId, duration: i64, rate: i64) -> NewTimeEntry {

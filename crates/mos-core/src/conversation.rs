@@ -35,6 +35,14 @@ macro_rules! conversation_id {
                     )
                 })
             }
+
+            /// O UUID por baixo, para a operacao de sincronizacao.
+            ///
+            /// Continua sem `From<Uuid>`, como os outros ids do M/OS: quem
+            /// entra vem de `parse`, que valida.
+            pub fn as_uuid(&self) -> Uuid {
+                self.0
+            }
         }
 
         impl Default for $name {
