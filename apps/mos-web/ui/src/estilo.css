@@ -46,6 +46,16 @@
      errar aqui significa marcar a task errada como feita. */
   --toque: 44px;
 
+  /* Elevação, em dois níveis e não cinco: o app tem cartão e folha, e uma
+     escala maior que a quantidade de superfícies vira decisão sem critério. */
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --elev-2: 0 8px 28px rgba(0, 0, 0, 0.55);
+
+  /* O único gradiente do app, no topo da Home. 6% é o limite em que ele lê como
+     luz e não como cor: acima disso o sódio vira fundo, e o sódio é o acento —
+     a única coisa com direito de puxar o olho. */
+  --brilho-topo: linear-gradient(180deg, rgba(231, 194, 78, 0.06), transparent 120px);
+
   /* Uma constante só para o tempo das transições. Elas são curtas porque tudo
      aqui é resposta a um toque, e resposta a toque que demora parece travada. */
   --tempo: 140ms;
@@ -129,41 +139,6 @@ body {
 }
 
 .fila[data-estado="fila"] {
-  color: var(--signal);
-}
-
-/* -------------------------------------------------------------- abas */
-
-.abas {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-}
-
-.abas button {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  min-height: var(--toque);
-  padding: var(--space-3) var(--space-1);
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  color: var(--text-system);
-  font: 500 11px/1.4 var(--font-system);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: color var(--tempo) ease, border-color var(--tempo) ease;
-}
-
-.abas button:active {
-  background: var(--surface);
-}
-
-.abas button[aria-current="page"] {
-  border-bottom-color: var(--signal);
   color: var(--signal);
 }
 
@@ -730,4 +705,38 @@ body {
   color: var(--text-system);
   font: 500 11px/1.4 var(--font-system);
   letter-spacing: 0.08em;
+}
+
+/* A BANCADA — só existe em desenvolvimento.
+ *
+ * Fundo claro de propósito: o app é escuro, e sobre fundo escuro a silhueta do
+ * cartão some. Contra o claro dá para ver onde a borda termina — que é
+ * justamente o que se está conferindo.
+ */
+.bancada {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  padding: 24px;
+  background: #cfd4d8;
+  min-height: 100%;
+}
+
+.bancada-moldura {
+  margin: 0;
+}
+
+.bancada-moldura figcaption {
+  font: 500 11px/1.4 var(--font-system);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #3b4247;
+  padding-bottom: 8px;
+}
+
+.bancada-tela {
+  overflow: hidden;
+  background: var(--canvas);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
