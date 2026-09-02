@@ -2895,7 +2895,7 @@ dependencies = [
 
 [[package]]
 name = "mos-audio"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -2906,7 +2906,7 @@ dependencies = [
 
 [[package]]
 name = "mos-core"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -2917,7 +2917,7 @@ dependencies = [
 
 [[package]]
 name = "mos-desktop"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "keyring",
  "mos-audio",
@@ -2952,7 +2952,7 @@ dependencies = [
 
 [[package]]
 name = "mos-hermes"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "futures-util",
  "keyring",
@@ -2966,7 +2966,7 @@ dependencies = [
 
 [[package]]
 name = "mos-ingest"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "lopdf",
  "mos-core",
@@ -2976,7 +2976,7 @@ dependencies = [
 
 [[package]]
 name = "mos-storage-sqlite"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "hex",
  "mos-core",
@@ -2994,7 +2994,7 @@ dependencies = [
 
 [[package]]
 name = "mos-sync"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -3005,7 +3005,7 @@ dependencies = [
 
 [[package]]
 name = "mos-sync-http"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "axum",
  "mos-core",
@@ -3023,7 +3023,7 @@ dependencies = [
 
 [[package]]
 name = "mos-sync-server"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "axum",
  "mos-sync",
@@ -3040,7 +3040,7 @@ dependencies = [
 
 [[package]]
 name = "mos-transcribe"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "mos-core",
  "serde",
@@ -3050,7 +3050,7 @@ dependencies = [
 
 [[package]]
 name = "mos-usage"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -3060,7 +3060,7 @@ dependencies = [
 
 [[package]]
 name = "mos-web"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "aes-gcm",
  "axum",
