@@ -731,3 +731,37 @@ body {
   font: 500 11px/1.4 var(--font-system);
   letter-spacing: 0.08em;
 }
+
+/* A BANCADA — só existe em desenvolvimento.
+ *
+ * Fundo claro de propósito: o app é escuro, e sobre fundo escuro a silhueta do
+ * cartão some. Contra o claro dá para ver onde a borda termina — que é
+ * justamente o que se está conferindo.
+ */
+.bancada {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  padding: 24px;
+  background: #cfd4d8;
+  min-height: 100%;
+}
+
+.bancada-moldura {
+  margin: 0;
+}
+
+.bancada-moldura figcaption {
+  font: 500 11px/1.4 var(--font-system);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #3b4247;
+  padding-bottom: 8px;
+}
+
+.bancada-tela {
+  overflow: hidden;
+  background: var(--canvas);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
