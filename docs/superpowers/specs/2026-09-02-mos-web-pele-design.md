@@ -59,7 +59,12 @@ O brief fecha o assunto, e três pontos dele são entrada e não escolha:
   | 64 · 48 | 18° | `40,10 54,10 24,54 10,54` |
   | 32 · 24 · 16 | 14° | `42,12 56,12 22,52 8,52` |
 
-- **Raio ≈ 18% do lado**: 512→92px, 192→35px, 180→32px, 64→11px, 32→6px.
+- **Raio: 21% do lado**, e não os 18% que o brief cita. O ícone que o desktop
+  realmente publica usa `RAIO = 0.21` (`scripts/gerar-icones.py`), amarrado ao
+  `--rail-symbol-radius` do design system. Como o pedido é o bolso ficar igual
+  ao M/OS na tela do celular, vale o que o desktop faz, e não o número do texto.
+  A divergência fica registrada aqui para não ser "corrigida" depois por quem
+  ler só o brief.
 
 Arquivos trocados: `ui/public/icone.svg`, `icone-maskable.svg`, `icone-180.png`,
 `icone-192.png`, `icone-512.png`, e as cópias em `static/`. O maskable mantém a
