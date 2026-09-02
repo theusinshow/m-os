@@ -1,5 +1,6 @@
 import type { Capture } from "../api";
 import { quando } from "./Inbox";
+import { Vazio } from "../componentes/Vazio";
 
 /**
  * A pagina de capturar mostra o que ACABOU de entrar.
@@ -11,11 +12,7 @@ import { quando } from "./Inbox";
  */
 export function Capturar({ capturas }: { capturas: Capture[] }) {
   if (capturas.length === 0) {
-    return (
-      <div className="vazio">
-        <p>O que estiver na cabeça vai para a Inbox. Organizar é depois.</p>
-      </div>
-    );
+    return <Vazio frase="O que estiver na cabeça vai para a Inbox. Organizar é depois." />;
   }
   return (
     <>

@@ -1,4 +1,5 @@
 import type { Task } from "../api";
+import { Vazio } from "../componentes/Vazio";
 
 /** Os estados de Task, na palavra que a tela usa. */
 const ESTADO_DA_TASK: Record<Task["state"], string> = {
@@ -22,11 +23,7 @@ export function Tasks({
   aoLembrar: (task: Task, jaTem: boolean) => void;
 }) {
   if (tasks.length === 0) {
-    return (
-      <div className="vazio">
-        <p>Nenhuma task aberta. Escreva embaixo para criar a primeira.</p>
-      </div>
-    );
+    return <Vazio frase="Nenhuma task aberta. Escreva embaixo para criar a primeira." />;
   }
   return (
     <ul className="lista">

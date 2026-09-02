@@ -1,5 +1,6 @@
 import { pedeAtencao, type Lembrete } from "../api";
 import { daquiA } from "../instantes";
+import { Vazio } from "../componentes/Vazio";
 
 export function Lembretes({
   lembretes,
@@ -12,9 +13,7 @@ export function Lembretes({
 }) {
   if (lembretes.length === 0) {
     return (
-      <div className="vazio">
-        <p>Nenhum lembrete esperando. Escreva embaixo, ou toque no sino de uma Task.</p>
-      </div>
+      <Vazio frase="Nenhum lembrete esperando. Escreva embaixo, ou toque no sino de uma Task." />
     );
   }
   return (

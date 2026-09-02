@@ -1,4 +1,5 @@
 import type { Capture } from "../api";
+import { Vazio } from "../componentes/Vazio";
 
 /** "há 3 min", "ontem". O relógio exato não ajuda a decidir nada aqui. */
 export function quando(iso: string): string {
@@ -22,12 +23,10 @@ export function Inbox({
 }) {
   if (capturas.length === 0) {
     return (
-      <div className="vazio">
-        <p>Nada esperando. O que você capturar aparece aqui.</p>
-        <button type="button" className="botao" data-variante="quieto" onClick={aoCapturar}>
-          Capturar agora
-        </button>
-      </div>
+      <Vazio
+        frase="Nada esperando. O que você capturar aparece aqui."
+        acao={{ rotulo: "Capturar agora", aoTocar: aoCapturar }}
+      />
     );
   }
   return (
