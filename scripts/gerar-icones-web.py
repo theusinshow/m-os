@@ -31,12 +31,19 @@ from PIL import Image, ImageDraw
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DESTINO = os.path.join(RAIZ, "apps", "mos-web", "ui", "public")
 
-FUNDO = (10, 12, 14, 255)      # #0A0C0E — o mesmo `background_color` do manifest
-SODIO = (231, 194, 78, 255)    # #E7C24E
+SODIO = (231, 194, 78, 255)    # #E7C24E — o campo
+TINTA = (10, 12, 14, 255)      # #0A0C0E — a barra
 
-# O traco do `icone.svg`, no viewBox de 64: M18 44 V20 l14 13 l14 -13 v24.
-CAMINHO = [(18, 44), (18, 20), (32, 33), (46, 20), (46, 44)]
-TRACO = 5
+# Os tres poligonos do brief, no viewBox de 64 — os MESMOS de
+# `scripts/gerar-icones.py`. Aqui so o "large" e usado (180, 192 e 512 estao
+# todos acima de 128), e os outros dois ficam para o dia em que este script
+# gerar um favicon pequeno: apagar geometria correta para reescreve-la depois e
+# o jeito de ela voltar diferente.
+BARRAS = {
+    "large": [(38, 8), (53, 8), (26, 56), (11, 56)],   # 22 graus
+    "medium": [(40, 10), (54, 10), (24, 54), (10, 54)],  # 18 graus
+    "small": [(42, 12), (56, 12), (22, 52), (8, 52)],   # 14 graus
+}
 
 SUPER = 16
 FILTRO = Image.BOX
@@ -46,19 +53,25 @@ FILTRO = Image.BOX
 TAMANHOS = (180, 192, 512)
 
 
+def barra_para(tamanho):
+    if tamanho >= 128:
+        return BARRAS["large"]
+    if tamanho >= 48:
+        return BARRAS["medium"]
+    return BARRAS["small"]
+
+
 def desenhar(tamanho):
     lado = tamanho * SUPER
     escala = lado / 64.0
-    imagem = Image.new("RGBA", (lado, lado), FUNDO)
+    # Quadrado CHEIO de sodio, sem cantos arredondados: o iOS arredonda sozinho
+    # por cima. Um PNG que ja chega arredondado ganha cantos PRETOS depois da
+    # mascara do sistema — moldura escura que ninguem desenhou.
+    imagem = Image.new("RGBA", (lado, lado), SODIO)
     pincel = ImageDraw.Draw(imagem)
-    pincel.line(
-        [(x * escala, y * escala) for x, y in CAMINHO],
-        fill=SODIO,
-        width=int(TRACO * escala),
-        # `curve` arredonda as junções. No SVG elas são `miter`, mas a diferença
-        # entre as duas some abaixo de um pixel no tamanho final — e uma junção
-        # sem tratamento nenhum deixa um entalhe visível no vértice do M.
-        joint="curve",
+    pincel.polygon(
+        [(x * escala, y * escala) for x, y in barra_para(tamanho)],
+        fill=TINTA,
     )
     return imagem.resize((tamanho, tamanho), FILTRO)
 

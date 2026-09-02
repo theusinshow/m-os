@@ -276,18 +276,19 @@ Expected: imprime `gerado apps/mos-web/ui/public/icone-180.png` e as outras duas
 
 Abrir os três PNGs com a ferramenta Read e confirmar: campo sódio cheio, barra escura inclinada para a direita, sem cantos transparentes.
 
-- [ ] **Step 9: Atualizar a cópia servida pelo binário**
+- [ ] **Step 9: Conferir que o binário passa a servir o ícone novo**
 
 Run: `npm run build`
 Expected: `vite build` escreve em `../static`, copiando `public/` junto.
 
-Run (da raiz): `git status --short apps/mos-web/static`
-Expected: os cinco arquivos de ícone aparecem modificados.
+`static/` é **gitignored** (`apps/mos-web/.gitignore`): ela é gerada, e o
+`rust-embed` a lê em tempo de compilação. Não há nada a versionar ali — o que se
+confere é só que o build passou.
 
 - [ ] **Step 10: Commit**
 
 ```bash
-git add apps/mos-web/ui/src/componentes apps/mos-web/ui/public apps/mos-web/static scripts/gerar-icones-web.py
+git add apps/mos-web/ui/src/componentes apps/mos-web/ui/public scripts/gerar-icones-web.py
 git commit -m "feat(mos-web): a barra vira a marca do bolso
 
 O icone era um M desenhado a mao, campo escuro com traco ambar. A marca do M/OS
@@ -482,8 +483,8 @@ Acrescentar ao fim de `apps/mos-web/ui/src/estilo.css`:
 Run: `npm run build`
 Expected: `tsc --noEmit` passa e o `vite build` escreve em `../static`.
 
-Run (da raiz): `git status --short apps/mos-web/static`
-Expected: **nada de `bancada`** em `static/` — a bancada não entra no binário.
+Run: `ls ../static`
+Expected: **nada de `bancada`** ali — a bancada não entra no binário.
 
 - [ ] **Step 5: Subir o Vite e fotografar**
 
@@ -1373,7 +1374,7 @@ quem liga essa opcao costuma liga-la por enjoo de movimento."
 
 **Files:**
 - Modify: `apps/mos-web/README.md`
-- Modify: `apps/mos-web/static/*` (rebuild)
+- Rebuild: `apps/mos-web/static/` (gerada, e gitignored)
 
 - [ ] **Step 1: Atualizar o README**
 

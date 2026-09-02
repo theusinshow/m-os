@@ -1,7 +1,7 @@
-<!-- Maskable: o desenho fica dentro da zona segura (80% central), porque o
-     Android recorta o icone em circulo, squircle ou gota conforme o aparelho. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="M/OS">
-  <rect width="64" height="64" fill="#0A0C0E"/>
-  <path d="M22 41V25l10 9 10-9v16" fill="none" stroke="#E7C24E" stroke-width="4"
-        stroke-linecap="square" stroke-linejoin="miter"/>
+  <!-- Maskable: o Android recorta em circulo, entao o campo vai ate a borda
+       (sem raio) e a barra encolhe para caber na zona segura de 80%. Uma marca
+       desenhada ate a margem sairia com as pontas cortadas. -->
+  <rect width="64" height="64" fill="#E7C24E"/>
+  <polygon points="36.4,14.4 48.4,14.4 27.6,52.8 15.6,52.8" fill="#0A0C0E"/>
 </svg>

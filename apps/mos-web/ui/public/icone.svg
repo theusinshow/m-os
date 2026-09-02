@@ -1,5 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="M/OS">
-  <rect width="64" height="64" rx="14" fill="#0A0C0E"/>
-  <path d="M18 44V20l14 13 14-13v24" fill="none" stroke="#E7C24E" stroke-width="5"
-        stroke-linecap="square" stroke-linejoin="miter"/>
+  <!-- Campo sodio com a barra em tinta: e a marca do M/OS, e nao um "M"
+       desenhado. Raio 13.4 = 21% de 64, o mesmo do icone do desktop
+       (`scripts/gerar-icones.py`), para os dois aparecerem iguais lado a lado
+       na tela do celular. -->
+  <rect width="64" height="64" rx="13.4" fill="#E7C24E"/>
+  <polygon points="38,8 53,8 26,56 11,56" fill="#0A0C0E"/>
 </svg>
