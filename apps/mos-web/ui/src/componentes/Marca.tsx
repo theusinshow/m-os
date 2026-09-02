@@ -1,4 +1,4 @@
-import { pontosDoPoligono } from "./marca";
+import { pontosDoPoligono } from "./poligono";
 
 /**
  * A barra do M/OS.

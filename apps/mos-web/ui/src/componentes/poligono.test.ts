@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pontosDoPoligono, poligonoPara } from "./marca";
+import { pontosDoPoligono, poligonoPara } from "./poligono";
 
 // O brief (`docs/BRIEF-SISTEMA-DE-LOGOS.md`) manda corrigir o ANGULO por
 // escala, e proibe escalar um SVG so. A mesma inclinacao geometrica le mais

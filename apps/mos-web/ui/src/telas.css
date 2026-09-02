@@ -1,0 +1,171 @@
+/* As telas: barra de navegação, Home, cartões, e o que cada página acrescenta.
+ *
+ * Separado de `estilo.css` porque aquele arquivo é sobre o que vale em toda
+ * parte — tokens, base, tipografia — e este é sobre lugares. Os dois juntos
+ * passavam de 700 linhas, e um arquivo que ninguém consegue ler inteiro é um
+ * arquivo onde a regra duplicada não é vista.
+ */
+
+/* ---------------------------------------------------------------- topo */
+
+/* A marca de verdade é a barra; o texto é legenda dela. Por isso os dois ficam
+   juntos à esquerda e a fila é empurrada para a direita — antes o
+   `space-between` separava a barra do próprio nome. */
+.topo {
+  justify-content: flex-start;
+  gap: var(--space-2);
+}
+
+.topo .marca-barra {
+  color: var(--signal);
+  flex: none;
+}
+
+.topo .fila {
+  margin-left: auto;
+}
+
+/* --------------------------------------------------------------- barra */
+
+/* A barra de navegação mora EMBAIXO, no alcance do polegar. No topo ela ficava
+   onde a mão não chega sem reposicionar o aparelho — a mesma razão que já tinha
+   posto o compositor embaixo. */
+.barra {
+  display: flex;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.barra button {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--toque);
+  padding: var(--space-3) var(--space-1);
+  border: 0;
+  border-top: 2px solid transparent;
+  background: none;
+  color: var(--text-system);
+  font: 500 11px/1.4 var(--font-system);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color var(--tempo) ease, border-color var(--tempo) ease;
+}
+
+.barra button:active {
+  background: var(--surface-active);
+}
+
+.barra button[aria-current="page"] {
+  border-top-color: var(--signal);
+  color: var(--signal);
+}
+
+/* ---------------------------------------------------------------- home */
+
+/* Duas colunas: o polegar alcança as duas sem reposicionar o aparelho, e três
+   deixariam o número pequeno demais para ser lido de relance. */
+.home {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.cartao {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: 104px;
+  padding: var(--space-3);
+  text-align: left;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elev-1);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cartao:active {
+  background: var(--surface-active);
+}
+
+.cartao[data-largo] {
+  grid-column: 1 / -1;
+  min-height: 0;
+}
+
+.cartao[data-urgente] {
+  border-color: var(--signal);
+}
+
+.cartao-rotulo {
+  font: 500 11px/1.4 var(--font-system);
+  letter-spacing: 0.08em;
+  color: var(--text-system);
+}
+
+.cartao-numero {
+  font: 500 32px/1.1 var(--font-product);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* O cartão de texto não usa 32px: a última captura é uma frase, e uma frase
+   nesse corpo vira três linhas e empurra o resto da Home para fora da tela. */
+.cartao[data-largo] .cartao-numero {
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: -0.008em;
+}
+
+.cartao-legenda {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* ---------------------------------------------------------------- mais */
+
+.mais {
+  display: grid;
+  gap: var(--space-5);
+}
+
+/* A linha inteira é o alvo: um destino cujo toque só funciona sobre a palavra
+   é um destino que erra no aparelho tremendo dentro do ônibus. */
+.linha-destino {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rodape-sync {
+  margin: 0;
+  color: var(--text-system);
+  font: 400 13px/1.55 var(--font-product);
+}
+
+/* --------------------------------------------------------------- vazio */
+
+/* O vazio deixou de ser um `<p>` e virou um bloco com frase e, às vezes, uma
+   ação: "inbox vazia" descreve o pixel, e a frase que diz o que a tela faz é a
+   única útil para quem abriu o app pela primeira vez. */
+.vazio p {
+  margin: 0 0 var(--space-3);
+}
+
+.vazio .botao {
+  margin: 0 auto;
+}
