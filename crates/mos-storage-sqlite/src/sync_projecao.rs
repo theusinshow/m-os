@@ -323,6 +323,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("roundingEnabled", "rounding_enabled"),
                 ("roundingIntervalMinutes", "rounding_interval_minutes"),
                 ("roundingMode", "rounding_mode"),
+                ("defaultHourlyRateCents", "default_hourly_rate_cents"),
                 ("issuerName", "issuer_name"),
                 ("issuerDocument", "issuer_document"),
                 ("issuerContact", "issuer_contact"),
@@ -1548,6 +1549,10 @@ mod tests {
         let mut regras = mos_core::TimeTrackingRepository::tracking_settings(&origem).unwrap();
         regras.rounding.interval_minutes = 30;
         regras.rounding.mode = mos_core::RoundingMode::Up;
+        // A tarifa padrao viaja pela mesma razao que o arredondamento: as duas
+        // decidem quanto vale a hora, e so uma delas atravessar faria os dois
+        // PCs cobrarem numeros diferentes pelo mesmo trabalho.
+        regras.default_hourly_rate_cents = 9_000;
         mos_core::TimeTrackingRepository::set_tracking_settings(&origem, regras).unwrap();
         // A metade de maquina nem aparece no tipo de dominio: mexo nela por SQL
         // para provar que ela existe na origem e NAO viaja.
@@ -1569,6 +1574,10 @@ mod tests {
             "o intervalo de arredondamento nao atravessou"
         );
         assert_eq!(chegou.rounding.mode, mos_core::RoundingMode::Up);
+        assert_eq!(
+            chegou.default_hourly_rate_cents, 9_000,
+            "a tarifa padrao nao atravessou"
+        );
         let ociosidade_no_destino: i64 = destino
             .connection
             .lock()

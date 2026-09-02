@@ -172,6 +172,20 @@ impl TrackingService {
         self.repository.project_tracking()
     }
 
+    /// Quanto vale a hora deste Project agora — a tarifa dele, ou a padrao.
+    pub fn hourly_rate_for(&self, project: ProjectId) -> Result<i64, CoreError> {
+        self.repository.hourly_rate_for_project(project)
+    }
+
+    /// Carimba a tarifa vigente nas horas que ficaram sem valor nenhum.
+    ///
+    /// Devolve quantas mudaram. Nao e automatico de proposito: reescrever
+    /// snapshot e mexer no que ja foi faturado, e isso e um ato de quem esta
+    /// olhando a tela, nao um efeito colateral de abrir o app.
+    pub fn apply_default_rate_to_unpriced(&self) -> Result<usize, CoreError> {
+        self.repository.apply_default_rate_to_unpriced()
+    }
+
     pub fn active_timer(&self) -> Result<Option<ActiveTimer>, CoreError> {
         self.repository.active_timer()
     }

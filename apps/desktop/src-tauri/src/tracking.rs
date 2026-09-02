@@ -78,14 +78,9 @@ pub fn tracking_record<R: Runtime>(
     let state = app.state::<AppState>();
     let project = ProjectId::parse(&project_id)?;
     // A taxa vem do Project AGORA, e vira snapshot: e a melhor aproximacao
-    // disponivel para uma hora lancada depois.
-    let rate = state
-        .tracking
-        .project_tracking()?
-        .into_iter()
-        .find(|entry| entry.project_id == project)
-        .map(|entry| entry.hourly_rate_cents)
-        .unwrap_or(0);
+    // disponivel para uma hora lancada depois. Project sem cobranca cadastrada
+    // cai na tarifa padrao — zero aqui fazia hora nascer valendo nada.
+    let rate = state.tracking.hourly_rate_for(project)?;
 
     let entry = state.tracking.record(mos_core::NewTimeEntry {
         project_id: project,
@@ -224,6 +219,29 @@ pub fn tracking_set_settings<R: Runtime>(
     let saved = app.state::<AppState>().tracking.set_settings(settings)?;
     let _ = app.emit("data-changed", "tracking-settings");
     Ok(saved)
+}
+
+/// Carimba a tarifa vigente nas horas que ficaram sem valor nenhum.
+///
+/// Devolve QUANTAS mudaram, e nao um `Ok(())`: sem o numero, a tela nao teria
+/// como diferenciar "corrigi trinta e duas horas" de "nao havia nada a corrigir",
+/// e as duas mereciam frases diferentes.
+///
+/// Existe como botao, e nao como rotina de abertura, porque reescrever o
+/// snapshot de uma sessao mexe em valor que pode ja ter sido cobrado. So toca o
+/// que esta em zero — a regra mora no repositorio, e este comando nao a repete.
+#[tauri::command]
+pub fn tracking_aplicar_tarifa_padrao<R: Runtime>(app: AppHandle<R>) -> Result<usize, CoreError> {
+    let mudadas = app
+        .state::<AppState>()
+        .tracking
+        .apply_default_rate_to_unpriced()?;
+    if mudadas > 0 {
+        // O total cobravel de varias telas acabou de mudar: quem estiver com o
+        // Tempo aberto precisa reler, ou continuaria mostrando zero.
+        let _ = app.emit("data-changed", "tracking");
+    }
+    Ok(mudadas)
 }
 
 /// Quem esta cobrando. Sai no cabecalho da fatura.
@@ -540,13 +558,7 @@ pub fn tracking_record_from_timeline<R: Runtime>(
         ));
     }
 
-    let rate = state
-        .tracking
-        .project_tracking()?
-        .into_iter()
-        .find(|entry| entry.project_id == project)
-        .map(|entry| entry.hourly_rate_cents)
-        .unwrap_or(0);
+    let rate = state.tracking.hourly_rate_for(project)?;
 
     let entry = state.tracking.record(mos_core::NewTimeEntry {
         project_id: project,

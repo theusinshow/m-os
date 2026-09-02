@@ -147,7 +147,7 @@ pub use tracking::{
     parse_moment, round_duration, settle, ActiveTimer, ActivityType, Client, ClientId, ClientInput,
     EntrySource, Issuer, NewTimeEntry, ProjectTracking, ReportLine, Rounding, RoundingMode,
     StartTimer, TimeEntry, TimeEntryEdit, TimeEntryId, TimerSnapshot, TimerStatus, Totals,
-    TrackedSession, TrackingSettings, TrackingStatus,
+    TrackedSession, TrackingSettings, TrackingStatus, DEFAULT_HOURLY_RATE_CENTS,
 };
 pub use voice::{
     apply as apply_voice, heard, is_hallucination, title_from, understand, Heard, NewVoiceNote,

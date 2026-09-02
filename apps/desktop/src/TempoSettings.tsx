@@ -33,6 +33,7 @@ export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
   const [process, setProcess] = useState("");
   const [label, setLabel] = useState("");
   const [note, setNote] = useState("");
+  const [recalculo, setRecalculo] = useState("");
 
   const load = useCallback(async () => {
     const [next, list, who, observation, quiet] = await Promise.all([
@@ -72,8 +73,69 @@ export function TempoSettings({ onChanged }: { onChanged?: () => void }) {
     void guard(() => api.monitoringSetSettings(next));
   }
 
+  /** O resultado do último recálculo, dito em palavras. */
+  async function carimbar() {
+    setRecalculo("");
+    try {
+      const mudadas = await api.trackingAplicarTarifaPadrao();
+      // Zero e "trinta e duas" merecem frases diferentes: a primeira significa
+      // que não havia nada errado, e tratar as duas igual faria o botão parecer
+      // quebrado justamente quando ele não tinha o que fazer.
+      setRecalculo(
+        mudadas === 0
+          ? "Nenhuma hora estava sem valor."
+          : `${mudadas} ${mudadas === 1 ? "hora recebeu" : "horas receberam"} a tarifa vigente.`,
+      );
+      await load();
+      onChanged?.();
+    } catch (error) {
+      setRecalculo(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   return (
     <>
+      <Region label="VALOR DA HORA">
+        {settings ? (
+          <div className="tempo-form">
+            <div className="tempo-field">
+              <label htmlFor="tarifa-padrao">Padrão (R$/h)</label>
+              <input
+                id="tarifa-padrao"
+                type="number"
+                min={0}
+                step={5}
+                value={settings.defaultHourlyRateCents / 100}
+                onChange={(event) =>
+                  save({
+                    ...settings,
+                    defaultHourlyRateCents: Math.round(
+                      Math.max(0, Number(event.currentTarget.value) || 0) * 100,
+                    ),
+                  })
+                }
+              />
+            </div>
+            <p className="support-copy">
+              É o valor de toda hora lançada em Project que não tem tarifa própria — nenhuma tela pede
+              esse número, ele já vem preenchido. A tarifa de um Project específico, quando existe, ganha
+              deste padrão.
+            </p>
+            <Button variant="secondary" size="sm" onClick={() => void carimbar()}>
+              Carimbar horas sem valor
+            </Button>
+            <p className="support-copy">
+              Só toca no que está em <strong>R$ 0,00</strong>. Hora que já tem valor gravado não muda: aquele
+              número é o registro do que valia quando o trabalho aconteceu, e reescrevê-lo mudaria fatura já
+              emitida.
+            </p>
+            {recalculo ? <p className="support-copy" aria-live="polite">{recalculo}</p> : null}
+          </div>
+        ) : (
+          <EmptyState>Configuração indisponível.</EmptyState>
+        )}
+      </Region>
+
       <Region label="ARREDONDAMENTO">
         {settings ? (
           <div className="tempo-form">
