@@ -405,7 +405,21 @@ pub struct StartTimer {
 #[serde(rename_all = "camelCase")]
 pub struct TrackingSettings {
     pub rounding: Rounding,
+    /// A tarifa de quem ainda nao tem tarifa, em centavos.
+    ///
+    /// Existe para que nenhuma tela precise EXIGIR um valor: hora lancada em
+    /// Project sem cobranca cadastrada nasce valendo isto, e nao zero. Zero
+    /// continua sendo dizivel — quem quiser trabalho nao faturavel escreve
+    /// zero —, mas deixou de ser o que acontece por omissao.
+    pub default_hourly_rate_cents: i64,
 }
+
+/// R$ 30,00/h.
+///
+/// O padrao de fabrica, e o mesmo numero que a migration `0037` grava. Vive
+/// aqui para o dominio ter uma resposta quando a linha de configuracao ainda
+/// nao foi lida — nunca para substituir a leitura dela.
+pub const DEFAULT_HOURLY_RATE_CENTS: i64 = 3_000;
 
 /// Quem está cobrando. Sai no cabeçalho da fatura, e em nenhum outro lugar.
 ///

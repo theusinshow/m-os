@@ -587,13 +587,7 @@ async fn run_action<R: Runtime>(
             // feito pela tela: e a melhor aproximacao para uma hora lembrada
             // depois, e usar outro caminho aqui daria valores diferentes para a
             // mesma hora conforme quem a lancou.
-            let rate = state
-                .tracking
-                .project_tracking()?
-                .into_iter()
-                .find(|entry| entry.project_id == project_id)
-                .map(|entry| entry.hourly_rate_cents)
-                .unwrap_or(0);
+            let rate = state.tracking.hourly_rate_for(project_id)?;
             let entry = state.tracking.record(mos_core::NewTimeEntry {
                 project_id,
                 started_at: moment_for_day(day)?,

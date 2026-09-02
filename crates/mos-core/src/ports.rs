@@ -327,6 +327,20 @@ pub trait TimeTrackingRepository: Send + Sync {
         tracking: crate::ProjectTracking,
     ) -> Result<crate::ProjectTracking, CoreError>;
     fn project_tracking(&self) -> Result<Vec<crate::ProjectTracking>, CoreError>;
+    /// Quanto vale a hora deste Project AGORA, em centavos.
+    ///
+    /// Project sem linha de cobranca — ou com ela zerada — cai no padrao de
+    /// [`crate::TrackingSettings`], e nao em zero. Existe como pergunta do
+    /// repositorio, e nao como `unwrap_or(0)` repetido em cada chamador, porque
+    /// era assim que hora nascia valendo nada: tres lugares decidindo em
+    /// silencio, e nenhum deles um lugar onde alguem fosse procurar.
+    fn hourly_rate_for_project(&self, project: crate::ProjectId) -> Result<i64, CoreError>;
+    /// Carimba a tarifa vigente nas horas que ficaram sem nenhuma.
+    ///
+    /// Toca APENAS quem esta em zero: o snapshot de cada lancamento e o registro
+    /// do que valia quando o trabalho aconteceu, e reescrever um valor que ja
+    /// existe mudaria fatura sem ninguem pedir. Devolve quantas linhas mudaram.
+    fn apply_default_rate_to_unpriced(&self) -> Result<usize, CoreError>;
     /// O cronometro em curso, se houver.
     fn active_timer(&self) -> Result<Option<crate::ActiveTimer>, CoreError>;
     /// Comeca a contar. RECUSA se ja houver um cronometro.

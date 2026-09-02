@@ -1024,6 +1024,11 @@ export const api = {
   trackingSetSettings(settings: TrackingSettings) {
     return invoke<TrackingSettings>("tracking_set_settings", { settings });
   },
+  /** Carimba a tarifa vigente nas horas que ficaram sem valor. Devolve quantas
+   *  mudaram — só as que estavam em zero são tocadas. */
+  trackingAplicarTarifaPadrao() {
+    return invoke<number>("tracking_aplicar_tarifa_padrao");
+  },
   /** Os dados de cobrança de todo Project que tem algum. */
   projectTracking() {
     return invoke<ProjectTracking[]>("tracking_project_tracking");

@@ -466,6 +466,94 @@ impl TimeTrackingRepository for SqliteStorage {
         Ok(tracking)
     }
 
+    fn hourly_rate_for_project(&self, project: ProjectId) -> Result<i64, CoreError> {
+        let padrao = self.tracking_settings()?.default_hourly_rate_cents;
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let tarifa: Option<i64> = connection
+            .query_row(
+                "SELECT hourly_rate_cents FROM project_tracking WHERE project_id = ?1",
+                params![project.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(map_sql_error)?;
+        // Zero na linha de cobranca cai no padrao pelo mesmo motivo que a linha
+        // ausente: ele quase sempre e a marca de "ninguem preencheu", e nao a
+        // declaracao de que este trabalho e de graca. Quem quiser zero de
+        // verdade zera o padrao — ai a escolha esta escrita em algum lugar.
+        Ok(match tarifa {
+            Some(valor) if valor > 0 => valor,
+            _ => padrao,
+        })
+    }
+
+    fn apply_default_rate_to_unpriced(&self) -> Result<usize, CoreError> {
+        let padrao = self.tracking_settings()?.default_hourly_rate_cents;
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+
+        // A tarifa de cada lancamento vem do PROJETO dele, e o padrao so entra
+        // onde o projeto tambem nao diz nada. Um recalculo que carimbasse o
+        // padrao em tudo apagaria a tarifa combinada de um projeto especifico.
+        let alvos: Vec<(String, String)> = {
+            let mut consulta = transaction
+                .prepare(
+                    "SELECT e.id, e.project_id FROM time_entries e \
+                     WHERE e.hourly_rate_snapshot_cents = 0 AND e.deleted_at IS NULL",
+                )
+                .map_err(map_sql_error)?;
+            let linhas = consulta
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(map_sql_error)?;
+            let mut alvos = Vec::new();
+            for linha in linhas {
+                alvos.push(linha.map_err(map_sql_error)?);
+            }
+            alvos
+        };
+
+        let momento = format_time(time::OffsetDateTime::now_utc())?;
+        let mut mudadas = 0;
+        for (id, project_id) in alvos {
+            let tarifa: Option<i64> = transaction
+                .query_row(
+                    "SELECT hourly_rate_cents FROM project_tracking WHERE project_id = ?1",
+                    params![project_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(map_sql_error)?;
+            let tarifa = match tarifa {
+                Some(valor) if valor > 0 => valor,
+                _ => padrao,
+            };
+            if tarifa == 0 {
+                continue;
+            }
+            transaction
+                .execute(
+                    "UPDATE time_entries SET hourly_rate_snapshot_cents = ?2, updated_at = ?3 \
+                     WHERE id = ?1 AND hourly_rate_snapshot_cents = 0 AND deleted_at IS NULL",
+                    params![id, tarifa, momento],
+                )
+                .map_err(map_sql_error)?;
+            // Uma operacao por linha tocada: sem isto o conserto ficaria neste
+            // PC, e o outro continuaria mostrando zero para as mesmas horas.
+            self.emitir_update(
+                &transaction,
+                "time_entry",
+                TimeEntryId::parse(&id)?.as_uuid(),
+                &[("hourlyRateSnapshotCents", serde_json::json!(tarifa))],
+            )?;
+            mudadas += 1;
+        }
+
+        transaction.commit().map_err(map_sql_error)?;
+        Ok(mudadas)
+    }
+
     fn active_timer(&self) -> Result<Option<ActiveTimer>, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let found = connection
@@ -606,6 +694,18 @@ impl TimeTrackingRepository for SqliteStorage {
 
         // A taxa vem do Project no momento do encerramento e vira snapshot da
         // sessao: reajustar depois nao reescreve o que ja foi trabalhado.
+        //
+        // O padrao e lido pela PROPRIA transacao, e nao por
+        // `hourly_rate_for_project`: aquele pega o cadeado do banco de novo, e
+        // aqui a transacao ja o tem. Seria o abraco mortal que o portao existe
+        // para tornar impossivel.
+        let padrao: i64 = transaction
+            .query_row(
+                "SELECT default_hourly_rate_cents FROM tracking_settings WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(map_sql_error)?;
         let rate: i64 = transaction
             .query_row(
                 "SELECT hourly_rate_cents FROM project_tracking WHERE project_id = ?1",
@@ -614,7 +714,8 @@ impl TimeTrackingRepository for SqliteStorage {
             )
             .optional()
             .map_err(map_sql_error)?
-            .unwrap_or(0);
+            .filter(|valor| *valor > 0)
+            .unwrap_or(padrao);
 
         let id = TimeEntryId::new();
         let stamp = format_time(now)?;
@@ -894,16 +995,17 @@ impl TimeTrackingRepository for SqliteStorage {
         // `MonitoringSettings`. Duas structs escrevendo a mesma coluna fariam
         // salvar uma desfazer a outra, e o usuario veria a configuracao voltar
         // sozinha sem entender por que.
-        let (enabled, interval, mode) = connection
+        let (enabled, interval, mode, padrao) = connection
             .query_row(
-                "SELECT rounding_enabled, rounding_interval_minutes, rounding_mode \
-                 FROM tracking_settings WHERE id = 1",
+                "SELECT rounding_enabled, rounding_interval_minutes, rounding_mode, \
+                 default_hourly_rate_cents FROM tracking_settings WHERE id = 1",
                 [],
                 |row| {
                     Ok((
                         row.get::<_, i64>(0)?,
                         row.get::<_, i64>(1)?,
                         row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
                     ))
                 },
             )
@@ -915,6 +1017,7 @@ impl TimeTrackingRepository for SqliteStorage {
                 interval_minutes: interval,
                 mode: RoundingMode::parse(&mode)?,
             },
+            default_hourly_rate_cents: padrao,
         })
     }
 
@@ -927,11 +1030,13 @@ impl TimeTrackingRepository for SqliteStorage {
         transaction
             .execute(
                 "UPDATE tracking_settings SET rounding_enabled = ?1, \
-                 rounding_interval_minutes = ?2, rounding_mode = ?3 WHERE id = 1",
+                 rounding_interval_minutes = ?2, rounding_mode = ?3, \
+                 default_hourly_rate_cents = ?4 WHERE id = 1",
                 params![
                     i64::from(settings.rounding.enabled),
                     settings.rounding.interval_minutes,
                     settings.rounding.mode.as_str(),
+                    settings.default_hourly_rate_cents.max(0),
                 ],
             )
             .map_err(map_sql_error)?;
@@ -953,6 +1058,14 @@ impl TimeTrackingRepository for SqliteStorage {
                 (
                     "roundingMode",
                     serde_json::json!(settings.rounding.mode.as_str()),
+                ),
+                // A tarifa padrao viaja junto com o arredondamento porque as
+                // duas respondem a mesma pergunta — quanto vale a hora — e uma
+                // sem a outra faria os dois PCs mostrarem faturas diferentes
+                // para o mesmo trabalho.
+                (
+                    "defaultHourlyRateCents",
+                    serde_json::json!(settings.default_hourly_rate_cents.max(0)),
                 ),
             ],
         )?;
@@ -1437,15 +1550,22 @@ mod tests {
         );
     }
 
-    /// Sem tracking cadastrado a taxa e zero, e nao um erro: o Project pode ser
-    /// pessoal e nao ter valor/hora nenhum.
+    /// Sem tracking cadastrado a taxa e a PADRAO, e nao zero.
+    ///
+    /// Era zero, e o preco disso apareceu no segundo PC: Project criado la, sem
+    /// ninguem lembrar de abrir a aba de cobranca, gerava horas valendo nada — e
+    /// nada na tela dizia que faltava um cadastro. O padrao troca "esqueceu de
+    /// preencher" por um numero que da para conferir e corrigir.
     #[test]
-    fn a_project_without_a_rate_records_zero() {
+    fn a_project_without_a_rate_records_the_default() {
         let (storage, _guard) = temporary_storage();
         let id = project(&storage);
         storage.start_timer(start(id)).unwrap();
 
-        assert_eq!(storage.stop_timer().unwrap().hourly_rate_snapshot_cents, 0);
+        assert_eq!(
+            storage.stop_timer().unwrap().hourly_rate_snapshot_cents,
+            mos_core::DEFAULT_HOURLY_RATE_CENTS
+        );
     }
 
     #[test]
@@ -1468,6 +1588,7 @@ mod tests {
                     interval_minutes: 30,
                     mode: RoundingMode::Up,
                 },
+                default_hourly_rate_cents: mos_core::DEFAULT_HOURLY_RATE_CENTS,
             })
             .unwrap();
 
@@ -1475,6 +1596,159 @@ mod tests {
         assert!(settings.rounding.enabled);
         assert_eq!(settings.rounding.interval_minutes, 30);
         assert_eq!(settings.rounding.mode, RoundingMode::Up);
+    }
+
+    /// Banco novo ja sabe quanto vale a hora.
+    ///
+    /// O padrao de fabrica existe para que nenhuma tela precise EXIGIR tarifa:
+    /// antes disto, Project sem linha de cobranca respondia zero, e hora
+    /// lancada nele nascia valendo nada sem avisar ninguem.
+    #[test]
+    fn um_projeto_sem_cobranca_cadastrada_vale_a_tarifa_padrao() {
+        let (storage, _guard) = temporary_storage();
+        let projeto = project(&storage);
+
+        assert_eq!(
+            storage
+                .tracking_settings()
+                .unwrap()
+                .default_hourly_rate_cents,
+            mos_core::DEFAULT_HOURLY_RATE_CENTS,
+            "o banco novo nasceu sem tarifa padrao"
+        );
+        assert_eq!(
+            storage.hourly_rate_for_project(projeto).unwrap(),
+            mos_core::DEFAULT_HOURLY_RATE_CENTS,
+            "projeto sem linha de cobranca respondeu zero em vez do padrao"
+        );
+    }
+
+    /// A tarifa do Project ganha do padrao. O padrao so entra onde nao ha nada.
+    #[test]
+    fn a_tarifa_do_projeto_ganha_da_padrao() {
+        let (storage, _guard) = temporary_storage();
+        let projeto = project(&storage);
+        storage
+            .set_project_tracking(ProjectTracking {
+                project_id: projeto,
+                hourly_rate_cents: 12_000,
+                code: String::new(),
+                color: String::new(),
+                tracking_status: TrackingStatus::Active,
+                client_id: None,
+                budget_minutes: 0,
+                paid_at: None,
+            })
+            .unwrap();
+
+        assert_eq!(storage.hourly_rate_for_project(projeto).unwrap(), 12_000);
+    }
+
+    /// O recalculo conserta o que ficou em zero e NAO encosta no resto.
+    ///
+    /// O snapshot de cada lancamento e o registro do que valia quando o trabalho
+    /// aconteceu. Reescrever um valor que ja existe mudaria fatura sem ninguem
+    /// pedir — e e por isso que o recalculo tem um alvo e nao um alcance.
+    #[test]
+    fn o_recalculo_toca_so_a_hora_que_ficou_sem_valor() {
+        let (storage, _guard) = temporary_storage();
+        let projeto = project(&storage);
+
+        let zerada = storage
+            .create_time_entry(NewTimeEntry {
+                project_id: projeto,
+                started_at: time::OffsetDateTime::now_utc(),
+                ended_at: None,
+                duration_seconds: 3_600,
+                idle_seconds: 0,
+                description: String::from("sem tarifa"),
+                activity_type: ActivityType::Drawing,
+                billable: true,
+                hourly_rate_snapshot_cents: 0,
+                source: EntrySource::Manual,
+            })
+            .unwrap();
+        let ja_faturada = storage
+            .create_time_entry(NewTimeEntry {
+                project_id: projeto,
+                started_at: time::OffsetDateTime::now_utc(),
+                ended_at: None,
+                duration_seconds: 3_600,
+                idle_seconds: 0,
+                description: String::from("com tarifa combinada"),
+                activity_type: ActivityType::Drawing,
+                billable: true,
+                hourly_rate_snapshot_cents: 12_000,
+                source: EntrySource::Manual,
+            })
+            .unwrap();
+
+        assert_eq!(storage.apply_default_rate_to_unpriced().unwrap(), 1);
+
+        let horas = storage.time_entries(Some(projeto)).unwrap();
+        let valor = |id| {
+            horas
+                .iter()
+                .find(|hora| hora.id == id)
+                .unwrap()
+                .hourly_rate_snapshot_cents
+        };
+        assert_eq!(
+            valor(zerada.id),
+            mos_core::DEFAULT_HOURLY_RATE_CENTS,
+            "a hora zerada nao recebeu o padrao"
+        );
+        assert_eq!(
+            valor(ja_faturada.id),
+            12_000,
+            "o recalculo reescreveu uma tarifa que ja existia"
+        );
+
+        // Rodar de novo nao acha mais nada: o alvo sumiu porque foi corrigido.
+        assert_eq!(storage.apply_default_rate_to_unpriced().unwrap(), 0);
+    }
+
+    /// O conserto precisa SAIR deste PC.
+    ///
+    /// Sem operacao por linha tocada, o recalculo arrumaria a tela daqui e
+    /// deixaria o outro aparelho mostrando zero para as mesmas horas — que e o
+    /// defeito original, so que mais dificil de perceber.
+    #[test]
+    fn o_recalculo_emite_operacao_para_o_outro_pc() {
+        let (storage, _guard) = storage_que_emite();
+        let projeto = project(&storage);
+        storage
+            .create_time_entry(NewTimeEntry {
+                project_id: projeto,
+                started_at: time::OffsetDateTime::now_utc(),
+                ended_at: None,
+                duration_seconds: 3_600,
+                idle_seconds: 0,
+                description: String::new(),
+                activity_type: ActivityType::Drawing,
+                billable: true,
+                hourly_rate_snapshot_cents: 0,
+                source: EntrySource::Manual,
+            })
+            .unwrap();
+        let ops_de_hora = || {
+            let conexao = storage.connection.lock().unwrap();
+            conexao
+                .query_row(
+                    "SELECT COUNT(*) FROM sync_outbox WHERE entity_kind = 'time_entry'",
+                    [],
+                    |linha| linha.get::<_, i64>(0),
+                )
+                .unwrap()
+        };
+        let antes = ops_de_hora();
+
+        assert_eq!(storage.apply_default_rate_to_unpriced().unwrap(), 1);
+
+        assert!(
+            ops_de_hora() > antes,
+            "o recalculo nao enfileirou nada: o outro PC continuaria em zero"
+        );
     }
 
     /// O limiar de inatividade e do monitoramento, e a mesma coluna sustenta os
@@ -1503,6 +1777,7 @@ mod tests {
                     interval_minutes: 30,
                     mode: RoundingMode::Up,
                 },
+                default_hourly_rate_cents: mos_core::DEFAULT_HOURLY_RATE_CENTS,
             })
             .unwrap();
 

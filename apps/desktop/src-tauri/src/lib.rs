@@ -2398,6 +2398,7 @@ pub fn run() {
                     tracking::timer_discard,
                     tracking::tracking_settings,
                     tracking::tracking_set_settings,
+                    tracking::tracking_aplicar_tarifa_padrao,
                     tracking::tracking_report,
                     tracking::tracking_issuer,
                     tracking::tracking_set_issuer,

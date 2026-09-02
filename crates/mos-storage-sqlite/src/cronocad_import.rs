@@ -929,6 +929,7 @@ mod tests {
                     interval_minutes: 15,
                     mode: RoundingMode::Nearest,
                 },
+                default_hourly_rate_cents: mos_core::DEFAULT_HOURLY_RATE_CENTS,
             })
             .unwrap();
 

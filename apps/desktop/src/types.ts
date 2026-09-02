@@ -434,6 +434,11 @@ export type Period = { start: string; end: string };
  */
 export type TrackingSettings = {
   rounding: { enabled: boolean; intervalMinutes: number; mode: "nearest" | "up" | "down" };
+  /** Quanto vale a hora de quem ainda não tem tarifa, em centavos.
+   *
+   *  Existe para que nenhuma tela precise EXIGIR um valor: hora lançada em
+   *  Project sem cobrança cadastrada nasce valendo isto, e não zero. */
+  defaultHourlyRateCents: number;
 };
 
 /**

@@ -15,10 +15,16 @@ const STATUS: { value: TrackingStatus; label: string }[] = [
 const STATUS_LABEL: Record<TrackingStatus, string> =
   Object.fromEntries(STATUS.map((item) => [item.value, item.label])) as Record<TrackingStatus, string>;
 
-function emptyTracking(projectId: string): ProjectTracking {
+/** A linha de cobrança de um Project que ainda não tem nenhuma.
+ *
+ *  A tarifa nasce no PADRÃO do CronoCAD, e não em zero: hora lançada num
+ *  Project recém-criado valia nada, e nada na tela dizia que faltava um
+ *  cadastro. Quem quiser trabalho não faturável escreve zero — aí a escolha
+ *  está dita. */
+function emptyTracking(projectId: string, defaultRateCents: number): ProjectTracking {
   return {
     projectId,
-    hourlyRateCents: 0,
+    hourlyRateCents: defaultRateCents,
     code: "",
     color: "",
     trackingStatus: "active",
@@ -81,17 +87,20 @@ export function TempoProjects({ projects, totals, openProject, openClients }: {
   const [clients, setClients] = useState<Client[]>([]);
   const [query, setQuery] = useState("");
   const [note, setNote] = useState("");
+  const [defaultRate, setDefaultRate] = useState(0);
   const [editing, setEditing] = useState<ProjectTracking | null>(null);
   const [editingName, setEditingName] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
 
   const load = useCallback(async () => {
-    const [rows, people] = await Promise.all([
+    const [rows, people, settings] = await Promise.all([
       api.projectTracking().catch(() => [] as ProjectTracking[]),
       api.clients().catch(() => [] as Client[]),
+      api.trackingSettings().catch(() => null),
     ]);
     setTracking(Object.fromEntries(rows.map((row) => [row.projectId, row])));
     setClients(people);
+    if (settings) setDefaultRate(settings.defaultHourlyRateCents);
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -100,13 +109,13 @@ export function TempoProjects({ projects, totals, openProject, openClients }: {
     const term = query.trim().toLowerCase();
     const rows = projects.map((project) => ({
       project,
-      billing: tracking[project.id] ?? emptyTracking(project.id),
+      billing: tracking[project.id] ?? emptyTracking(project.id, defaultRate),
       total: totals[project.id],
     }));
     if (!term) return rows;
     return rows.filter(({ project, billing }) =>
       project.name.toLowerCase().includes(term) || billing.code.toLowerCase().includes(term));
-  }, [projects, tracking, totals, query]);
+  }, [projects, tracking, totals, query, defaultRate]);
 
   /* Duas somas, e nao uma.
    *
