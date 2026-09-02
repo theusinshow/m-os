@@ -10,7 +10,10 @@ import type { Capture, EstadoDoAparelho, Lembrete, Task } from "./api";
  * Este arquivo NAO entra no binario: so a bancada o importa, e a bancada e uma
  * entrada que o `vite build` nao monta.
  */
-const AGORA = new Date("2026-09-02T14:30:00Z");
+// O agora e o de VERDADE, e nao um instante fixo: com data cravada, "daqui a 4
+// horas" virava "venceu ha 1 h" no dia seguinte, e a bancada passava a mostrar
+// um estado que o codigo nunca produz.
+const AGORA = new Date();
 
 function ha(minutos: number): string {
   return new Date(AGORA.getTime() - minutos * 60_000).toISOString();

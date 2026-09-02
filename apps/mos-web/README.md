@@ -3,11 +3,17 @@
 ## O que ele é
 
 Uma **porta** para o M/OS, e não um segundo M/OS. Capturar, ver a inbox, mexer
-em tasks e — mais adiante — falar com o Hermes. O trabalho de verdade continua
-no desktop, com o CAD aberto.
+em tasks, receber lembretes — e um panorama do que está acontecendo. O trabalho
+de verdade continua no desktop, com o CAD aberto.
+
+O critério que separa os dois é esse: o que se faz com o desenho na frente fica
+no PC. Ver quanto se trabalhou, o que vence hoje e o que caiu na inbox é
+justamente o que se pergunta longe da mesa — e por isso entra aqui.
 
 Essa fronteira está escrita aqui porque é ela que costuma escapar: o desktop
-expõe 280 comandos, e crescer até lá seria uma decisão, não uma deriva.
+expõe 280 comandos, e crescer até lá seria uma decisão, não uma deriva. O
+panorama foi uma decisão, e está registrada em
+`docs/superpowers/specs/2026-09-02-mos-web-pele-design.md`.
 
 Ele é **mais um dispositivo da malha**: banco próprio, `mos-core` próprio,
 identidade própria, e sincroniza pelo mesmo hub que o desktop usa. Não há
@@ -31,6 +37,7 @@ recusa em toda linha.
 | API: lembretes (criar, ver, concluir) | pronto |
 | Porta (passkey) | **montada** — cerimônia atrás da feature, guardião sempre |
 | PWA em React | pronto |
+| Marca, Home, barra de cinco e movimento | pronto |
 | Notificação (Web Push) | pronto |
 | Hermes com camada de ação | falta |
 
