@@ -117,6 +117,57 @@ mod tests {
             || nome.ends_with("_content")
     }
 
+    /// A cobertura da geracao 2, copiada a mao.
+    ///
+    /// A duplicacao E o mecanismo, e nao descuido: mudar `SINCRONIZAVEIS` sem
+    /// tocar aqui quebra este teste, e a mensagem manda subir `GERACAO_ATUAL`.
+    /// Sem isso a cobertura cresce em silencio, quem ja passou pelo backfill
+    /// nunca re-emite o que foi incluido, e o dado velho fica parado num PC so
+    /// — que foi exatamente o que aconteceu entre a geracao 1 e a v0.3.4.
+    const COBERTURA_DA_GERACAO_2: &[&str] = &[
+        "tasks",
+        "projects",
+        "workspaces",
+        "captures",
+        "resources",
+        "reminders",
+        "academic_semesters",
+        "academic_subjects",
+        "academic_assignments",
+        "academic_exams",
+        "academic_study_sessions",
+        "academic_subject_resources",
+        "time_entries",
+        "project_tracking",
+        "conversations",
+        "messages",
+        "message_parts",
+        "clients",
+        "tracking_settings",
+        "academic_provider_subject_facts",
+        "daily_sessions",
+        "daily_objectives",
+        "daily_reflections",
+        "weekly_reviews",
+        // Tabelas de juncao: viajam como `relation`, e nao como tipo proprio.
+        "resource_projects",
+        "resource_workspaces",
+        "project_workspaces",
+    ];
+
+    #[test]
+    fn mudar_a_cobertura_obriga_a_subir_a_geracao() {
+        assert_eq!(
+            SINCRONIZAVEIS, COBERTURA_DA_GERACAO_2,
+            "A cobertura mudou. Suba `GERACAO_ATUAL` em `sync_backfill.rs` e              escreva aqui a lista nova, como `COBERTURA_DA_GERACAO_N` — sem              isso, quem ja passou pelo backfill nunca re-emite o que voce              acabou de incluir."
+        );
+        assert_eq!(
+            crate::sync_backfill::GERACAO_ATUAL,
+            2,
+            "a geracao subiu; atualize a copia da cobertura neste teste"
+        );
+    }
+
     #[test]
     fn toda_tabela_do_schema_esta_classificada() {
         let pasta = tempfile::tempdir().unwrap();
