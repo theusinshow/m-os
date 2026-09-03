@@ -24,7 +24,7 @@
 use std::time::Duration;
 
 use mos_sync::{Lote, Op, Resultado, SyncError, Transport};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Quanto tempo esperar antes de desistir de uma rodada.
 ///
@@ -147,5 +147,86 @@ impl Transport for HttpTransport {
         resposta
             .json::<Lote>()
             .map_err(|causa| SyncError::novo(format!("Lote do hub ilegivel: {causa}"), false))
+    }
+}
+
+// --------------------------------------------------------------- a malha
+
+/// O que este aparelho diz de si ao hub.
+///
+/// Emprestado, e nao dono: quem chama ja tem as quatro coisas na mao, e clonar
+/// para anunciar seria alocar por batida sem motivo.
+pub struct Anuncio<'a> {
+    pub id: &'a str,
+    pub nome: &'a str,
+    pub plataforma: &'a str,
+    pub versao: &'a str,
+    pub contrato: u32,
+}
+
+/// Um aparelho, como o hub o conhece.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AparelhoNaMalha {
+    pub id: String,
+    pub nome: String,
+    pub plataforma: String,
+    pub versao: String,
+    pub contrato: u32,
+    /// RFC3339, na hora do SERVIDOR — relogio de cliente errado e comum, e um
+    /// "visto ha tres dias" que na verdade foi agora manda a investigacao para
+    /// o lado errado.
+    pub visto_em: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MalhaResposta {
+    aparelhos: Vec<AparelhoNaMalha>,
+}
+
+/// A batida e a lista vivem FORA do trait `Transport`, e de proposito.
+///
+/// O trait espelha o que o motor precisa: `push` e `pull`. Identidade de
+/// aparelho nao e assunto do motor — enfia-la la dentro obrigaria toda
+/// implementacao futura (um transporte de teste, um por arquivo) a fingir que
+/// sabe o que e uma versao de app.
+impl HttpTransport {
+    /// Diz ao hub quem e este aparelho.
+    pub fn anunciar(&self, anuncio: &Anuncio<'_>) -> Resultado<()> {
+        let resposta = self
+            .cliente
+            .post(format!("{}/sync/aparelho", self.base))
+            .bearer_auth(&self.token)
+            .json(&serde_json::json!({
+                "id": anuncio.id,
+                "nome": anuncio.nome,
+                "plataforma": anuncio.plataforma,
+                "versao": anuncio.versao,
+                "contrato": anuncio.contrato,
+            }))
+            .send()
+            .map_err(erro_de_rede)?;
+        if !resposta.status().is_success() {
+            return Err(erro_da_resposta(resposta));
+        }
+        Ok(())
+    }
+
+    /// Quem mais esta na malha.
+    pub fn malha(&self) -> Resultado<Vec<AparelhoNaMalha>> {
+        let resposta = self
+            .cliente
+            .get(format!("{}/sync/aparelhos", self.base))
+            .bearer_auth(&self.token)
+            .send()
+            .map_err(erro_de_rede)?;
+        if !resposta.status().is_success() {
+            return Err(erro_da_resposta(resposta));
+        }
+        let corpo: MalhaResposta = resposta
+            .json()
+            .map_err(|causa| SyncError::novo(format!("Malha ilegivel: {causa}"), false))?;
+        Ok(corpo.aparelhos)
     }
 }

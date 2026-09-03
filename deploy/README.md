@@ -13,7 +13,7 @@ runbook que ninguém sabe consertar quando um passo falha.
 
 ```
 PC (Windows)                          VPS (167.233.43.1)
-┌──────────────┐   túnel SSH   ┌─────────────────────────┐
+┌──────────────┐  HTTPS /sync  ┌─────────────────────────┐
 │ M/OS         │──────────────▶│ mos-sync-server         │
 │ 127.0.0.1    │  porta 9120   │ 127.0.0.1:9120          │
 │ :9120        │               │ /var/lib/mos-sync/*.db  │
@@ -111,24 +111,27 @@ Se isto não responder, nada adiante vai funcionar — resolva aqui, e não no P
 
 ---
 
-## 5. O túnel, no PC
+## 5. Não há túnel
+
+Os PCs alcançam o hub pelo **mesmo endereço do bolso**, porque o Caddy manda
+`/sync/*` para o hub, fora do `basic_auth`. Conferência, de qualquer máquina:
 
 ```powershell
-# Uma vez, para testar:
-ssh -N -L 9120:127.0.0.1:9120 hermes@167.233.43.1
+# Sem o segredo: 401 do HUB (e não o desafio de senha do Caddy).
+curl.exe -s -o NUL -w "%{http_code}
+" "https://167-233-43-1.sslip.io/sync/pull?contrato=1&cursor=&limite=1"
 
-# Permanente (tarefa agendada no logon, sem admin):
-scripts\install-sync-tunnel.ps1
+# Com o segredo: 200 e um lote.
+curl.exe -s -H "Authorization: Bearer SEU_SEGREDO" "https://167-233-43-1.sslip.io/sync/pull?contrato=1&cursor=&limite=1"
 ```
 
-O instalador copia o `sync-tunnel.ps1` para o perfil, registra a tarefa, sobe e
-**confere o `/health` do hub** — e não apenas se a porta abriu. Uma porta que
-aceita conexão sem ninguém atrás é o tipo de "está funcionando" que engana.
-
-Conferência no PC:
+**Havia** um túnel SSH aqui, com uma tarefa agendada chamada `M-OS Sync Tunnel`.
+Ele existia porque o hub só escutava em `127.0.0.1` — e era a peça que quebrava
+calada: quando a tarefa morria, a sincronização parava sem nada na tela dizer
+por quê. Se ela ainda existir na sua máquina:
 
 ```powershell
-curl.exe -s http://127.0.0.1:9120/health
+Unregister-ScheduledTask -TaskName "M-OS Sync Tunnel" -Confirm:$false
 ```
 
 ---
@@ -137,11 +140,11 @@ curl.exe -s http://127.0.0.1:9120/health
 
 Settings → **SINCRONIZAÇÃO**:
 
-- **Endereço do hub:** `http://127.0.0.1:9120`
+- **Endereço do hub:** `https://167-233-43-1.sslip.io`
 - **Segredo:** o mesmo do `/etc/mos-sync.env`
 
-`http` e não `https` está correto aqui: o transporte já é o SSH, que cifra tudo
-entre o PC e a VPS. Um TLS por cima do túnel cifraria duas vezes o mesmo trecho.
+O mesmo endereço nos dois PCs e no celular. `https` porque agora o trecho até a
+VPS é TLS de verdade, e não mais um túnel SSH cifrando por baixo.
 
 Clique **Sincronizar agora**. A linha diz quantas subiram e quantas desceram; a
 fila deve ir a zero.

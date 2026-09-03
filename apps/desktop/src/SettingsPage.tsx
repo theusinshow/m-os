@@ -27,7 +27,8 @@ import { relativeTime } from "./relativeTime";
 import { SETTINGS_SECTIONS, secaoVisivel } from "./settingsNav";
 import type {
   AppStatus, BackupInspection, Capture, FunctionDefinition, ImportReport, Ocorrencia,
-  Project, RegisteredApp, Resource, SyncReport, SyncStatus, Task, UnivirtusStatus,
+  AparelhoNaMalha, Project, RegisteredApp, Resource, SyncReport, SyncStatus, Task,
+  UnivirtusStatus,
   Workspace,
 } from "./types";
 
@@ -291,6 +292,7 @@ function HermesSettings() {
  */
 function SyncSettings() {
   const [status, setStatus] = useState<SyncStatus | null>(null);
+  const [malha, setMalha] = useState<AparelhoNaMalha[]>([]);
   const [endpoint, setEndpoint] = useState("");
   const [token, setToken] = useState("");
   const [message, setMessage] = useState("");
@@ -301,6 +303,9 @@ function SyncSettings() {
     const next = await api.syncStatus();
     setStatus(next);
     setEndpoint(next.endpoint);
+    // A malha falha em silêncio de propósito: o hub pode estar fora, e uma
+    // seção vazia é melhor que a tela de sincronização inteira recusando abrir.
+    setMalha(await api.syncMalha().catch(() => []));
   }, []);
   useEffect(() => { void refresh().catch(() => undefined); }, [refresh]);
 
@@ -356,6 +361,22 @@ function SyncSettings() {
           igual a um que funciona. */}
       <div><dt>ÚLTIMA</dt><dd>{status?.lastSyncAt ? relativeTime(status.lastSyncAt) : <span className="fact-empty">Nunca</span>}</dd></div>
     </dl>
+    {malha.length > 0 ? <>
+      <p className="rotulo">A MALHA</p>
+      <ul className="malha">
+        {malha.map((aparelho) => {
+          const euMesmo = aparelho.id === status?.deviceId;
+          const divergente = aparelho.versao !== status?.appVersion;
+          return <li key={aparelho.id} data-divergente={divergente || undefined}>
+            <span className="malha-nome">{aparelho.nome}</span>
+            <span className="malha-versao">{aparelho.versao}</span>
+            {/* Aviso, e não bloqueio: versão diferente não impede sincronizar,
+                e a frase é o que encerra a investigação. */}
+            <span className="malha-visto">{euMesmo ? "este aparelho" : relativeTime(aparelho.vistoEm)}{divergente ? " · em versão diferente" : ""}</span>
+          </li>;
+        })}
+      </ul>
+    </> : null}
     <div className="button-line">
       <Button variant="secondary" disabled={running || !status?.endpoint || !status?.hasToken} onClick={() => void run()}>{running ? "Sincronizando" : "Sincronizar agora"}</Button>
     </div>

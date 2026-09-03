@@ -1439,6 +1439,20 @@ export type Ocorrencia = {
  * e NUNCA volta para a interface. Um segredo que a tela pode ler e um segredo
  * que aparece num screenshot.
  */
+/** Um aparelho da malha, como o hub o conhece.
+ *
+ *  `vistoEm` é a hora do SERVIDOR: relógio de cliente errado é comum, e um
+ *  "visto há três dias" que na verdade foi agora manda a investigação para o
+ *  lado errado. */
+export type AparelhoNaMalha = {
+  id: string;
+  nome: string;
+  plataforma: string;
+  versao: string;
+  contrato: number;
+  vistoEm: string;
+};
+
 export type SyncStatus = {
   /** Onde o hub esta. Vazio significa nao configurado — e o estado normal. */
   endpoint: string;
@@ -1452,6 +1466,10 @@ export type SyncStatus = {
   lastSyncAt: string | null;
   /** Por que a ultima rodada parou. Nulo: terminou inteira. */
   lastError: string | null;
+  /** O id DESTE aparelho, para a tela achar a propria linha na malha. */
+  deviceId: string;
+  /** A versao DESTE app, para marcar quem esta em versao diferente. */
+  appVersion: string;
   /**
    * O resumo da primeira rodada do dia, enquanto nao for lido.
    *

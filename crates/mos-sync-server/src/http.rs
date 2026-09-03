@@ -1,10 +1,21 @@
-//! A superficie de rede do hub: duas rotas, e nada alem delas.
+//! A superficie de rede do hub: duas rotas de contrato, e duas de metadado.
 //!
-//! O `Transport` do motor tem dois metodos, `push` e `pull`. Este modulo e a
-//! traducao literal dos dois para HTTP — se um dia aparecer uma terceira rota
-//! aqui que o `Transport` nao pede, alguem colocou regra no servidor, e o §
-//! "o servidor coordena e persiste, nao transforma cliente em terminal burro"
-//! do `SYNC.md` foi quebrado.
+//! O `Transport` do motor tem dois metodos, `push` e `pull`. `/sync/push` e
+//! `/sync/pull` sao a traducao literal dos dois para HTTP, e nenhuma regra de
+//! dominio pode entrar nelas — o § "o servidor coordena e persiste, nao
+//! transforma cliente em terminal burro" do `SYNC.md` continua valendo palavra
+//! por palavra.
+//!
+//! `/sync/aparelho` e `/sync/aparelhos` sao a excecao consciente. Elas nao
+//! carregam regra nenhuma: o hub grava o que o aparelho diz de si — nome,
+//! plataforma, versao, contrato — e devolve a lista. Nenhuma operacao e
+//! recusada por causa disso, nenhum cliente e bloqueado, e o motor sequer sabe
+//! que elas existem (a batida vive fora do `Transport`, no `mos-sync-http`).
+//!
+//! Elas existem porque a pergunta "quem esta na malha, e em que versao" nao
+//! tinha onde ser respondida — nem no servidor nem na tela. Responde-la em
+//! 02/09/2026 custou uma manha de investigacao com `curl` dentro de um tunel
+//! SSH, para descobrir que um dos PCs tinha trocado de identidade.
 
 use std::sync::{Arc, Mutex};
 
@@ -50,6 +61,8 @@ pub fn rotas(estado: Estado) -> Router {
         .route("/health", get(health))
         .route("/sync/push", post(push))
         .route("/sync/pull", get(pull))
+        .route("/sync/aparelho", post(registrar_aparelho))
+        .route("/sync/aparelhos", get(aparelhos))
         .with_state(estado)
 }
 
@@ -233,4 +246,90 @@ fn agora_iso() -> String {
     time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_else(|_| String::from("1970-01-01T00:00:00Z"))
+}
+
+// ------------------------------------------------------------- a malha
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AparelhoPedido {
+    id: String,
+    nome: String,
+    plataforma: String,
+    versao: String,
+    contrato: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AparelhoJson {
+    id: String,
+    nome: String,
+    plataforma: String,
+    versao: String,
+    contrato: u32,
+    visto_em: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MalhaResposta {
+    aparelhos: Vec<AparelhoJson>,
+}
+
+/// A batida de um aparelho.
+///
+/// O contrato NAO e conferido aqui, e a ausencia e a decisao: um aparelho velho
+/// demais para sincronizar ainda precisa conseguir se anunciar — e ver "versao
+/// 0.2.9, visto ha tres dias" na tela e exatamente como se descobre isso. Nas
+/// rotas de contrato ele continua sendo conferido em toda chamada.
+async fn registrar_aparelho(
+    State(estado): State<Estado>,
+    cabecalhos: HeaderMap,
+    Json(pedido): Json<AparelhoPedido>,
+) -> Result<StatusCode, Erro> {
+    if !autorizado(&cabecalhos, &estado.token) {
+        return Err(negado());
+    }
+    let aparelho = crate::hub::AparelhoRegistrado {
+        id: pedido.id,
+        nome: pedido.nome,
+        plataforma: pedido.plataforma,
+        versao: pedido.versao,
+        contrato: pedido.contrato,
+        visto_em: String::new(),
+    };
+    let agora = agora_iso();
+    let mut hub = estado.hub.lock().expect("hub envenenado");
+    hub.registrar_aparelho(&aparelho, &agora)
+        .map_err(falha_no_banco)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Quem esta na malha.
+///
+/// Lista vazia nao e erro: um hub que ainda nao recebeu batida de ninguem
+/// responde vazio, e a tela sabe dizer isso melhor que uma falha.
+async fn aparelhos(
+    State(estado): State<Estado>,
+    cabecalhos: HeaderMap,
+) -> Result<Json<MalhaResposta>, Erro> {
+    if !autorizado(&cabecalhos, &estado.token) {
+        return Err(negado());
+    }
+    let hub = estado.hub.lock().expect("hub envenenado");
+    let lista = hub.aparelhos().map_err(falha_no_banco)?;
+    Ok(Json(MalhaResposta {
+        aparelhos: lista
+            .into_iter()
+            .map(|aparelho| AparelhoJson {
+                id: aparelho.id,
+                nome: aparelho.nome,
+                plataforma: aparelho.plataforma,
+                versao: aparelho.versao,
+                contrato: aparelho.contrato,
+                visto_em: aparelho.visto_em,
+            })
+            .collect(),
+    }))
 }

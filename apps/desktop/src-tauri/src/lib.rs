@@ -2302,6 +2302,7 @@ pub fn run() {
                     sync::sync_set_token,
                     sync::sync_clear_token,
                     sync::sync_now,
+                    sync::sync_malha,
                     sync::sync_app_pronto,
                     sync::sync_dispensar_resumo,
                     hermes::hermes_set_credentials,

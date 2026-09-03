@@ -174,12 +174,31 @@ fi
 HASH="$(caddy hash-password --plaintext "$SENHA")"
 USUARIO="${MOS_USUARIO:-matheus}"
 
+# O hub fica FORA do Basic Auth, e isso não é descuido.
+#
+# O cliente de sincronização manda `Authorization: Bearer`, e o Basic Auth do
+# Caddy recusaria a chamada antes de o hub sequer ver o token. A proteção de
+# `/sync/*` é o segredo de 64 caracteres, comparado em tempo constante dentro do
+# próprio hub (`http.rs`, `tempo_constante`).
+#
+# O que isso expõe, dito com todas as letras: o hub passa a ser alcançável da
+# internet, e quem tiver o segredo lê e escreve o log inteiro. Antes exigia o
+# segredo E uma chave SSH, porque o hub só escutava em `127.0.0.1` e os PCs
+# chegavam por túnel. A troca é deliberada: o túnel era a peça que quebrava
+# calada, e um endereço só é o que faz os três aparelhos se conectarem igual.
 cat >/etc/caddy/Caddyfile <<CADDY
 $DOMINIO {
-	basic_auth {
-		$USUARIO $HASH
+	@sync path /sync/*
+	handle @sync {
+		reverse_proxy 127.0.0.1:9120
 	}
-	reverse_proxy 127.0.0.1:9130
+
+	handle {
+		basic_auth {
+			$USUARIO $HASH
+		}
+		reverse_proxy 127.0.0.1:9130
+	}
 }
 CADDY
 systemctl enable caddy >/dev/null 2>&1 || true

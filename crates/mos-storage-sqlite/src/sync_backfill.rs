@@ -23,12 +23,30 @@
 //! veio consertar. O que o backfill le e o que a emissao emitiria.
 
 use mos_core::CoreError;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 
 use crate::{map_sql_error, SqliteStorage};
 
-/// A marca de que o backfill ja passou.
-const MARCA: &str = "sync_backfill_v1";
+/// A geracao da cobertura ja aplicada neste banco.
+const MARCA: &str = "sync_backfill_geracao";
+
+/// A marca de antes, quando isto era um booleano.
+///
+/// Quem a tem passou pela cobertura de doze tipos, e portanto esta na geracao 1
+/// — e precisa re-emitir. Ler a marca antiga em vez de ignora-la e o que faz os
+/// bancos que ja existem atravessarem sem ninguem apagar nada a mao.
+const MARCA_ANTIGA: &str = "sync_backfill_v1";
+
+/// A geracao da cobertura ATUAL.
+///
+/// Sobe quando `sync_cobertura.rs` passa a incluir tipos que antes nao
+/// atravessavam — e e isso que faz o backfill rodar de novo em quem ja tinha
+/// passado por ele. A geracao 1 cobria doze tipos; a 2 cobre vinte e seis.
+///
+/// Um teste em `sync_cobertura.rs` falha se a lista mudar sem este numero
+/// subir. Sem ele, a cobertura cresce em silencio e o dado velho fica parado
+/// num PC so — que foi exatamente o que aconteceu entre a v1 e a v0.3.4.
+pub(crate) const GERACAO_ATUAL: u32 = 2;
 
 /// Os tipos, em ORDEM DE DEPENDENCIA.
 ///
@@ -91,14 +109,33 @@ impl SqliteStorage {
         let connection = self.escrita()?;
         let transacao = connection.unchecked_transaction().map_err(map_sql_error)?;
 
-        let ja_passou: bool = transacao
+        // A geracao ja aplicada. Sem marca nenhuma o banco esta na geracao 0 e
+        // passa inteiro; com a marca ANTIGA ele esta na 1, e re-emite o que a
+        // cobertura passou a incluir desde entao.
+        let gravada: Option<String> = transacao
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM app_metadata WHERE key = ?1)",
+                "SELECT value FROM app_metadata WHERE key = ?1",
                 params![MARCA],
                 |linha| linha.get(0),
             )
+            .optional()
             .map_err(map_sql_error)?;
-        if ja_passou {
+
+        let geracao: u32 = match gravada.and_then(|valor| valor.parse().ok()) {
+            Some(numero) => numero,
+            None => {
+                let antiga: bool = transacao
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM app_metadata WHERE key = ?1)",
+                        params![MARCA_ANTIGA],
+                        |linha| linha.get(0),
+                    )
+                    .map_err(map_sql_error)?;
+                u32::from(antiga)
+            }
+        };
+
+        if geracao >= GERACAO_ATUAL {
             return Ok(0);
         }
 
@@ -107,10 +144,13 @@ impl SqliteStorage {
             enfileiradas += crate::sync_projecao::enfileirar_tabela(self, &transacao, kind)?;
         }
 
+        // A geracao, e nao a contagem: quantas linhas passaram e curiosidade, e
+        // qual cobertura ja passou e a pergunta que a proxima abertura faz.
         transacao
             .execute(
-                "INSERT INTO app_metadata (key, value) VALUES (?1, ?2)",
-                params![MARCA, enfileiradas.to_string()],
+                "INSERT INTO app_metadata (key, value) VALUES (?1, ?2) \
+                 ON CONFLICT(key) DO UPDATE SET value = ?2",
+                params![MARCA, GERACAO_ATUAL.to_string()],
             )
             .map_err(map_sql_error)?;
         transacao.commit().map_err(map_sql_error)?;
@@ -216,6 +256,67 @@ mod tests {
             ops_na_fila(&storage),
             fila_depois_da_primeira,
             "a fila mudou entre as duas passadas"
+        );
+    }
+
+    /// A armadilha que ja disparou uma vez.
+    ///
+    /// A marca era um booleano. Quando a cobertura cresceu de 12 para 26 tipos,
+    /// quem ja tinha passado pelo backfill NUNCA re-emitiu o que passou a ser
+    /// sincronizavel — e o dado velho ficou parado num PC so.
+    #[test]
+    fn geracao_menor_faz_o_backfill_rodar_de_novo() {
+        let (storage, _guarda) = storage();
+        let projeto = NewProject::create("Rancho Queimado", "", "").unwrap();
+        storage.create_project(projeto).unwrap();
+        ligar(&storage);
+
+        assert!(
+            storage.backfill_do_sync().unwrap() > 0,
+            "a primeira passagem nao emitiu"
+        );
+        assert_eq!(
+            storage.backfill_do_sync().unwrap(),
+            0,
+            "passou duas vezes na mesma geracao"
+        );
+
+        // O aparelho que parou na geracao anterior.
+        storage
+            .escrita()
+            .unwrap()
+            .execute(
+                "INSERT INTO app_metadata (key, value) VALUES (?1, '1') \
+                 ON CONFLICT(key) DO UPDATE SET value = '1'",
+                rusqlite::params![super::MARCA],
+            )
+            .unwrap();
+
+        assert!(
+            storage.backfill_do_sync().unwrap() > 0,
+            "a geracao nova nao re-emitiu: o dado velho ficaria parado"
+        );
+    }
+
+    /// Quem vinha da marca antiga entra como geracao 1, e portanto re-emite.
+    #[test]
+    fn a_marca_antiga_conta_como_geracao_um() {
+        let (storage, _guarda) = storage();
+        let projeto = NewProject::create("Rancho Queimado", "", "").unwrap();
+        storage.create_project(projeto).unwrap();
+        ligar(&storage);
+        storage
+            .escrita()
+            .unwrap()
+            .execute(
+                "INSERT INTO app_metadata (key, value) VALUES (?1, '140')",
+                rusqlite::params![super::MARCA_ANTIGA],
+            )
+            .unwrap();
+
+        assert!(
+            storage.backfill_do_sync().unwrap() > 0,
+            "quem tinha a marca antiga precisa re-emitir na geracao 2"
         );
     }
 
