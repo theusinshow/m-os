@@ -243,6 +243,12 @@ async fn rodar(app: &tauri::AppHandle) -> Result<Option<SyncRound>, String> {
     let resultado = tauri::async_runtime::spawn_blocking(move || {
         let transporte =
             mos_sync_http::HttpTransport::novo(endpoint, token).map_err(|erro| erro.mensagem)?;
+
+        // A batida vem ANTES da rodada, e o erro dela nao interrompe nada: quem
+        // nao conseguiu se anunciar ainda tem trabalho a sincronizar, e trocar
+        // dado por metadado seria pessimo negocio.
+        anunciar(storage.as_ref(), &transporte);
+
         let agora = time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
         storage
             .sincronizar_agora(&transporte, agora as i64, LIMITE)
@@ -370,4 +376,63 @@ pub fn sync_dispensar_resumo(
         .resumo = None;
     let _ = app.emit("sync-changed", ());
     Ok(())
+}
+
+/// Diz ao hub quem e este PC.
+///
+/// Falha em silencio no log, e nao para a tela: a batida e metadado, e uma
+/// mensagem de erro sobre ela roubaria o lugar do que a rodada tem a dizer
+/// sobre o trabalho de verdade.
+fn anunciar(
+    storage: &mos_storage_sqlite::SqliteStorage,
+    transporte: &mos_sync_http::HttpTransport,
+) {
+    use mos_sync::DeviceRepository;
+
+    let nome = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Este PC".to_owned());
+    let eu = match storage.este_dispositivo(&nome, "windows", env!("CARGO_PKG_VERSION")) {
+        Ok(eu) => eu,
+        Err(causa) => {
+            eprintln!("[sync] sem identidade para anunciar: {}", causa.mensagem);
+            return;
+        }
+    };
+    if let Err(causa) = transporte.anunciar(&mos_sync_http::Anuncio {
+        id: &eu.id.to_string(),
+        nome: &eu.name,
+        plataforma: "windows",
+        versao: env!("CARGO_PKG_VERSION"),
+        contrato: mos_sync::CONTRACT_VERSION,
+    }) {
+        eprintln!("[sync] a batida nao chegou: {}", causa.mensagem);
+    }
+}
+
+/// Quem esta na malha, como o hub conhece.
+///
+/// Lista vazia nao e erro: sem hub configurado, ou com um hub que ainda nao
+/// recebeu batida de ninguem, a resposta certa e "ninguem ainda" — e a tela diz
+/// isso melhor que uma mensagem de falha.
+#[tauri::command]
+pub async fn sync_malha(
+    app: tauri::AppHandle,
+) -> Result<Vec<mos_sync_http::AparelhoNaMalha>, String> {
+    let settings_path = {
+        let state = app.state::<crate::AppState>();
+        state.settings_path.clone()
+    };
+    let endpoint = crate::load_settings(&settings_path).sync_endpoint;
+    if endpoint.is_empty() {
+        return Ok(Vec::new());
+    }
+    let Some(token) = token_guardado() else {
+        return Ok(Vec::new());
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let transporte =
+            mos_sync_http::HttpTransport::novo(endpoint, token).map_err(|erro| erro.mensagem)?;
+        transporte.malha().map_err(|erro| erro.mensagem)
+    })
+    .await
+    .map_err(|erro| format!("A consulta a malha nao terminou: {erro}"))?
 }

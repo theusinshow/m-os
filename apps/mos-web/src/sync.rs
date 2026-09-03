@@ -74,6 +74,27 @@ fn rodar(storage: &SqliteStorage, hub: &Hub, avisador: Option<&Avisador>) {
             return;
         }
     };
+    // A mesma batida do desktop, e pelo mesmo motivo: sem ela o M/OS de bolso e
+    // um aparelho que sincroniza e nao aparece em lugar nenhum. O erro dela nao
+    // interrompe a rodada — metadado nao pode custar o dado.
+    {
+        use mos_sync::DeviceRepository;
+        match storage.este_dispositivo("M/OS de bolso", "web", env!("CARGO_PKG_VERSION")) {
+            Ok(eu) => {
+                if let Err(causa) = transporte.anunciar(&mos_sync_http::Anuncio {
+                    id: &eu.id.to_string(),
+                    nome: &eu.name,
+                    plataforma: "web",
+                    versao: env!("CARGO_PKG_VERSION"),
+                    contrato: mos_sync::CONTRACT_VERSION,
+                }) {
+                    eprintln!("[web] a batida nao chegou: {}", causa.mensagem);
+                }
+            }
+            Err(causa) => eprintln!("[web] sem identidade para anunciar: {}", causa.mensagem),
+        }
+    }
+
     let agora_ms = (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as i64;
     match storage.sincronizar_agora(&transporte, agora_ms, LIMITE) {
         // O erro vai para o log e nao para a tela: aqui ninguem clicou, entao
