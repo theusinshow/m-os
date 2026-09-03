@@ -12,6 +12,8 @@ function status(over: Partial<SyncStatus> = {}): SyncStatus {
     lastSyncAt: "2026-08-28T09:00:00Z",
     lastError: null,
     daySummary: null,
+    deviceId: "01a0279d-18e1-78c2-991f-9e894e7214be",
+    appVersion: "0.3.5",
     ...over,
   };
 }
