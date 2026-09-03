@@ -64,6 +64,25 @@ impl DeviceRepository for SqliteStorage {
             .optional()
             .map_err(erro_sql)?;
 
+        // A ANCORA, e por que ela existe.
+        //
+        // A linha de `devices` pode sumir — banco recriado, limpeza por fora — e
+        // com ela ia o id. Id novo significa relogio novo e cursor zerado: o
+        // aparelho volta a baixar tudo, e aparece no hub como um SEGUNDO
+        // dispositivo com os mesmos dados. Aconteceu em 02/09/2026, no PC do
+        // trabalho, e custou uma manha para ser entendido.
+        //
+        // `app_metadata` sobrevive a isso porque nada no sync a apaga: ela nao
+        // esta em `SINCRONIZAVEIS` nem e tocada pela projecao.
+        let ancorado: Option<String> = connection
+            .query_row(
+                "SELECT value FROM app_metadata WHERE key = 'sync_device_id'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(erro_sql)?;
+
         let id = match existente {
             Some(id) => {
                 connection
@@ -76,8 +95,12 @@ impl DeviceRepository for SqliteStorage {
                 id
             }
             None => {
-                let id = DeviceId::novo().to_string();
-                connection
+                // Sem linha: o id vem da ancora, e so nasce novo quando nem ela
+                // existe. As duas gravacoes acontecem na MESMA transacao — uma
+                // ancora sem linha ressuscitaria um id que o hub nunca viu.
+                let id = ancorado.unwrap_or_else(|| DeviceId::novo().to_string());
+                let transacao = connection.unchecked_transaction().map_err(erro_sql)?;
+                transacao
                     .execute(
                         "INSERT INTO devices (id, name, platform, app_version, last_sync_at, \
                          is_this_device, created_at, updated_at) \
@@ -85,6 +108,14 @@ impl DeviceRepository for SqliteStorage {
                         params![id, nome, plataforma, versao, agora],
                     )
                     .map_err(erro_sql)?;
+                transacao
+                    .execute(
+                        "INSERT INTO app_metadata (key, value) VALUES ('sync_device_id', ?1) \
+                         ON CONFLICT(key) DO UPDATE SET value = ?1",
+                        params![id],
+                    )
+                    .map_err(erro_sql)?;
+                transacao.commit().map_err(erro_sql)?;
                 id
             }
         };
@@ -125,5 +156,66 @@ impl DeviceRepository for SqliteStorage {
             )
             .map_err(erro_sql)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mos_sync::DeviceRepository;
+
+    use crate::SqliteStorage;
+
+    fn storage() -> (SqliteStorage, tempfile::TempDir) {
+        let pasta = tempfile::tempdir().unwrap();
+        let storage =
+            SqliteStorage::open(pasta.path().join("mos.db"), pasta.path().join("backups")).unwrap();
+        (storage, pasta)
+    }
+
+    /// O caso que aconteceu de verdade, em 02/09/2026.
+    ///
+    /// O PC do trabalho apareceu no hub com uma identidade NOVA, e com ela um
+    /// relogio novo e um cursor zerado — comecou a baixar tudo de novo. A linha
+    /// de `devices` pode sumir; o id nao pode.
+    #[test]
+    fn um_dispositivo_que_perdeu_a_linha_volta_com_o_mesmo_id() {
+        let (storage, _guarda) = storage();
+        let antes = storage.este_dispositivo("PC", "windows", "0.3.5").unwrap();
+
+        // O sumico, direto no banco: e o que um banco recriado ou uma limpeza
+        // por fora produzem.
+        storage
+            .escrita()
+            .unwrap()
+            .execute("DELETE FROM devices WHERE is_this_device = 1", [])
+            .unwrap();
+
+        let depois = storage.este_dispositivo("PC", "windows", "0.3.5").unwrap();
+        assert_eq!(
+            antes.id, depois.id,
+            "o dispositivo nasceu de novo: o cursor e o relogio iriam junto"
+        );
+    }
+
+    /// A ancora e a linha nascem juntas, ou nenhuma das duas.
+    ///
+    /// Ancora sem linha faria a proxima abertura ressuscitar um id que nunca
+    /// existiu no hub.
+    #[test]
+    fn a_ancora_guarda_o_id_do_primeiro_registro() {
+        let (storage, _guarda) = storage();
+        let device = storage.este_dispositivo("PC", "windows", "0.3.5").unwrap();
+
+        let ancora: String = storage
+            .connection
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT value FROM app_metadata WHERE key = 'sync_device_id'",
+                [],
+                |linha| linha.get(0),
+            )
+            .expect("a ancora nao foi gravada");
+        assert_eq!(ancora, device.id.to_string());
     }
 }
