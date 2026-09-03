@@ -59,6 +59,12 @@ pub struct SyncStatus {
     pub last_error: Option<String>,
     /// O resumo da primeira rodada do dia, enquanto nao for lido.
     pub day_summary: Option<Resumo>,
+    /// O id DESTE aparelho, para a tela saber qual linha da malha e ela mesma.
+    /// Vazio quando a identidade nao pode ser lida — a malha ainda aparece, so
+    /// sem o "este aparelho".
+    pub device_id: String,
+    /// A versao DESTE app, para a tela marcar quem esta em versao diferente.
+    pub app_version: String,
 }
 
 /// O resultado de uma rodada, para a tela.
@@ -97,6 +103,16 @@ pub fn sync_status(
         last_sync_at: ultima.as_ref().and_then(|u| u.em.clone()),
         last_error: ultima.as_ref().and_then(|u| u.erro.clone()),
         day_summary: ultima.as_ref().and_then(|u| u.resumo.clone()),
+        device_id: {
+            use mos_sync::DeviceRepository;
+            let nome = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Este PC".to_owned());
+            state
+                .storage
+                .este_dispositivo(&nome, "windows", env!("CARGO_PKG_VERSION"))
+                .map(|eu| eu.id.to_string())
+                .unwrap_or_default()
+        },
+        app_version: env!("CARGO_PKG_VERSION").to_owned(),
     }
 }
 
