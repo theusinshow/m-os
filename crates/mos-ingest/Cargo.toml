@@ -23,7 +23,7 @@ sha2 = "0.10"
 # Mesma versao e MESMAS features do lopdf que o `printpdf` do desktop ja compila
 # (`pom_parser`, sem chrono e sem rayon). Ler texto de PDF nao acrescenta uma
 # dependencia nova a arvore: acrescenta uma chamada a uma que ja estava la.
-lopdf = { version = "0.31", default-features = false, features = ["pom_parser"] }
+lopdf = { version = "0.34", default-features = false, features = ["pom_parser"] }
 
 [dev-dependencies]
 tempfile = "3"
