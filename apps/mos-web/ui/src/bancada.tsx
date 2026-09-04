@@ -12,6 +12,7 @@ import { Inbox } from "./paginas/Inbox";
 import { Tasks } from "./paginas/Tasks";
 import { Lembretes } from "./paginas/Lembretes";
 import { Mais } from "./paginas/Mais";
+import { Agenda } from "./paginas/Agenda";
 
 /**
  * A bancada.
@@ -28,6 +29,14 @@ import { Mais } from "./paginas/Mais";
 const LARGURAS = [390, 430];
 
 const NADA = () => {};
+
+/** Um instante de hoje (ou de daqui a N dias) na hora pedida. */
+function comHora(hora: number, minuto: number, daquiA = 0): string {
+  const quando = new Date();
+  quando.setDate(quando.getDate() + daquiA);
+  quando.setHours(hora, minuto, 0, 0);
+  return quando.toISOString();
+}
 
 function Moldura({
   titulo,
@@ -134,6 +143,62 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
     corpo: <Lembretes lembretes={FALSO.lembretes} ocupado={false} aoResolver={NADA} />,
   },
   {
+    titulo: "Agenda",
+    pagina: "agenda",
+    corpo: (
+      <Agenda
+        agora={new Date()}
+        itens={[
+          {
+            kind: "day_started",
+            at: comHora(8, 30),
+            endsAt: null,
+            title: "fechar o Rancho Queimado",
+            projectId: null,
+            seconds: 0,
+            amountCents: 0,
+          },
+          {
+            kind: "session",
+            at: comHora(9, 15),
+            endsAt: null,
+            title: "046 - Ratones · desenho",
+            projectId: "p1",
+            seconds: 7_200,
+            amountCents: 6_000,
+          },
+          {
+            kind: "capture",
+            at: comHora(11, 40),
+            endsAt: null,
+            title: "Ligar para o cliente sobre a prancha 04",
+            projectId: null,
+            seconds: 0,
+            amountCents: 0,
+          },
+          {
+            kind: "exam_scheduled",
+            at: comHora(14, 0, 1),
+            endsAt: null,
+            title: "Prova de Cálculo III",
+            projectId: null,
+            seconds: 0,
+            amountCents: 0,
+          },
+          {
+            kind: "assignment_due",
+            at: comHora(0, 0, 2),
+            endsAt: null,
+            title: "Lista 04 · Estática dos Corpos",
+            projectId: null,
+            seconds: 0,
+            amountCents: 0,
+          },
+        ]}
+      />
+    ),
+  },
+  {
     titulo: "Mais",
     pagina: "mais",
     corpo: (
@@ -145,6 +210,7 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
         aoAtivar={NADA}
         aoTestar={NADA}
         aoAbrirLembretes={NADA}
+        aoAbrirAgenda={NADA}
       />
     ),
   },

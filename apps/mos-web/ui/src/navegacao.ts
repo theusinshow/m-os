@@ -1,6 +1,13 @@
 import { pedeAtencao, type Capture, type Lembrete, type Task } from "./api";
 
-export type Pagina = "home" | "capturar" | "inbox" | "tasks" | "lembretes" | "mais";
+export type Pagina =
+  | "home"
+  | "capturar"
+  | "inbox"
+  | "tasks"
+  | "lembretes"
+  | "agenda"
+  | "mais";
 
 /**
  * Os cinco destinos da barra de baixo.

@@ -41,6 +41,7 @@ pub fn rotas() -> Router<Estado> {
         .route("/api/lembretes/{id}/cancelar", post(cancelar_lembrete))
         .route("/api/estado", get(estado_do_aparelho))
         .route("/api/panorama", get(panorama))
+        .route("/api/agenda", get(agenda))
         .route("/api/push/assinar", post(assinar_push))
         .route("/api/push/testar", post(testar_push))
 }
@@ -682,4 +683,76 @@ async fn panorama(
         },
         proximos,
     }))
+}
+
+// ----------------------------------------------------------------- agenda
+
+/// A janela vem como INSTANTE, e nao como data.
+///
+/// Quem decide onde um dia comeca e o aparelho, que conhece o fuso de quem esta
+/// olhando — mesma razao do `agora` do panorama. O servidor so responde "o que
+/// aconteceu entre X e Y".
+#[derive(Deserialize)]
+struct Janela {
+    desde: String,
+    ate: String,
+}
+
+/// Tudo o que o M/OS registrou entre dois instantes, em ordem crescente.
+///
+/// A composicao vive em `mos_core::compose`, que e pura e testada, e e a MESMA
+/// que o desktop usa. Esta rota so busca e delega: duplicar aqui a regra de o
+/// que entra na janela daria duas respostas para "esta prova conta?".
+async fn agenda(
+    State(estado): State<Estado>,
+    Query(janela): Query<Janela>,
+) -> Resultado<Json<Vec<mos_core::CalendarItem>>> {
+    let de = mos_core::parse_moment(&janela.desde).map_err(de_core)?;
+    let ate = mos_core::parse_moment(&janela.ate).map_err(de_core)?;
+    if ate < de {
+        return Err(Erro(
+            StatusCode::BAD_REQUEST,
+            "O fim da janela vem antes do inicio.".to_owned(),
+        ));
+    }
+
+    // Cada leitura numa variavel propria: passadas direto como referencia, os
+    // temporarios morreriam antes de `compose` usa-los.
+    let projetos = estado.work.projects(true).map_err(de_core)?;
+    let horas = estado.tracking.entries(None).map_err(de_core)?;
+    let tasks = estado.work.tasks(true).map_err(de_core)?;
+    let capturas = estado.captures.between(de, ate).map_err(de_core)?;
+    let arredondamento = estado.tracking.settings().map_err(de_core)?.rounding;
+    let sessoes = estado.daily.sessions(365).map_err(de_core)?;
+    let ids: Vec<_> = sessoes.iter().map(|sessao| sessao.id).collect();
+    let objetivos = estado.daily.objectives_of(&ids).map_err(de_core)?;
+    let academico = estado
+        .academic
+        .compromissos_entre(de, ate, ate)
+        .map_err(de_core)?;
+
+    let nome_do_projeto = |id: mos_core::ProjectId| {
+        projetos
+            .iter()
+            .find(|projeto| projeto.id == id)
+            .map(|projeto| projeto.name.clone())
+            .unwrap_or_else(|| "Project removido".to_owned())
+    };
+
+    Ok(Json(mos_core::compose(mos_core::ComposeInput {
+        since: de,
+        until: ate,
+        rounding: arredondamento,
+        entries: &horas,
+        tasks: &tasks,
+        captures: &capturas,
+        // O bolso NAO tem eventos de monitoramento, e nao e falta: `apps` e
+        // `activity_events` sao tabelas locais por decisao — elas descrevem o
+        // que aconteceu NAQUELA maquina, e o celular nao vigia programa nenhum.
+        events: &[],
+        sessions: &sessoes,
+        objectives: &objetivos,
+        academic: &academico,
+        project_name: &nome_do_projeto,
+    })))
 }

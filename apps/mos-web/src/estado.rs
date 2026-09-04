@@ -15,7 +15,8 @@
 use std::sync::Arc;
 
 use mos_core::{
-    AcademicService, AttentionService, CaptureService, SystemClock, TrackingService, WorkService,
+    AcademicService, AttentionService, CaptureService, DailyService, SystemClock, TrackingService,
+    WorkService,
 };
 use mos_storage_sqlite::SqliteStorage;
 use mos_sync::DeviceRepository;
@@ -46,6 +47,10 @@ pub struct Estado {
     pub tracking: Arc<TrackingService>,
     /// O academico, para o "o que vem por ai" da Home.
     pub academic: Arc<AcademicService>,
+    /// O diario. No bolso ele serve a AGENDA — as marcas de inicio e fim de dia
+    /// e os objetivos concluidos sao o que faz a linha do tempo contar a
+    /// historia do dia, e nao so as bordas dele.
+    pub daily: Arc<DailyService>,
     /// Onde o hub esta, e com que segredo falar com ele. Vazio desliga o sync —
     /// e o `mos-web` continua funcionando, so que sozinho.
     pub hub: Option<Arc<Hub>>,
@@ -188,6 +193,10 @@ impl Estado {
             work: Arc::new(WorkService::new(Arc::clone(&storage) as Arc<_>)),
             tracking: Arc::new(TrackingService::new(Arc::clone(&storage) as Arc<_>)),
             academic: Arc::new(AcademicService::new(Arc::clone(&storage) as Arc<_>)),
+            daily: Arc::new(DailyService::new(
+                Arc::clone(&storage) as Arc<_>,
+                Arc::new(SystemClock),
+            )),
             attention: Arc::new(AttentionService::new(
                 Arc::clone(&storage) as Arc<_>,
                 Arc::new(SystemClock),

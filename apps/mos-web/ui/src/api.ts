@@ -78,6 +78,24 @@ export type Panorama = {
   proximos: { titulo: string; disciplina: string; quando: string; tipo: string }[];
 };
 
+/** Um item da agenda, como o `mos_core::compose` o devolve.
+ *
+ *  `kind` é largo de propósito: o domínio tem doze tipos e o bolso desenha os
+ *  que conhece, ignorando o resto. Estreitar aqui faria a tela quebrar no dia em
+ *  que o desktop passasse a compor um tipo novo. */
+export type ItemDaAgenda = {
+  kind: string;
+  /** RFC3339. */
+  at: string;
+  endsAt: string | null;
+  title: string;
+  projectId: string | null;
+  /** Zero quando o item não tem duração. */
+  seconds: number;
+  /** Zero quando não é hora cobrável. */
+  amountCents: number;
+};
+
 export type EstadoDoAparelho = {
   pendentes: number;
   sincroniza: boolean;
@@ -144,16 +162,21 @@ export const api = {
    *
    *  O fuso viaja junto de propósito: o servidor roda em UTC, e cortar a semana
    *  pelo relógio dele terminaria a semana às 21h de sábado para quem lê. */
+  /** O que o M/OS registrou entre dois instantes.
+   *
+   *  A janela vai em RFC3339 com o offset deste aparelho, pela mesma razão do
+   *  panorama: onde um dia começa é decisão de quem olha. */
+  agenda(desde: Date, ate: Date) {
+    const parametros = new URLSearchParams({
+      desde: comOffsetLocal(desde),
+      ate: comOffsetLocal(ate),
+    });
+    return pedir<ItemDaAgenda[]>(`/api/agenda?${parametros}`);
+  },
   panorama() {
-    const agora = new Date();
-    const minutos = -agora.getTimezoneOffset();
-    const sinal = minutos >= 0 ? "+" : "-";
-    const doisDigitos = (n: number) => String(Math.floor(Math.abs(n))).padStart(2, "0");
-    const offset = `${sinal}${doisDigitos(minutos / 60)}:${doisDigitos(minutos % 60)}`;
-    const local = new Date(agora.getTime() - agora.getTimezoneOffset() * 60_000)
-      .toISOString()
-      .slice(0, 19);
-    return pedir<Panorama>(`/api/panorama?agora=${encodeURIComponent(local + offset)}`);
+    return pedir<Panorama>(
+      `/api/panorama?agora=${encodeURIComponent(comOffsetLocal(new Date()))}`,
+    );
   },
   tasks() {
     return pedir<Task[]>("/api/tasks");
@@ -220,3 +243,21 @@ export const api = {
     return pedir<{ enviadas: number }>("/api/push/testar", { method: "POST" });
   },
 };
+
+/**
+ * `2026-09-04T14:30:00-03:00` — o instante com o fuso DESTE aparelho.
+ *
+ * O `toISOString` devolve UTC, e é justamente o que não serve: o servidor roda
+ * em UTC e precisa saber onde o dia começa para quem está olhando.
+ */
+function comOffsetLocal(quando: Date): string {
+  const minutos = -quando.getTimezoneOffset();
+  const sinal = minutos >= 0 ? "+" : "-";
+  const doisDigitos = (numero: number) =>
+    String(Math.floor(Math.abs(numero))).padStart(2, "0");
+  const offset = `${sinal}${doisDigitos(minutos / 60)}:${doisDigitos(minutos % 60)}`;
+  const local = new Date(quando.getTime() - quando.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 19);
+  return local + offset;
+}

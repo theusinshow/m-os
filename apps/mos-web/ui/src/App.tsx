@@ -7,6 +7,7 @@ import {
   type Capture,
   type EstadoDoAparelho,
   type Lembrete,
+  type ItemDaAgenda,
   type Panorama,
   type Task,
 } from "./api";
@@ -23,6 +24,7 @@ import { Inbox } from "./paginas/Inbox";
 import { Tasks } from "./paginas/Tasks";
 import { Lembretes } from "./paginas/Lembretes";
 import { Mais } from "./paginas/Mais";
+import { Agenda } from "./paginas/Agenda";
 
 /** O que a folha de *quando* está agendando, enquanto ela está aberta. */
 type Agendamento = {
@@ -60,6 +62,7 @@ export function App() {
   const [lembretes, setLembretes] = useState<Lembrete[]>([]);
   const [estado, setEstado] = useState<EstadoDoAparelho | null>(null);
   const [panorama, setPanorama] = useState<Panorama | null>(null);
+  const [agenda, setAgenda] = useState<ItemDaAgenda[]>([]);
   const [recado, setRecado] = useState("");
   const [erro, setErro] = useState(false);
   const [ocupado, setOcupado] = useState(false);
@@ -82,19 +85,27 @@ export function App() {
         return;
       }
     }
-    const [proximaInbox, proximasTasks, proximosLembretes, proximoPanorama] = await Promise.all([
+    const [proximaInbox, proximasTasks, proximosLembretes, proximoPanorama, proximaAgenda] =
+      await Promise.all([
       api.inbox().catch(() => [] as Capture[]),
       api.tasks().catch(() => [] as Task[]),
       api.lembretes().catch(() => [] as Lembrete[]),
       // Nulo em vez de erro: um servidor sem a rota ainda serve a Home inteira,
       // só sem os dois cartões novos.
       api.panorama().catch(() => null),
+      // A janela: de ontem a uma semana. Para tras um dia porque "o que eu fiz
+      // ontem" e pergunta de manha; para a frente sete porque prova marcada
+      // para daqui a duas semanas nao muda o que se faz hoje.
+      api
+        .agenda(diasDaqui(-1), diasDaqui(7))
+        .catch(() => [] as ItemDaAgenda[]),
     ]);
     if (proximoEstado) setEstado(proximoEstado);
     setCapturas(proximaInbox);
     setTasks(proximasTasks);
     setLembretes(proximosLembretes);
     setPanorama(proximoPanorama);
+    setAgenda(proximaAgenda);
     // A situação das notificações é recalculada junto: ela muda por fora do app
     // — instalar na tela de início, mexer em Ajustes —, e uma tela que só olha
     // uma vez ficaria dizendo "instale" depois de você já ter instalado.
@@ -334,6 +345,7 @@ export function App() {
             aoResolver={(lembrete, como) => void resolverLembrete(lembrete, como)}
           />
         ) : null}
+        {pagina === "agenda" ? <Agenda itens={agenda} agora={new Date()} /> : null}
         {pagina === "mais" ? (
           <Mais
             estado={estado}
@@ -343,6 +355,7 @@ export function App() {
             aoAtivar={() => void ativarAvisos()}
             aoTestar={() => void testarAvisos()}
             aoAbrirLembretes={() => setPagina("lembretes")}
+            aoAbrirAgenda={() => setPagina("agenda")}
           />
         ) : null}
       </main>
@@ -406,4 +419,9 @@ export function App() {
 function sinalDaFila(estado: EstadoDoAparelho | null, pendentes: number): string {
   if (estado?.sincroniza === false) return "sem-hub";
   return pendentes > 0 ? "fila" : "em-dia";
+}
+
+/** O instante de N dias a partir de agora. Negativo volta no tempo. */
+function diasDaqui(dias: number): Date {
+  return new Date(Date.now() + dias * 86_400_000);
 }

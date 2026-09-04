@@ -487,3 +487,94 @@ async fn o_panorama_corta_a_semana_no_fuso_do_aparelho() {
         "a hora de hoje nao entrou no total do dia"
     );
 }
+
+/// A agenda devolve o que aconteceu na janela, e nada fora dela.
+///
+/// A composicao e do `mos_core::compose`, que ja tem teste proprio. O que ESTE
+/// teste prova e o que so existe aqui: que o bolso alimenta a composicao com as
+/// fontes certas, e que a janela vem do aparelho.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_agenda_devolve_o_que_esta_na_janela() {
+    use mos_core::{NewProject, NewTimeEntry, TimeTrackingRepository, WorkRepository};
+
+    let hub = servir_hub().await;
+    let pasta_web = tempfile::tempdir().unwrap();
+    let backups = pasta_web.path().join("backups");
+    std::fs::create_dir_all(&backups).unwrap();
+    {
+        let storage = SqliteStorage::open(pasta_web.path().join("web.db"), &backups).unwrap();
+        let projeto = NewProject::create("Rancho Queimado", "", "").unwrap();
+        let id = projeto.id;
+        storage.create_project(projeto).unwrap();
+
+        let quando = |texto: &str| {
+            time::OffsetDateTime::parse(texto, &time::format_description::well_known::Rfc3339)
+                .unwrap()
+        };
+        for (inicio, descricao) in [
+            ("2026-09-10T13:00:00-03:00", "dentro da janela"),
+            ("2026-09-20T13:00:00-03:00", "fora da janela"),
+        ] {
+            storage
+                .create_time_entry(NewTimeEntry {
+                    project_id: id,
+                    started_at: quando(inicio),
+                    ended_at: None,
+                    duration_seconds: 3_600,
+                    idle_seconds: 0,
+                    description: descricao.to_owned(),
+                    activity_type: mos_core::ActivityType::Drawing,
+                    billable: true,
+                    hourly_rate_snapshot_cents: 3_000,
+                    source: mos_core::EntrySource::Manual,
+                })
+                .unwrap();
+        }
+    }
+
+    let web = servir_web(pasta_web.path(), hub).await;
+    let itens: Vec<serde_json::Value> = reqwest::Client::new()
+        .get(format!(
+            "http://{web}/api/agenda?desde={}&ate={}",
+            urlencoding("2026-09-09T00:00:00-03:00"),
+            urlencoding("2026-09-11T23:59:59-03:00")
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let titulos: Vec<String> = itens
+        .iter()
+        .map(|item| item["title"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(
+        itens.len(),
+        1,
+        "a janela trouxe o que esta fora dela: {titulos:?}"
+    );
+    assert!(
+        titulos[0].contains("Rancho Queimado"),
+        "o item veio sem o nome do projeto: {titulos:?}"
+    );
+
+    // Fim antes do inicio e pedido malformado, e nao lista vazia: devolver vazio
+    // faria uma janela invertida parecer um dia sem nada.
+    let resposta = reqwest::Client::new()
+        .get(format!(
+            "http://{web}/api/agenda?desde={}&ate={}",
+            urlencoding("2026-09-11T00:00:00-03:00"),
+            urlencoding("2026-09-09T00:00:00-03:00")
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resposta.status(), 400);
+}
+
+/// `+` num RFC3339 vira espaco na query string se ninguem escapar.
+fn urlencoding(texto: &str) -> String {
+    texto.replace(':', "%3A").replace('+', "%2B")
+}

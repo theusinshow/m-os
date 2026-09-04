@@ -259,3 +259,45 @@
     animation: none;
   }
 }
+
+/* --------------------------------------------------------------- agenda */
+
+.agenda {
+  display: grid;
+  gap: var(--space-5);
+}
+
+/* O dia e o total na mesma linha: a pergunta "quanto rendeu quinta" se responde
+   sem descer até o fim da lista. */
+.agenda-dia {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-2);
+}
+
+.agenda-total {
+  font: 500 13px/1.4 var(--font-system);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+/* A hora em coluna fixa, e não colada no título: alinhadas, as horas do dia
+   viram uma régua que o olho desce; desalinhadas, viram texto. */
+.agenda-hora {
+  flex: none;
+  width: 40px;
+  padding-top: 2px;
+  font: 500 11px/1.5 var(--font-system);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-system);
+}
+
+/* O item que cobra atenção já ganha o filete de sódio da regra geral de
+   `.item[data-cobra]`; aqui só a hora acompanha, para a linha inteira dizer a
+   mesma coisa. */
+.agenda .item[data-cobra] .agenda-hora {
+  color: var(--signal);
+}

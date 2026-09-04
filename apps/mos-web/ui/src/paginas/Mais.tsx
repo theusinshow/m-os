@@ -17,6 +17,7 @@ export function Mais({
   aoAtivar,
   aoTestar,
   aoAbrirLembretes,
+  aoAbrirAgenda,
 }: {
   estado: EstadoDoAparelho | null;
   avisos: Situacao | null;
@@ -25,11 +26,20 @@ export function Mais({
   aoAtivar: () => void;
   aoTestar: () => void;
   aoAbrirLembretes: () => void;
+  aoAbrirAgenda: () => void;
 }) {
   const canal = avisos?.estado ?? null;
   return (
     <div className="mais">
       <ul className="lista">
+        <li className="item">
+          <button className="linha-destino" type="button" onClick={aoAbrirAgenda}>
+            <div className="item-corpo">
+              <p>Agenda</p>
+              <small>de ontem a uma semana</small>
+            </div>
+          </button>
+        </li>
         <li className="item">
           <button className="linha-destino" type="button" onClick={aoAbrirLembretes}>
             <div className="item-corpo">
