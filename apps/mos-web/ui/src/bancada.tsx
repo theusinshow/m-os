@@ -79,7 +79,24 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
   {
     titulo: "Home",
     pagina: "home",
-    corpo: <Home estado={FALSO.estado} dados={FALSO} aoIr={NADA} />,
+    corpo: (
+      <Home
+        estado={FALSO.estado}
+        dados={FALSO}
+        panorama={{
+          horas: { semanaSegundos: 32_880, semanaValorCents: 27_400, hojeSegundos: 3_600 },
+          proximos: [
+            {
+              titulo: "Prova de Cálculo III",
+              disciplina: "Cálculo III",
+              quando: "2026-09-06T14:00:00Z",
+              tipo: "exam",
+            },
+          ],
+        }}
+        aoIr={NADA}
+      />
+    ),
   },
   {
     titulo: "Capturar",

@@ -46,3 +46,53 @@ describe("os cartoes da Home", () => {
     expect(sync?.urgente).toBe(true);
   });
 });
+
+describe("os cartoes do panorama", () => {
+  const PANORAMA = {
+    horas: { semanaSegundos: 32_880, semanaValorCents: 27_400, hojeSegundos: 3_600 },
+    proximos: [
+      {
+        titulo: "Prova de Cálculo III",
+        disciplina: "Cálculo III",
+        quando: "2026-09-06T14:00:00Z",
+        tipo: "exam",
+      },
+    ],
+  };
+
+  it("mostra as horas da semana com o valor na legenda", () => {
+    const horas = cartoesDaHome(FALSO.estado, FALSO, AGORA, PANORAMA).find(
+      (c) => c.chave === "horas",
+    );
+    expect(horas?.numero).toBe("9h08");
+    expect(horas?.legenda).toBe("R$ 274,00 nesta semana");
+    expect(horas?.destino).toBe("home");
+  });
+
+  it("mostra o proximo compromisso do academico", () => {
+    const academico = cartoesDaHome(FALSO.estado, FALSO, AGORA, PANORAMA).find(
+      (c) => c.chave === "academico",
+    );
+    expect(academico?.numero).toBe("1");
+    expect(academico?.legenda).toBe("Prova de Cálculo III");
+  });
+
+  // Semana sem hora nao vira cartao vazio: a regra da Home ja era essa, e o
+  // panorama nao abre excecao para si mesmo.
+  it("omite as horas quando a semana esta zerada", () => {
+    const vazio = {
+      horas: { semanaSegundos: 0, semanaValorCents: 0, hojeSegundos: 0 },
+      proximos: [],
+    };
+    const chaves = cartoesDaHome(FALSO.estado, FALSO, AGORA, vazio).map((c) => c.chave);
+    expect(chaves).not.toContain("horas");
+    expect(chaves).not.toContain("academico");
+  });
+
+  // Sem panorama — servidor velho, ou a chamada falhou — a Home continua a
+  // mesma de antes, e nao uma tela quebrada.
+  it("sem panorama, a Home e a de antes", () => {
+    const chaves = cartoesDaHome(FALSO.estado, FALSO, AGORA, null).map((c) => c.chave);
+    expect(chaves).toEqual(["sync", "hoje", "inbox", "tasks", "ultima"]);
+  });
+});

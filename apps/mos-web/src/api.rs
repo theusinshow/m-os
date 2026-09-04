@@ -12,7 +12,7 @@
 //! perdida.
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -40,6 +40,7 @@ pub fn rotas() -> Router<Estado> {
         .route("/api/lembretes/{id}/concluir", post(concluir_lembrete))
         .route("/api/lembretes/{id}/cancelar", post(cancelar_lembrete))
         .route("/api/estado", get(estado_do_aparelho))
+        .route("/api/panorama", get(panorama))
         .route("/api/push/assinar", post(assinar_push))
         .route("/api/push/testar", post(testar_push))
 }
@@ -562,4 +563,123 @@ async fn estado_do_aparelho(State(estado): State<Estado>) -> Json<EstadoDoAparel
             .and_then(|push| push.assinaturas.quantas().ok())
             .unwrap_or(0),
     })
+}
+
+// --------------------------------------------------------------- panorama
+
+/// O instante do APARELHO, com o fuso dele.
+///
+/// O servidor roda na VPS em UTC, e quem pergunta esta em UTC-3. Calcular "esta
+/// semana" pelo relogio do servidor cortaria a semana as 21h de sabado, no fuso
+/// de quem le. Entao o corte vem do aparelho: o fuso fica onde ele e conhecido,
+/// e o servidor nao ganha configuracao de timezone para alguem errar depois.
+#[derive(Deserialize)]
+struct QuandoPergunta {
+    /// RFC3339 com offset. Ausente ou ilegivel: cai no relogio do servidor, que
+    /// e melhor que recusar a tela inteira por causa de um parametro.
+    agora: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Horas {
+    /// Segundos faturaveis da semana, ja arredondados por sessao.
+    semana_segundos: i64,
+    /// O que isso vale, em centavos.
+    semana_valor_cents: i64,
+    /// Segundos faturaveis de hoje.
+    hoje_segundos: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CompromissoProximo {
+    titulo: String,
+    disciplina: String,
+    /// RFC3339, como o dominio guarda.
+    quando: String,
+    /// `assignment` ou `exam`.
+    tipo: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Panorama {
+    horas: Horas,
+    /// Ate tres, do mais proximo para o mais distante. Vazio e resposta valida.
+    proximos: Vec<CompromissoProximo>,
+}
+
+/// O que a Home do bolso mostra alem do que ela ja tinha.
+///
+/// Uma chamada so, e nao tres: o celular abre no 4G, e cada ida a rede e um
+/// segundo de tela vazia.
+async fn panorama(
+    State(estado): State<Estado>,
+    Query(pergunta): Query<QuandoPergunta>,
+) -> Resultado<Json<Panorama>> {
+    let agora = pergunta
+        .agora
+        .as_deref()
+        .and_then(|texto| {
+            time::OffsetDateTime::parse(texto, &time::format_description::well_known::Rfc3339).ok()
+        })
+        .unwrap_or_else(time::OffsetDateTime::now_utc);
+
+    // A semana comeca na segunda, como no desktop. `days_from_monday` conta a
+    // partir dela, entao subtrair isso do dia de hoje da o inicio.
+    let dias_desde_segunda = agora.weekday().number_days_from_monday() as i64;
+    let inicio_do_dia = agora.replace_time(time::Time::MIDNIGHT);
+    let inicio_da_semana = inicio_do_dia - time::Duration::days(dias_desde_segunda);
+
+    let linhas = estado
+        .tracking
+        .report(Some(inicio_da_semana), Some(agora))
+        .map_err(de_core)?;
+    let semana_segundos = linhas
+        .iter()
+        .map(|linha| linha.totals.billable_seconds)
+        .sum();
+    let semana_valor_cents = linhas.iter().map(|linha| linha.totals.amount_cents).sum();
+    let hoje_segundos = linhas
+        .iter()
+        .filter(|linha| linha.started_at >= inicio_do_dia)
+        .map(|linha| linha.totals.billable_seconds)
+        .sum();
+
+    // O academico falha em silencio: sem semestre cadastrado ele nao tem o que
+    // dizer, e derrubar o panorama inteiro por causa disso apagaria as horas da
+    // tela junto.
+    let proximos = estado
+        .academic
+        .today(agora)
+        .map(|hoje| {
+            let mut compromissos: Vec<_> = hoje
+                .due_today
+                .into_iter()
+                .chain(hoje.exams_soon)
+                .map(|compromisso| CompromissoProximo {
+                    titulo: compromisso.title,
+                    disciplina: compromisso.subject,
+                    quando: compromisso
+                        .at
+                        .format(&time::format_description::well_known::Rfc3339)
+                        .unwrap_or_default(),
+                    tipo: compromisso.kind,
+                })
+                .collect();
+            compromissos.sort_by(|a, b| a.quando.cmp(&b.quando));
+            compromissos.truncate(3);
+            compromissos
+        })
+        .unwrap_or_default();
+
+    Ok(Json(Panorama {
+        horas: Horas {
+            semana_segundos,
+            semana_valor_cents,
+            hoje_segundos,
+        },
+        proximos,
+    }))
 }

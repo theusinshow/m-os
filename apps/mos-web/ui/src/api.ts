@@ -63,6 +63,21 @@ export function pedeAtencao(lembrete: Lembrete): boolean {
   );
 }
 
+/** O que a Home mostra além do que ela já tinha.
+ *
+ *  Uma chamada só, e não três: o celular abre no 4G, e cada ida à rede é um
+ *  segundo de tela vazia. */
+export type Panorama = {
+  horas: {
+    /** Segundos faturáveis da semana, já arredondados por sessão. */
+    semanaSegundos: number;
+    semanaValorCents: number;
+    hojeSegundos: number;
+  };
+  /** Até três, do mais próximo para o mais distante. */
+  proximos: { titulo: string; disciplina: string; quando: string; tipo: string }[];
+};
+
 export type EstadoDoAparelho = {
   pendentes: number;
   sincroniza: boolean;
@@ -124,6 +139,21 @@ export const api = {
   },
   inbox() {
     return pedir<Capture[]>("/api/inbox");
+  },
+  /** O panorama, com o instante DESTE aparelho.
+   *
+   *  O fuso viaja junto de propósito: o servidor roda em UTC, e cortar a semana
+   *  pelo relógio dele terminaria a semana às 21h de sábado para quem lê. */
+  panorama() {
+    const agora = new Date();
+    const minutos = -agora.getTimezoneOffset();
+    const sinal = minutos >= 0 ? "+" : "-";
+    const doisDigitos = (n: number) => String(Math.floor(Math.abs(n))).padStart(2, "0");
+    const offset = `${sinal}${doisDigitos(minutos / 60)}:${doisDigitos(minutos % 60)}`;
+    const local = new Date(agora.getTime() - agora.getTimezoneOffset() * 60_000)
+      .toISOString()
+      .slice(0, 19);
+    return pedir<Panorama>(`/api/panorama?agora=${encodeURIComponent(local + offset)}`);
   },
   tasks() {
     return pedir<Task[]>("/api/tasks");

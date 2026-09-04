@@ -1,4 +1,4 @@
-import type { EstadoDoAparelho } from "../api";
+import type { EstadoDoAparelho, Panorama } from "../api";
 import { Cartao } from "../componentes/Cartao";
 import type { Dados, Pagina } from "../navegacao";
 import { cartoesDaHome } from "./cartoes";
@@ -13,13 +13,17 @@ import { cartoesDaHome } from "./cartoes";
 export function Home({
   estado,
   dados,
+  panorama,
   aoIr,
 }: {
   estado: EstadoDoAparelho | null;
   dados: Dados;
+  /** Nulo enquanto não chegou, ou quando o servidor é antigo demais para ter a
+   *  rota. A Home continua inteira nos dois casos. */
+  panorama: Panorama | null;
   aoIr: (pagina: Pagina) => void;
 }) {
-  const cartoes = cartoesDaHome(estado, dados);
+  const cartoes = cartoesDaHome(estado, dados, new Date(), panorama);
   return (
     <div className="home">
       {cartoes.map((cartao) => (

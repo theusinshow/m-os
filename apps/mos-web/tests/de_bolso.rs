@@ -406,3 +406,84 @@ async fn a_pagina_vem_embutida() {
     assert!(manifest.status().is_success());
     assert!(manifest.text().await.unwrap().contains("standalone"));
 }
+
+/// O panorama soma a semana no fuso de QUEM PERGUNTA.
+///
+/// O servidor roda em UTC e quem pergunta esta em UTC-3. Uma hora lancada as 22h
+/// de domingo no fuso de quem le e domingo — mas ja e segunda em UTC, e cairia
+/// na semana seguinte se o corte fosse do servidor. Este teste fixa o instante
+/// exatamente nessa fresta.
+#[tokio::test(flavor = "multi_thread")]
+async fn o_panorama_corta_a_semana_no_fuso_do_aparelho() {
+    use mos_core::{NewProject, NewTimeEntry, TimeTrackingRepository, WorkRepository};
+
+    let hub = servir_hub().await;
+    let pasta_web = tempfile::tempdir().unwrap();
+
+    // O banco do bolso, semeado ANTES de subir o servidor: as horas ja existem
+    // quando alguem pergunta, que e o caso real depois do sync.
+    let backups = pasta_web.path().join("backups");
+    std::fs::create_dir_all(&backups).unwrap();
+    {
+        let storage = SqliteStorage::open(pasta_web.path().join("web.db"), &backups).unwrap();
+        let projeto = NewProject::create("Rancho Queimado", "", "").unwrap();
+        let id = projeto.id;
+        storage.create_project(projeto).unwrap();
+
+        // Domingo, 22h em UTC-3 — que em UTC ja e segunda, 01h.
+        let domingo_tarde = time::OffsetDateTime::parse(
+            "2026-09-06T22:00:00-03:00",
+            &time::format_description::well_known::Rfc3339,
+        )
+        .unwrap();
+        storage
+            .create_time_entry(NewTimeEntry {
+                project_id: id,
+                started_at: domingo_tarde,
+                ended_at: None,
+                duration_seconds: 3_600,
+                idle_seconds: 0,
+                description: String::new(),
+                activity_type: mos_core::ActivityType::Drawing,
+                billable: true,
+                hourly_rate_snapshot_cents: 3_000,
+                source: mos_core::EntrySource::Manual,
+            })
+            .unwrap();
+    }
+
+    let web = servir_web(pasta_web.path(), hub).await;
+
+    // Pergunta na segunda seguinte, 09h no fuso de quem le. A hora de domingo
+    // pertence a semana ANTERIOR nesse fuso, entao a semana atual tem zero.
+    let segunda = "2026-09-07T09:00:00-03:00";
+    let panorama: serde_json::Value = reqwest::Client::new()
+        .get(format!("http://{web}/api/panorama?agora={segunda}"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        panorama["horas"]["semanaSegundos"], 0,
+        "a hora de domingo entrou na semana da segunda: o corte usou o fuso errado"
+    );
+
+    // E perguntando no proprio domingo, ela conta.
+    let domingo = "2026-09-06T23:00:00-03:00";
+    let panorama: serde_json::Value = reqwest::Client::new()
+        .get(format!("http://{web}/api/panorama?agora={domingo}"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(panorama["horas"]["semanaSegundos"], 3_600);
+    assert_eq!(panorama["horas"]["semanaValorCents"], 3_000);
+    assert_eq!(
+        panorama["horas"]["hojeSegundos"], 3_600,
+        "a hora de hoje nao entrou no total do dia"
+    );
+}
