@@ -14,7 +14,9 @@
 
 use std::sync::Arc;
 
-use mos_core::{AttentionService, CaptureService, SystemClock, WorkService};
+use mos_core::{
+    AcademicService, AttentionService, CaptureService, SystemClock, TrackingService, WorkService,
+};
 use mos_storage_sqlite::SqliteStorage;
 use mos_sync::DeviceRepository;
 
@@ -39,6 +41,11 @@ pub struct Estado {
     pub work: Arc<WorkService>,
     /// Os lembretes, que e o que decide quando o celular vibra.
     pub attention: Arc<AttentionService>,
+    /// As horas do CronoCAD. So LEITURA no bolso, por enquanto: lancar hora e a
+    /// entrega da camada de escrita, e nao esta.
+    pub tracking: Arc<TrackingService>,
+    /// O academico, para o "o que vem por ai" da Home.
+    pub academic: Arc<AcademicService>,
     /// Onde o hub esta, e com que segredo falar com ele. Vazio desliga o sync —
     /// e o `mos-web` continua funcionando, so que sozinho.
     pub hub: Option<Arc<Hub>>,
@@ -179,6 +186,8 @@ impl Estado {
         Ok(Self {
             captures: Arc::new(CaptureService::new(Arc::clone(&storage) as Arc<_>)),
             work: Arc::new(WorkService::new(Arc::clone(&storage) as Arc<_>)),
+            tracking: Arc::new(TrackingService::new(Arc::clone(&storage) as Arc<_>)),
+            academic: Arc::new(AcademicService::new(Arc::clone(&storage) as Arc<_>)),
             attention: Arc::new(AttentionService::new(
                 Arc::clone(&storage) as Arc<_>,
                 Arc::new(SystemClock),

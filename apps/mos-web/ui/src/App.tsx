@@ -7,6 +7,7 @@ import {
   type Capture,
   type EstadoDoAparelho,
   type Lembrete,
+  type Panorama,
   type Task,
 } from "./api";
 import { ativar, situacao, type Situacao } from "./notificacoes";
@@ -58,6 +59,7 @@ export function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [lembretes, setLembretes] = useState<Lembrete[]>([]);
   const [estado, setEstado] = useState<EstadoDoAparelho | null>(null);
+  const [panorama, setPanorama] = useState<Panorama | null>(null);
   const [recado, setRecado] = useState("");
   const [erro, setErro] = useState(false);
   const [ocupado, setOcupado] = useState(false);
@@ -80,15 +82,19 @@ export function App() {
         return;
       }
     }
-    const [proximaInbox, proximasTasks, proximosLembretes] = await Promise.all([
+    const [proximaInbox, proximasTasks, proximosLembretes, proximoPanorama] = await Promise.all([
       api.inbox().catch(() => [] as Capture[]),
       api.tasks().catch(() => [] as Task[]),
       api.lembretes().catch(() => [] as Lembrete[]),
+      // Nulo em vez de erro: um servidor sem a rota ainda serve a Home inteira,
+      // só sem os dois cartões novos.
+      api.panorama().catch(() => null),
     ]);
     if (proximoEstado) setEstado(proximoEstado);
     setCapturas(proximaInbox);
     setTasks(proximasTasks);
     setLembretes(proximosLembretes);
+    setPanorama(proximoPanorama);
     // A situação das notificações é recalculada junto: ela muda por fora do app
     // — instalar na tela de início, mexer em Ajustes —, e uma tela que só olha
     // uma vez ficaria dizendo "instale" depois de você já ter instalado.
@@ -296,7 +302,7 @@ export function App() {
           sem transição nenhuma, como um corte. */}
       <main className="conteudo" key={pagina}>
         {pagina === "home" ? (
-          <Home estado={estado} dados={dados} aoIr={setPagina} />
+          <Home estado={estado} dados={dados} panorama={panorama} aoIr={setPagina} />
         ) : null}
         {pagina === "capturar" ? <Capturar capturas={capturas} /> : null}
         {pagina === "inbox" ? (

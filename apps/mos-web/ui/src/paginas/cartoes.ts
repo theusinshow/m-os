@@ -1,4 +1,4 @@
-import { pedeAtencao, type EstadoDoAparelho } from "../api";
+import { pedeAtencao, type EstadoDoAparelho, type Panorama } from "../api";
 import type { Dados, Pagina } from "../navegacao";
 
 export type CartaoDaHome = {
@@ -25,6 +25,7 @@ export function cartoesDaHome(
   estado: EstadoDoAparelho | null,
   dados: Dados,
   agora: Date = new Date(),
+  panorama: Panorama | null = null,
 ): CartaoDaHome[] {
   const cartoes: CartaoDaHome[] = [];
 
@@ -58,6 +59,29 @@ export function cartoesDaHome(
           : "agendados, nenhum vencido",
       destino: "lembretes",
       urgente: cobrando.length > 0 || undefined,
+    });
+  }
+
+  // As horas vêm do panorama, e não do banco local: o cálculo é o mesmo do
+  // desktop — arredondamento por sessão —, e refazê-lo aqui daria um segundo
+  // número que diverge do primeiro no dia em que a regra mudar.
+  if (panorama && panorama.horas.semanaSegundos > 0) {
+    cartoes.push({
+      chave: "horas",
+      rotulo: "HORAS",
+      numero: emHoras(panorama.horas.semanaSegundos),
+      legenda: `${emReais(panorama.horas.semanaValorCents)} nesta semana`,
+      destino: "home",
+    });
+  }
+
+  if (panorama && panorama.proximos.length > 0) {
+    cartoes.push({
+      chave: "academico",
+      rotulo: "ACADÊMICO",
+      numero: String(panorama.proximos.length),
+      legenda: panorama.proximos[0].titulo,
+      destino: "home",
     });
   }
 
@@ -95,4 +119,25 @@ export function cartoesDaHome(
   }
 
   return cartoes;
+}
+
+/** `9h08`. Minuto e a menor unidade que importa numa fatura de hora. */
+function emHoras(segundos: number): string {
+  const minutos = Math.round(segundos / 60);
+  const horas = Math.floor(minutos / 60);
+  return `${horas}h${String(minutos % 60).padStart(2, "0")}`;
+}
+
+/** `R$ 274,00`, e `R$ 1.234,56`.
+ *
+ *  O "R$" entra à mão, e só o número passa pelo `toLocaleString`: o formato de
+ *  moeda do navegador usa espaço NÃO-QUEBRÁVEL entre símbolo e valor, e um
+ *  caractere invisível dentro de uma string é armadilha para quem for comparar
+ *  isso depois — em teste ou em log. */
+function emReais(centavos: number): string {
+  const valor = (centavos / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `R$ ${valor}`;
 }
