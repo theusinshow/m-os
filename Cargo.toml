@@ -28,7 +28,7 @@ members = [
 exclude = ["apps/cronocad/src-tauri"]
 
 [workspace.package]
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 authors = ["Coded by M"]
 license = "UNLICENSED"
