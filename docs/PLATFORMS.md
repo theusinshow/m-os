@@ -256,8 +256,12 @@ Ver `FEATURE-DEVELOPMENT.md` para o processo completo.
 
 Honestidade sobre o estado, para ninguém construir em cima de promessa:
 
-- **Não há servidor.** Não há auth, não há transporte, não há endpoint. A
-  fundação de sync está pronta para receber um; ele não existe.
+- **O servidor existe, e é passivo por enquanto.** O `mos-sync-server` roda na
+  VPS atrás do Caddy, com token e TLS, e guarda três coisas: o log de operações,
+  quem está na malha e o manifesto de cada aparelho. O que ele **não** faz
+  ainda: manter estado canônico, distinguir concorrência real e confirmar
+  aplicação — isso é a fase 2 do
+  `docs/superpowers/specs/2026-09-04-sync-v2-design.md`.
 - **Não há app iOS.** Não há `apps/ios`, não há bundle id, não há signing.
 - **Não há push.** Nem infraestrutura, nem certificado, nem plugin.
 - **A fila de saída não é alimentada pelo domínio.** A fila funciona, o motor

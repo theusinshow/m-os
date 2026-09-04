@@ -988,8 +988,9 @@ impl<'a> ProjecaoSqlite<'a> {
             let antes = tentativa.len();
             let mut faltas = Vec::new();
             for (kind, id) in tentativa {
-                if let Err(causa) = self.materializar_um(&kind, id) {
-                    faltas.push((kind, id, causa));
+                match self.materializar_um(&kind, id) {
+                    Ok(()) => self.limpar_pendente(&kind, id),
+                    Err(causa) => faltas.push((kind, id, causa)),
                 }
             }
             if faltas.len() == antes {
@@ -1002,6 +1003,110 @@ impl<'a> ProjecaoSqlite<'a> {
             self.pendentes = faltas.into_iter().map(|(k, i, _)| (k, i)).collect();
         }
         Vec::new()
+    }
+
+    /// Tira a entidade da fila — ela virou linha.
+    fn limpar_pendente(&self, kind: &str, id: uuid::Uuid) {
+        let Ok(conexao) = self.storage.connection.lock() else {
+            return;
+        };
+        let _ = conexao.execute(
+            "DELETE FROM sync_pendentes WHERE entity_kind = ?1 AND entity_id = ?2",
+            rusqlite::params![kind, id.to_string()],
+        );
+    }
+
+    /// Anota que esta entidade chegou e ainda nao virou linha.
+    ///
+    /// `tentativas` sobe a cada passagem: e o numero que separa "acabou de
+    /// chegar fora de ordem" de "esta encalhada ha dias", e sem ele o reparo nao
+    /// teria como dizer qual das duas coisas esta acontecendo.
+    fn anotar_pendente(&self, kind: &str, id: uuid::Uuid, erro: &str) {
+        // Falhar ao ANOTAR nao pode derrubar a rodada: a entidade continua no
+        // estado, e a varredura da abertura a encontra de qualquer jeito — a
+        // tabela e um atalho, e nao a unica memoria.
+        let Ok(conexao) = self.storage.connection.lock() else {
+            return;
+        };
+        let agora =
+            crate::repository::format_time(time::OffsetDateTime::now_utc()).unwrap_or_default();
+        let _ = conexao.execute(
+            "INSERT INTO sync_pendentes (entity_kind, entity_id, tentativas, ultimo_erro,              atualizado_em) VALUES (?1, ?2, 1, ?3, ?4)              ON CONFLICT(entity_kind, entity_id) DO UPDATE SET              tentativas = tentativas + 1, ultimo_erro = ?3, atualizado_em = ?4",
+            rusqlite::params![kind, id.to_string(), erro, agora],
+        );
+    }
+
+    /// As entidades que existem na sombra e NAO existem na tabela de dominio.
+    ///
+    /// Vive aqui, e nao no `sync_reparo`, porque so aqui o `Mapa` e visivel — e
+    /// abrir o mapa para fora vazaria a forma da projecao inteira para quem so
+    /// precisa de uma pergunta.
+    pub(crate) fn entidades_sem_linha(
+        storage: &SqliteStorage,
+    ) -> Result<Vec<(String, uuid::Uuid)>, CoreError> {
+        let conexao = storage.connection.lock().map_err(crate::map_lock_error)?;
+        let mut consulta = conexao
+            .prepare("SELECT entity_kind, entity_id FROM sync_state")
+            .map_err(map_sql_error)?;
+        let linhas = consulta
+            .query_map([], |linha| {
+                Ok((linha.get::<_, String>(0)?, linha.get::<_, String>(1)?))
+            })
+            .map_err(map_sql_error)?;
+
+        let mut candidatos = Vec::new();
+        for linha in linhas {
+            let (kind, id) = linha.map_err(map_sql_error)?;
+            let Ok(id) = uuid::Uuid::parse_str(&id) else {
+                continue;
+            };
+            let Some(mapa) = mapa_de(&kind) else {
+                // Tipo que este binario nao conhece: guardado, e nao
+                // materializavel. Nao e defeito — e o cliente antigo recebendo
+                // o que o novo mandou, e a varredura do dia em que ele
+                // atualizar o encontra.
+                continue;
+            };
+            // Tabela de linha unica nao tem id para procurar: ela existe ou nao.
+            let existe: bool = match mapa.linha_unica {
+                Some(literal) => conexao
+                    .query_row(
+                        &format!(
+                            "SELECT EXISTS(SELECT 1 FROM {} WHERE {} = {literal})",
+                            mapa.tabela, mapa.chave
+                        ),
+                        [],
+                        |linha| linha.get(0),
+                    )
+                    .unwrap_or(false),
+                None => conexao
+                    .query_row(
+                        &format!(
+                            "SELECT EXISTS(SELECT 1 FROM {} WHERE {} = ?1)",
+                            mapa.tabela, mapa.chave
+                        ),
+                        rusqlite::params![id.to_string()],
+                        |linha| linha.get(0),
+                    )
+                    .unwrap_or(false),
+            };
+            if !existe {
+                candidatos.push((kind, id));
+            }
+        }
+        Ok(candidatos)
+    }
+
+    /// Materializa uma entidade a partir do estado ja guardado, sem rodada.
+    ///
+    /// `materializar_um` e privado da rodada e assume a projecao viva; o reparo
+    /// roda na abertura, quando rodada nenhuma existe.
+    pub(crate) fn materializar_avulso(
+        storage: &SqliteStorage,
+        kind: &str,
+        id: uuid::Uuid,
+    ) -> Result<(), String> {
+        ProjecaoSqlite::nova(storage).materializar_um(kind, id)
     }
 
     /// Materializa uma entidade a partir do estado ja guardado.
@@ -1060,6 +1165,9 @@ impl Projecao for ProjecaoSqlite<'_> {
 
         if self.materializar_um(kind, op.entity.id).is_err() {
             self.pendentes.push((kind.to_owned(), op.entity.id));
+            // A fila em memoria serve a ESTA rodada; a tabela e o que faz a
+            // proxima abertura saber que ficou algo para tras.
+            self.anotar_pendente(kind, op.entity.id, "materializacao adiada");
         }
         Ok(())
     }
@@ -1376,6 +1484,65 @@ mod tests {
         }
         let faltas = projecao.resolver_pendentes();
         assert!(faltas.is_empty(), "a projecao nao materializou: {faltas:?}");
+    }
+
+    /// O caso que deixou entidade invisivel para sempre.
+    ///
+    /// A materializacao falha porque o pai nao chegou, e o processo morre. A
+    /// fila tem que sobreviver a isso — em memoria ela nao sobrevivia, e a
+    /// abertura seguinte nao sabia que havia o que consertar.
+    #[test]
+    fn o_pendente_sobrevive_ao_fechamento_do_app() {
+        let (storage, _guarda) = storage_que_emite();
+
+        // Uma hora cujo projeto nao existe: a chave estrangeira recusa.
+        let hora = uuid::Uuid::now_v7();
+        let op = Op::new(
+            uuid::Uuid::now_v7(),
+            mos_sync::EntityRef::new("time_entry", hora),
+            mos_sync::OpBody::Create {
+                fields: [
+                    (
+                        "projectId".to_owned(),
+                        serde_json::json!(uuid::Uuid::now_v7().to_string()),
+                    ),
+                    (
+                        "startedAt".to_owned(),
+                        serde_json::json!("2026-09-04T10:00:00Z"),
+                    ),
+                    ("durationSeconds".to_owned(), serde_json::json!(3600)),
+                ]
+                .into_iter()
+                .collect(),
+            },
+            mos_sync::Hlc::new(1, 0, mos_sync::DeviceId(uuid::Uuid::now_v7())),
+        );
+
+        {
+            let mut projecao = ProjecaoSqlite::nova(&storage);
+            let base = projecao.estado_de(&op);
+            let estado = mos_sync::aplicar(base, std::slice::from_ref(&op)).estado;
+            projecao.guardar(&op, &estado).unwrap();
+            // A projecao morre aqui, como quando o app fecha.
+        }
+
+        let guardados: Vec<(String, String)> = {
+            let conexao = storage.connection.lock().unwrap();
+            let mut consulta = conexao
+                .prepare("SELECT entity_kind, entity_id FROM sync_pendentes")
+                .unwrap();
+            let linhas = consulta
+                .query_map([], |linha| {
+                    Ok((linha.get::<_, String>(0)?, linha.get::<_, String>(1)?))
+                })
+                .unwrap();
+            linhas.map(|linha| linha.unwrap()).collect()
+        };
+        assert_eq!(
+            guardados,
+            vec![("time_entry".to_owned(), hora.to_string())],
+            "o pendente nao sobreviveu: na proxima abertura ninguem tentaria de novo"
+        );
     }
 
     /// O diario JA emitia, e a operacao viajava — so nunca virava linha.

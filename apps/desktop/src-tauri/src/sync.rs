@@ -413,12 +413,29 @@ fn anunciar(
             return;
         }
     };
+    // Manifesto que nao pode ser calculado nao impede a batida: o aparelho ainda
+    // precisa aparecer na malha, mesmo que sem retrato.
+    let manifesto: Vec<mos_sync_http::FamiliaNoAnuncio> = storage
+        .manifesto()
+        .map(|linhas| {
+            linhas
+                .into_iter()
+                .map(|linha| mos_sync_http::FamiliaNoAnuncio {
+                    familia: linha.familia,
+                    contagem: linha.contagem,
+                    hash: linha.hash,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     if let Err(causa) = transporte.anunciar(&mos_sync_http::Anuncio {
         id: &eu.id.to_string(),
         nome: &eu.name,
         plataforma: "windows",
         versao: env!("CARGO_PKG_VERSION"),
         contrato: mos_sync::CONTRACT_VERSION,
+        manifesto: &manifesto,
     }) {
         eprintln!("[sync] a batida nao chegou: {}", causa.mensagem);
     }
@@ -451,4 +468,29 @@ pub async fn sync_malha(
     })
     .await
     .map_err(|erro| format!("A consulta a malha nao terminou: {erro}"))?
+}
+
+/// Roda a varredura de reparo agora, a pedido da tela.
+///
+/// Existe como botao alem da abertura porque quem esta olhando a malha e vendo
+/// "divergente" quer agir naquele minuto, e nao no proximo reinicio.
+#[tauri::command]
+pub async fn sync_reparar(app: tauri::AppHandle) -> Result<mos_storage_sqlite::Reparo, String> {
+    let storage = {
+        let state = app.state::<crate::AppState>();
+        Arc::clone(&state.storage)
+    };
+    let reparo = tauri::async_runtime::spawn_blocking(move || {
+        storage
+            .reparar_materializacao()
+            .map_err(|erro| erro.message)
+    })
+    .await
+    .map_err(|erro| format!("O reparo nao terminou: {erro}"))??;
+    // A tela inteira pode ter ganhado linhas; quem estiver com uma lista aberta
+    // precisa reler.
+    if reparo.reparadas > 0 {
+        let _ = app.emit("data-changed", "reparo");
+    }
+    Ok(reparo)
 }

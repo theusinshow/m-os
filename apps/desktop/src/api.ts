@@ -1146,6 +1146,10 @@ export const api = {
   syncMalha() {
     return invoke<AparelhoNaMalha[]>("sync_malha");
   },
+  /** Materializa o que chegou e não virou linha. Devolve o que reparou. */
+  syncReparar() {
+    return invoke<{ examinadas: number; reparadas: number; falharam: string[] }>("sync_reparar");
+  },
   /** Vazio desliga a sincronização sem apagar o segredo nem a fila. */
   syncSetEndpoint(url: string) {
     return invoke<void>("sync_set_endpoint", { url });

@@ -11650,3 +11650,16 @@ button.daily-objective-title:focus-visible {
 .malha li[data-divergente] .malha-versao {
   color: var(--signal);
 }
+
+/* O alinhamento na malha.
+   Cor E palavra: a cor sozinha não diz nada a quem não distingue âmbar de
+   verde, e a palavra sozinha se perde na varredura da lista. */
+.malha-alinhamento {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--text-system);
+}
+
+.malha-alinhamento[data-estado="alinhado"] { color: var(--calmo, #5f8f72); }
+.malha-alinhamento[data-estado="atras"] { color: var(--text-secondary); }
+.malha-alinhamento[data-estado="divergente"] { color: var(--signal); }

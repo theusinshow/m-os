@@ -1451,6 +1451,9 @@ export type AparelhoNaMalha = {
   versao: string;
   contrato: number;
   vistoEm: string;
+  /** Contagem e hash por família. Vazio: aparelho que ainda não atualizou —
+   *  e isso não é divergência. */
+  manifesto: { familia: string; contagem: number; hash: string }[];
 };
 
 export type SyncStatus = {

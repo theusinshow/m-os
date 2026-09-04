@@ -2050,6 +2050,30 @@ pub fn run() {
                                 }
                                 Err(causa) => eprintln!("[sync] backfill nao passou: {causa}"),
                             }
+
+                            // A VARREDURA DE REPARO.
+                            //
+                            // Depois do backfill, e nao antes: o backfill mexe
+                            // na fila de saida, e o reparo olha o banco. Ela
+                            // existe porque uma entidade podia chegar, falhar ao
+                            // virar linha e sumir da fila quando o app fechasse
+                            // — ficando viva no `sync_state` e invisivel na
+                            // tela, para sempre.
+                            //
+                            // Falhar aqui tambem nao impede o M/OS de abrir.
+                            match storage.reparar_materializacao() {
+                                Ok(reparo) if reparo.reparadas > 0 => eprintln!(
+                                    "[sync] reparo: {} de {} entidades voltaram a aparecer",
+                                    reparo.reparadas, reparo.examinadas
+                                ),
+                                Ok(reparo) if !reparo.falharam.is_empty() => eprintln!(
+                                    "[sync] reparo: {} dependem de algo que nao chegou: {:?}",
+                                    reparo.falharam.len(),
+                                    reparo.falharam
+                                ),
+                                Ok(_) => {}
+                                Err(causa) => eprintln!("[sync] reparo nao rodou: {causa}"),
+                            }
                         }
                     }
                     Err(causa) => eprintln!("[sync] dispositivo nao registrado: {causa}"),
@@ -2303,6 +2327,7 @@ pub fn run() {
                     sync::sync_clear_token,
                     sync::sync_now,
                     sync::sync_malha,
+                    sync::sync_reparar,
                     sync::sync_app_pronto,
                     sync::sync_dispensar_resumo,
                     hermes::hermes_set_credentials,
