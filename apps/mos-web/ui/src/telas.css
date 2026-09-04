@@ -130,6 +130,117 @@
   color: var(--text-secondary);
 }
 
+/* ------------------------------------------------------- home: arrumar */
+
+/* O cartão deixou de ser a célula da grade: quem ocupa a célula é o slot, e o
+   cartão vive dentro dele junto com os controles do modo arrumar. Sem isso, os
+   controles empurrariam o cartão vizinho para baixo. */
+.home-slot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /* O cartão estica para a altura da linha: dois cartões lado a lado com
+     legendas de tamanhos diferentes ficariam desalinhados embaixo. */
+  align-items: stretch;
+}
+
+.home-slot > .cartao {
+  flex: 1;
+}
+
+.home-slot[data-largo] {
+  grid-column: 1 / -1;
+}
+
+.home-topo {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  /* Acima do brilho: o gradiente da Home é um pseudo-elemento sem z-index, e
+     sem isto o botão fica embaixo dele e o toque não chega. */
+  position: relative;
+  z-index: 1;
+}
+
+/* Discreto de propósito. Arrumar é raro — uma vez, quando o app não está do
+   jeito que se quer — e um botão com peso de ação principal competiria todos os
+   dias com o número que trouxe a pessoa aqui. */
+.home-arrumar {
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  background: none;
+  color: var(--text-system);
+  font: 500 11px/1.4 var(--font-system);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.home[data-arrumando] .home-arrumar {
+  color: var(--signal);
+}
+
+.home-controles {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.home-controles button {
+  flex: 1;
+  /* 32px é o mínimo que o polegar acerta sem mirar; abaixo disso o ↑ e o ↓
+     viram alvos que erram justamente quando se está mexendo depressa. */
+  min-height: 32px;
+  padding: 0 var(--space-1);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font: 400 12px/1 var(--font-system);
+  cursor: pointer;
+}
+
+.home-controles button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.home-controles .home-esconder {
+  flex: 2;
+}
+
+.home-escondidos {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.home-escondidos h2 {
+  margin: 0;
+  font: 500 11px/1.4 var(--font-system);
+  letter-spacing: 0.08em;
+  color: var(--text-system);
+}
+
+.home-escondidos div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Chip, e não cartão: o que está escondido não tem número para mostrar, e
+   desenhá-lo como cartão vazio faria parecer que ele voltou. */
+.home-escondidos button {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  font: 500 11px/1.4 var(--font-system);
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
 /* ---------------------------------------------------------------- mais */
 
 .mais {
@@ -300,4 +411,69 @@
    mesma coisa. */
 .agenda .item[data-cobra] .agenda-hora {
   color: var(--signal);
+}
+
+/* ---------------------------------------------------------------- horas */
+
+.horas {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* Semana e mês como interruptor, e não como menu: são duas opções, e um select
+   para duas escolhas custa um toque a mais para ganhar nada. */
+.horas-janela {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.horas-janela button {
+  flex: 1;
+  min-height: var(--toque);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-secondary);
+  font: 500 12px/1.4 var(--font-system);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.horas-janela button[aria-pressed="true"] {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+.horas-janela button:active {
+  background: var(--surface-active);
+}
+
+/* O total antes da lista: a resposta primeiro, o detalhamento depois. */
+.horas-total {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.horas-total strong {
+  font: 500 32px/1.1 var(--font-product);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.horas-total span {
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+/* A barra é proporcional ao MAIOR da lista, e não ao total: contra o total, uma
+   semana espalhada em seis projetos viraria seis tracinhos indistinguíveis. */
+.horas-barra {
+  height: 3px;
+  margin: var(--space-2) 0 var(--space-1);
+  border-radius: 2px;
+  background: var(--signal);
+  opacity: 0.75;
 }

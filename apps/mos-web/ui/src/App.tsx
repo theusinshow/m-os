@@ -7,6 +7,8 @@ import {
   type Capture,
   type EstadoDoAparelho,
   type Lembrete,
+  type CompromissoDaLista,
+  type HorasDeProjeto,
   type ItemDaAgenda,
   type Panorama,
   type Task,
@@ -19,12 +21,15 @@ import { Barra } from "./componentes/Barra";
 import { Marca } from "./componentes/Marca";
 import type { Pagina } from "./navegacao";
 import { Home } from "./paginas/Home";
+import { gravarArranjo, lerArranjo, type Arranjo } from "./paginas/arranjo";
 import { Capturar } from "./paginas/Capturar";
 import { Inbox } from "./paginas/Inbox";
 import { Tasks } from "./paginas/Tasks";
 import { Lembretes } from "./paginas/Lembretes";
 import { Mais } from "./paginas/Mais";
 import { Agenda } from "./paginas/Agenda";
+import { Horas } from "./paginas/Horas";
+import { Academico } from "./paginas/Academico";
 
 /** O que a folha de *quando* está agendando, enquanto ela está aberta. */
 type Agendamento = {
@@ -63,11 +68,17 @@ export function App() {
   const [estado, setEstado] = useState<EstadoDoAparelho | null>(null);
   const [panorama, setPanorama] = useState<Panorama | null>(null);
   const [agenda, setAgenda] = useState<ItemDaAgenda[]>([]);
+  const [horas, setHoras] = useState<HorasDeProjeto[]>([]);
+  const [janelaDasHoras, setJanelaDasHoras] = useState<"semana" | "mes">("semana");
+  const [academico, setAcademico] = useState<CompromissoDaLista[]>([]);
   const [recado, setRecado] = useState("");
   const [erro, setErro] = useState(false);
   const [ocupado, setOcupado] = useState(false);
   const [avisos, setAvisos] = useState<Situacao | null>(null);
   const [agendando, setAgendando] = useState<Agendamento | null>(null);
+  // Lido uma vez, na montagem: o arranjo vive no `localStorage` deste aparelho,
+  // e reler a cada render custaria uma ida ao disco por causa de nada.
+  const [arranjo, setArranjo] = useState<Arranjo>(lerArranjo);
   /** `true` enquanto o servidor recusar por falta de sessão. */
   const [fechado, setFechado] = useState(false);
 
@@ -85,8 +96,14 @@ export function App() {
         return;
       }
     }
-    const [proximaInbox, proximasTasks, proximosLembretes, proximoPanorama, proximaAgenda] =
-      await Promise.all([
+    const [
+      proximaInbox,
+      proximasTasks,
+      proximosLembretes,
+      proximoPanorama,
+      proximaAgenda,
+      proximoAcademico,
+    ] = await Promise.all([
       api.inbox().catch(() => [] as Capture[]),
       api.tasks().catch(() => [] as Task[]),
       api.lembretes().catch(() => [] as Lembrete[]),
@@ -99,6 +116,7 @@ export function App() {
       api
         .agenda(diasDaqui(-1), diasDaqui(7))
         .catch(() => [] as ItemDaAgenda[]),
+      api.academico().catch(() => [] as CompromissoDaLista[]),
     ]);
     if (proximoEstado) setEstado(proximoEstado);
     setCapturas(proximaInbox);
@@ -106,11 +124,23 @@ export function App() {
     setLembretes(proximosLembretes);
     setPanorama(proximoPanorama);
     setAgenda(proximaAgenda);
+    setAcademico(proximoAcademico);
     // A situação das notificações é recalculada junto: ela muda por fora do app
     // — instalar na tela de início, mexer em Ajustes —, e uma tela que só olha
     // uma vez ficaria dizendo "instale" depois de você já ter instalado.
     setAvisos(await situacao(proximoEstado?.chavePush ?? null));
   }, []);
+
+  useEffect(() => {
+    // As horas seguem a janela escolhida, e nao o laco geral: elas so importam
+    // com a pagina aberta, e recarrega-las a cada trinta segundos seria uma ida
+    // a rede por um numero que ninguem esta olhando.
+    const inicio = janelaDasHoras === "semana" ? inicioDaSemana() : inicioDoMes();
+    void api
+      .horas(inicio, new Date())
+      .then(setHoras)
+      .catch(() => setHoras([]));
+  }, [janelaDasHoras, pagina]);
 
   useEffect(() => {
     void atualizar();
@@ -313,7 +343,17 @@ export function App() {
           sem transição nenhuma, como um corte. */}
       <main className="conteudo" key={pagina}>
         {pagina === "home" ? (
-          <Home estado={estado} dados={dados} panorama={panorama} aoIr={setPagina} />
+          <Home
+            estado={estado}
+            dados={dados}
+            panorama={panorama}
+            arranjo={arranjo}
+            aoArranjar={(proximo) => {
+              setArranjo(proximo);
+              gravarArranjo(proximo);
+            }}
+            aoIr={setPagina}
+          />
         ) : null}
         {pagina === "capturar" ? <Capturar capturas={capturas} /> : null}
         {pagina === "inbox" ? (
@@ -346,6 +386,10 @@ export function App() {
           />
         ) : null}
         {pagina === "agenda" ? <Agenda itens={agenda} agora={new Date()} /> : null}
+        {pagina === "horas" ? (
+          <Horas linhas={horas} janela={janelaDasHoras} aoTrocarJanela={setJanelaDasHoras} />
+        ) : null}
+        {pagina === "academico" ? <Academico compromissos={academico} /> : null}
         {pagina === "mais" ? (
           <Mais
             estado={estado}
@@ -356,6 +400,8 @@ export function App() {
             aoTestar={() => void testarAvisos()}
             aoAbrirLembretes={() => setPagina("lembretes")}
             aoAbrirAgenda={() => setPagina("agenda")}
+            aoAbrirHoras={() => setPagina("horas")}
+            aoAbrirAcademico={() => setPagina("academico")}
           />
         ) : null}
       </main>
@@ -424,4 +470,21 @@ function sinalDaFila(estado: EstadoDoAparelho | null, pendentes: number): string
 /** O instante de N dias a partir de agora. Negativo volta no tempo. */
 function diasDaqui(dias: number): Date {
   return new Date(Date.now() + dias * 86_400_000);
+}
+
+/** A segunda-feira desta semana, à meia-noite local. */
+function inicioDaSemana(): Date {
+  const inicio = new Date();
+  const desdeSegunda = (inicio.getDay() + 6) % 7;
+  inicio.setDate(inicio.getDate() - desdeSegunda);
+  inicio.setHours(0, 0, 0, 0);
+  return inicio;
+}
+
+/** O dia 1 deste mês, à meia-noite local. */
+function inicioDoMes(): Date {
+  const inicio = new Date();
+  inicio.setDate(1);
+  inicio.setHours(0, 0, 0, 0);
+  return inicio;
 }
