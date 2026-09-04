@@ -791,7 +791,10 @@ async fn horas(
     }
 
     let projetos = estado.work.projects(true).map_err(de_core)?;
-    let linhas = estado.tracking.report(Some(de), Some(ate)).map_err(de_core)?;
+    let linhas = estado
+        .tracking
+        .report(Some(de), Some(ate))
+        .map_err(de_core)?;
 
     let mut por_projeto: std::collections::HashMap<String, HorasDeProjeto> =
         std::collections::HashMap::new();
