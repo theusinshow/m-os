@@ -397,3 +397,28 @@ trava o valor.
 - **Arquivos binários.** Resources com PDF, imagem e áudio não sincronizam como
   blob dentro de JSON (§44). Metadado e binário são camadas separadas, com
   upload, download, cache e checksum próprios. Nada disso está feito.
+
+## Reparo e prova (V2, fase 1)
+
+Duas coisas que a V1 não tinha, e cuja falta custou uma manhã de investigação em
+02/09/2026.
+
+**A fila de pendentes é uma tabela.** Uma entidade que chega e não vira linha
+fica em `sync_pendentes`, e a **abertura do app** varre `sync_state` procurando
+sombra sem linha, materializando o que achar. Antes, a fila era um `Vec` em
+memória e o cursor avançava assim mesmo: a entidade ficava viva no banco de
+sincronização, invisível na tela, e nada dizia isso. A varredura olha o banco e
+não a fila — é por isso que ela conserta também os bancos que já estão nesse
+estado, sem ninguém rodar diagnóstico.
+
+**O manifesto prova a igualdade.** Cada aparelho manda, por família, contagem e
+hash — calculados sobre `sync_state`, e **nunca** sobre as tabelas de domínio,
+que carregam o `updated_at` de quem aplicou. O hub guarda o retrato de cada um,
+trocado inteiro a cada batida, e a tela responde `alinhado`, `atrás` ou
+`divergente`, com reparo oferecido sempre.
+
+Aparelho sem manifesto não é acusado de nada: ele é um M/OS que ainda não
+atualizou.
+
+O que esta fase **não** faz: estado canônico no servidor, revisão-base por campo
+e confirmação de aplicação. Isso é a fase 2, e o spec já está escrito.
