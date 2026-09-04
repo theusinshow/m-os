@@ -14,6 +14,7 @@
  */
 import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { api, appError } from "./api";
+import { alinhamento, type Alinhamento } from "./malha";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { finance } from "./finance";
 import { hermes, type HermesStatus } from "./hermes";
@@ -325,6 +326,24 @@ function SyncSettings() {
     } catch (error) { setMessageState("error"); setMessage(appError(error).message); }
   }
 
+  /** Materializa o que chegou e não virou linha. */
+  async function reparar() {
+    setMessageState("saving");
+    setMessage("Reparando...");
+    try {
+      const reparo = await api.syncReparar();
+      await refresh();
+      setMessageState(reparo.falharam.length > 0 ? "error" : "saved");
+      setMessage(
+        reparo.reparadas > 0
+          ? `${reparo.reparadas} de ${reparo.examinadas} voltaram a aparecer.`
+          : reparo.falharam.length > 0
+            ? `${reparo.falharam.length} dependem de algo que não chegou.`
+            : "Nada estava faltando neste aparelho.",
+      );
+    } catch (error) { setMessageState("error"); setMessage(appError(error).message); }
+  }
+
   async function run() {
     setRunning(true);
     setMessageState("saving");
@@ -342,6 +361,10 @@ function SyncSettings() {
     } catch (error) { setMessageState("error"); setMessage(appError(error).message); }
     setRunning(false);
   }
+
+  // Calculado uma vez por render: a lista tem três linhas, e refazer a
+  // comparação dentro do `map` seria o mesmo trabalho três vezes.
+  const alinhamentos = alinhamento(malha, status?.deviceId ?? "");
 
   return <Panel label="SINCRONIZAÇÃO">
     <p className="support-copy">O M/OS guarda tudo aqui e funciona inteiro sem isto. O hub só serve para dois aparelhos se alcançarem quando não estão na mesma rede — ele não decide nada, apenas guarda em ordem e devolve.</p>
@@ -367,18 +390,29 @@ function SyncSettings() {
         {malha.map((aparelho) => {
           const euMesmo = aparelho.id === status?.deviceId;
           const divergente = aparelho.versao !== status?.appVersion;
+          const situacao: Alinhamento | undefined = alinhamentos.find((linha) => linha.id === aparelho.id);
           return <li key={aparelho.id} data-divergente={divergente || undefined}>
             <span className="malha-nome">{aparelho.nome}</span>
             <span className="malha-versao">{aparelho.versao}</span>
             {/* Aviso, e não bloqueio: versão diferente não impede sincronizar,
                 e a frase é o que encerra a investigação. */}
             <span className="malha-visto">{euMesmo ? "este aparelho" : relativeTime(aparelho.vistoEm)}{divergente ? " · em versão diferente" : ""}</span>
+            {/* O alinhamento fala por cor E por palavra: cor sozinha não diz
+                nada a quem não distingue âmbar de verde. */}
+            <span className="malha-alinhamento" data-estado={situacao?.estado}>
+              {situacao?.estado === "alinhado" ? (situacao.detalhe || "alinhado") : situacao?.detalhe}
+            </span>
           </li>;
         })}
       </ul>
     </> : null}
     <div className="button-line">
       <Button variant="secondary" disabled={running || !status?.endpoint || !status?.hasToken} onClick={() => void run()}>{running ? "Sincronizando" : "Sincronizar agora"}</Button>
+      {/* O reparo aparece SEMPRE, e não só quando a malha acusa divergência: o
+          defeito que ele conserta é invisível por definição — a entidade está
+          no banco de sincronização e não na tela —, e esconder o botão até
+          alguém provar que ele é necessário esconderia a única saída. */}
+      <Button variant="ghost" onClick={() => void reparar()}>Reparar este aparelho</Button>
     </div>
     {message ? <StateMessage state={messageState} label={message} /> : null}
   </Panel>;
