@@ -820,7 +820,7 @@ async fn horas(
     let mut resposta: Vec<_> = por_projeto.into_values().collect();
     // Do maior para o menor: a pergunta e "onde foi o meu tempo", e a resposta
     // comeca pelo projeto que mais consumiu.
-    resposta.sort_by(|um, outro| outro.segundos.cmp(&um.segundos));
+    resposta.sort_by_key(|linha| std::cmp::Reverse(linha.segundos));
     Ok(Json(resposta))
 }
 
