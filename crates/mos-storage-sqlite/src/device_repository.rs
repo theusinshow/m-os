@@ -92,6 +92,20 @@ impl DeviceRepository for SqliteStorage {
                         params![id, nome, plataforma, versao, agora],
                     )
                     .map_err(erro_sql)?;
+                // A ancora tambem nasce AQUI, e nao so no ramo de baixo.
+                //
+                // Sem isto ela so apareceria em instalacao nova — e as maquinas
+                // que ja existem, que sao justamente as que podem perder a
+                // linha, nunca ganhariam a protecao. `OR IGNORE` porque a
+                // ancora, uma vez gravada, nao se corrige: ela e a memoria de
+                // quem este aparelho SEMPRE foi.
+                connection
+                    .execute(
+                        "INSERT OR IGNORE INTO app_metadata (key, value) \
+                         VALUES ('sync_device_id', ?1)",
+                        params![id],
+                    )
+                    .map_err(erro_sql)?;
                 id
             }
             None => {
@@ -195,6 +209,40 @@ mod tests {
             antes.id, depois.id,
             "o dispositivo nasceu de novo: o cursor e o relogio iriam junto"
         );
+    }
+
+    /// O banco que JA existia tambem ganha a ancora.
+    ///
+    /// O primeiro conserto so gravava a ancora quando a linha faltava — ou
+    /// seja, so em instalacao nova. As maquinas que ja existem sao exatamente
+    /// as que podem perder a linha, e elas ficariam sem protecao nenhuma. Este
+    /// teste simula isso: linha presente, ancora ausente, e a abertura seguinte
+    /// precisa criar a ancora antes que faca falta.
+    #[test]
+    fn um_banco_antigo_ganha_a_ancora_na_primeira_abertura() {
+        let (storage, _guarda) = storage();
+        let antes = storage.este_dispositivo("PC", "windows", "0.3.6").unwrap();
+
+        // O estado de quem instalou o M/OS antes desta versao.
+        storage
+            .escrita()
+            .unwrap()
+            .execute("DELETE FROM app_metadata WHERE key = 'sync_device_id'", [])
+            .unwrap();
+
+        storage.este_dispositivo("PC", "windows", "0.3.6").unwrap();
+
+        let ancora: String = storage
+            .connection
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT value FROM app_metadata WHERE key = 'sync_device_id'",
+                [],
+                |linha| linha.get(0),
+            )
+            .expect("o banco antigo continuou sem ancora");
+        assert_eq!(ancora, antes.id.to_string());
     }
 
     /// A ancora e a linha nascem juntas, ou nenhuma das duas.
