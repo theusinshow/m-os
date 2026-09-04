@@ -452,3 +452,28 @@ pub async fn sync_malha(
     .await
     .map_err(|erro| format!("A consulta a malha nao terminou: {erro}"))?
 }
+
+/// Roda a varredura de reparo agora, a pedido da tela.
+///
+/// Existe como botao alem da abertura porque quem esta olhando a malha e vendo
+/// "divergente" quer agir naquele minuto, e nao no proximo reinicio.
+#[tauri::command]
+pub async fn sync_reparar(app: tauri::AppHandle) -> Result<mos_storage_sqlite::Reparo, String> {
+    let storage = {
+        let state = app.state::<crate::AppState>();
+        Arc::clone(&state.storage)
+    };
+    let reparo = tauri::async_runtime::spawn_blocking(move || {
+        storage
+            .reparar_materializacao()
+            .map_err(|erro| erro.message)
+    })
+    .await
+    .map_err(|erro| format!("O reparo nao terminou: {erro}"))??;
+    // A tela inteira pode ter ganhado linhas; quem estiver com uma lista aberta
+    // precisa reler.
+    if reparo.reparadas > 0 {
+        let _ = app.emit("data-changed", "reparo");
+    }
+    Ok(reparo)
+}

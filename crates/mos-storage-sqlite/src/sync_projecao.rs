@@ -1036,6 +1036,79 @@ impl<'a> ProjecaoSqlite<'a> {
         );
     }
 
+    /// As entidades que existem na sombra e NAO existem na tabela de dominio.
+    ///
+    /// Vive aqui, e nao no `sync_reparo`, porque so aqui o `Mapa` e visivel — e
+    /// abrir o mapa para fora vazaria a forma da projecao inteira para quem so
+    /// precisa de uma pergunta.
+    pub(crate) fn entidades_sem_linha(
+        storage: &SqliteStorage,
+    ) -> Result<Vec<(String, uuid::Uuid)>, CoreError> {
+        let conexao = storage.connection.lock().map_err(crate::map_lock_error)?;
+        let mut consulta = conexao
+            .prepare("SELECT entity_kind, entity_id FROM sync_state")
+            .map_err(map_sql_error)?;
+        let linhas = consulta
+            .query_map([], |linha| {
+                Ok((linha.get::<_, String>(0)?, linha.get::<_, String>(1)?))
+            })
+            .map_err(map_sql_error)?;
+
+        let mut candidatos = Vec::new();
+        for linha in linhas {
+            let (kind, id) = linha.map_err(map_sql_error)?;
+            let Ok(id) = uuid::Uuid::parse_str(&id) else {
+                continue;
+            };
+            let Some(mapa) = mapa_de(&kind) else {
+                // Tipo que este binario nao conhece: guardado, e nao
+                // materializavel. Nao e defeito — e o cliente antigo recebendo
+                // o que o novo mandou, e a varredura do dia em que ele
+                // atualizar o encontra.
+                continue;
+            };
+            // Tabela de linha unica nao tem id para procurar: ela existe ou nao.
+            let existe: bool = match mapa.linha_unica {
+                Some(literal) => conexao
+                    .query_row(
+                        &format!(
+                            "SELECT EXISTS(SELECT 1 FROM {} WHERE {} = {literal})",
+                            mapa.tabela, mapa.chave
+                        ),
+                        [],
+                        |linha| linha.get(0),
+                    )
+                    .unwrap_or(false),
+                None => conexao
+                    .query_row(
+                        &format!(
+                            "SELECT EXISTS(SELECT 1 FROM {} WHERE {} = ?1)",
+                            mapa.tabela, mapa.chave
+                        ),
+                        rusqlite::params![id.to_string()],
+                        |linha| linha.get(0),
+                    )
+                    .unwrap_or(false),
+            };
+            if !existe {
+                candidatos.push((kind, id));
+            }
+        }
+        Ok(candidatos)
+    }
+
+    /// Materializa uma entidade a partir do estado ja guardado, sem rodada.
+    ///
+    /// `materializar_um` e privado da rodada e assume a projecao viva; o reparo
+    /// roda na abertura, quando rodada nenhuma existe.
+    pub(crate) fn materializar_avulso(
+        storage: &SqliteStorage,
+        kind: &str,
+        id: uuid::Uuid,
+    ) -> Result<(), String> {
+        ProjecaoSqlite::nova(storage).materializar_um(kind, id)
+    }
+
     /// Materializa uma entidade a partir do estado ja guardado.
     fn materializar_um(&self, kind: &str, id: uuid::Uuid) -> Result<(), String> {
         let conexao = self

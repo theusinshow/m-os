@@ -16,6 +16,7 @@ mod sync_backfill;
 mod sync_cobertura;
 mod sync_emit;
 mod sync_projecao;
+mod sync_reparo;
 mod sync_repository;
 mod tracking_repository;
 mod usage_repository;
@@ -36,6 +37,7 @@ use serde::Serialize;
 
 pub use academic_provider_repository::{AcademicProviderRepository, ProviderSubjectFact};
 pub use cronocad_import::ImportReport;
+pub use sync_reparo::Reparo;
 
 const SCHEMA_VERSION: u32 = 38;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
