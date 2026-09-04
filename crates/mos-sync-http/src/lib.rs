@@ -162,6 +162,18 @@ pub struct Anuncio<'a> {
     pub plataforma: &'a str,
     pub versao: &'a str,
     pub contrato: u32,
+    /// O retrato deste aparelho, por familia. Vazio e resposta valida: um
+    /// aparelho que nao conseguiu calcular ainda precisa aparecer na malha.
+    pub manifesto: &'a [FamiliaNoAnuncio],
+}
+
+/// Uma familia no manifesto, como ela viaja.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FamiliaNoAnuncio {
+    pub familia: String,
+    pub contagem: usize,
+    pub hash: String,
 }
 
 /// Um aparelho, como o hub o conhece.
@@ -173,6 +185,12 @@ pub struct AparelhoNaMalha {
     pub plataforma: String,
     pub versao: String,
     pub contrato: u32,
+    /// Contagem e hash por familia, como o hub recebeu na ultima batida.
+    ///
+    /// `default` porque um aparelho que ainda nao atualizou responde sem o
+    /// campo, e isso nao pode quebrar a leitura da malha.
+    #[serde(default)]
+    pub manifesto: Vec<FamiliaNoAnuncio>,
     /// RFC3339, na hora do SERVIDOR — relogio de cliente errado e comum, e um
     /// "visto ha tres dias" que na verdade foi agora manda a investigacao para
     /// o lado errado.
@@ -204,6 +222,7 @@ impl HttpTransport {
                 "plataforma": anuncio.plataforma,
                 "versao": anuncio.versao,
                 "contrato": anuncio.contrato,
+                "manifesto": anuncio.manifesto,
             }))
             .send()
             .map_err(erro_de_rede)?;

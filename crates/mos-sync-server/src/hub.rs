@@ -72,12 +72,26 @@ impl Hub {
                 recebido_em TEXT NOT NULL
             );
 
+            -- O retrato de cada aparelho, por familia.
+            --
+            -- Trocada inteira a cada batida, e nao acumulada: familia que sumiu
+            -- do aparelho tem que sumir do hub, ou a tela mostraria conteudo que
+            -- ele nao tem mais.
+            CREATE TABLE IF NOT EXISTS manifestos (
+                dispositivo TEXT NOT NULL,
+                familia     TEXT NOT NULL,
+                contagem    INTEGER NOT NULL,
+                hash        TEXT NOT NULL,
+                visto_em    TEXT NOT NULL,
+                PRIMARY KEY (dispositivo, familia)
+            );
+
             -- Quem esta na malha.
             --
             -- Separada do log de proposito: o log e o contrato, e esta tabela e
             -- metadado operacional. Apagar `aparelhos` inteira nao perde uma
-            -- unica operacao — perde so a resposta para "quem sao voces", que
-            -- os proprios aparelhos reconstroem na batida seguinte.
+            -- unica operacao — perde so a resposta para "quem sao voces", que os
+            -- proprios aparelhos reconstroem na batida seguinte.
             CREATE TABLE IF NOT EXISTS aparelhos (
                 id          TEXT PRIMARY KEY,
                 nome        TEXT NOT NULL,
@@ -241,9 +255,70 @@ impl Hub {
     }
 }
 
+/// Uma familia, como o hub a guarda.
+#[derive(Debug, Clone)]
+pub struct FamiliaDoManifesto {
+    pub familia: String,
+    pub contagem: i64,
+    pub hash: String,
+}
+
+impl Hub {
+    /// Troca o manifesto inteiro do aparelho.
+    ///
+    /// Apaga e regrava numa transacao: familia que sumiu do aparelho tem que
+    /// sumir do hub, e um `INSERT ... ON CONFLICT` deixaria a antiga para tras
+    /// — a tela passaria a mostrar conteudo que aquele aparelho nao tem mais.
+    pub fn guardar_manifesto(
+        &mut self,
+        dispositivo: &str,
+        familias: &[FamiliaDoManifesto],
+        visto_em: &str,
+    ) -> Resultado<()> {
+        let transacao = self.conexao.unchecked_transaction()?;
+        transacao.execute(
+            "DELETE FROM manifestos WHERE dispositivo = ?1",
+            rusqlite::params![dispositivo],
+        )?;
+        for familia in familias {
+            transacao.execute(
+                "INSERT INTO manifestos (dispositivo, familia, contagem, hash, visto_em)                  VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![
+                    dispositivo,
+                    familia.familia,
+                    familia.contagem,
+                    familia.hash,
+                    visto_em
+                ],
+            )?;
+        }
+        transacao.commit()?;
+        Ok(())
+    }
+
+    /// O manifesto de um aparelho.
+    pub fn manifesto_de(&self, dispositivo: &str) -> Resultado<Vec<FamiliaDoManifesto>> {
+        let mut consulta = self.conexao.prepare(
+            "SELECT familia, contagem, hash FROM manifestos WHERE dispositivo = ?1              ORDER BY familia",
+        )?;
+        let linhas = consulta.query_map(rusqlite::params![dispositivo], |linha| {
+            Ok(FamiliaDoManifesto {
+                familia: linha.get(0)?,
+                contagem: linha.get(1)?,
+                hash: linha.get(2)?,
+            })
+        })?;
+        let mut familias = Vec::new();
+        for linha in linhas {
+            familias.push(linha?);
+        }
+        Ok(familias)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{AparelhoRegistrado, Hub};
+    use super::{AparelhoRegistrado, FamiliaDoManifesto, Hub};
 
     fn aparelho() -> AparelhoRegistrado {
         AparelhoRegistrado {
@@ -284,5 +359,48 @@ mod tests {
         assert_eq!(lista.len(), 1, "a batida duplicou o aparelho");
         assert_eq!(lista[0].versao, "0.3.6");
         assert_eq!(lista[0].visto_em, "2026-09-03T12:30:00Z");
+    }
+
+    #[test]
+    fn o_manifesto_e_trocado_inteiro_a_cada_batida() {
+        let mut hub = Hub::em_memoria().unwrap();
+        let dispositivo = "01a0279d-18e1-78c2-991f-9e894e7214be";
+
+        hub.guardar_manifesto(
+            dispositivo,
+            &[
+                FamiliaDoManifesto {
+                    familia: "task".into(),
+                    contagem: 17,
+                    hash: "aa".into(),
+                },
+                FamiliaDoManifesto {
+                    familia: "project".into(),
+                    contagem: 10,
+                    hash: "bb".into(),
+                },
+            ],
+            "2026-09-04T12:00:00Z",
+        )
+        .unwrap();
+
+        // A batida seguinte nao tem mais `project`: ele precisa SUMIR do hub,
+        // ou a tela mostraria uma familia que o aparelho nao tem mais.
+        hub.guardar_manifesto(
+            dispositivo,
+            &[FamiliaDoManifesto {
+                familia: "task".into(),
+                contagem: 19,
+                hash: "cc".into(),
+            }],
+            "2026-09-04T12:05:00Z",
+        )
+        .unwrap();
+
+        let guardado = hub.manifesto_de(dispositivo).unwrap();
+        assert_eq!(guardado.len(), 1, "a familia antiga ficou para tras");
+        assert_eq!(guardado[0].familia, "task");
+        assert_eq!(guardado[0].contagem, 19);
+        assert_eq!(guardado[0].hash, "cc");
     }
 }

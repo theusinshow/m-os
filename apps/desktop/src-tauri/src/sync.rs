@@ -413,12 +413,29 @@ fn anunciar(
             return;
         }
     };
+    // Manifesto que nao pode ser calculado nao impede a batida: o aparelho ainda
+    // precisa aparecer na malha, mesmo que sem retrato.
+    let manifesto: Vec<mos_sync_http::FamiliaNoAnuncio> = storage
+        .manifesto()
+        .map(|linhas| {
+            linhas
+                .into_iter()
+                .map(|linha| mos_sync_http::FamiliaNoAnuncio {
+                    familia: linha.familia,
+                    contagem: linha.contagem,
+                    hash: linha.hash,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     if let Err(causa) = transporte.anunciar(&mos_sync_http::Anuncio {
         id: &eu.id.to_string(),
         nome: &eu.name,
         plataforma: "windows",
         versao: env!("CARGO_PKG_VERSION"),
         contrato: mos_sync::CONTRACT_VERSION,
+        manifesto: &manifesto,
     }) {
         eprintln!("[sync] a batida nao chegou: {}", causa.mensagem);
     }

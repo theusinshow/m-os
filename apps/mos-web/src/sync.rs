@@ -81,12 +81,26 @@ fn rodar(storage: &SqliteStorage, hub: &Hub, avisador: Option<&Avisador>) {
         use mos_sync::DeviceRepository;
         match storage.este_dispositivo("M/OS de bolso", "web", env!("CARGO_PKG_VERSION")) {
             Ok(eu) => {
+                let manifesto: Vec<mos_sync_http::FamiliaNoAnuncio> = storage
+                    .manifesto()
+                    .map(|linhas| {
+                        linhas
+                            .into_iter()
+                            .map(|linha| mos_sync_http::FamiliaNoAnuncio {
+                                familia: linha.familia,
+                                contagem: linha.contagem,
+                                hash: linha.hash,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 if let Err(causa) = transporte.anunciar(&mos_sync_http::Anuncio {
                     id: &eu.id.to_string(),
                     nome: &eu.name,
                     plataforma: "web",
                     versao: env!("CARGO_PKG_VERSION"),
                     contrato: mos_sync::CONTRACT_VERSION,
+                    manifesto: &manifesto,
                 }) {
                     eprintln!("[web] a batida nao chegou: {}", causa.mensagem);
                 }

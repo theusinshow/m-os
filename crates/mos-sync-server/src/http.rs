@@ -258,6 +258,19 @@ struct AparelhoPedido {
     plataforma: String,
     versao: String,
     contrato: u32,
+    /// `default` porque um aparelho que ainda nao atualizou bate sem manifesto,
+    /// e recusar a batida dele o tiraria da malha justamente quando saber que
+    /// ele existe importa mais.
+    #[serde(default)]
+    manifesto: Vec<FamiliaJson>,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct FamiliaJson {
+    familia: String,
+    contagem: i64,
+    hash: String,
 }
 
 #[derive(Serialize)]
@@ -269,6 +282,7 @@ struct AparelhoJson {
     versao: String,
     contrato: u32,
     visto_em: String,
+    manifesto: Vec<FamiliaJson>,
 }
 
 #[derive(Serialize)]
@@ -299,9 +313,23 @@ async fn registrar_aparelho(
         contrato: pedido.contrato,
         visto_em: String::new(),
     };
+    let manifesto: Vec<crate::hub::FamiliaDoManifesto> = pedido
+        .manifesto
+        .into_iter()
+        .map(|familia| crate::hub::FamiliaDoManifesto {
+            familia: familia.familia,
+            contagem: familia.contagem,
+            hash: familia.hash,
+        })
+        .collect();
+
     let agora = agora_iso();
     let mut hub = estado.hub.lock().expect("hub envenenado");
     hub.registrar_aparelho(&aparelho, &agora)
+        .map_err(falha_no_banco)?;
+    // O manifesto vazio TAMBEM e gravado: e assim que o hub esquece o retrato
+    // antigo de um aparelho que zerou, em vez de mostrar o de ontem para sempre.
+    hub.guardar_manifesto(&aparelho.id, &manifesto, &agora)
         .map_err(falha_no_banco)?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -323,6 +351,16 @@ async fn aparelhos(
         aparelhos: lista
             .into_iter()
             .map(|aparelho| AparelhoJson {
+                manifesto: hub
+                    .manifesto_de(&aparelho.id)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|familia| FamiliaJson {
+                        familia: familia.familia,
+                        contagem: familia.contagem,
+                        hash: familia.hash,
+                    })
+                    .collect(),
                 id: aparelho.id,
                 nome: aparelho.nome,
                 plataforma: aparelho.plataforma,
