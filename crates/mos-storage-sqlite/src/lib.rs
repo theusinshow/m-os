@@ -15,6 +15,7 @@ mod resource_repository;
 mod sync_backfill;
 mod sync_cobertura;
 mod sync_emit;
+mod sync_manifesto;
 mod sync_projecao;
 mod sync_reparo;
 mod sync_repository;
@@ -37,6 +38,7 @@ use serde::Serialize;
 
 pub use academic_provider_repository::{AcademicProviderRepository, ProviderSubjectFact};
 pub use cronocad_import::ImportReport;
+pub use sync_manifesto::LinhaDoManifesto;
 pub use sync_reparo::Reparo;
 
 const SCHEMA_VERSION: u32 = 38;
