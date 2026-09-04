@@ -7,6 +7,8 @@ export type Pagina =
   | "tasks"
   | "lembretes"
   | "agenda"
+  | "horas"
+  | "academico"
   | "mais";
 
 /**

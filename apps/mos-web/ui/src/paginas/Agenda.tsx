@@ -1,13 +1,7 @@
 import type { ItemDaAgenda } from "../api";
 import { Vazio } from "../componentes/Vazio";
 import { cobraAtencao, horaDoItem, porDia } from "./dias";
-
-/** `1h30`, para o total do dia. */
-function emHoras(segundos: number): string {
-  const minutos = Math.round(segundos / 60);
-  const horas = Math.floor(minutos / 60);
-  return `${horas}h${String(minutos % 60).padStart(2, "0")}`;
-}
+import { emHoras } from "./numeros";
 
 /**
  * A palavra que diz o que aquele item É.

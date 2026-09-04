@@ -1,5 +1,6 @@
 import { pedeAtencao, type EstadoDoAparelho, type Panorama } from "../api";
 import type { Dados, Pagina } from "../navegacao";
+import { emHoras, emReais } from "./numeros";
 
 export type CartaoDaHome = {
   chave: string;
@@ -71,7 +72,7 @@ export function cartoesDaHome(
       rotulo: "HORAS",
       numero: emHoras(panorama.horas.semanaSegundos),
       legenda: `${emReais(panorama.horas.semanaValorCents)} nesta semana`,
-      destino: "home",
+      destino: "horas",
     });
   }
 
@@ -81,7 +82,7 @@ export function cartoesDaHome(
       rotulo: "ACADÊMICO",
       numero: String(panorama.proximos.length),
       legenda: panorama.proximos[0].titulo,
-      destino: "home",
+      destino: "academico",
     });
   }
 
@@ -119,25 +120,4 @@ export function cartoesDaHome(
   }
 
   return cartoes;
-}
-
-/** `9h08`. Minuto e a menor unidade que importa numa fatura de hora. */
-function emHoras(segundos: number): string {
-  const minutos = Math.round(segundos / 60);
-  const horas = Math.floor(minutos / 60);
-  return `${horas}h${String(minutos % 60).padStart(2, "0")}`;
-}
-
-/** `R$ 274,00`, e `R$ 1.234,56`.
- *
- *  O "R$" entra à mão, e só o número passa pelo `toLocaleString`: o formato de
- *  moeda do navegador usa espaço NÃO-QUEBRÁVEL entre símbolo e valor, e um
- *  caractere invisível dentro de uma string é armadilha para quem for comparar
- *  isso depois — em teste ou em log. */
-function emReais(centavos: number): string {
-  const valor = (centavos / 100).toLocaleString("pt-BR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  return `R$ ${valor}`;
 }

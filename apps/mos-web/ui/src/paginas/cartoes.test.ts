@@ -66,7 +66,7 @@ describe("os cartoes do panorama", () => {
     );
     expect(horas?.numero).toBe("9h08");
     expect(horas?.legenda).toBe("R$ 274,00 nesta semana");
-    expect(horas?.destino).toBe("home");
+    expect(horas?.destino).toBe("horas");
   });
 
   it("mostra o proximo compromisso do academico", () => {

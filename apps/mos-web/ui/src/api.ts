@@ -96,6 +96,25 @@ export type ItemDaAgenda = {
   amountCents: number;
 };
 
+/** As horas de um projeto na janela pedida. */
+export type HorasDeProjeto = {
+  projeto: string;
+  segundos: number;
+  valorCents: number;
+  /** Quantos lançamentos somaram isso — o número que separa "um dia inteiro" de
+   *  "vinte visitas de dez minutos". */
+  lancamentos: number;
+};
+
+/** Um compromisso do acadêmico. `urgencia`: `atrasado`, `hoje`, ou vazio. */
+export type CompromissoDaLista = {
+  titulo: string;
+  disciplina: string;
+  quando: string;
+  tipo: string;
+  urgencia: string;
+};
+
 export type EstadoDoAparelho = {
   pendentes: number;
   sincroniza: boolean;
@@ -172,6 +191,20 @@ export const api = {
       ate: comOffsetLocal(ate),
     });
     return pedir<ItemDaAgenda[]>(`/api/agenda?${parametros}`);
+  },
+  /** As horas da janela, por projeto, do maior para o menor. */
+  horas(desde: Date, ate: Date) {
+    const parametros = new URLSearchParams({
+      desde: comOffsetLocal(desde),
+      ate: comOffsetLocal(ate),
+    });
+    return pedir<HorasDeProjeto[]>(`/api/horas?${parametros}`);
+  },
+  /** O que vem por aí no acadêmico. Atrasado primeiro. */
+  academico() {
+    return pedir<CompromissoDaLista[]>(
+      `/api/academico?agora=${encodeURIComponent(comOffsetLocal(new Date()))}`,
+    );
   },
   panorama() {
     return pedir<Panorama>(

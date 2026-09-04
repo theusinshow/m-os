@@ -42,6 +42,8 @@ pub fn rotas() -> Router<Estado> {
         .route("/api/estado", get(estado_do_aparelho))
         .route("/api/panorama", get(panorama))
         .route("/api/agenda", get(agenda))
+        .route("/api/horas", get(horas))
+        .route("/api/academico", get(academico))
         .route("/api/push/assinar", post(assinar_push))
         .route("/api/push/testar", post(testar_push))
 }
@@ -755,4 +757,136 @@ async fn agenda(
         academic: &academico,
         project_name: &nome_do_projeto,
     })))
+}
+
+// ------------------------------------------------------------------ horas
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HorasDeProjeto {
+    projeto: String,
+    /// Segundos faturaveis, ja arredondados por sessao.
+    segundos: i64,
+    valor_cents: i64,
+    /// Quantos lancamentos somaram isso. E o numero que separa "um dia inteiro"
+    /// de "vinte visitas de dez minutos".
+    lancamentos: usize,
+}
+
+/// As horas da janela, agrupadas por projeto e do maior para o menor.
+///
+/// Agrupar AQUI e nao na tela: o arredondamento acontece por sessao, entao somar
+/// depois de arredondar e a unica ordem que da o mesmo numero do desktop.
+async fn horas(
+    State(estado): State<Estado>,
+    Query(janela): Query<Janela>,
+) -> Resultado<Json<Vec<HorasDeProjeto>>> {
+    let de = mos_core::parse_moment(&janela.desde).map_err(de_core)?;
+    let ate = mos_core::parse_moment(&janela.ate).map_err(de_core)?;
+    if ate < de {
+        return Err(Erro(
+            StatusCode::BAD_REQUEST,
+            "O fim da janela vem antes do inicio.".to_owned(),
+        ));
+    }
+
+    let projetos = estado.work.projects(true).map_err(de_core)?;
+    let linhas = estado.tracking.report(Some(de), Some(ate)).map_err(de_core)?;
+
+    let mut por_projeto: std::collections::HashMap<String, HorasDeProjeto> =
+        std::collections::HashMap::new();
+    for linha in linhas {
+        let nome = projetos
+            .iter()
+            .find(|projeto| projeto.id == linha.project_id)
+            .map(|projeto| projeto.name.clone())
+            .unwrap_or_else(|| "Project removido".to_owned());
+        let entrada = por_projeto
+            .entry(linha.project_id.to_string())
+            .or_insert_with(|| HorasDeProjeto {
+                projeto: nome,
+                segundos: 0,
+                valor_cents: 0,
+                lancamentos: 0,
+            });
+        entrada.segundos += linha.totals.billable_seconds;
+        entrada.valor_cents += linha.totals.amount_cents;
+        entrada.lancamentos += 1;
+    }
+
+    let mut resposta: Vec<_> = por_projeto.into_values().collect();
+    // Do maior para o menor: a pergunta e "onde foi o meu tempo", e a resposta
+    // comeca pelo projeto que mais consumiu.
+    resposta.sort_by(|um, outro| outro.segundos.cmp(&um.segundos));
+    Ok(Json(resposta))
+}
+
+// -------------------------------------------------------------- academico
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CompromissoDaLista {
+    titulo: String,
+    disciplina: String,
+    quando: String,
+    /// `assignment` ou `exam`.
+    tipo: String,
+    /// `hoje`, `atrasado`, ou vazio para o que so vem por ai. E o que a tela usa
+    /// para decidir o que pinta de sodio.
+    urgencia: String,
+}
+
+/// O que vem por ai no academico, ate trinta dias.
+///
+/// Trinta e nao noventa: um compromisso a mais de um mes nao muda o que se faz
+/// hoje, e uma lista que desce ate o fim do semestre e uma lista que ninguem le.
+async fn academico(
+    State(estado): State<Estado>,
+    Query(pergunta): Query<QuandoPergunta>,
+) -> Resultado<Json<Vec<CompromissoDaLista>>> {
+    let agora = pergunta
+        .agora
+        .as_deref()
+        .and_then(|texto| {
+            time::OffsetDateTime::parse(texto, &time::format_description::well_known::Rfc3339).ok()
+        })
+        .unwrap_or_else(time::OffsetDateTime::now_utc);
+
+    let hoje = match estado.academic.today(agora) {
+        Ok(hoje) => hoje,
+        // Sem semestre cadastrado nao ha o que listar, e isso nao e erro: a tela
+        // sabe dizer "nada por aqui" melhor que um 500.
+        Err(_) => return Ok(Json(Vec::new())),
+    };
+
+    let em = |compromisso: mos_core::Compromisso, urgencia: &str| CompromissoDaLista {
+        titulo: compromisso.title,
+        disciplina: compromisso.subject,
+        quando: compromisso
+            .at
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_default(),
+        tipo: compromisso.kind,
+        urgencia: urgencia.to_owned(),
+    };
+
+    // O atrasado vem PRIMEIRO, e nao em ordem de data junto com o resto: ele e o
+    // que ja falhou, e enterra-lo no meio da lista cronologica seria escondê-lo
+    // justamente de quem precisa agir.
+    let mut lista: Vec<_> = hoje
+        .overdue
+        .into_iter()
+        .map(|compromisso| em(compromisso, "atrasado"))
+        .collect();
+    lista.extend(
+        hoje.due_today
+            .into_iter()
+            .map(|compromisso| em(compromisso, "hoje")),
+    );
+    lista.extend(
+        hoje.exams_soon
+            .into_iter()
+            .map(|compromisso| em(compromisso, "")),
+    );
+    Ok(Json(lista))
 }

@@ -18,6 +18,8 @@ export function Mais({
   aoTestar,
   aoAbrirLembretes,
   aoAbrirAgenda,
+  aoAbrirHoras,
+  aoAbrirAcademico,
 }: {
   estado: EstadoDoAparelho | null;
   avisos: Situacao | null;
@@ -27,11 +29,29 @@ export function Mais({
   aoTestar: () => void;
   aoAbrirLembretes: () => void;
   aoAbrirAgenda: () => void;
+  aoAbrirHoras: () => void;
+  aoAbrirAcademico: () => void;
 }) {
   const canal = avisos?.estado ?? null;
   return (
     <div className="mais">
       <ul className="lista">
+        <li className="item">
+          <button className="linha-destino" type="button" onClick={aoAbrirHoras}>
+            <div className="item-corpo">
+              <p>Horas</p>
+              <small>por projeto, na semana ou no mês</small>
+            </div>
+          </button>
+        </li>
+        <li className="item">
+          <button className="linha-destino" type="button" onClick={aoAbrirAcademico}>
+            <div className="item-corpo">
+              <p>Acadêmico</p>
+              <small>provas e entregas, atrasado primeiro</small>
+            </div>
+          </button>
+        </li>
         <li className="item">
           <button className="linha-destino" type="button" onClick={aoAbrirAgenda}>
             <div className="item-corpo">
