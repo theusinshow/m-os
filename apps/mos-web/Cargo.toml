@@ -48,7 +48,7 @@ mime_guess = "2"
 # e provada por `cargo test` no Windows, sem VPS e sem iPhone — e um push que
 # nao chega nunca diz por que.
 p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
-hkdf = "0.12"
+hkdf = "0.13"
 aes-gcm = "0.10"
 base64 = "0.22"
 rand_core = { version = "0.6", features = ["getrandom"] }
@@ -105,7 +105,7 @@ axum = "0.8"
 # provaria apenas que um POST saiu — e um POST que sai com o conteudo errado e
 # exatamente o defeito que so o iPhone perceberia.
 p256 = { version = "0.13", features = ["ecdh"] }
-hkdf = "0.12"
+hkdf = "0.13"
 aes-gcm = "0.10"
 base64 = "0.22"
 sha2 = "0.10"
