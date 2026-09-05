@@ -145,3 +145,33 @@ function deBase64Url(valor: string): Uint8Array<ArrayBuffer> {
   for (let i = 0; i < cru.length; i += 1) bytes[i] = cru.charCodeAt(i);
   return bytes;
 }
+
+/**
+ * O número no canto do ícone, na tela de início.
+ *
+ * # Por que ele conta só o que cobra ação
+ *
+ * É a mesma regra do badge da barra de baixo (`contagemDe`), e tem que ser a
+ * mesma: dois números diferentes para a mesma pergunta fariam um dos dois
+ * mentir. Inbox e tasks ficam de fora — badge que sobe com coisa que não cobra
+ * é badge que se aprende a ignorar.
+ *
+ * # Por que falha em silêncio
+ *
+ * No iOS a API só existe com o app instalado na tela de início E a permissão de
+ * notificação concedida. Nos outros casos ela some, ou lança. Um app que
+ * quebrasse por não conseguir escrever um número decorativo no ícone trocaria
+ * um enfeite por um defeito.
+ */
+export async function marcarIcone(quantos: number): Promise<void> {
+  try {
+    const marca = navigator as Navigator & {
+      setAppBadge?: (n?: number) => Promise<void>;
+      clearAppBadge?: () => Promise<void>;
+    };
+    if (quantos > 0) await marca.setAppBadge?.(quantos);
+    else await marca.clearAppBadge?.();
+  } catch {
+    // Sem badge, o app continua inteiro.
+  }
+}

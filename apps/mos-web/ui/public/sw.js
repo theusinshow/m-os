@@ -38,16 +38,47 @@ self.addEventListener("push", (evento) => {
     aviso = { titulo: "M/OS", corpo: "Você tem algo novo.", tag: "m-os" };
   }
   evento.waitUntil(
-    self.registration.showNotification(aviso.titulo ?? "M/OS", {
-      body: aviso.corpo ?? "",
-      // Mesma `tag` substitui o cartão anterior em vez de empilhar.
-      tag: aviso.tag ?? "m-os",
-      icon: "/icone-192.png",
-      badge: "/icone-192.png",
-      data: { url: aviso.url ?? "/" },
-    }),
+    Promise.all([
+      self.registration.showNotification(aviso.titulo ?? "M/OS", {
+        body: aviso.corpo ?? "",
+        // Mesma `tag` substitui o cartão anterior em vez de empilhar.
+        tag: aviso.tag ?? "m-os",
+        icon: "/icone-192.png",
+        badge: "/icone-192.png",
+        data: { url: aviso.url ?? "/" },
+      }),
+      marcarIcone(aviso.badge),
+    ]),
   );
 });
+
+/**
+ * O número no canto do ícone, na tela de início.
+ *
+ * # Por que aqui, e não só no app
+ *
+ * Este é o único lugar que roda com o app FECHADO — e um badge que só se
+ * atualiza quando você abre o app avisa exatamente quando você já não precisa
+ * ser avisado.
+ *
+ * `undefined` significa "não sei", e aí o número fica como estava: o aviso de
+ * sync sai de um lugar que às vezes não tem a lista de lembretes na mão, e
+ * zerar o ícone ali seria inventar um número.
+ *
+ * Falha em silêncio de propósito: no iOS a API só existe com a permissão de
+ * notificação concedida, e uma exceção aqui derrubaria o `waitUntil` inteiro —
+ * a notificação não apareceria, e uma promessa de push não cumprida faz o
+ * sistema revogar a assinatura.
+ */
+async function marcarIcone(quantos) {
+  if (typeof quantos !== "number") return;
+  try {
+    if (quantos > 0) await self.navigator.setAppBadge?.(quantos);
+    else await self.navigator.clearAppBadge?.();
+  } catch {
+    // Sem badge, a notificação continua chegando. É o que importa.
+  }
+}
 
 self.addEventListener("notificationclick", (evento) => {
   evento.notification.close();

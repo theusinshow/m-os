@@ -532,6 +532,10 @@ async fn testar_push(State(estado): State<Estado>) -> Resultado<Json<serde_json:
         corpo: String::from("Se voce esta lendo isto, a notificacao funciona."),
         tag: String::from("teste"),
         url: String::from("/"),
+        // O teste nao mexe no badge. Ele existe para responder "chega ou nao
+        // chega?", e trocar o numero do icone de passagem faria a prova mentir
+        // sobre o estado do app.
+        badge: None,
     };
     // `spawn_blocking` porque o envio e bloqueante — ver `push::enviar`.
     let aceitos = tokio::task::spawn_blocking(move || avisador.disparar(&aviso))

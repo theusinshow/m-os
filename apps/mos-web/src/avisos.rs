@@ -58,6 +58,37 @@ pub struct Aviso {
     pub tag: String,
     /// Para onde o toque leva.
     pub url: String,
+    /// Quantos lembretes cobram acao NESTE instante — o numero do badge do
+    /// icone na tela de inicio.
+    ///
+    /// `None` significa "nao sei", e o service worker entao nao encosta no
+    /// badge. E o caso do aviso de sync disparado de um lugar que nao tem a
+    /// lista de lembretes na mao: zerar o badge ali seria inventar um numero.
+    pub badge: Option<u32>,
+}
+
+/// Quantos lembretes cobram acao agora.
+///
+/// # Por que estes tres estados, e nao "vencido"
+///
+/// E a MESMA regra do `pedeAtencao` do front (`api.ts`), e ela tem que ser a
+/// mesma: o badge do icone e o badge da barra de baixo mostram o mesmo numero, e
+/// duas contagens diferentes para a mesma pergunta fariam uma das duas mentir.
+///
+/// `Scheduled` fica de fora de proposito — um badge que sobe com coisa que ainda
+/// nao e hora e um badge que se aprende a ignorar.
+pub fn quantos_cobram(lembretes: &[Reminder]) -> u32 {
+    lembretes
+        .iter()
+        .filter(|lembrete| {
+            matches!(
+                lembrete.status,
+                mos_core::ReminderStatus::Due
+                    | mos_core::ReminderStatus::Delivered
+                    | mos_core::ReminderStatus::Missed
+            )
+        })
+        .count() as u32
 }
 
 /// Decide o que avisar, sem tocar em nada.
@@ -66,6 +97,10 @@ pub struct Aviso {
 /// repetir, e ela inclui o vencimento — um lembrete que se repete vence de novo
 /// e precisa avisar de novo.
 pub fn o_que_avisar(lembretes: &[Reminder], agora: OffsetDateTime) -> Vec<(String, Aviso)> {
+    // A contagem e sobre a lista INTEIRA, e nao sobre os que estao sendo
+    // avisados agora: com tres vencidos e so um por avisar, o badge diria "1" e
+    // o icone estaria mentindo sobre o tamanho do problema.
+    let cobrando = quantos_cobram(lembretes);
     lembretes
         .iter()
         .filter_map(|lembrete| {
@@ -86,6 +121,7 @@ pub fn o_que_avisar(lembretes: &[Reminder], agora: OffsetDateTime) -> Vec<(Strin
                     },
                     tag: format!("lembrete-{}", lembrete.id),
                     url: String::from("/"),
+                    badge: Some(cobrando),
                 },
             ))
         })
@@ -97,7 +133,7 @@ pub fn o_que_avisar(lembretes: &[Reminder], agora: OffsetDateTime) -> Vec<(Strin
 /// Ele diz **quantos**, e nao o que: o motor de sync devolve contagem, e
 /// inventar um titulo a partir de um numero seria a notificacao mentindo sobre
 /// o que ela sabe.
-pub fn chegou_do_pc(recebidas: usize) -> Aviso {
+pub fn chegou_do_pc(recebidas: usize, cobrando: Option<u32>) -> Aviso {
     Aviso {
         titulo: String::from("M/OS"),
         corpo: if recebidas == 1 {
@@ -109,6 +145,7 @@ pub fn chegou_do_pc(recebidas: usize) -> Aviso {
         // tela de bloqueio com uma pilha de "veio coisa".
         tag: String::from("sync"),
         url: String::from("/"),
+        badge: cobrando,
     }
 }
 
@@ -299,12 +336,54 @@ mod testes {
 
     #[test]
     fn o_aviso_do_sync_concorda_com_o_singular() {
-        assert!(chegou_do_pc(1).corpo.contains("1 item novo"));
-        assert!(chegou_do_pc(3).corpo.contains("3 itens novos"));
+        assert!(chegou_do_pc(1, None).corpo.contains("1 item novo"));
+        assert!(chegou_do_pc(3, None).corpo.contains("3 itens novos"));
         assert_eq!(
-            chegou_do_pc(1).tag,
-            chegou_do_pc(9).tag,
+            chegou_do_pc(1, None).tag,
+            chegou_do_pc(9, None).tag,
             "mesma tag, um cartao so"
         );
+    }
+
+    /// Tres vencidos e um so por avisar: o badge tem que dizer TRES.
+    ///
+    /// A contagem e sobre a lista inteira, e nao sobre o que esta saindo agora
+    /// — senao o icone diria "1" enquanto ha tres coisas cobrando, que e a
+    /// forma mais silenciosa de o badge mentir.
+    #[test]
+    fn o_badge_conta_todos_os_que_cobram_e_nao_so_o_que_vai_sair() {
+        let agora = instante(1_000_000);
+        let mut vencidos = vec![
+            lembrete("Um", "", instante(999_000)),
+            lembrete("Dois", "", instante(999_100)),
+            lembrete("Tres", "", instante(999_200)),
+        ];
+        for l in &mut vencidos {
+            l.status = ReminderStatus::Due;
+        }
+        let avisos = o_que_avisar(&vencidos, agora);
+        assert_eq!(avisos.len(), 3);
+        for (_, aviso) in &avisos {
+            assert_eq!(aviso.badge, Some(3));
+        }
+    }
+
+    /// Agendado nao cobra nada: um badge que sobe com coisa que ainda nao e
+    /// hora e um badge que se aprende a ignorar.
+    #[test]
+    fn agendado_nao_entra_no_badge() {
+        let agendado = lembrete("Semana que vem", "", instante(2_000_000));
+        assert_eq!(quantos_cobram(&[agendado]), 0);
+    }
+
+    /// `missed` e `delivered` cobram tanto quanto `due` — sao as mesmas tres
+    /// situacoes que o `pedeAtencao` do front conta.
+    #[test]
+    fn perdido_e_entregue_tambem_cobram() {
+        let mut perdido = lembrete("Perdi", "", instante(900_000));
+        perdido.status = ReminderStatus::Missed;
+        let mut entregue = lembrete("Chegou", "", instante(900_000));
+        entregue.status = ReminderStatus::Delivered;
+        assert_eq!(quantos_cobram(&[perdido, entregue]), 2);
     }
 }

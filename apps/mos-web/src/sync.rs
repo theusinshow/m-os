@@ -16,6 +16,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use mos_core::AttentionService;
 use mos_storage_sqlite::SqliteStorage;
 
 use crate::avisos::{self, Avisador};
@@ -42,7 +43,7 @@ pub fn agora(storage: Arc<SqliteStorage>, hub: Arc<Hub>) {
         // Sem avisador: esta rodada nasce de uma escrita FEITA NESTE APARELHO, e
         // notificar o celular sobre o que a pessoa acabou de digitar nele seria
         // o app avisando o dono do que o dono fez.
-        rodar(&storage, &hub, None);
+        rodar(&storage, &hub, None, None);
     });
 }
 
@@ -50,23 +51,42 @@ pub fn agora(storage: Arc<SqliteStorage>, hub: Arc<Hub>) {
 ///
 /// `avisador` e o que transforma "chegou coisa do PC" em vibracao no bolso.
 /// Vazio quando nao ha chave VAPID — e ai o laco continua sincronizando, calado.
-pub fn iniciar(storage: Arc<SqliteStorage>, hub: Arc<Hub>, avisador: Option<Arc<Avisador>>) {
+/// `attention` entra so para o BADGE do icone.
+///
+/// O que desceu do PC pode ser justamente um lembrete ja vencido, e nesse caso o
+/// numero no canto do icone tem que subir junto com a notificacao. Sem a lista
+/// na mao, o aviso de sync teria que mandar `None` e deixar o badge velho na
+/// tela ate alguem abrir o app.
+pub fn iniciar(
+    storage: Arc<SqliteStorage>,
+    hub: Arc<Hub>,
+    avisador: Option<Arc<Avisador>>,
+    attention: Arc<AttentionService>,
+) {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(INTERVALO).await;
             let storage = Arc::clone(&storage);
             let hub = Arc::clone(&hub);
             let avisador = avisador.clone();
+            let attention = Arc::clone(&attention);
             // `spawn_blocking` porque o transporte e bloqueante — chamar de
             // dentro de um worker do tokio derruba o processo na hora. Ver o
             // topo do `mos-sync-http`.
-            let _ = tokio::task::spawn_blocking(move || rodar(&storage, &hub, avisador.as_deref()))
-                .await;
+            let _ = tokio::task::spawn_blocking(move || {
+                rodar(&storage, &hub, avisador.as_deref(), Some(&attention))
+            })
+            .await;
         }
     });
 }
 
-fn rodar(storage: &SqliteStorage, hub: &Hub, avisador: Option<&Avisador>) {
+fn rodar(
+    storage: &SqliteStorage,
+    hub: &Hub,
+    avisador: Option<&Avisador>,
+    attention: Option<&AttentionService>,
+) {
     let transporte = match mos_sync_http::HttpTransport::novo(&hub.url, &hub.token) {
         Ok(transporte) => transporte,
         Err(causa) => {
@@ -126,7 +146,14 @@ fn rodar(storage: &SqliteStorage, hub: &Hub, avisador: Option<&Avisador>) {
                 // escreveu aqui, e avisa-la disso seria ruido.
                 if rodada.recebidas > 0 {
                     if let Some(avisador) = avisador {
-                        avisador.disparar(&avisos::chegou_do_pc(rodada.recebidas));
+                        // A contagem falha em silencio: um badge que nao pode
+                        // ser calculado vira `None`, e o service worker deixa o
+                        // numero como estava. Melhor um badge velho que um
+                        // badge inventado.
+                        let cobrando = attention
+                            .and_then(|servico| servico.waiting().ok())
+                            .map(|lembretes| avisos::quantos_cobram(&lembretes));
+                        avisador.disparar(&avisos::chegou_do_pc(rodada.recebidas, cobrando));
                     }
                 }
             }

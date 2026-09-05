@@ -13,7 +13,7 @@ import {
   type Panorama,
   type Task,
 } from "./api";
-import { ativar, situacao, type Situacao } from "./notificacoes";
+import { ativar, marcarIcone, situacao, type Situacao } from "./notificacoes";
 import { Porta } from "./Porta";
 import { Quando } from "./Quando";
 import { porExtenso } from "./instantes";
@@ -133,6 +133,10 @@ export function App() {
     // A situação das notificações é recalculada junto: ela muda por fora do app
     // — instalar na tela de início, mexer em Ajustes —, e uma tela que só olha
     // uma vez ficaria dizendo "instale" depois de você já ter instalado.
+    // O ícone acompanha a tela: quem resolveu um lembrete no PC vê o número
+    // cair ao abrir o app aqui. Enquanto ele está fechado, quem escreve o badge
+    // é o service worker, no push — ver `sw.js`.
+    void marcarIcone(proximosLembretes.filter(pedeAtencao).length);
     setAvisos(await situacao(proximoEstado?.chavePush ?? null));
   }, [vistaDaAgenda]);
 
