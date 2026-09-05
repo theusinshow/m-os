@@ -33,6 +33,7 @@ export function Fazer({
   tasksLembradas,
   aoCapturar,
   aoAlternar,
+  aoAbrir,
   aoLembrar,
 }: {
   capturas: Capture[];
@@ -40,6 +41,7 @@ export function Fazer({
   tasksLembradas: Set<string>;
   aoCapturar: () => void;
   aoAlternar: (task: Task) => void;
+  aoAbrir: (task: Task) => void;
   aoLembrar: (task: Task, jaTem: boolean) => void;
 }) {
   const abertas = tasks.filter((task) => task.state !== "done");
@@ -110,13 +112,21 @@ export function Fazer({
                   >
                     <span aria-hidden="true" />
                   </button>
-                  <div className="item-corpo">
-                    <p>{task.title}</p>
-                    <small>
-                      {ESTADO_DA_TASK[task.state]}
-                      {lembrada ? " · com lembrete" : ""}
-                    </small>
-                  </div>
+                  {/* A linha abre a task. O que fica fora dela sao os dois
+                      alvos que agem sem abrir: marcar e lembrar. */}
+                  <button
+                    className="linha-destino"
+                    type="button"
+                    onClick={() => aoAbrir(task)}
+                  >
+                    <div className="item-corpo">
+                      <p>{task.title}</p>
+                      <small>
+                        {ESTADO_DA_TASK[task.state]}
+                        {lembrada ? " · com lembrete" : ""}
+                      </small>
+                    </div>
+                  </button>
                   {/* O sino, e nao um menu de tres pontos: e a unica acao que
                       esta linha oferece alem de marcar, e esconde-la atras de um
                       menu custaria dois toques para ganhar nada. */}

@@ -641,6 +641,53 @@
   color: var(--signal);
 }
 
+/* A grade de estados: seis alvos, dois por linha em 390px.
+   Grade e nao menu porque o estado e a coisa que mais muda nesta tela, e
+   esconde-lo atras de um toque para abrir a lista faria o gesto mais frequente
+   ser o mais caro. */
+.task-estados {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+}
+
+.task-estados button,
+.task-projetos button {
+  min-height: var(--toque);
+  padding: 0 var(--space-2);
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font: 500 12px/1.2 var(--font-system);
+  cursor: pointer;
+}
+
+.task-estados button[aria-pressed="true"],
+.task-projetos button[aria-pressed="true"] {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+.task-estados button:active,
+.task-projetos button:active {
+  background: var(--surface-active);
+}
+
+/* Os projetos sao quantos existirem, e nao seis: eles embrulham. */
+.task-projetos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* A linha que abre a task divide espaco com marcar e lembrar. */
+.fazer .linha-destino {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
 /* -------------------------------------------------------- lembretes */
 
 .lembretes {

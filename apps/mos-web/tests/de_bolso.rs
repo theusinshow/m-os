@@ -797,3 +797,93 @@ async fn arquivar_no_bolso_tira_da_lista_sem_apagar() {
     assert_eq!(ainda["id"], id.as_str(), "arquivar apagou a linha");
     assert_eq!(ainda["lifecycleState"], "archived");
 }
+
+/// Editar uma Task no bolso não apaga o que a tela não mandou.
+///
+/// O `UpdateTaskInput` do núcleo pede título e descrição inteiros — ele nasceu
+/// para o formulário do desktop. A rota do bolso completa o que falta com o que
+/// está GRAVADO, e este teste é o que garante isso: sem ele, corrigir só o
+/// título limparia a descrição em silêncio.
+#[tokio::test(flavor = "multi_thread")]
+async fn editar_a_task_no_bolso_preserva_o_que_nao_foi_mandado() {
+    let hub = servir_hub().await;
+    let pasta = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    let criada: serde_json::Value = cliente
+        .post(format!("http://{web}/api/tasks"))
+        .json(&serde_json::json!({
+            "titulo": "Fechar o quantitativo",
+            "descricao": "aço CA-50, prancha 04",
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = criada["id"].as_str().unwrap().to_owned();
+
+    let editada: serde_json::Value = cliente
+        .patch(format!("http://{web}/api/tasks/{id}"))
+        .json(&serde_json::json!({ "titulo": "Fechar o quantitativo de aço" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(editada["title"], "Fechar o quantitativo de aço");
+    assert_eq!(
+        editada["description"], "aço CA-50, prancha 04",
+        "a descricao que ninguem tocou foi apagada"
+    );
+}
+
+/// Arquivar tira a Task da lista sem apagar a linha.
+#[tokio::test(flavor = "multi_thread")]
+async fn arquivar_a_task_no_bolso_tira_da_lista() {
+    let hub = servir_hub().await;
+    let pasta = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    let criada: serde_json::Value = cliente
+        .post(format!("http://{web}/api/tasks"))
+        .json(&serde_json::json!({ "titulo": "Isto foi engano" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = criada["id"].as_str().unwrap().to_owned();
+
+    cliente
+        .post(format!("http://{web}/api/tasks/{id}/arquivar"))
+        .send()
+        .await
+        .unwrap();
+
+    let lista: serde_json::Value = cliente
+        .get(format!("http://{web}/api/tasks"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(lista.as_array().map(Vec::len), Some(0));
+
+    let ainda: serde_json::Value = cliente
+        .get(format!("http://{web}/api/tasks/{id}"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(ainda["lifecycleState"], "archived");
+}

@@ -35,7 +35,10 @@ pub fn rotas() -> Router<Estado> {
         .route("/api/capturar", post(capturar))
         .route("/api/inbox", get(inbox))
         .route("/api/tasks", get(tasks).post(criar_task))
+        .route("/api/tasks/{id}", get(task).patch(editar_task))
         .route("/api/tasks/{id}/estado", post(mudar_estado))
+        .route("/api/tasks/{id}/arquivar", post(arquivar_task))
+        .route("/api/projetos", get(projetos))
         .route("/api/lembretes", get(lembretes).post(criar_lembrete))
         .route("/api/lembretes/resolvidos", get(lembretes_resolvidos))
         .route("/api/lembretes/{id}", get(lembrete).patch(editar_lembrete))
@@ -381,6 +384,99 @@ async fn mudar_estado(
     .await?;
 
     Ok(Json(serde_json::to_value(task).unwrap_or_default()))
+}
+
+/// Uma Task so, pelo id.
+async fn task(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+) -> Resultado<Json<serde_json::Value>> {
+    let task = estado.work.task(&id).map_err(de_core)?;
+    Ok(Json(serde_json::to_value(task).unwrap_or_default()))
+}
+
+/// O que se pode mudar numa Task pela tela. Ausente significa "nao mexi".
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EdicaoDeTask {
+    titulo: Option<String>,
+    descricao: Option<String>,
+    /// `Some(None)` — `"projectId": null` — desliga o projeto. `None` deixa como
+    /// esta. A dupla-opcao existe porque desvincular e uma escolha, e sem ela
+    /// nao haveria como expressa-la.
+    #[serde(default, deserialize_with = "opcao_dupla")]
+    project_id: Option<Option<String>>,
+}
+
+/// Distingue "campo ausente" de "campo presente com null".
+fn opcao_dupla<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(Some)
+}
+
+/// Editar uma Task.
+///
+/// # Por que le antes de escrever
+///
+/// O `UpdateTaskInput` do nucleo pede titulo e descricao INTEIROS — ele nasceu
+/// para um formulario de desktop, que sempre tem os dois na tela. A tela do
+/// bolso manda so o que mudou, entao a rota completa o resto com o que esta
+/// gravado AGORA, e nao com o que a tela leu ha dois minutos.
+///
+/// A diferenca importa quando os dois aparelhos mexem na mesma Task: sem a
+/// leitura, o celular que corrigiu o titulo reescreveria a descricao com uma
+/// versao velha, e o sync — que resolve por campo — nao teria como saber que
+/// aquilo nao foi uma edicao.
+async fn editar_task(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+    Json(pedido): Json<EdicaoDeTask>,
+) -> Resultado<Json<serde_json::Value>> {
+    if pedido.titulo.is_none() && pedido.descricao.is_none() && pedido.project_id.is_none() {
+        return Err(Erro(
+            StatusCode::BAD_REQUEST,
+            String::from("nada para mudar"),
+        ));
+    }
+    let task = escrever(&estado, move |estado| {
+        let atual = estado.work.task(&id)?;
+        estado.work.update_task(mos_core::UpdateTaskInput {
+            id,
+            title: pedido.titulo.unwrap_or(atual.title),
+            description: pedido.descricao.unwrap_or(atual.description),
+            project_id: match pedido.project_id {
+                Some(escolha) => escolha,
+                None => atual.project_id.map(|id| id.to_string()),
+            },
+        })
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(task).unwrap_or_default()))
+}
+
+/// Arquivar: o "excluir" da tela, pela mesma razao do lembrete — um toque errado
+/// no onibus nao deveria apagar a linha nos dois aparelhos.
+async fn arquivar_task(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+) -> Resultado<Json<serde_json::Value>> {
+    let task = escrever(&estado, move |estado| {
+        estado.work.set_task_archived(&id, true)
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(task).unwrap_or_default()))
+}
+
+/// Os projetos ativos.
+///
+/// Existe para a tela poder DIZER a que projeto uma Task pertence, e para
+/// agrupar horas e tasks por projeto. Sem eles o bolso mostra um id, que nao e
+/// nome de nada.
+async fn projetos(State(estado): State<Estado>) -> Resultado<Json<serde_json::Value>> {
+    let itens = estado.work.projects(false).map_err(de_core)?;
+    Ok(Json(serde_json::to_value(itens).unwrap_or_default()))
 }
 
 // -------------------------------------------------------------- lembretes

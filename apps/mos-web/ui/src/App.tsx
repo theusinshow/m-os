@@ -12,7 +12,10 @@ import {
   type HorasDeProjeto,
   type ItemDaAgenda,
   type Panorama,
-  type Task,
+  type EdicaoDeTask,
+  type EstadoDaTask,
+  type Projeto,
+  type Task as ItemDeTask,
 } from "./api";
 import { ativar, marcarIcone, situacao, type Situacao } from "./notificacoes";
 import { Porta } from "./Porta";
@@ -25,6 +28,7 @@ import { Home } from "./paginas/Home";
 import { gravarArranjo, lerArranjo, type Arranjo } from "./paginas/arranjo";
 import { Capturar } from "./paginas/Capturar";
 import { Fazer } from "./paginas/Fazer";
+import { Task } from "./paginas/Task";
 import { Lembrete } from "./paginas/Lembrete";
 import { Lembretes, type VistaDosLembretes } from "./paginas/Lembretes";
 import { Mais } from "./paginas/Mais";
@@ -64,12 +68,15 @@ export function App() {
   const [pagina, setPagina] = useState<Pagina>("home");
   const [texto, setTexto] = useState("");
   const [capturas, setCapturas] = useState<Capture[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasks, setTasks] = useState<ItemDeTask[]>([]);
   const [lembretes, setLembretes] = useState<ItemDeLembrete[]>([]);
   const [resolvidos, setResolvidos] = useState<ItemDeLembrete[]>([]);
   const [vistaDosLembretes, setVistaDosLembretes] = useState<VistaDosLembretes>("abertos");
   /** Qual lembrete está aberto no detalhe. Nulo é "a lista". */
   const [lembreteAberto, setLembreteAberto] = useState<string | null>(null);
+  /** Qual task está aberta no detalhe. Nulo é "a lista". */
+  const [taskAberta, setTaskAberta] = useState<string | null>(null);
+  const [projetos, setProjetos] = useState<Projeto[]>([]);
   const [estado, setEstado] = useState<EstadoDoAparelho | null>(null);
   const [panorama, setPanorama] = useState<Panorama | null>(null);
   const [agenda, setAgenda] = useState<ItemDaAgenda[]>([]);
@@ -113,9 +120,10 @@ export function App() {
       proximaAgenda,
       proximoAcademico,
       proximosResolvidos,
+      proximosProjetos,
     ] = await Promise.all([
       api.inbox().catch(() => [] as Capture[]),
-      api.tasks().catch(() => [] as Task[]),
+      api.tasks().catch(() => [] as ItemDeTask[]),
       api.lembretes().catch(() => [] as ItemDeLembrete[]),
       // Nulo em vez de erro: um servidor sem a rota ainda serve a Home inteira,
       // só sem os dois cartões novos.
@@ -132,6 +140,10 @@ export function App() {
       // O historico vem junto, e nao so quando a aba abre: sao 50 linhas, uma
       // ida a rede a menos, e a aba passa a abrir cheia em vez de piscar vazia.
       api.lembretesResolvidos().catch(() => [] as ItemDeLembrete[]),
+      // Os projetos mudam raramente e sao poucos: vem junto para a tela poder
+      // escrever o NOME do projeto de uma task em vez do id, que nao e nome de
+      // nada.
+      api.projetos().catch(() => [] as Projeto[]),
     ]);
     if (proximoEstado) setEstado(proximoEstado);
     setCapturas(proximaInbox);
@@ -141,6 +153,7 @@ export function App() {
     setAgenda(proximaAgenda);
     setAcademico(proximoAcademico);
     setResolvidos(proximosResolvidos);
+    setProjetos(proximosProjetos);
     // A situação das notificações é recalculada junto: ela muda por fora do app
     // — instalar na tela de início, mexer em Ajustes —, e uma tela que só olha
     // uma vez ficaria dizendo "instale" depois de você já ter instalado.
@@ -229,7 +242,7 @@ export function App() {
     setAgendando({ titulo, descricao: "NOVO LEMBRETE" });
   }
 
-  async function alternar(task: Task) {
+  async function alternar(task: ItemDeTask) {
     const destino = task.state === "done" ? "doing" : "done";
     // Otimista: a marca muda antes da resposta. O gesto precisa parecer
     // instantâneo, e o servidor grava local — se falhar, o `atualizar` do
@@ -331,6 +344,51 @@ export function App() {
     setOcupado(false);
   }
 
+  async function salvarTask(id: string, mudanca: EdicaoDeTask) {
+    setOcupado(true);
+    try {
+      await api.editarTask(id, mudanca);
+      contar("Task salva.");
+      await atualizar();
+    } catch (causa) {
+      reclamar(causa);
+    }
+    setOcupado(false);
+  }
+
+  /**
+   * Mudar o estado sem sair da tela.
+   *
+   * Ao contrario de salvar, este NAO fecha o detalhe: mover de "planejada" para
+   * "fazendo" costuma vir seguido de ler a descricao, e fechar a tela a cada
+   * toque obrigaria a reabrir para continuar.
+   */
+  async function mudarEstadoDaTask(id: string, proximo: EstadoDaTask) {
+    setTasks((atuais) =>
+      atuais.map((t) => (t.id === id ? { ...t, state: proximo } : t)),
+    );
+    try {
+      await api.mudarEstado(id, proximo);
+      await atualizar();
+    } catch (causa) {
+      reclamar(causa);
+      await atualizar();
+    }
+  }
+
+  async function arquivarTask(id: string) {
+    setOcupado(true);
+    try {
+      await api.arquivarTask(id);
+      contar("Task excluída.");
+      setTaskAberta(null);
+      await atualizar();
+    } catch (causa) {
+      reclamar(causa);
+    }
+    setOcupado(false);
+  }
+
   async function ativarAvisos() {
     if (!estado?.chavePush) return;
     setOcupado(true);
@@ -367,6 +425,9 @@ export function App() {
    *  Nas DUAS porque concluir um lembrete o move de uma para a outra, e um
    *  detalhe que sumisse no instante da conclusao nao mostraria o resultado da
    *  acao que a pessoa acabou de tomar. */
+  const tarefaAberta =
+    taskAberta === null ? null : (tasks.find((t) => t.id === taskAberta) ?? null);
+
   const aberto =
     lembreteAberto === null
       ? null
@@ -451,12 +512,37 @@ export function App() {
           />
         ) : null}
         {pagina === "capturar" ? <Capturar capturas={capturas} /> : null}
-        {pagina === "fazer" ? (
+        {pagina === "fazer" && tarefaAberta ? (
+          <Task
+            task={tarefaAberta}
+            projeto={projetos.find((p) => p.id === tarefaAberta.projectId) ?? null}
+            projetos={projetos}
+            lembrete={
+              lembretes.find(
+                (l) => l.target?.type === "task" && l.target.id === tarefaAberta.id,
+              ) ?? null
+            }
+            ocupado={ocupado}
+            aoSalvar={(mudanca) => void salvarTask(tarefaAberta.id, mudanca)}
+            aoMudarEstado={(proximo) => void mudarEstadoDaTask(tarefaAberta.id, proximo)}
+            aoArquivar={() => void arquivarTask(tarefaAberta.id)}
+            aoLembrar={() =>
+              setAgendando({
+                titulo: tarefaAberta.title,
+                descricao: "LEMBRAR DESTA TASK",
+                alvo: { type: "task", id: tarefaAberta.id },
+              })
+            }
+            aoVoltar={() => setTaskAberta(null)}
+          />
+        ) : null}
+        {pagina === "fazer" && !tarefaAberta ? (
           <Fazer
             capturas={capturas}
             tasks={tasks}
             tasksLembradas={tasksLembradas}
             aoCapturar={() => setPagina("capturar")}
+            aoAbrir={(task) => setTaskAberta(task.id)}
             aoAlternar={(task) => void alternar(task)}
             aoLembrar={(task, jaTem) =>
               setAgendando({

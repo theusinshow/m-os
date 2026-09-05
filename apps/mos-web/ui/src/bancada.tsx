@@ -10,6 +10,7 @@ import { Home } from "./paginas/Home";
 import { ARRANJO_VAZIO, type Arranjo } from "./paginas/arranjo";
 import { Capturar } from "./paginas/Capturar";
 import { Fazer } from "./paginas/Fazer";
+import { Task } from "./paginas/Task";
 import { Lembrete } from "./paginas/Lembrete";
 import { Lembretes } from "./paginas/Lembretes";
 import { Mais } from "./paginas/Mais";
@@ -176,6 +177,7 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
         tasks={FALSO.tasks}
         tasksLembradas={new Set(["t3"])}
         aoCapturar={NADA}
+        aoAbrir={NADA}
         aoAlternar={NADA}
         aoLembrar={NADA}
       />
@@ -190,8 +192,30 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
         tasks={[]}
         tasksLembradas={new Set()}
         aoCapturar={NADA}
+        aoAbrir={NADA}
         aoAlternar={NADA}
         aoLembrar={NADA}
+      />
+    ),
+  },
+  {
+    titulo: "Task · detalhe",
+    pagina: "fazer",
+    corpo: (
+      <Task
+        task={FALSO.tasks[0]}
+        projeto={{ id: "p1", name: "046 - Ratones" }}
+        projetos={[
+          { id: "p1", name: "046 - Ratones" },
+          { id: "p2", name: "JABOTICATUBA" },
+        ]}
+        lembrete={null}
+        ocupado={false}
+        aoSalvar={NADA}
+        aoMudarEstado={NADA}
+        aoArquivar={NADA}
+        aoLembrar={NADA}
+        aoVoltar={NADA}
       />
     ),
   },

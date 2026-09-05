@@ -11,11 +11,37 @@ export type Capture = {
   capturedAt: string;
 };
 
+export type EstadoDaTask =
+  | "inbox"
+  | "backlog"
+  | "planned"
+  | "doing"
+  | "review"
+  | "done";
+
 export type Task = {
   id: string;
   title: string;
   description: string;
-  state: "inbox" | "backlog" | "planned" | "doing" | "review" | "done";
+  state: EstadoDaTask;
+  projectId: string | null;
+  lifecycleState: "active" | "archived" | "trashed";
+  createdAt: string;
+  completedAt: string | null;
+};
+
+/** Um projeto, só com o que a tela do bolso precisa saber dele. */
+export type Projeto = {
+  id: string;
+  name: string;
+};
+
+/** O que se manda para editar uma Task. Ausente é "não mexi". */
+export type EdicaoDeTask = {
+  titulo?: string;
+  descricao?: string;
+  /** `null` desliga o projeto. Ausente deixa como está. */
+  projectId?: string | null;
 };
 
 /**
@@ -238,6 +264,27 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ estado }),
     });
+  },
+  task(id: string) {
+    return pedir<Task>(`/api/tasks/${id}`);
+  },
+  editarTask(id: string, mudanca: EdicaoDeTask) {
+    return pedir<Task>(`/api/tasks/${id}`, {
+      method: "PATCH",
+      // Só o que mudou. O servidor completa o resto com o que está gravado —
+      // não com o que esta tela leu quando abriu.
+      body: JSON.stringify({
+        ...(mudanca.titulo !== undefined ? { titulo: mudanca.titulo } : {}),
+        ...(mudanca.descricao !== undefined ? { descricao: mudanca.descricao } : {}),
+        ...(mudanca.projectId !== undefined ? { projectId: mudanca.projectId } : {}),
+      }),
+    });
+  },
+  arquivarTask(id: string) {
+    return pedir<Task>(`/api/tasks/${id}/arquivar`, { method: "POST" });
+  },
+  projetos() {
+    return pedir<Projeto[]>("/api/projetos");
   },
   /**
    * Cria um lembrete.
