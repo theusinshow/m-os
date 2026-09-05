@@ -406,21 +406,25 @@ body {
   opacity: 0.5;
 }
 
-/* As ações do lembrete descem para a própria linha, SEMPRE.
+/* As ações do lembrete voltaram para o lado do texto — e a razão de elas terem
+   descido deixou de existir.
 
-   Elas ficavam ao lado do texto, e num aparelho de 390px — que é a largura da
-   maioria — "Ligar para a marcenaria" quebrava em duas linhas para caber ao
-   lado de dois botões que não precisavam daquele espaço. Um título de lembrete
-   é frase, não rótulo: ele merece a largura toda, e as ações não perdem nada
-   embaixo, porque continuam do lado do polegar. */
+   Eram DUAS ("Feito" e "Cancelar"), e num aparelho de 390px "Ligar para a
+   marcenaria" quebrava em duas linhas para caber ao lado delas. Agora é uma só:
+   cancelar mudou de lugar, foi para a tela de detalhe, onde mora junto de
+   editar, adiar e excluir — porque cancelar não é uma decisão que se toma de
+   passagem numa lista.
+
+   Com um botão pequeno, o texto continua com largura de frase e a lista ganha
+   uma linha de altura por item, que num aparelho de bolso é uma linha a mais
+   visível por tela. */
 .lembretes .item {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .lembretes .item-acoes {
-  flex-basis: 100%;
-  justify-content: flex-end;
-  margin-top: var(--space-1);
+  flex: none;
+  align-self: center;
 }
 
 /* ------------------------------------------------------------ lembretes */

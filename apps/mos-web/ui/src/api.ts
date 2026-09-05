@@ -52,6 +52,16 @@ export type Lembrete = {
   nextDueAt: string | null;
   snoozeCount: number;
   createdAt: string;
+  updatedAt: string;
+  lifecycleState: "active" | "archived" | "trashed";
+};
+
+/** O que se manda para editar. Campo ausente é "não mexi" — não "apague". */
+export type EdicaoDeLembrete = {
+  titulo?: string;
+  nota?: string;
+  quando?: Date;
+  prioridade?: Lembrete["priority"];
 };
 
 /** O que ainda espera uma acao da pessoa. E o que o badge conta. */
@@ -257,6 +267,37 @@ export const api = {
   },
   cancelarLembrete(id: string) {
     return pedir<Lembrete>(`/api/lembretes/${id}/cancelar`, { method: "POST" });
+  },
+  lembrete(id: string) {
+    return pedir<Lembrete>(`/api/lembretes/${id}`);
+  },
+  /** O histórico: o que já foi concluído, cancelado ou expirou. */
+  lembretesResolvidos() {
+    return pedir<Lembrete[]>("/api/lembretes/resolvidos");
+  },
+  editarLembrete(id: string, mudanca: EdicaoDeLembrete) {
+    return pedir<Lembrete>(`/api/lembretes/${id}`, {
+      method: "PATCH",
+      // Só o que foi mexido viaja. Mandar o objeto inteiro faria a tela que
+      // editou o título reescrever também a hora — com o valor que ela leu
+      // antes — e o sync não teria como saber que aquilo não foi uma edição.
+      body: JSON.stringify({
+        ...(mudanca.titulo !== undefined ? { titulo: mudanca.titulo } : {}),
+        ...(mudanca.nota !== undefined ? { nota: mudanca.nota } : {}),
+        ...(mudanca.quando ? { quando: comOffsetLocal(mudanca.quando) } : {}),
+        ...(mudanca.prioridade ? { prioridade: mudanca.prioridade } : {}),
+      }),
+    });
+  },
+  adiarLembrete(id: string, ate: Date) {
+    return pedir<Lembrete>(`/api/lembretes/${id}/adiar`, {
+      method: "POST",
+      body: JSON.stringify({ ate: comOffsetLocal(ate) }),
+    });
+  },
+  /** Arquivar é o "excluir" da tela: some da lista, a linha continua. */
+  arquivarLembrete(id: string) {
+    return pedir<Lembrete>(`/api/lembretes/${id}/arquivar`, { method: "POST" });
   },
   estado() {
     return pedir<EstadoDoAparelho>("/api/estado");

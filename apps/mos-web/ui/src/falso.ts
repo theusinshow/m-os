@@ -63,6 +63,8 @@ export const FALSO: {
       nextDueAt: ha(30),
       snoozeCount: 0,
       createdAt: ha(600),
+      updatedAt: ha(600),
+      lifecycleState: "active",
     },
     {
       id: "l2",
@@ -74,6 +76,8 @@ export const FALSO: {
       nextDueAt: daqui(240),
       snoozeCount: 1,
       createdAt: ha(2000),
+      updatedAt: ha(2000),
+      lifecycleState: "active",
     },
   ],
   estado: { pendentes: 3, sincroniza: true, chavePush: "chave-falsa", aparelhosAvisados: 1 },

@@ -458,6 +458,211 @@
   text-decoration-color: var(--text-system);
 }
 
+/* -------------------------------------------------------------- detalhe */
+
+/* A tela de UMA coisa: um lembrete, uma task.
+   Ela e o que faltava para o bolso deixar de ser so uma lista — sem ela, um
+   lembrete criado no onibus com a hora errada ficava errado ate chegar em casa. */
+.detalhe {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.detalhe-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+/* Voltar e texto com seta, e nao um icone so: o icone sozinho nao diz PARA ONDE
+   se volta, e num app de cinco telas isso importa. */
+.voltar {
+  padding: var(--space-1) 0;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: 400 15px/1 var(--font-product);
+  cursor: pointer;
+}
+
+.etiqueta {
+  padding: 5px var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text-system);
+  font: 500 10px/1 var(--font-system);
+  letter-spacing: 0.08em;
+}
+
+.etiqueta[data-cobra] {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+.detalhe-quando {
+  margin: 0;
+  font: 500 22px/1.15 var(--font-system);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.detalhe-titulo {
+  margin: 0;
+  font: 600 22px/1.25 var(--font-product);
+  letter-spacing: -0.02em;
+}
+
+.detalhe-nota {
+  margin: 0;
+  color: var(--text-secondary);
+  font: 400 15px/1.5 var(--font-product);
+}
+
+.detalhe-aviso {
+  margin: 0;
+  color: var(--text-system);
+  font: 400 13px/1.5 var(--font-product);
+  text-wrap: pretty;
+}
+
+/* O rotulo do campo em mono e pequeno, o valor em corpo de leitura: e a mesma
+   hierarquia do cartao da Home — o rotulo e legenda, o conteudo e o dado. */
+.campo {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.campo > span {
+  font: 500 11px/1 var(--font-system);
+  letter-spacing: 0.08em;
+  color: var(--text-system);
+}
+
+.campo input,
+.campo textarea {
+  width: 100%;
+  min-height: var(--toque);
+  padding: var(--space-3);
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: 400 16px/1.45 var(--font-product);
+  /* 16px e o minimo que o iOS aceita sem dar zoom no campo ao focar — e o zoom
+     desloca a tela inteira debaixo do dedo no meio de uma frase. */
+  letter-spacing: -0.008em;
+  resize: none;
+}
+
+.campo textarea {
+  min-height: 84px;
+}
+
+.campo input:focus-visible,
+.campo textarea:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+}
+
+/* O campo de data e hora do proprio sistema, e nao um seletor desenhado: o do
+   iOS e o que a pessoa ja sabe usar, e reimplementa-lo seria trocar familiaridade
+   por controle sobre um pixel. */
+.campo input[type="datetime-local"] {
+  font-family: var(--font-system);
+  font-variant-numeric: tabular-nums;
+}
+
+.detalhe-bloco {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.detalhe-bloco h3 {
+  margin: 0;
+  font: 500 11px/1 var(--font-system);
+  letter-spacing: 0.08em;
+  color: var(--text-system);
+}
+
+.detalhe-adiar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+}
+
+.detalhe-adiar button {
+  min-height: var(--toque);
+  padding: 0 var(--space-1);
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font: 500 12px/1 var(--font-system);
+  cursor: pointer;
+}
+
+.detalhe-adiar button:active {
+  background: var(--surface-active);
+  color: var(--text);
+}
+
+.detalhe-acoes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+/* Excluir e um link discreto, e nao um botao vermelho grande.
+   Ele nao compete com concluir: concluir e o que se faz todo dia, excluir e o
+   que se faz quando se errou. O peso visual segue a frequencia. */
+.detalhe-excluir {
+  justify-self: start;
+  padding: var(--space-2) 0;
+  border: 0;
+  background: none;
+  color: var(--text-system);
+  font: 400 14px/1 var(--font-product);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* A confirmacao de excluir em SODIO, e nao em vermelho.
+   Nao ha vermelho neste app — nem o recado de erro usa um: a paleta tem um
+   acento so, e introduzir um segundo aqui faria "excluir" gritar mais alto que
+   um lembrete vencido. O que separa este botao dos outros e a borda acesa e o
+   fato de ele so aparecer depois de um toque. */
+.botao[data-variante="perigo"] {
+  background: none;
+  border: 1px solid var(--signal);
+  color: var(--signal);
+}
+
+/* -------------------------------------------------------- lembretes */
+
+.lembretes {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* O que ainda vem nao compete com o que cobra. Apagado, e nao escondido:
+   informacao, e nao chamado. */
+.lembretes section[data-apagado] {
+  opacity: 0.7;
+}
+
+/* A linha que abre o detalhe divide espaco com o botao, e nao o empurra para
+   baixo: `.linha-destino` e `display:block; width:100%` porque na pagina Mais
+   ela ocupa a linha inteira — aqui ela e um dos dois lados. */
+.lembretes .linha-destino {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
 /* ---------------------------------------------------------------- mais */
 
 .mais {

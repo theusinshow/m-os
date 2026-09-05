@@ -6,7 +6,8 @@ import {
   type AlvoDoLembrete,
   type Capture,
   type EstadoDoAparelho,
-  type Lembrete,
+  type EdicaoDeLembrete,
+  type Lembrete as ItemDeLembrete,
   type CompromissoDaLista,
   type HorasDeProjeto,
   type ItemDaAgenda,
@@ -24,7 +25,8 @@ import { Home } from "./paginas/Home";
 import { gravarArranjo, lerArranjo, type Arranjo } from "./paginas/arranjo";
 import { Capturar } from "./paginas/Capturar";
 import { Fazer } from "./paginas/Fazer";
-import { Lembretes } from "./paginas/Lembretes";
+import { Lembrete } from "./paginas/Lembrete";
+import { Lembretes, type VistaDosLembretes } from "./paginas/Lembretes";
 import { Mais } from "./paginas/Mais";
 import { Agenda, type VistaDaAgenda } from "./paginas/Agenda";
 import { Horas } from "./paginas/Horas";
@@ -63,7 +65,11 @@ export function App() {
   const [texto, setTexto] = useState("");
   const [capturas, setCapturas] = useState<Capture[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [lembretes, setLembretes] = useState<Lembrete[]>([]);
+  const [lembretes, setLembretes] = useState<ItemDeLembrete[]>([]);
+  const [resolvidos, setResolvidos] = useState<ItemDeLembrete[]>([]);
+  const [vistaDosLembretes, setVistaDosLembretes] = useState<VistaDosLembretes>("abertos");
+  /** Qual lembrete está aberto no detalhe. Nulo é "a lista". */
+  const [lembreteAberto, setLembreteAberto] = useState<string | null>(null);
   const [estado, setEstado] = useState<EstadoDoAparelho | null>(null);
   const [panorama, setPanorama] = useState<Panorama | null>(null);
   const [agenda, setAgenda] = useState<ItemDaAgenda[]>([]);
@@ -106,10 +112,11 @@ export function App() {
       proximoPanorama,
       proximaAgenda,
       proximoAcademico,
+      proximosResolvidos,
     ] = await Promise.all([
       api.inbox().catch(() => [] as Capture[]),
       api.tasks().catch(() => [] as Task[]),
-      api.lembretes().catch(() => [] as Lembrete[]),
+      api.lembretes().catch(() => [] as ItemDeLembrete[]),
       // Nulo em vez de erro: um servidor sem a rota ainda serve a Home inteira,
       // só sem os dois cartões novos.
       api.panorama().catch(() => null),
@@ -122,6 +129,9 @@ export function App() {
         .agenda(...janelaDaAgenda(vistaDaAgenda))
         .catch(() => [] as ItemDaAgenda[]),
       api.academico().catch(() => [] as CompromissoDaLista[]),
+      // O historico vem junto, e nao so quando a aba abre: sao 50 linhas, uma
+      // ida a rede a menos, e a aba passa a abrir cheia em vez de piscar vazia.
+      api.lembretesResolvidos().catch(() => [] as ItemDeLembrete[]),
     ]);
     if (proximoEstado) setEstado(proximoEstado);
     setCapturas(proximaInbox);
@@ -130,6 +140,7 @@ export function App() {
     setPanorama(proximoPanorama);
     setAgenda(proximaAgenda);
     setAcademico(proximoAcademico);
+    setResolvidos(proximosResolvidos);
     // A situação das notificações é recalculada junto: ela muda por fora do app
     // — instalar na tela de início, mexer em Ajustes —, e uma tela que só olha
     // uma vez ficaria dizendo "instale" depois de você já ter instalado.
@@ -259,12 +270,60 @@ export function App() {
     setOcupado(false);
   }
 
-  async function resolverLembrete(lembrete: Lembrete, como: "concluir" | "cancelar") {
+  async function resolverLembrete(lembrete: ItemDeLembrete, como: "concluir" | "cancelar") {
     setOcupado(true);
     try {
       if (como === "concluir") await api.concluirLembrete(lembrete.id);
       else await api.cancelarLembrete(lembrete.id);
       contar(como === "concluir" ? "Lembrete concluído." : "Lembrete cancelado.");
+      await atualizar();
+    } catch (causa) {
+      reclamar(causa);
+    }
+    setOcupado(false);
+  }
+
+  /**
+   * Salvar a edicao.
+   *
+   * Volta para a lista depois, e nao fica na tela: o detalhe existe para
+   * resolver uma coisa: e ficar nele depois de resolver obriga a um segundo
+   * toque para sair, todas as vezes.
+   */
+  async function salvarLembrete(id: string, mudanca: EdicaoDeLembrete) {
+    setOcupado(true);
+    try {
+      await api.editarLembrete(id, mudanca);
+      contar("Lembrete salvo.");
+      setLembreteAberto(null);
+      await atualizar();
+    } catch (causa) {
+      reclamar(causa);
+    }
+    setOcupado(false);
+  }
+
+  async function adiarLembrete(id: string, ate: Date) {
+    setOcupado(true);
+    try {
+      await api.adiarLembrete(id, ate);
+      // A confirmacao repete a HORA, e nao "adiado": a unica forma de descobrir
+      // que se adiou para o dia errado e ler o dia.
+      contar(`Adiado para ${porExtenso(ate)}.`);
+      setLembreteAberto(null);
+      await atualizar();
+    } catch (causa) {
+      reclamar(causa);
+    }
+    setOcupado(false);
+  }
+
+  async function arquivarLembrete(id: string) {
+    setOcupado(true);
+    try {
+      await api.arquivarLembrete(id);
+      contar("Lembrete excluído.");
+      setLembreteAberto(null);
       await atualizar();
     } catch (causa) {
       reclamar(causa);
@@ -302,6 +361,18 @@ export function App() {
   }
 
   const pendentes = estado?.pendentes ?? 0;
+
+  /** O lembrete que o detalhe mostra, achado nas duas listas.
+   *
+   *  Nas DUAS porque concluir um lembrete o move de uma para a outra, e um
+   *  detalhe que sumisse no instante da conclusao nao mostraria o resultado da
+   *  acao que a pessoa acabou de tomar. */
+  const aberto =
+    lembreteAberto === null
+      ? null
+      : (lembretes.find((l) => l.id === lembreteAberto) ??
+        resolvidos.find((l) => l.id === lembreteAberto) ??
+        null);
 
   /**
    * Quais Tasks já têm lembrete vivo.
@@ -402,11 +473,28 @@ export function App() {
           />
         ) : null}
         {pagina === "lembretes" ? (
-          <Lembretes
-            lembretes={lembretes}
-            ocupado={ocupado}
-            aoResolver={(lembrete, como) => void resolverLembrete(lembrete, como)}
-          />
+          aberto ? (
+            <Lembrete
+              lembrete={aberto}
+              ocupado={ocupado}
+              aoSalvar={(mudanca) => void salvarLembrete(aberto.id, mudanca)}
+              aoConcluir={() => void resolverLembrete(aberto, "concluir")}
+              aoCancelar={() => void resolverLembrete(aberto, "cancelar")}
+              aoAdiar={(ate) => void adiarLembrete(aberto.id, ate)}
+              aoArquivar={() => void arquivarLembrete(aberto.id)}
+              aoVoltar={() => setLembreteAberto(null)}
+            />
+          ) : (
+            <Lembretes
+              lembretes={lembretes}
+              resolvidos={resolvidos}
+              vista={vistaDosLembretes}
+              ocupado={ocupado}
+              aoTrocarVista={setVistaDosLembretes}
+              aoAbrir={(lembrete) => setLembreteAberto(lembrete.id)}
+              aoResolver={(lembrete, como) => void resolverLembrete(lembrete, como)}
+            />
+          )
         ) : null}
         {pagina === "agenda" ? (
           <Agenda

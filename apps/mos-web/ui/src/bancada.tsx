@@ -10,6 +10,7 @@ import { Home } from "./paginas/Home";
 import { ARRANJO_VAZIO, type Arranjo } from "./paginas/arranjo";
 import { Capturar } from "./paginas/Capturar";
 import { Fazer } from "./paginas/Fazer";
+import { Lembrete } from "./paginas/Lembrete";
 import { Lembretes } from "./paginas/Lembretes";
 import { Mais } from "./paginas/Mais";
 import { Agenda } from "./paginas/Agenda";
@@ -198,7 +199,33 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
     titulo: "Lembretes",
     pagina: "lembretes",
     compoe: true,
-    corpo: <Lembretes lembretes={FALSO.lembretes} ocupado={false} aoResolver={NADA} />,
+    corpo: (
+      <Lembretes
+        lembretes={FALSO.lembretes}
+        resolvidos={[]}
+        vista="abertos"
+        ocupado={false}
+        aoTrocarVista={NADA}
+        aoAbrir={NADA}
+        aoResolver={NADA}
+      />
+    ),
+  },
+  {
+    titulo: "Lembrete · detalhe",
+    pagina: "lembretes",
+    corpo: (
+      <Lembrete
+        lembrete={FALSO.lembretes[0]}
+        ocupado={false}
+        aoSalvar={NADA}
+        aoConcluir={NADA}
+        aoCancelar={NADA}
+        aoAdiar={NADA}
+        aoArquivar={NADA}
+        aoVoltar={NADA}
+      />
+    ),
   },
   {
     titulo: "Agenda",
