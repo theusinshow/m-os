@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aplicarArranjo, mostrar, mover, ocultar, ARRANJO_VAZIO } from "./arranjo";
+import { alternarOculto, aplicarArranjo, ordenar, reordenar, ARRANJO_VAZIO } from "./arranjo";
 import type { CartaoDaHome } from "./cartoes";
 
 function cartao(chave: string): CartaoDaHome {
@@ -7,15 +7,11 @@ function cartao(chave: string): CartaoDaHome {
 }
 
 const CARTOES = [cartao("sync"), cartao("horas"), cartao("inbox"), cartao("tasks")];
+const CHAVES = ["sync", "horas", "inbox", "tasks"];
 
 describe("o arranjo da Home", () => {
   it("sem arranjo, a ordem e a que a Home montou", () => {
-    expect(aplicarArranjo(CARTOES, ARRANJO_VAZIO).map((c) => c.chave)).toEqual([
-      "sync",
-      "horas",
-      "inbox",
-      "tasks",
-    ]);
+    expect(aplicarArranjo(CARTOES, ARRANJO_VAZIO).map((c) => c.chave)).toEqual(CHAVES);
   });
 
   it("respeita a ordem escolhida", () => {
@@ -40,51 +36,48 @@ describe("o arranjo da Home", () => {
     ]);
   });
 
-  it("esconde e traz de volta", () => {
-    const escondido = ocultar(ARRANJO_VAZIO, "inbox");
+  it("esconde e traz de volta pelo mesmo alvo", () => {
+    const escondido = alternarOculto(ARRANJO_VAZIO, "inbox");
     expect(aplicarArranjo(CARTOES, escondido).map((c) => c.chave)).not.toContain("inbox");
-    const devolvido = mostrar(escondido, "inbox");
+    const devolvido = alternarOculto(escondido, "inbox");
     expect(aplicarArranjo(CARTOES, devolvido).map((c) => c.chave)).toContain("inbox");
   });
 
-  it("nao esconde duas vezes", () => {
-    const uma = ocultar(ARRANJO_VAZIO, "inbox");
-    expect(ocultar(uma, "inbox").ocultos).toEqual(["inbox"]);
+  // Dentro do modo de arrumar o escondido continua na grade, apagado: é assim
+  // que se descobre que ele existe para trazê-lo de volta.
+  it("no modo de arrumar, o escondido continua na lista", () => {
+    const escondido = alternarOculto(ARRANJO_VAZIO, "inbox");
+    expect(ordenar(CARTOES, escondido).map((c) => c.chave)).toContain("inbox");
   });
 });
 
-describe("mover um cartao", () => {
-  const VISIVEIS = ["sync", "horas", "inbox", "tasks"];
-
-  it("sobe uma posicao", () => {
-    expect(mover(ARRANJO_VAZIO, VISIVEIS, "inbox", "cima").ordem).toEqual([
-      "sync",
+describe("reordenar por arrasto", () => {
+  it("tira de uma posicao e enfia noutra", () => {
+    expect(reordenar(ARRANJO_VAZIO, CHAVES, 2, 0).ordem).toEqual([
       "inbox",
+      "sync",
       "horas",
       "tasks",
     ]);
   });
 
-  it("desce uma posicao", () => {
-    expect(mover(ARRANJO_VAZIO, VISIVEIS, "sync", "baixo").ordem).toEqual([
+  it("empurra para tras quando desce", () => {
+    expect(reordenar(ARRANJO_VAZIO, CHAVES, 0, 3).ordem).toEqual([
       "horas",
-      "sync",
       "inbox",
       "tasks",
+      "sync",
     ]);
   });
 
-  // Nas bordas o toque não faz nada, e não dá a volta: um cartão que salta do
-  // topo para o fim parece que sumiu.
-  it("no topo, subir nao faz nada", () => {
-    expect(mover(ARRANJO_VAZIO, VISIVEIS, "sync", "cima")).toEqual(ARRANJO_VAZIO);
+  // O arrasto dispara a cada pixel: soltar no mesmo lugar não pode gravar um
+  // arranjo novo, senão a Home passa a "ter arranjo" só por ter sido tocada.
+  it("soltar no mesmo lugar nao muda nada", () => {
+    expect(reordenar(ARRANJO_VAZIO, CHAVES, 1, 1)).toBe(ARRANJO_VAZIO);
   });
 
-  it("no fim, descer nao faz nada", () => {
-    expect(mover(ARRANJO_VAZIO, VISIVEIS, "tasks", "baixo")).toEqual(ARRANJO_VAZIO);
-  });
-
-  it("ignora chave que nao esta na tela", () => {
-    expect(mover(ARRANJO_VAZIO, VISIVEIS, "fantasma", "cima")).toEqual(ARRANJO_VAZIO);
+  it("ignora posicao fora da grade", () => {
+    expect(reordenar(ARRANJO_VAZIO, CHAVES, 0, 9)).toBe(ARRANJO_VAZIO);
+    expect(reordenar(ARRANJO_VAZIO, CHAVES, -1, 0)).toBe(ARRANJO_VAZIO);
   });
 });

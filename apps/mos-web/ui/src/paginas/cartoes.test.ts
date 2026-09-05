@@ -13,7 +13,7 @@ describe("os cartoes da Home", () => {
   it("conta como task aberta o que nao esta feito", () => {
     const tasks = cartoesDaHome(FALSO.estado, FALSO, AGORA).find((c) => c.chave === "tasks");
     expect(tasks?.numero).toBe("2");
-    expect(tasks?.destino).toBe("tasks");
+    expect(tasks?.destino).toBe("fazer");
   });
 
   it("marca urgente o cartao de hoje quando ha lembrete cobrando", () => {

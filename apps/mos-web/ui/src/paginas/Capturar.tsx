@@ -1,5 +1,5 @@
 import type { Capture } from "../api";
-import { quando } from "./Inbox";
+import { idade } from "./idade";
 import { Vazio } from "../componentes/Vazio";
 
 /**
@@ -22,7 +22,7 @@ export function Capturar({ capturas }: { capturas: Capture[] }) {
           <li className="item" key={capture.id}>
             <div className="item-corpo">
               <p>{capture.content}</p>
-              <small>{quando(capture.capturedAt)}</small>
+              <small>{idade(capture.capturedAt)}</small>
             </div>
           </li>
         ))}

@@ -25,54 +25,54 @@ export const ARRANJO_VAZIO: Arranjo = { ordem: [], ocultos: [] };
 const CHAVE = "mos.home.arranjo";
 
 /**
- * Aplica o arranjo aos cartões que a Home montou.
+ * Os cartões na ordem escolhida — todos, inclusive os escondidos.
  *
  * O que não está na ordem vai para o FIM, e não some: um cartão novo — de uma
  * versão futura — apareceria invisível se a ausência significasse ocultar, e
  * ninguém descobriria que ele existe.
  */
-export function aplicarArranjo(cartoes: CartaoDaHome[], arranjo: Arranjo): CartaoDaHome[] {
+export function ordenar(cartoes: CartaoDaHome[], arranjo: Arranjo): CartaoDaHome[] {
   const posicao = new Map(arranjo.ordem.map((chave, indice) => [chave, indice]));
-  return cartoes
-    .filter((cartao) => !arranjo.ocultos.includes(cartao.chave))
-    .sort(
-      (um, outro) =>
-        (posicao.get(um.chave) ?? Number.MAX_SAFE_INTEGER) -
-        (posicao.get(outro.chave) ?? Number.MAX_SAFE_INTEGER),
-    );
+  return [...cartoes].sort(
+    (um, outro) =>
+      (posicao.get(um.chave) ?? Number.MAX_SAFE_INTEGER) -
+      (posicao.get(outro.chave) ?? Number.MAX_SAFE_INTEGER),
+  );
+}
+
+/** O que a Home mostra fora do modo de arrumar: a ordem, sem os escondidos. */
+export function aplicarArranjo(cartoes: CartaoDaHome[], arranjo: Arranjo): CartaoDaHome[] {
+  return ordenar(cartoes, arranjo).filter((cartao) => !arranjo.ocultos.includes(cartao.chave));
 }
 
 /**
- * Move um cartão uma posição.
+ * Tira o cartão de uma posição e o enfia noutra.
  *
- * Trabalha sobre a ordem VISÍVEL que foi passada, e não sobre `arranjo.ordem`:
- * quem está arrumando vê a tela, e mover "para cima" tem que trocar com o
- * cartão que está acima na tela — mesmo que a ordem guardada esteja pela metade.
+ * Trabalha sobre a lista de chaves que está NA TELA, e não sobre
+ * `arranjo.ordem`: quem arrasta vê a grade, e soltar sobre o terceiro cartão
+ * tem que pôr o cartão em terceiro — mesmo que a ordem guardada esteja pela
+ * metade ou vazia.
  */
-export function mover(
+export function reordenar(
   arranjo: Arranjo,
-  visiveis: string[],
-  chave: string,
-  direcao: "cima" | "baixo",
+  chaves: string[],
+  de: number,
+  para: number,
 ): Arranjo {
-  const atual = [...visiveis];
-  const de = atual.indexOf(chave);
-  if (de < 0) return arranjo;
-  const para = direcao === "cima" ? de - 1 : de + 1;
-  if (para < 0 || para >= atual.length) return arranjo;
-  [atual[de], atual[para]] = [atual[para], atual[de]];
-  return { ...arranjo, ordem: atual };
+  if (de === para) return arranjo;
+  if (de < 0 || de >= chaves.length) return arranjo;
+  if (para < 0 || para >= chaves.length) return arranjo;
+  const ordem = [...chaves];
+  const [movido] = ordem.splice(de, 1);
+  ordem.splice(para, 0, movido);
+  return { ...arranjo, ordem };
 }
 
-/** Esconde um cartão. */
-export function ocultar(arranjo: Arranjo, chave: string): Arranjo {
-  if (arranjo.ocultos.includes(chave)) return arranjo;
-  return { ...arranjo, ocultos: [...arranjo.ocultos, chave] };
-}
-
-/** Traz de volta. */
-export function mostrar(arranjo: Arranjo, chave: string): Arranjo {
-  return { ...arranjo, ocultos: arranjo.ocultos.filter((oculto) => oculto !== chave) };
+/** Esconde, ou traz de volta. Um alvo só, porque é um estado só. */
+export function alternarOculto(arranjo: Arranjo, chave: string): Arranjo {
+  return arranjo.ocultos.includes(chave)
+    ? { ...arranjo, ocultos: arranjo.ocultos.filter((oculto) => oculto !== chave) }
+    : { ...arranjo, ocultos: [...arranjo.ocultos, chave] };
 }
 
 /**

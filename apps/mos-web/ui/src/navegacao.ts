@@ -2,29 +2,43 @@ import { pedeAtencao, type Capture, type Lembrete, type Task } from "./api";
 
 export type Pagina =
   | "home"
-  | "capturar"
-  | "inbox"
-  | "tasks"
-  | "lembretes"
   | "agenda"
+  | "capturar"
+  | "fazer"
+  | "mais"
   | "horas"
   | "academico"
-  | "mais";
+  | "lembretes";
 
 /**
- * Os cinco destinos da barra de baixo.
+ * Os cinco lugares da barra de baixo.
  *
- * Lembretes NAO esta aqui, e a ausencia e a decisao: ele e destino de
- * notificacao — chega-se nele pelo aviso que tocou, ou pelo cartao da Home —, e
- * a barra guarda os cinco alvos que o polegar procura sem motivo externo.
+ * # O que mudou, e por que doia
+ *
+ * A barra antiga era `Home · Capturar · Inbox · Tasks · Mais`, e escondia a
+ * Agenda dentro de "Mais" — quem nao soubesse que o calendario existe nunca
+ * descobriria. Tres decisoes consertam isso:
+ *
+ * - **Capturar deixa de ser um destino igual aos outros** e vira o botao
+ *   central. E a razao de existir do app; em pe de igualdade com "Mais" ele
+ *   pedia a mesma mira que uma pagina de ajustes.
+ * - **Inbox e Tasks fundem em FAZER.** Sao a mesma pergunta — *o que esta
+ *   aberto?* — e ocupavam dois dos cinco lugares para responde-la duas vezes.
+ * - **A Agenda sobe para a barra**, no lugar que sobrou.
+ *
+ * Lembretes continua fora, e a ausencia continua sendo a decisao: ele e destino
+ * de notificacao — chega-se nele pelo aviso que tocou, ou pelo cartao da Home.
  */
 export const DESTINOS: ReadonlyArray<{ pagina: Pagina; rotulo: string }> = [
   { pagina: "home", rotulo: "Home" },
+  { pagina: "agenda", rotulo: "Agenda" },
   { pagina: "capturar", rotulo: "Capturar" },
-  { pagina: "inbox", rotulo: "Inbox" },
-  { pagina: "tasks", rotulo: "Tasks" },
+  { pagina: "fazer", rotulo: "Fazer" },
   { pagina: "mais", rotulo: "Mais" },
 ];
+
+/** Qual dos cinco e o botao central em sodio, e nao um alvo de texto. */
+export const CENTRAL: Pagina = "capturar";
 
 export type Dados = {
   capturas: Capture[];
@@ -35,10 +49,12 @@ export type Dados = {
 /** O numero do badge. Zero significa "nao desenhe nada". */
 export function contagemDe(pagina: Pagina, dados: Dados): number {
   switch (pagina) {
-    case "inbox":
-      return dados.capturas.length;
-    case "tasks":
-      return dados.tasks.filter((task) => task.state !== "done").length;
+    // O badge de FAZER soma as duas metades da tela, porque a tela e uma so: o
+    // que esta na barra tem que corresponder ao que se ve ao tocar nela.
+    case "fazer":
+      return (
+        dados.capturas.length + dados.tasks.filter((task) => task.state !== "done").length
+      );
     case "mais":
     case "lembretes":
       // So o que cobra acao. `scheduled` nao entra: um badge que sobe com coisa

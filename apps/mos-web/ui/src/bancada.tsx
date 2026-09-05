@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "./estilo.css";
 import "./telas.css";
@@ -9,8 +9,7 @@ import type { Pagina } from "./navegacao";
 import { Home } from "./paginas/Home";
 import { ARRANJO_VAZIO, type Arranjo } from "./paginas/arranjo";
 import { Capturar } from "./paginas/Capturar";
-import { Inbox } from "./paginas/Inbox";
-import { Tasks } from "./paginas/Tasks";
+import { Fazer } from "./paginas/Fazer";
 import { Lembretes } from "./paginas/Lembretes";
 import { Mais } from "./paginas/Mais";
 import { Agenda } from "./paginas/Agenda";
@@ -32,7 +31,12 @@ import { Academico } from "./paginas/Academico";
 const LARGURAS = [390, 430];
 
 const PANORAMA = {
-  horas: { semanaSegundos: 32_880, semanaValorCents: 27_400, hojeSegundos: 3_600 },
+  horas: {
+    semanaSegundos: 32_880,
+    semanaValorCents: 27_400,
+    hojeSegundos: 3_600,
+    diasSegundos: [12_600, 23_400, 17_200, 32_880, 0, 0, 0],
+  },
   proximos: [
     {
       titulo: "Prova de Cálculo III",
@@ -46,28 +50,23 @@ const PANORAMA = {
 /**
  * A Home já dentro do modo arrumar.
  *
- * O modo é estado interno da Home — e é assim que ele deve ser, porque ninguém
- * de fora precisa saber que se está arrumando. Para fotografá-lo, a bancada
- * TOCA no botão de verdade em vez de ganhar um atalho: um atalho mostraria uma
- * tela que o app não tem como produzir.
+ * O modo mora no App, e não na Home, porque ele troca a barra do topo. Aqui a
+ * bancada o liga direto — e por isso desenha também a barra de sódio à mão, que
+ * no app de verdade é responsabilidade da casca.
  */
 function HomeArrumando() {
   const [arranjo, setArranjo] = useState<Arranjo>({ ordem: [], ocultos: ["inbox"] });
-  const caixa = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    caixa.current?.querySelector<HTMLButtonElement>(".home-arrumar")?.click();
-  }, []);
   return (
-    <div ref={caixa}>
-      <Home
-        estado={FALSO.estado}
-        dados={FALSO}
-        panorama={PANORAMA}
-        arranjo={arranjo}
-        aoArranjar={setArranjo}
-        aoIr={NADA}
-      />
-    </div>
+    <Home
+      estado={FALSO.estado}
+      dados={FALSO}
+      panorama={PANORAMA}
+      arranjo={arranjo}
+      arrumando
+      aoArrumando={NADA}
+      aoArranjar={setArranjo}
+      aoIr={NADA}
+    />
   );
 }
 
@@ -137,6 +136,8 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
         dados={FALSO}
         panorama={PANORAMA}
         arranjo={ARRANJO_VAZIO}
+        arrumando={false}
+        aoArrumando={NADA}
         aoArranjar={NADA}
         aoIr={NADA}
       />
@@ -154,23 +155,29 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
     corpo: <Capturar capturas={FALSO.capturas} />,
   },
   {
-    titulo: "Inbox",
-    pagina: "inbox",
-    corpo: <Inbox capturas={FALSO.capturas} aoCapturar={NADA} />,
-  },
-  {
-    titulo: "Inbox vazia",
-    pagina: "inbox",
-    corpo: <Inbox capturas={[]} aoCapturar={NADA} />,
-  },
-  {
-    titulo: "Tasks",
-    pagina: "tasks",
+    titulo: "Fazer",
+    pagina: "fazer",
     compoe: true,
     corpo: (
-      <Tasks
+      <Fazer
+        capturas={FALSO.capturas}
         tasks={FALSO.tasks}
         tasksLembradas={new Set(["t3"])}
+        aoCapturar={NADA}
+        aoAlternar={NADA}
+        aoLembrar={NADA}
+      />
+    ),
+  },
+  {
+    titulo: "Fazer vazio",
+    pagina: "fazer",
+    corpo: (
+      <Fazer
+        capturas={[]}
+        tasks={[]}
+        tasksLembradas={new Set()}
+        aoCapturar={NADA}
         aoAlternar={NADA}
         aoLembrar={NADA}
       />
@@ -296,7 +303,6 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
         aoAtivar={NADA}
         aoTestar={NADA}
         aoAbrirLembretes={NADA}
-        aoAbrirAgenda={NADA}
         aoAbrirHoras={NADA}
         aoAbrirAcademico={NADA}
       />

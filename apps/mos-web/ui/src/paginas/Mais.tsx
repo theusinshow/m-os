@@ -17,7 +17,6 @@ export function Mais({
   aoAtivar,
   aoTestar,
   aoAbrirLembretes,
-  aoAbrirAgenda,
   aoAbrirHoras,
   aoAbrirAcademico,
 }: {
@@ -28,7 +27,6 @@ export function Mais({
   aoAtivar: () => void;
   aoTestar: () => void;
   aoAbrirLembretes: () => void;
-  aoAbrirAgenda: () => void;
   aoAbrirHoras: () => void;
   aoAbrirAcademico: () => void;
 }) {
@@ -49,14 +47,6 @@ export function Mais({
             <div className="item-corpo">
               <p>Acadêmico</p>
               <small>provas e entregas, atrasado primeiro</small>
-            </div>
-          </button>
-        </li>
-        <li className="item">
-          <button className="linha-destino" type="button" onClick={aoAbrirAgenda}>
-            <div className="item-corpo">
-              <p>Agenda</p>
-              <small>de ontem a uma semana</small>
             </div>
           </button>
         </li>

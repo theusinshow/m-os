@@ -11,15 +11,51 @@
  * toque mora em `:active`, que é o único que o dedo produz.
  */
 
+/* As duas familias vem DAQUI, e nao de um CDN.
+ *
+ * Elas foram declaradas por um ano inteiro sem nunca serem carregadas — o CSS
+ * pedia Schibsted Grotesk e nao havia arquivo nenhum no projeto, entao o iPhone
+ * caia em Helvetica e ninguem percebia. Servir do proprio binario resolve os
+ * tres problemas de uma vez: nao ha requisicao a terceiro, nao ha quem saiba
+ * que este app foi aberto, e o modo aviao nao muda nada.
+ *
+ * `swap` e nao `block`: o app abre na rua, e uma tela em branco esperando fonte
+ * e pior que uma tela lida em Helvetica por 200 ms.
+ */
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("/fontes/bricolage-grotesque-latin-v9.woff2") format("woff2");
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fontes/jetbrains-mono-latin-v24.woff2") format("woff2");
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
-  --font-product: "Schibsted Grotesk", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-product: "Bricolage Grotesque", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-system: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --canvas: #0a0c0e;
   --surface: #101316;
   --surface-raised: #171b1f;
   --surface-active: #252c31;
+  /* Duas profundidades, e nao uma. O cartao da Home mora em `card`; o cartao
+     que esta sendo arrastado sobe para `lifted`. Sem o segundo nivel, "esta
+     coisa esta na sua mao" tinha que ser dito so por sombra, e sombra sozinha
+     some no preto. */
+  --surface-card: #14181b;
+  --surface-lifted: #191e22;
   --border: #1e2429;
+  /* A hairline que separa densidade sem pedir cor: linha entre itens de lista,
+     onde `--border` seria uma cerca. */
+  --border-hair: #262e33;
   --border-strong: #2a3136;
   --text: #e7eaec;
   --text-secondary: #8c949a;
@@ -41,6 +77,9 @@
 
   --radius: 3px;
   --radius-lg: 8px;
+  /* O raio do cartao da Home. Maior que o resto de proposito: o cartao e a
+     unica superficie que se toca inteira, e 12px o afasta da caixa de texto. */
+  --radius-cartao: 12px;
 
   /* O alvo de toque não é decisão de estilo: abaixo de 44px o dedo erra, e
      errar aqui significa marcar a task errada como feita. */
@@ -59,6 +98,29 @@
   /* Uma constante só para o tempo das transições. Elas são curtas porque tudo
      aqui é resposta a um toque, e resposta a toque que demora parece travada. */
   --tempo: 140ms;
+  /* O tempo do que se move de lugar — reordenar a Home. Mais longo que o
+     `--tempo` porque aqui o olho precisa SEGUIR o cartao ate o destino; rapido
+     demais e ele reaparece noutro lugar sem que ninguem tenha visto ir. */
+  --tempo-mover: 180ms;
+  /* A curva de tudo. Sai depressa e chega devagar, que e como coisa com massa
+     se comporta — e o cartao da Home tem que parecer ter massa. */
+  --curva: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Quem pediu menos movimento recebe menos movimento.
+ *
+ * Nao e acessibilidade decorativa: este app abre em movimento — numeros que
+ * sobem, listas que entram em escada — e quem enjoa com isso abre o app do
+ * mesmo jeito, na rua, para capturar uma ideia. A regra vem antes de qualquer
+ * animacao para que nenhuma precise lembrar de respeita-la. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 * {

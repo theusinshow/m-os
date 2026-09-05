@@ -23,8 +23,7 @@ import type { Pagina } from "./navegacao";
 import { Home } from "./paginas/Home";
 import { gravarArranjo, lerArranjo, type Arranjo } from "./paginas/arranjo";
 import { Capturar } from "./paginas/Capturar";
-import { Inbox } from "./paginas/Inbox";
-import { Tasks } from "./paginas/Tasks";
+import { Fazer } from "./paginas/Fazer";
 import { Lembretes } from "./paginas/Lembretes";
 import { Mais } from "./paginas/Mais";
 import { Agenda } from "./paginas/Agenda";
@@ -79,6 +78,9 @@ export function App() {
   // Lido uma vez, na montagem: o arranjo vive no `localStorage` deste aparelho,
   // e reler a cada render custaria uma ida ao disco por causa de nada.
   const [arranjo, setArranjo] = useState<Arranjo>(lerArranjo);
+  /** A Home está sendo arrumada. Mora aqui, e não na Home, porque o modo TROCA
+   *  a barra do topo — e a barra do topo é desta casca. */
+  const [arrumando, setArrumando] = useState(false);
   /** `true` enquanto o servidor recusar por falta de sessão. */
   const [fechado, setFechado] = useState(false);
 
@@ -321,22 +323,35 @@ export function App() {
   const dados = { capturas, tasks, lembretes };
   // O compositor não existe onde não há o que compor. Na Home ele roubaria o
   // lugar do panorama, e em Mais não há nada para escrever.
-  const compoe = pagina === "capturar" || pagina === "tasks" || pagina === "lembretes";
+  const compoe = pagina === "capturar" || pagina === "fazer" || pagina === "lembretes";
 
   return (
     <div className="app">
-      <header className="topo">
-        <Marca tamanho={18} girando={ocupado} />
-        <span className="marca">M/OS</span>
-        <span className="fila" data-estado={sinalDaFila(estado, pendentes)}>
-          <i aria-hidden="true" />
-          {estado?.sincroniza === false
-            ? "SEM HUB"
-            : pendentes > 0
-              ? `${pendentes} NA FILA`
-              : "EM DIA"}
-        </span>
-      </header>
+      {arrumando ? (
+        /* A barra inteira em sódio, e não um aviso flutuante: o modo muda o que
+           cada toque faz na tela toda, e um estado assim tem que ser visível
+           sem ser procurado. */
+        <header className="topo" data-arrumando="">
+          <span className="rotulo">ARRUMANDO</span>
+          <span className="topo-dica">segure e arraste</span>
+          <button type="button" className="topo-concluir" onClick={() => setArrumando(false)}>
+            Concluir
+          </button>
+        </header>
+      ) : (
+        <header className="topo">
+          <Marca tamanho={18} girando={ocupado} />
+          <span className="marca">M/OS</span>
+          <span className="fila" data-estado={sinalDaFila(estado, pendentes)}>
+            <i aria-hidden="true" />
+            {estado?.sincroniza === false
+              ? "SEM HUB"
+              : pendentes > 0
+                ? `${pendentes} NA FILA`
+                : "EM DIA"}
+          </span>
+        </header>
+      )}
 
       {/* A `key` remonta o conteúdo a cada troca, que é o que faz a animação de
           entrada rodar. Sem ela o React reaproveita o nó e a página nova aparece
@@ -348,6 +363,8 @@ export function App() {
             dados={dados}
             panorama={panorama}
             arranjo={arranjo}
+            arrumando={arrumando}
+            aoArrumando={setArrumando}
             aoArranjar={(proximo) => {
               setArranjo(proximo);
               gravarArranjo(proximo);
@@ -356,13 +373,12 @@ export function App() {
           />
         ) : null}
         {pagina === "capturar" ? <Capturar capturas={capturas} /> : null}
-        {pagina === "inbox" ? (
-          <Inbox capturas={capturas} aoCapturar={() => setPagina("capturar")} />
-        ) : null}
-        {pagina === "tasks" ? (
-          <Tasks
+        {pagina === "fazer" ? (
+          <Fazer
+            capturas={capturas}
             tasks={tasks}
             tasksLembradas={tasksLembradas}
+            aoCapturar={() => setPagina("capturar")}
             aoAlternar={(task) => void alternar(task)}
             aoLembrar={(task, jaTem) =>
               setAgendando({
@@ -399,7 +415,6 @@ export function App() {
             aoAtivar={() => void ativarAvisos()}
             aoTestar={() => void testarAvisos()}
             aoAbrirLembretes={() => setPagina("lembretes")}
-            aoAbrirAgenda={() => setPagina("agenda")}
             aoAbrirHoras={() => setPagina("horas")}
             aoAbrirAcademico={() => setPagina("academico")}
           />
@@ -410,21 +425,21 @@ export function App() {
         <form
           className="compositor"
           onSubmit={
-            pagina === "tasks" ? novaTask : pagina === "lembretes" ? agendarSolto : capturar
+            pagina === "fazer" ? novaTask : pagina === "lembretes" ? agendarSolto : capturar
           }
         >
           <textarea
             value={texto}
             onChange={(evento) => setTexto(evento.currentTarget.value)}
             placeholder={
-              pagina === "tasks"
+              pagina === "fazer"
                 ? "O que precisa ser feito?"
                 : pagina === "lembretes"
                   ? "Lembrar de…"
                   : "O que está na cabeça?"
             }
             aria-label={
-              pagina === "tasks"
+              pagina === "fazer"
                 ? "Nova task"
                 : pagina === "lembretes"
                   ? "Novo lembrete"
@@ -433,7 +448,7 @@ export function App() {
           />
           <div className="linha-de-botoes">
             <button className="botao" type="submit" disabled={ocupado || !texto.trim()}>
-              {pagina === "tasks"
+              {pagina === "fazer"
                 ? "Criar task"
                 : pagina === "lembretes"
                   ? "Escolher quando"

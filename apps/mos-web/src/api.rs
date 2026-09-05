@@ -160,8 +160,13 @@ struct Estaticos;
 ///   arquivos cujo nome nao muda, e por isso os tres unicos que podem envelhecer
 ///   sem ninguem notar.
 fn cache_de(nome: &str) -> String {
-    if nome.starts_with("assets/") {
+    if nome.starts_with("assets/") || nome.starts_with("fontes/") {
         // Um ano, e `immutable`: o navegador nem pergunta.
+        //
+        // As fontes entram aqui porque o numero da versao esta no NOME
+        // (`...-v9.woff2`): elas nao ganham hash do vite por virem de `public/`,
+        // entao a regra e humana — trocar o arquivo obriga a trocar o nome. Sem
+        // isso, um ano de cache serviria a fonte velha para sempre.
         String::from("public, max-age=31536000, immutable")
     } else {
         // `no-cache` NAO e "nao guarde": e "guarde, mas pergunte antes de usar".
@@ -592,6 +597,14 @@ struct Horas {
     semana_valor_cents: i64,
     /// Segundos faturaveis de hoje.
     hoje_segundos: i64,
+    /// Os sete dias da semana, de segunda a domingo, em segundos faturaveis.
+    ///
+    /// Existe para o desenho, e nao para o numero: o cartao da Home mostra uma
+    /// barra por dia, e a pergunta que ela responde — *onde foi o meu tempo* —
+    /// nao tem resposta num total. Dia futuro vem zero, e a tela o desenha como
+    /// traco apagado: zero de "ainda nao aconteceu" nao e o mesmo zero de "nao
+    /// trabalhei", mas essa distincao e da tela, que sabe que dia e hoje.
+    dias_segundos: Vec<i64>,
 }
 
 #[derive(Serialize)]
@@ -650,6 +663,17 @@ async fn panorama(
         .map(|linha| linha.totals.billable_seconds)
         .sum();
 
+    // A sessao cai no dia em que COMECOU. Uma sessao que atravessa a
+    // meia-noite existe, e reparti-la entre os dois dias exigiria conhecer o
+    // fuso de quem olha para saber onde cortar — o servidor nao conhece.
+    let mut dias_segundos = vec![0_i64; 7];
+    for linha in &linhas {
+        let indice = (linha.started_at.date() - inicio_da_semana.date()).whole_days();
+        if (0..7).contains(&indice) {
+            dias_segundos[indice as usize] += linha.totals.billable_seconds;
+        }
+    }
+
     // O academico falha em silencio: sem semestre cadastrado ele nao tem o que
     // dizer, e derrubar o panorama inteiro por causa disso apagaria as horas da
     // tela junto.
@@ -682,6 +706,7 @@ async fn panorama(
             semana_segundos,
             semana_valor_cents,
             hoje_segundos,
+            dias_segundos,
         },
         proximos,
     }))

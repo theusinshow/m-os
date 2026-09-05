@@ -73,6 +73,9 @@ export type Panorama = {
     semanaSegundos: number;
     semanaValorCents: number;
     hojeSegundos: number;
+    /** Os sete dias, de segunda a domingo. Servidor antigo não manda: por isso
+     *  opcional, e a tela desenha o cartão sem a semana quando falta. */
+    diasSegundos?: number[];
   };
   /** Até três, do mais próximo para o mais distante. */
   proximos: { titulo: string; disciplina: string; quando: string; tipo: string }[];

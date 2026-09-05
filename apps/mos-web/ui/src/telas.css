@@ -25,70 +25,232 @@
   margin-left: auto;
 }
 
+/* O topo inteiro em sodio enquanto se arruma a Home.
+   Nao e um aviso flutuante por cima da tela: o modo muda o que CADA toque faz,
+   e um estado assim tem que ser visivel sem ser procurado. */
+.topo[data-arrumando] {
+  background: var(--signal);
+  color: var(--canvas);
+  border-bottom-color: var(--signal);
+}
+
+.topo[data-arrumando] .rotulo {
+  font: 500 11px/1 var(--font-system);
+  letter-spacing: 0.08em;
+}
+
+.topo-dica {
+  font: 400 13px/1 var(--font-product);
+  opacity: 0.75;
+}
+
+.topo-concluir {
+  margin-left: auto;
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1.25px solid rgba(10, 12, 14, 0.4);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--canvas);
+  font: 500 13px/1 var(--font-product);
+  cursor: pointer;
+}
+
+.topo-concluir:active {
+  background: rgba(10, 12, 14, 0.12);
+}
+
 /* --------------------------------------------------------------- barra */
 
-/* A barra de navegação mora EMBAIXO, no alcance do polegar. No topo ela ficava
-   onde a mão não chega sem reposicionar o aparelho — a mesma razão que já tinha
+/* A barra de navegacao mora EMBAIXO, no alcance do polegar. No topo ela ficava
+   onde a mao nao chega sem reposicionar o aparelho — a mesma razao que ja tinha
    posto o compositor embaixo. */
 .barra {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  align-items: start;
   border-top: 1px solid var(--border);
   background: var(--surface);
-  padding-bottom: env(safe-area-inset-bottom);
+  padding: var(--space-2) 0 env(safe-area-inset-bottom);
 }
 
 .barra button {
   display: flex;
-  flex: 1;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
+  position: relative;
   min-height: var(--toque);
-  padding: var(--space-3) var(--space-1);
+  height: 56px;
+  padding: 0 var(--space-1);
   border: 0;
-  border-top: 2px solid transparent;
   background: none;
   color: var(--text-system);
-  font: 500 11px/1.4 var(--font-system);
-  letter-spacing: 0.05em;
+  font: 500 10px/1 var(--font-system);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: color var(--tempo) ease, border-color var(--tempo) ease;
+  transition: color var(--tempo) ease;
 }
 
-.barra button:active {
-  background: var(--surface-active);
+/* O icone vem antes do rotulo, e o rotulo FICA. Icone sozinho e adivinhacao, e
+   um app que se abre uma vez por dia nao tem quantas repeticoes um icone
+   precisa para virar palavra. */
+.barra button svg {
+  flex: none;
 }
 
 .barra button[aria-current="page"] {
-  border-top-color: var(--signal);
   color: var(--signal);
+}
+
+/* O sinal do ativo e a cor do icone, e nao mais um filete no topo: com icone, o
+   filete virava um segundo marcador dizendo o que a cor ja disse. */
+.barra button:active {
+  color: var(--text);
+}
+
+/* O botao do meio: 52px em sodio, com a barra da marca dentro.
+   Capturar e a razao de existir do app, e como quinto texto igual aos outros
+   pedia a mesma mira que "Mais". */
+.barra-central {
+  color: var(--canvas) !important;
+}
+
+.barra-central::before {
+  content: "";
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: var(--signal);
+  transition: transform var(--tempo) var(--curva), background var(--tempo) ease;
+}
+
+.barra-central .marca-barra {
+  position: relative;
+}
+
+.barra-central:active::before {
+  background: var(--signal-press);
+  transform: scale(0.94);
+}
+
+/* O badge fica sobre o icone, e nao ao lado do rotulo: ao lado, ele empurrava
+   a palavra e a barra inteira dancava quando o numero passava de 9. */
+.barra .conta {
+  position: absolute;
+  top: 4px;
+  right: 50%;
+  margin-right: -22px;
 }
 
 /* ---------------------------------------------------------------- home */
 
-/* Duas colunas: o polegar alcança as duas sem reposicionar o aparelho, e três
-   deixariam o número pequeno demais para ser lido de relance. */
 .home {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+/* O dia, antes dos numeros.
+   A Home abria em algarismos sem dizer de quando eles sao — e "9h08 nesta
+   semana" so quer dizer alguma coisa para quem sabe que dia e hoje. */
+.home-dia {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: var(--space-3);
+  /* Acima do brilho do topo, que e um pseudo-elemento sem z-index. */
+  position: relative;
+}
+
+.home-dia h2 {
+  margin: 0;
+  font: 600 27px/1.1 var(--font-product);
+  letter-spacing: -0.025em;
+}
+
+.home-dia span {
+  flex: none;
+  font: 500 11px/1 var(--font-system);
+  letter-spacing: 0.08em;
+  color: var(--text-system);
+}
+
+/* Duas colunas: o polegar alcanca as duas sem reposicionar o aparelho, e tres
+   deixariam o numero pequeno demais para ser lido de relance. */
+.home-grade {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  position: relative;
+}
+
+/* Quem ocupa a celula da grade e o slot, e nao o cartao: e o slot que recebe o
+   gesto de arrastar e que hospeda o alvo de esconder. */
+.home-slot {
+  display: flex;
+  position: relative;
+  /* O dedo que segura um cartao nao pode rolar a pagina junto — sem isto, o
+     iOS rola e arrasta ao mesmo tempo, e o cartao escapa do dedo. */
+  touch-action: manipulation;
+}
+
+.home-slot[data-largo] {
+  grid-column: 1 / -1;
+}
+
+.home-slot > .cartao {
+  flex: 1;
+}
+
+/* O cartao sob o dedo: sobe, inclina e ganha sombra.
+   A inclinacao e 1,2 grau — o suficiente para dizer "isto saiu da grade" e
+   pouco o bastante para nao parecer defeito de alinhamento. */
+.home-slot[data-pegado] {
+  z-index: 2;
+}
+
+.home-slot[data-pegado] > .cartao {
+  background: var(--surface-lifted);
+  border-color: var(--border-hair);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+/* Os outros baixam. Nao somem: e preciso enxergar onde o cartao vai cair. */
+.home[data-arrumando] .home-slot:not([data-pegado]) > .cartao {
+  opacity: 0.92;
+}
+
+.home-slot[data-oculto] > .cartao {
+  opacity: 0.42;
+}
+
+/* Arrumando, o filete de urgencia sai: o canto do cartao passa a ser o lugar do
+   pegador, e dois sinais empilhados no mesmo canto nao sao dois sinais — sao
+   um borrao. O que cobra atencao volta a se anunciar quando o modo termina. */
+.home[data-arrumando] .cartao[data-urgente]::after {
+  display: none;
 }
 
 .cartao {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
+  width: 100%;
   min-height: 104px;
-  padding: var(--space-3);
+  padding: 14px;
   text-align: left;
-  background: var(--surface-raised);
+  background: var(--surface-card);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-cartao);
   box-shadow: var(--elev-1);
   color: inherit;
   font: inherit;
   cursor: pointer;
+  position: relative;
+  transition: background var(--tempo) ease, border-color var(--tempo) ease;
 }
 
 .cartao:active {
@@ -96,149 +258,204 @@
 }
 
 .cartao[data-largo] {
-  grid-column: 1 / -1;
   min-height: 0;
 }
 
-.cartao[data-urgente] {
-  border-color: var(--signal);
+/* O urgente ganha um filete no canto, e nao a borda inteira acesa: a borda
+   fazia o cartao competir com o proprio numero. */
+.cartao[data-urgente]::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 16px;
+  height: 2px;
+  background: var(--signal);
 }
 
 .cartao-rotulo {
-  font: 500 11px/1.4 var(--font-system);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font: 500 11px/1 var(--font-system);
   letter-spacing: 0.08em;
   color: var(--text-system);
 }
 
+/* O aposto: a idade da captura, a distancia da prova. Mono como o rotulo, mas
+   sem espacamento de letra — e um dado, e nao uma etiqueta. */
+.cartao-rotulo b {
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+/* O numero em MONO, e nao na fonte de conteudo.
+   Digito tabular alinha coluna a coluna, e e a unica razao de por numeros lado
+   a lado numa grade. `margin-top:auto` cola o numero na legenda e empurra o
+   espaco para cima, para cartoes de alturas diferentes lerem alinhados. */
 .cartao-numero {
-  font: 500 32px/1.1 var(--font-product);
+  margin-top: auto;
+  font: 500 34px/1 var(--font-system);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
 }
 
-/* O cartão de texto não usa 32px: a última captura é uma frase, e uma frase
-   nesse corpo vira três linhas e empurra o resto da Home para fora da tela. */
+/* "EM DIA" e "SEM HUB" sao resposta em palavra, e nao algarismo: em corpo 34
+   elas quebram a linha e viram grito. */
+.cartao-numero[data-palavra] {
+  font-size: 22px;
+  line-height: 1.1;
+}
+
 .cartao[data-largo] .cartao-numero {
-  font-size: 15px;
-  font-weight: 400;
-  line-height: 1.45;
-  letter-spacing: -0.008em;
+  margin-top: 0;
+  font: 400 17px/1.4 var(--font-product);
+  letter-spacing: -0.01em;
 }
 
 .cartao-legenda {
-  font-size: 13px;
+  font: 400 12px/1.35 var(--font-product);
   color: var(--text-secondary);
 }
 
-/* ------------------------------------------------------- home: arrumar */
-
-/* O cartão deixou de ser a célula da grade: quem ocupa a célula é o slot, e o
-   cartão vive dentro dele junto com os controles do modo arrumar. Sem isso, os
-   controles empurrariam o cartão vizinho para baixo. */
-.home-slot {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  /* O cartão estica para a altura da linha: dois cartões lado a lado com
-     legendas de tamanhos diferentes ficariam desalinhados embaixo. */
-  align-items: stretch;
-}
-
-.home-slot > .cartao {
-  flex: 1;
-}
-
-.home-slot[data-largo] {
-  grid-column: 1 / -1;
-}
-
-.home-topo {
-  grid-column: 1 / -1;
-  display: flex;
-  justify-content: flex-end;
-  /* Acima do brilho: o gradiente da Home é um pseudo-elemento sem z-index, e
-     sem isto o botão fica embaixo dele e o toque não chega. */
-  position: relative;
-  z-index: 1;
-}
-
-/* Discreto de propósito. Arrumar é raro — uma vez, quando o app não está do
-   jeito que se quer — e um botão com peso de ação principal competiria todos os
-   dias com o número que trouxe a pessoa aqui. */
-.home-arrumar {
-  padding: var(--space-1) var(--space-2);
-  border: 0;
-  background: none;
-  color: var(--text-system);
-  font: 500 11px/1.4 var(--font-system);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.home[data-arrumando] .home-arrumar {
+.cartao[data-urgente] .cartao-legenda {
   color: var(--signal);
 }
 
-.home-controles {
+/* A semana: sete barras, uma por dia. Responde *onde foi o tempo* antes de
+   qualquer numero ser lido. O dia de hoje em sodio; o que ainda nao aconteceu
+   fica em traco, porque zero de "nao trabalhei" nao e zero de "ainda nao". */
+.cartao-semana {
   display: flex;
-  gap: var(--space-1);
+  align-items: flex-end;
+  gap: 3px;
+  height: 22px;
 }
 
-.home-controles button {
+.cartao-semana i {
+  display: block;
   flex: 1;
-  /* 32px é o mínimo que o polegar acerta sem mirar; abaixo disso o ↑ e o ↓
-     viram alvos que erram justamente quando se está mexendo depressa. */
-  min-height: 32px;
-  padding: 0 var(--space-1);
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font: 400 12px/1 var(--font-system);
+  background: var(--text-secondary);
+  opacity: 0.55;
+  transform-origin: bottom;
+  animation: crescer 320ms var(--curva) backwards;
+  animation-delay: var(--degrau, 0ms);
+}
+
+.cartao-semana i[data-hoje] {
+  background: var(--signal);
+  opacity: 1;
+}
+
+.cartao-semana i[data-futuro] {
+  background: var(--border);
+  opacity: 1;
+  animation: none;
+}
+
+.cartao-progresso {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(140, 148, 154, 0.18);
+  overflow: hidden;
+}
+
+.cartao-progresso i {
+  display: block;
+  height: 100%;
+  background: var(--text-secondary);
+  transition: width var(--tempo-mover) var(--curva);
+}
+
+/* O alvo de esconder, no canto do cartao.
+   Um alvo so, e nao um par esconder/mostrar: e um estado so, e dois botoes para
+   um estado obrigam a ler qual dos dois esta valendo. */
+.cartao-esconder {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: none;
   cursor: pointer;
+  padding: 0;
+  z-index: 1;
 }
 
-.home-controles button:disabled {
-  opacity: 0.35;
-  cursor: default;
+/* Tres tracos: o pegador, que diz "isto se arrasta". */
+.cartao-esconder span {
+  display: block;
+  width: 14px;
+  height: 10px;
+  border-top: 1.5px solid var(--text-system);
+  border-bottom: 1.5px solid var(--text-system);
+  position: relative;
 }
 
-.home-controles .home-esconder {
-  flex: 2;
+.cartao-esconder span::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 0;
+  width: 14px;
+  height: 1.5px;
+  background: var(--text-system);
 }
 
-.home-escondidos {
-  grid-column: 1 / -1;
+/* Escondido: o pegador vira um quadrado com um traco — o sinal de que este
+   cartao esta fora, e de que tocar aqui o traz de volta. */
+.cartao-esconder[aria-pressed="true"] span {
+  width: 22px;
+  height: 22px;
+  border: 1.25px solid var(--text-system);
+  border-radius: var(--radius);
+}
+
+.cartao-esconder[aria-pressed="true"] span::before {
+  top: 9px;
+  left: 4px;
+  width: 12px;
+}
+
+/* ---------------------------------------------------------------- fazer */
+
+.fazer {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-5);
 }
 
-.home-escondidos h2 {
-  margin: 0;
-  font: 500 11px/1.4 var(--font-system);
+/* O titulo de secao carrega a contagem daquela metade: sem ela, "TASKS" e um
+   rotulo; com ela, e uma resposta. */
+.secao {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0 0 var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  font: 500 11px/1 var(--font-system);
   letter-spacing: 0.08em;
   color: var(--text-system);
 }
 
-.home-escondidos div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+.secao b {
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-secondary);
 }
 
-/* Chip, e não cartão: o que está escondido não tem número para mostrar, e
-   desenhá-lo como cartão vazio faria parecer que ele voltou. */
-.home-escondidos button {
-  min-height: 32px;
-  padding: 0 var(--space-3);
-  background: none;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-lg);
+/* A task feita nao some da lista — some do primeiro plano. Apagada, ela
+   continua sendo a prova de que a marcacao funcionou. */
+.fazer .item[data-feita] .item-corpo p {
   color: var(--text-secondary);
-  font: 500 11px/1.4 var(--font-system);
-  letter-spacing: 0.08em;
-  cursor: pointer;
+  text-decoration: line-through;
+  text-decoration-color: var(--text-system);
 }
 
 /* ---------------------------------------------------------------- mais */
@@ -349,23 +566,50 @@
   to { opacity: 1; transform: none; }
 }
 
-/* Escalonado, e no máximo seis: além disso a última linha entra depois de a
-   pessoa já ter começado a ler a primeira, e o efeito vira espera. */
+/* Escalonado, e com teto: alem do teto a ultima linha entra depois de a pessoa
+   ja ter comecado a ler a primeira, e o efeito vira espera.
+
+   O atraso vem do `--degrau` que a pagina calcula, e nao de uma lista de
+   `nth-child`: com `nth-child` cada tela nova precisava repetir a escada, e
+   duas escadas divergem no dia em que alguem mexer numa so. */
 .lista .item {
   animation: entrar-item 160ms ease-out backwards;
+  animation-delay: var(--degrau, 0ms);
 }
-.lista .item:nth-child(1) { animation-delay: 0ms; }
-.lista .item:nth-child(2) { animation-delay: 30ms; }
-.lista .item:nth-child(3) { animation-delay: 60ms; }
-.lista .item:nth-child(4) { animation-delay: 90ms; }
-.lista .item:nth-child(5) { animation-delay: 120ms; }
-.lista .item:nth-child(n + 6) { animation-delay: 150ms; }
+.lista .item:nth-child(1) { --degrau: 0ms; }
+.lista .item:nth-child(2) { --degrau: 30ms; }
+.lista .item:nth-child(3) { --degrau: 60ms; }
+.lista .item:nth-child(4) { --degrau: 90ms; }
+.lista .item:nth-child(5) { --degrau: 120ms; }
+.lista .item:nth-child(n + 6) { --degrau: 150ms; }
+
+/* A barra da semana cresce de baixo. `scaleY` e nao `height` porque altura
+   anima na CPU e sete barras subindo juntas fazem a Home tremer no aparelho. */
+@keyframes crescer {
+  from { transform: scaleY(0.06); }
+  to { transform: scaleY(1); }
+}
+
+/* O tique da task marcada: cresce e passa um pouco do ponto antes de assentar.
+   E o unico movimento do app que ultrapassa o valor final — marcar uma task e
+   a unica acao aqui que merece parecer satisfatoria. */
+@keyframes tique {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.marcar[aria-pressed="true"] span {
+  animation: tique 220ms var(--curva);
+}
 
 /* Quem liga o movimento reduzido costuma ligá-lo por enjoo de movimento. Corte
    seco em tudo — inclusive no spinner, que vira um símbolo parado. */
 @media (prefers-reduced-motion: reduce) {
   .marca-barra[data-girando],
   .conteudo > *,
+  .cartao-semana i,
+  .marcar[aria-pressed="true"] span,
   .lista .item {
     animation: none;
   }

@@ -3,29 +3,30 @@ import { contagemDe, DESTINOS } from "./navegacao";
 import { FALSO } from "./falso";
 
 describe("a barra de baixo", () => {
-  it("tem cinco destinos, e lembretes nao e um deles", () => {
+  it("tem cinco lugares, com a agenda e o capturar no meio", () => {
     expect(DESTINOS.map((d) => d.pagina)).toEqual([
       "home",
+      "agenda",
       "capturar",
-      "inbox",
-      "tasks",
+      "fazer",
       "mais",
     ]);
   });
 
-  it("conta a inbox e as tasks abertas, e nao as feitas", () => {
-    // A task "done" do banco falso nao entra: um badge que sobe com coisa
-    // resolvida e um badge que se aprende a ignorar.
-    expect(contagemDe("inbox", FALSO)).toBe(3);
-    expect(contagemDe("tasks", FALSO)).toBe(2);
+  // O badge de FAZER soma as duas metades da tela. Se ele contasse só as tasks,
+  // o número na barra discordaria do que se vê ao tocar nela — e o badge que
+  // mente é pior que badge nenhum.
+  it("soma capturas e tasks abertas no badge de fazer", () => {
+    expect(contagemDe("fazer", FALSO)).toBe(5);
   });
 
   it("poe em `mais` o que cobra acao — o lembrete vencido", () => {
     expect(contagemDe("mais", FALSO)).toBe(1);
   });
 
-  it("nao conta nada em home nem em capturar", () => {
+  it("nao conta nada em home, agenda nem capturar", () => {
     expect(contagemDe("home", FALSO)).toBe(0);
+    expect(contagemDe("agenda", FALSO)).toBe(0);
     expect(contagemDe("capturar", FALSO)).toBe(0);
   });
 });

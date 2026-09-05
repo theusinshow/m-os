@@ -1,6 +1,20 @@
 import { pedeAtencao, type EstadoDoAparelho, type Panorama } from "../api";
 import type { Dados, Pagina } from "../navegacao";
+import { idade } from "./idade";
 import { emHoras, emReais } from "./numeros";
+
+/**
+ * O desenho que o cartão carrega além do número.
+ *
+ * É o que responde à queixa de que a Home era pobre: o número diz *quanto*, e o
+ * enfeite diz *como foi* — e a segunda pergunta não cabe em mais um número.
+ */
+export type Enfeite =
+  /** Sete barras, de segunda a domingo. `hoje` é o índice em sódio; o que vem
+   *  depois dele é futuro e sai em traço apagado. */
+  | { tipo: "semana"; dias: number[]; hoje: number }
+  /** Uma barra de 0 a 1. */
+  | { tipo: "progresso"; fracao: number };
 
 export type CartaoDaHome = {
   chave: string;
@@ -10,6 +24,12 @@ export type CartaoDaHome = {
   legenda: string;
   destino: Pagina;
   urgente?: boolean;
+  /** Canto superior direito, em mono. Idade, distância — o que situa o número. */
+  aposto?: string;
+  enfeite?: Enfeite;
+  /** O número é uma resposta em palavra ("EM DIA"), e não um algarismo: não sobe
+   *  de zero, e não fica em corpo 34. */
+  palavra?: boolean;
 };
 
 /**
@@ -40,9 +60,10 @@ export function cartoesDaHome(
       ? "este aparelho não alcança o hub"
       : pendentes > 0
         ? "esperando para subir"
-        : "tudo o que você escreveu já atravessou",
+        : "tudo já atravessou",
     destino: "mais",
     urgente: semHub || undefined,
+    palavra: pendentes === 0 || semHub || undefined,
   });
 
   const cobrando = dados.lembretes.filter(pedeAtencao);
@@ -67,21 +88,32 @@ export function cartoesDaHome(
   // desktop — arredondamento por sessão —, e refazê-lo aqui daria um segundo
   // número que diverge do primeiro no dia em que a regra mudar.
   if (panorama && panorama.horas.semanaSegundos > 0) {
+    const dias = panorama.horas.diasSegundos;
     cartoes.push({
       chave: "horas",
       rotulo: "HORAS",
       numero: emHoras(panorama.horas.semanaSegundos),
       legenda: `${emReais(panorama.horas.semanaValorCents)} nesta semana`,
       destino: "horas",
+      // Servidor antigo não manda os dias: o cartão continua inteiro sem a
+      // semana, com o número e o valor, que é o que ele sempre teve.
+      enfeite:
+        dias && dias.length === 7
+          ? { tipo: "semana", dias, hoje: (agora.getDay() + 6) % 7 }
+          : undefined,
     });
   }
 
   if (panorama && panorama.proximos.length > 0) {
+    const primeiro = panorama.proximos[0];
     cartoes.push({
       chave: "academico",
       rotulo: "ACADÊMICO",
       numero: String(panorama.proximos.length),
-      legenda: panorama.proximos[0].titulo,
+      legenda: primeiro.titulo,
+      // A distância, e não a data: "2d" decide se isso é problema de hoje; "11
+      // de setembro" obriga a fazer a conta de cabeça.
+      aposto: emDias(primeiro.quando, agora),
       destino: "academico",
     });
   }
@@ -92,19 +124,24 @@ export function cartoesDaHome(
       rotulo: "INBOX",
       numero: String(dados.capturas.length),
       legenda: dados.capturas.length === 1 ? "captura esperando" : "capturas esperando",
-      destino: "inbox",
+      destino: "fazer",
     });
   }
 
   const abertas = dados.tasks.filter((task) => task.state !== "done");
   if (abertas.length > 0) {
     const andando = abertas.filter((task) => task.state === "doing").length;
+    const feitas = dados.tasks.length - abertas.length;
     cartoes.push({
       chave: "tasks",
       rotulo: "TASKS",
       numero: String(abertas.length),
       legenda: andando > 0 ? `${andando} em andamento` : "abertas",
-      destino: "tasks",
+      destino: "fazer",
+      enfeite:
+        dados.tasks.length > 0
+          ? { tipo: "progresso", fracao: feitas / dados.tasks.length }
+          : undefined,
     });
   }
 
@@ -115,9 +152,24 @@ export function cartoesDaHome(
       rotulo: "ÚLTIMA CAPTURA",
       numero: ultima.content,
       legenda: "",
-      destino: "inbox",
+      // Sem a idade, a última captura parece sempre recente — e a pergunta que
+      // se faz diante dela é justamente *isto ainda importa?*.
+      aposto: idade(ultima.capturedAt, agora),
+      destino: "fazer",
+      palavra: true,
     });
   }
 
   return cartoes;
+}
+
+/** `2d`, `hoje`, `atrasado`. Vazio quando a data não é legível. */
+function emDias(iso: string, agora: Date): string {
+  const quando = new Date(iso).getTime();
+  if (Number.isNaN(quando)) return "";
+  const dias = Math.ceil((quando - agora.getTime()) / 86_400_000);
+  if (dias < 0) return "atrasado";
+  if (dias === 0) return "hoje";
+  if (dias === 1) return "amanhã";
+  return `${dias}d`;
 }
