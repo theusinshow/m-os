@@ -369,6 +369,11 @@ impl AttentionService {
     }
 
     /// O que o agendador precisa ver.
+    /// O historico: o que ja foi resolvido, do mais recente para tras.
+    pub fn resolved(&self, limit: usize) -> Result<Vec<crate::Reminder>, CoreError> {
+        self.repository.resolved_reminders(limit)
+    }
+
     pub fn waiting(&self) -> Result<Vec<crate::Reminder>, CoreError> {
         self.repository.waiting_reminders()
     }
@@ -388,6 +393,29 @@ impl AttentionService {
     /// Le do banco antes de decidir, para nao decidir sobre um estado que a
     /// interface tinha em cache — a tela pode estar aberta desde antes de o
     /// lembrete vencer.
+    /// Edita um lembrete: titulo, corpo, hora ou prioridade.
+    ///
+    /// # Por que aqui, e nao numa rota
+    ///
+    /// Porque as duas telas editam o MESMO lembrete. Uma edicao que existisse so
+    /// no `mos-web` seria uma operacao que o Desktop nao sabe fazer sobre um
+    /// dado que ele tambem tem — e o pedido que originou isto era explicito em
+    /// nao criar sistemas paralelos.
+    ///
+    /// Le do banco antes de aplicar, e nao confia no que a tela mandou: entre a
+    /// tela abrir o lembrete e o toque em salvar, o outro aparelho pode ter
+    /// mexido nele. A regra de conflito continua sendo do sync, por campo — o
+    /// que esta funcao garante e que a edicao parte do que esta gravado.
+    pub fn update(
+        &self,
+        id: crate::ReminderId,
+        mudanca: crate::EditReminder,
+    ) -> Result<crate::Reminder, CoreError> {
+        let atual = self.repository.reminder(id)?;
+        let novo = crate::edit(&atual, mudanca, self.clock.now())?;
+        self.repository.save_reminder(&novo)
+    }
+
     pub fn transition(
         &self,
         id: crate::ReminderId,

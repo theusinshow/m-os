@@ -181,6 +181,15 @@ impl AttentionRepository for SqliteStorage {
         )
     }
 
+    fn resolved_reminders(&self, limit: usize) -> Result<Vec<Reminder>, CoreError> {
+        // `updated_at` e nao `completed_at`: cancelar nao preenche o segundo, e
+        // ordenar por ele poria os cancelados no fim da lista para sempre — como
+        // se ninguem os tivesse tocado.
+        self.query_reminders(&format!(
+            "WHERE status IN ('completed', 'cancelled', 'expired')              AND lifecycle_state = 'active'              ORDER BY updated_at DESC LIMIT {limit}"
+        ))
+    }
+
     fn save_reminder(&self, reminder: &Reminder) -> Result<Reminder, CoreError> {
         let connection = self.escrita()?;
         let (target_type, target_id) = match reminder.target {

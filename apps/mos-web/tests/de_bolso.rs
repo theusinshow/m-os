@@ -596,3 +596,204 @@ async fn a_agenda_devolve_o_que_esta_na_janela() {
 fn urlencoding(texto: &str) -> String {
     texto.replace(':', "%3A").replace('+', "%2B")
 }
+
+/// Editar no bolso chega editado no PC.
+///
+/// Este teste é o que sustenta a promessa da auditoria: editar não é uma
+/// operação do `mos-web`, é uma operação do M/OS que a tela do bolso alcança. Se
+/// a edição não atravessasse, ela seria exatamente o sistema paralelo que o
+/// desenho recusa.
+///
+/// Muda TÍTULO e HORA na mesma chamada, e confere os dois do outro lado: o
+/// campo que não viaja é o que mais dá trabalho para descobrir depois.
+#[tokio::test(flavor = "multi_thread")]
+async fn editar_o_lembrete_no_bolso_chega_editado_no_pc() {
+    use mos_core::AttentionRepository;
+
+    let hub = servir_hub().await;
+    let pasta_web = tempfile::tempdir().unwrap();
+    let pasta_pc = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta_web.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    let quando = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
+    let criado: serde_json::Value = cliente
+        .post(format!("http://{web}/api/lembretes"))
+        .json(&serde_json::json!({
+            "titulo": "Ligar pro dentista",
+            "nota": "confirmar o horário",
+            "quando": quando
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap(),
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = criado["id"].as_str().unwrap().to_owned();
+
+    let remarcado = time::OffsetDateTime::now_utc() + time::Duration::hours(30);
+    let resposta = cliente
+        .patch(format!("http://{web}/api/lembretes/{id}"))
+        .json(&serde_json::json!({
+            "titulo": "Ligar pro dentista e remarcar",
+            "quando": remarcado
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(resposta.status().is_success(), "editar falhou");
+
+    // A nota NÃO foi mandada, e por isso não pode ter sumido: ausência é "não
+    // mexi", e não "apague". É a regra que impede a tela que edita só a hora de
+    // limpar o corpo do lembrete sem querer.
+    let depois: serde_json::Value = resposta.json().await.unwrap();
+    assert_eq!(depois["body"], "confirmar o horário");
+    assert_eq!(depois["title"], "Ligar pro dentista e remarcar");
+
+    let caminho_pc = pasta_pc.path().to_path_buf();
+    let esperado = "Ligar pro dentista e remarcar";
+    let pc = tokio::task::spawn_blocking(move || {
+        let pc = outro_aparelho(&caminho_pc);
+        for _ in 0..50 {
+            sincronizar(&pc, hub);
+            let chegou = pc
+                .open_reminders()
+                .unwrap()
+                .iter()
+                .any(|lembrete| lembrete.title == esperado);
+            if chegou {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        pc
+    })
+    .await
+    .unwrap();
+
+    let lembretes = pc.open_reminders().unwrap();
+    assert_eq!(lembretes.len(), 1, "o lembrete nao chegou no PC");
+    assert_eq!(
+        lembretes[0].title, esperado,
+        "o titulo editado no bolso nao atravessou"
+    );
+    assert_eq!(
+        lembretes[0].body, "confirmar o horário",
+        "a nota que ninguem tocou foi apagada na viagem"
+    );
+    let no_pc = lembretes[0].next_due_at.unwrap();
+    assert!(
+        (no_pc - remarcado).abs() < time::Duration::seconds(2),
+        "a hora remarcada nao atravessou: PC tem {no_pc}, bolso mandou {remarcado}"
+    );
+}
+
+/// Adiar no bolso empurra a hora e conta a fadiga.
+#[tokio::test(flavor = "multi_thread")]
+async fn adiar_no_bolso_empurra_a_hora() {
+    let hub = servir_hub().await;
+    let pasta = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    let quando = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
+    let criado: serde_json::Value = cliente
+        .post(format!("http://{web}/api/lembretes"))
+        .json(&serde_json::json!({
+            "titulo": "Trocar o filtro",
+            "quando": quando
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap(),
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = criado["id"].as_str().unwrap().to_owned();
+
+    let ate = time::OffsetDateTime::now_utc() + time::Duration::hours(5);
+    let adiado: serde_json::Value = cliente
+        .post(format!("http://{web}/api/lembretes/{id}/adiar"))
+        .json(&serde_json::json!({
+            "ate": ate
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap(),
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(adiado["status"], "snoozed");
+    assert_eq!(adiado["snoozeCount"], 1, "adiar tem que contar");
+}
+
+/// Arquivar tira da lista aberta sem apagar a linha.
+///
+/// Arquivar e nao apagar: um toque errado no onibus nao deveria ser
+/// irreversivel, e o "excluir" da tela do bolso e este.
+#[tokio::test(flavor = "multi_thread")]
+async fn arquivar_no_bolso_tira_da_lista_sem_apagar() {
+    let hub = servir_hub().await;
+    let pasta = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    let quando = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
+    let criado: serde_json::Value = cliente
+        .post(format!("http://{web}/api/lembretes"))
+        .json(&serde_json::json!({
+            "titulo": "Isto foi engano",
+            "quando": quando
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap(),
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = criado["id"].as_str().unwrap().to_owned();
+
+    cliente
+        .post(format!("http://{web}/api/lembretes/{id}/arquivar"))
+        .send()
+        .await
+        .unwrap();
+
+    let lista: serde_json::Value = cliente
+        .get(format!("http://{web}/api/lembretes"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        lista.as_array().map(Vec::len),
+        Some(0),
+        "o arquivado continua na lista aberta"
+    );
+
+    // Mas a linha continua la: buscar pelo id ainda responde.
+    let ainda: serde_json::Value = cliente
+        .get(format!("http://{web}/api/lembretes/{id}"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(ainda["id"], id.as_str(), "arquivar apagou a linha");
+    assert_eq!(ainda["lifecycleState"], "archived");
+}

@@ -747,6 +747,113 @@ impl Transition {
     }
 }
 
+// -------------------------------------------------------------- edição
+
+/// O que se quer mudar num Reminder. `None` é "deixa como está".
+///
+/// # Por que campo a campo, e não o Reminder inteiro
+///
+/// Duas telas editam o mesmo lembrete, e o sync resolve conflito **por campo**.
+/// Mandar o objeto inteiro faria a tela que só mexeu no título reescrever também
+/// a hora — com o valor que ela tinha lido antes — e o sync não teria como saber
+/// que aquilo não foi uma edição. Um `None` aqui é a diferença entre "não mexi"
+/// e "mexi para o mesmo valor".
+#[derive(Clone, Debug, Default)]
+pub struct EditReminder {
+    pub title: Option<String>,
+    pub body: Option<String>,
+    /// A hora nova. Reagendar, e não adiar: `Snooze` empurra e conta fadiga,
+    /// porque adiar quinze vezes é um sinal; corrigir a hora que se digitou
+    /// errado não é.
+    pub instant: Option<OffsetDateTime>,
+    pub priority: Option<Priority>,
+}
+
+impl EditReminder {
+    /// Nada foi pedido. Serve para a superfície não gravar por engano.
+    pub fn is_empty(&self) -> bool {
+        self.title.is_none()
+            && self.body.is_none()
+            && self.instant.is_none()
+            && self.priority.is_none()
+    }
+}
+
+/// Aplica uma edição, ou explica por que não pode.
+///
+/// Pura e sem repositório, pela mesma razão de [`apply`]: as regras que podem
+/// estar erradas são estas, e regra sem teste é regra que ninguém conferiu.
+///
+/// # As três regras que não são óbvias
+///
+/// **Lembrete terminal não se edita.** Concluído e cancelado são respostas já
+/// dadas; mudar o título de algo que você já resolveu não é edição, é ressuscitar
+/// pela porta dos fundos — e o caminho para isso é uma transição, não um campo.
+///
+/// **Mudar a hora para o futuro devolve o lembrete a `Scheduled`.** Um lembrete
+/// que já tocou e foi remarcado para amanhã não pode continuar marcado como
+/// vencido: ele voltaria a cobrar atenção na tela por uma hora que já não é a
+/// dele. Isto é o que separa reagendar de adiar.
+///
+/// **A contagem de adiamentos não muda.** Reagendar não é adiar, e zerar a
+/// contagem aqui apagaria justamente o sinal de fadiga que o sistema usa para
+/// oferecer ajuda depois do quinto adiamento.
+pub fn edit(
+    reminder: &Reminder,
+    mudanca: EditReminder,
+    now: OffsetDateTime,
+) -> Result<Reminder, CoreError> {
+    if reminder.status.is_terminal() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidTransition,
+            "Este lembrete ja foi resolvido; nao da para edita-lo.",
+            false,
+        ));
+    }
+
+    let mut novo = reminder.clone();
+
+    if let Some(titulo) = mudanca.title {
+        let titulo = titulo.trim();
+        if titulo.is_empty() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidInput,
+                "O lembrete precisa de um titulo.",
+                false,
+            ));
+        }
+        novo.title = titulo.to_owned();
+    }
+
+    if let Some(corpo) = mudanca.body {
+        novo.body = corpo.trim().to_owned();
+    }
+
+    if let Some(priority) = mudanca.priority {
+        novo.priority = priority;
+    }
+
+    if let Some(instante) = mudanca.instant {
+        // A mesma folga da criação, e pelo mesmo motivo: entre escolher "daqui a
+        // um minuto" e o comando chegar aqui passam milissegundos.
+        if instante < now - CREATION_GRACE {
+            return Err(CoreError::new(
+                ErrorCode::InvalidInput,
+                "Nao da para ser lembrado de algo no passado.",
+                false,
+            ));
+        }
+        novo.trigger = Trigger::At { instant: instante };
+        novo.next_due_at = Some(instante);
+        if instante > now && !matches!(novo.status, ReminderStatus::Snoozed) {
+            novo.status = ReminderStatus::Scheduled;
+        }
+    }
+
+    novo.updated_at = now;
+    Ok(novo)
+}
+
 /// Aplica uma transição, ou explica por que não pode.
 ///
 /// Função e não método com `&mut` de propósito: devolver o Reminder novo deixa o
@@ -1390,5 +1497,159 @@ mod tests {
     fn a_trigger_in_the_past_still_reports_its_instant() {
         let trigger = Trigger::At { instant: at(5) };
         assert_eq!(trigger.next_due(at(50)), Some(at(5)));
+    }
+
+    // -------------------------------------------------------------- edição
+
+    #[test]
+    fn editar_troca_titulo_e_corpo() {
+        let antes = reminder(ReminderStatus::Scheduled, Some(at(10)));
+        let depois = edit(
+            &antes,
+            EditReminder {
+                title: Some("  Enviar a proposta revisada  ".into()),
+                body: Some("  com o anexo  ".into()),
+                ..Default::default()
+            },
+            at(5),
+        )
+        .unwrap();
+        assert_eq!(depois.title, "Enviar a proposta revisada");
+        assert_eq!(depois.body, "com o anexo");
+        // O que não foi pedido não muda.
+        assert_eq!(depois.next_due_at, antes.next_due_at);
+    }
+
+    /// `None` é "não mexi", e tem que ser diferente de "mexi para vazio". Sem
+    /// isso, a tela que edita só a hora apagaria o corpo do lembrete.
+    #[test]
+    fn o_que_nao_foi_pedido_fica_intacto() {
+        let antes = reminder(ReminderStatus::Scheduled, Some(at(10)));
+        let depois = edit(&antes, EditReminder::default(), at(5)).unwrap();
+        assert_eq!(depois.title, antes.title);
+        assert_eq!(depois.body, antes.body);
+        assert_eq!(depois.priority, antes.priority);
+        assert_eq!(depois.next_due_at, antes.next_due_at);
+    }
+
+    #[test]
+    fn editar_para_titulo_vazio_e_recusado() {
+        let antes = reminder(ReminderStatus::Scheduled, Some(at(10)));
+        let erro = edit(
+            &antes,
+            EditReminder {
+                title: Some("   ".into()),
+                ..Default::default()
+            },
+            at(5),
+        )
+        .unwrap_err();
+        assert_eq!(erro.code, ErrorCode::InvalidInput);
+    }
+
+    #[test]
+    fn reagendar_move_o_vencimento_e_o_gatilho() {
+        let antes = reminder(ReminderStatus::Scheduled, Some(at(10)));
+        let depois = edit(
+            &antes,
+            EditReminder {
+                instant: Some(at(20)),
+                ..Default::default()
+            },
+            at(5),
+        )
+        .unwrap();
+        assert_eq!(depois.next_due_at, Some(at(20)));
+        assert_eq!(depois.trigger, Trigger::At { instant: at(20) });
+    }
+
+    /// A diferença entre reagendar e adiar.
+    ///
+    /// Um lembrete que já tocou e foi remarcado para amanhã não pode continuar
+    /// vencido: ele cobraria atenção na tela por uma hora que já não é a dele.
+    #[test]
+    fn reagendar_para_o_futuro_tira_o_lembrete_de_vencido() {
+        let vencido = reminder(ReminderStatus::Due, Some(at(4)));
+        let depois = edit(
+            &vencido,
+            EditReminder {
+                instant: Some(at(30)),
+                ..Default::default()
+            },
+            at(5),
+        )
+        .unwrap();
+        assert_eq!(depois.status, ReminderStatus::Scheduled);
+    }
+
+    /// Reagendar não é adiar: zerar a contagem aqui apagaria o sinal de fadiga
+    /// que o sistema usa para oferecer ajuda depois do quinto adiamento.
+    #[test]
+    fn reagendar_nao_mexe_na_contagem_de_adiamentos() {
+        let mut cansado = reminder(ReminderStatus::Due, Some(at(4)));
+        cansado.snooze_count = 6;
+        let depois = edit(
+            &cansado,
+            EditReminder {
+                instant: Some(at(30)),
+                ..Default::default()
+            },
+            at(5),
+        )
+        .unwrap();
+        assert_eq!(depois.snooze_count, 6);
+        assert!(depois.snooze_fatigue());
+    }
+
+    #[test]
+    fn editar_para_o_passado_e_recusado() {
+        let antes = reminder(ReminderStatus::Scheduled, Some(at(10)));
+        let erro = edit(
+            &antes,
+            EditReminder {
+                instant: Some(at(1)),
+                ..Default::default()
+            },
+            at(10),
+        )
+        .unwrap_err();
+        assert_eq!(erro.code, ErrorCode::InvalidInput);
+    }
+
+    /// Concluído e cancelado são respostas já dadas. Mudar o título de algo que
+    /// você resolveu não é edição — é ressuscitar pela porta dos fundos.
+    #[test]
+    fn lembrete_resolvido_nao_se_edita() {
+        for terminal in [
+            ReminderStatus::Completed,
+            ReminderStatus::Cancelled,
+            ReminderStatus::Expired,
+        ] {
+            let erro = edit(
+                &reminder(terminal, Some(at(10))),
+                EditReminder {
+                    title: Some("Outra coisa".into()),
+                    ..Default::default()
+                },
+                at(20),
+            )
+            .unwrap_err();
+            assert_eq!(erro.code, ErrorCode::InvalidTransition, "{terminal:?}");
+        }
+    }
+
+    #[test]
+    fn editar_carimba_a_hora_da_mudanca() {
+        let antes = reminder(ReminderStatus::Scheduled, Some(at(10)));
+        let depois = edit(
+            &antes,
+            EditReminder {
+                title: Some("Novo".into()),
+                ..Default::default()
+            },
+            at(7),
+        )
+        .unwrap();
+        assert_eq!(depois.updated_at, at(7));
     }
 }

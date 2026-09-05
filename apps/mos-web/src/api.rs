@@ -37,8 +37,12 @@ pub fn rotas() -> Router<Estado> {
         .route("/api/tasks", get(tasks).post(criar_task))
         .route("/api/tasks/{id}/estado", post(mudar_estado))
         .route("/api/lembretes", get(lembretes).post(criar_lembrete))
+        .route("/api/lembretes/resolvidos", get(lembretes_resolvidos))
+        .route("/api/lembretes/{id}", get(lembrete).patch(editar_lembrete))
         .route("/api/lembretes/{id}/concluir", post(concluir_lembrete))
         .route("/api/lembretes/{id}/cancelar", post(cancelar_lembrete))
+        .route("/api/lembretes/{id}/adiar", post(adiar_lembrete))
+        .route("/api/lembretes/{id}/arquivar", post(arquivar_lembrete))
         .route("/api/estado", get(estado_do_aparelho))
         .route("/api/panorama", get(panorama))
         .route("/api/agenda", get(agenda))
@@ -506,6 +510,127 @@ async fn cancelar_lembrete(
     Path(id): Path<String>,
 ) -> Resultado<Json<serde_json::Value>> {
     transitar(&estado, &id, mos_core::Transition::Cancel).await
+}
+
+/// O que se pode mudar num lembrete pela tela.
+///
+/// Todo campo e opcional, e a ausencia significa "nao mexi" — nao "apague". E a
+/// mesma distincao do `EditReminder` do nucleo, e ela existe porque o sync
+/// resolve conflito POR CAMPO: a tela que so mexeu no titulo nao pode reescrever
+/// a hora com o valor que leu ha dois minutos.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EdicaoDeLembrete {
+    titulo: Option<String>,
+    nota: Option<String>,
+    /// RFC 3339, com fuso. Mesmo formato da criacao.
+    quando: Option<String>,
+    prioridade: Option<String>,
+}
+
+/// Editar: titulo, nota, hora, prioridade.
+///
+/// PATCH e nao PUT: o corpo carrega o que mudou, e nao o lembrete inteiro.
+async fn editar_lembrete(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+    Json(pedido): Json<EdicaoDeLembrete>,
+) -> Resultado<Json<serde_json::Value>> {
+    let id = mos_core::ReminderId::parse(&id).map_err(de_core)?;
+    let quando = match pedido.quando.as_deref() {
+        Some(texto) => Some(instante(texto)?),
+        None => None,
+    };
+    let prioridade = match pedido.prioridade.as_deref() {
+        Some(texto) => Some(mos_core::Priority::parse(texto).map_err(de_core)?),
+        None => None,
+    };
+    let mudanca = mos_core::EditReminder {
+        title: pedido.titulo,
+        body: pedido.nota,
+        instant: quando,
+        priority: prioridade,
+    };
+    if mudanca.is_empty() {
+        return Err(Erro(
+            StatusCode::BAD_REQUEST,
+            String::from("nada para mudar"),
+        ));
+    }
+
+    let lembrete = escrever(&estado, move |estado| estado.attention.update(id, mudanca)).await?;
+    Ok(Json(serde_json::to_value(lembrete).unwrap_or_default()))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Adiamento {
+    /// Ate quando. RFC 3339, com fuso.
+    ate: String,
+}
+
+/// Adiar.
+///
+/// # Por que ele agora esta aqui, se o comentario dizia que nao estaria
+///
+/// O comentario acima de `transitar` recusava `Snooze` porque ele mexe no
+/// `next_due_at`, a coluna que o agendador do desktop le — e dois agendadores
+/// disputando a mesma coluna produziria o lembrete que some.
+///
+/// A disputa nao existe: o `mos-web` nao TEM agendador de lembrete que escreva.
+/// O `avisos.rs` le e nao escreve, de proposito e por escrito. Quem escreve
+/// `next_due_at` e a pessoa — aqui ou no PC — e isso o sync ja resolve por
+/// campo, como resolve qualquer outra edicao.
+///
+/// O que continua valendo do comentario antigo: nenhum aviso automatico deste
+/// servidor mexe em lembrete. Adiar e um toque, nao uma regra.
+async fn adiar_lembrete(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+    Json(pedido): Json<Adiamento>,
+) -> Resultado<Json<serde_json::Value>> {
+    let ate = instante(&pedido.ate)?;
+    transitar(&estado, &id, mos_core::Transition::Snooze { until: ate }).await
+}
+
+/// Arquivar: o "excluir" da tela.
+///
+/// Nao ha apagar de verdade aqui, e e decisao e nao limitacao. Apagar um
+/// lembrete no celular apagaria a linha nos dois aparelhos, e um toque errado no
+/// onibus nao deveria ser irreversivel. Arquivado some da lista e continua no
+/// banco — o Desktop, que e onde se organiza a fundo, e quem apaga de vez.
+async fn arquivar_lembrete(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+) -> Resultado<Json<serde_json::Value>> {
+    let id = mos_core::ReminderId::parse(&id).map_err(de_core)?;
+    let lembrete = escrever(&estado, move |estado| {
+        estado
+            .attention
+            .set_lifecycle(id, mos_core::LifecycleState::Archived)
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(lembrete).unwrap_or_default()))
+}
+
+/// Um lembrete so, pelo id.
+async fn lembrete(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+) -> Resultado<Json<serde_json::Value>> {
+    let id = mos_core::ReminderId::parse(&id).map_err(de_core)?;
+    let lembrete = estado.attention.reminder(id).map_err(de_core)?;
+    Ok(Json(serde_json::to_value(lembrete).unwrap_or_default()))
+}
+
+/// O historico: o que ja foi resolvido.
+///
+/// Separado da lista aberta, e nao misturado nela: sao duas perguntas — *o que
+/// falta* e *o que eu resolvi* — e juntar as duas faria a primeira, que e a
+/// urgente, ser lida atraves da segunda.
+async fn lembretes_resolvidos(State(estado): State<Estado>) -> Resultado<Json<serde_json::Value>> {
+    let itens = estado.attention.resolved(50).map_err(de_core)?;
+    Ok(Json(serde_json::to_value(itens).unwrap_or_default()))
 }
 
 // -------------------------------------------------------------------- push

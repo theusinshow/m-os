@@ -69,10 +69,10 @@ pub use app::{
     AppCatalogEntry, AppId, AppLaunchKind, NewRegisteredApp, RegisteredApp,
 };
 pub use attention::{
-    apply, next_wake, reconcile, Channel, ContentPrivacy, DeliveryPolicy, NewNotification,
-    NewReminder, Notification, NotificationId, NotificationStatus, Priority, ReconcileReason,
-    Reconciliation, Reminder, ReminderId, ReminderSource, ReminderStatus, ReminderTarget,
-    Transition, Trigger, VisualLevel, MISS_GRACE,
+    apply, edit, next_wake, reconcile, Channel, ContentPrivacy, DeliveryPolicy, EditReminder,
+    NewNotification, NewReminder, Notification, NotificationId, NotificationStatus, Priority,
+    ReconcileReason, Reconciliation, Reminder, ReminderId, ReminderSource, ReminderStatus,
+    ReminderTarget, Transition, Trigger, VisualLevel, MISS_GRACE,
 };
 pub use calendar::{compose, CalendarItem, CalendarKind, ComposeInput};
 pub use capture::{Capture, CaptureId, CaptureSource, LifecycleState, NewCapture, ProcessingState};

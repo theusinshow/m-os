@@ -284,9 +284,66 @@ pub fn attention_create<R: Runtime>(
     Ok(created)
 }
 
+/// O que se pode mudar num lembrete. Ausente significa "nao mexi".
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditReminderInput {
+    pub id: String,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    /// RFC 3339. Reagendar, e nao adiar — `attention_snooze` continua sendo o
+    /// adiar, com a contagem de fadiga que ele carrega.
+    pub at: Option<String>,
+    pub priority: Option<String>,
+}
+
+/// Editar um lembrete existente.
+///
+/// Nasceu junto com a mesma operacao no `mos-web`: as duas telas editam o mesmo
+/// dado, e uma edicao que so existisse numa delas seria um sistema paralelo.
+#[tauri::command]
+pub fn attention_edit<R: Runtime>(
+    app: AppHandle<R>,
+    input: EditReminderInput,
+) -> Result<Reminder, CoreError> {
+    let id = mos_core::ReminderId::parse(&input.id)?;
+    let instant = match input.at.as_deref() {
+        Some(texto) => Some(parse_instant(texto)?),
+        None => None,
+    };
+    let priority = match input.priority.as_deref() {
+        Some(texto) => Some(mos_core::Priority::parse(texto)?),
+        None => None,
+    };
+    let editado = app.state::<AppState>().attention.update(
+        id,
+        mos_core::EditReminder {
+            title: input.title,
+            body: input.body,
+            instant,
+            priority,
+        },
+    )?;
+    // O agendador precisa saber: a hora pode ter mudado, e o proximo despertar
+    // dele foi calculado com a antiga.
+    poke(&app);
+    Ok(editado)
+}
+
 #[tauri::command]
 pub fn attention_list<R: Runtime>(app: AppHandle<R>) -> Result<Vec<Reminder>, CoreError> {
     crate::services(&app)?.attention.open()
+}
+
+/// O historico: o que ja foi resolvido, do mais recente para tras.
+#[tauri::command]
+pub fn attention_resolved<R: Runtime>(
+    app: AppHandle<R>,
+    limit: Option<usize>,
+) -> Result<Vec<Reminder>, CoreError> {
+    crate::services(&app)?
+        .attention
+        .resolved(limit.unwrap_or(50))
 }
 
 #[tauri::command]

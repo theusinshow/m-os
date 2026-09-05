@@ -531,6 +531,18 @@ pub trait AttentionRepository: Send + Sync {
     /// Ativos e nao terminais. E o que o Attention Center e o badge leem.
     fn open_reminders(&self) -> Result<Vec<crate::Reminder>, CoreError>;
 
+    /// Os que ja foram resolvidos — concluidos, cancelados, expirados —, do mais
+    /// recente para o mais antigo.
+    ///
+    /// Existe para a tela poder mostrar o que JA PASSOU. Uma lista de lembretes
+    /// que so mostra o que esta aberto responde "o que falta" e cala sobre "o
+    /// que eu resolvi" — e a segunda pergunta e a que se faz para conferir se
+    /// algo foi mesmo tratado.
+    ///
+    /// Com limite porque isto e historico: sem teto, um ano de uso vira uma
+    /// consulta que o celular baixa inteira no 4G.
+    fn resolved_reminders(&self, limit: usize) -> Result<Vec<crate::Reminder>, CoreError>;
+
     /// Grava o resultado de uma transicao. Devolve o que ficou gravado, e nao
     /// o que foi mandado: quem le depois le do banco, nunca da memoria de quem
     /// escreveu.

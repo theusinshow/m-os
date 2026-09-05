@@ -2449,6 +2449,8 @@ pub fn run() {
                     set_start_minimized,
                     attention::attention_create,
                     attention::attention_list,
+                    attention::attention_edit,
+                    attention::attention_resolved,
                     attention::attention_count,
                     attention::attention_snooze,
                     attention::attention_complete,
