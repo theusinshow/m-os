@@ -405,6 +405,24 @@ async fn a_pagina_vem_embutida() {
         .unwrap();
     assert!(manifest.status().is_success());
     assert!(manifest.text().await.unwrap().contains("standalone"));
+
+    // Mas um ARQUIVO CARIMBADO que nao existe tem que dar 404 de verdade.
+    //
+    // Ele so e pedido quando o navegador guardou um `index.html` velho, o de
+    // antes do deploy. Devolver a pagina ali fazia o navegador pedir um `.js`,
+    // receber HTML, recusar por causa do `Content-Type` e nao mostrar erro
+    // nenhum: tela branca no app instalado, sem nada dizendo o que houve. Foi
+    // exatamente o que aconteceu no iPhone, duas vezes.
+    for carimbado in ["/assets/index-DEADBEEF.js", "/fontes/inexistente-v1.woff2"] {
+        let resposta = reqwest::get(format!("http://{endereco}{carimbado}"))
+            .await
+            .unwrap();
+        assert_eq!(
+            resposta.status(),
+            reqwest::StatusCode::NOT_FOUND,
+            "{carimbado} devolveu a pagina em vez de 404 — a tela branca volta"
+        );
+    }
 }
 
 /// O panorama soma a semana no fuso de QUEM PERGUNTA.

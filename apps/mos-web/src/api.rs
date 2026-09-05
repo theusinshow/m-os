@@ -176,13 +176,32 @@ fn cache_de(nome: &str) -> String {
     }
 }
 
-/// Qualquer caminho desconhecido devolve o `index.html`, e nao 404: a PWA e uma
-/// pagina so, e um app instalado na tela de inicio recarrega numa rota interna o
-/// tempo todo.
+/// Caminho desconhecido devolve o `index.html`, e nao 404: a PWA e uma pagina
+/// so, e um app instalado na tela de inicio recarrega numa rota interna o tempo
+/// todo.
+///
+/// # A excecao, e por que ela custou uma tarde
+///
+/// `/assets/*` e `/fontes/*` NAO caem no `index.html`. Eles tem hash ou versao
+/// no nome, entao um pedido a um arquivo que este binario nao tem so acontece
+/// quando o navegador guardou um `index.html` VELHO — o de antes do deploy.
+///
+/// Devolver o `index.html` ali produzia o pior sintoma possivel: o navegador
+/// pedia um `.js`, recebia HTML com `Content-Type: text/html`, recusava
+/// executar por causa do tipo, e nao mostrava erro nenhum. Tela branca, no app
+/// instalado, sem nada dizendo o que houve — foi exatamente o que aconteceu.
+///
+/// Com 404 de verdade, a mesma falha aparece no console como "404 em
+/// index-ABC.js" e diz sozinha o que fazer: recarregar.
+fn e_arquivo_carimbado(caminho: &str) -> bool {
+    caminho.starts_with("assets/") || caminho.starts_with("fontes/")
+}
+
 async fn pagina(uri: axum::http::Uri) -> Response {
     let caminho = uri.path().trim_start_matches('/');
     let (nome, arquivo) = match Estaticos::get(caminho) {
         Some(encontrado) => (caminho, Some(encontrado)),
+        None if e_arquivo_carimbado(caminho) => (caminho, None),
         None => ("index.html", Estaticos::get("index.html")),
     };
     match arquivo {
@@ -198,6 +217,12 @@ async fn pagina(uri: axum::http::Uri) -> Response {
             )
                 .into_response()
         }
+        None if e_arquivo_carimbado(nome) => (
+            StatusCode::NOT_FOUND,
+            [(axum::http::header::CACHE_CONTROL, "no-store")],
+            "Este arquivo nao existe nesta versao. Recarregue a pagina.",
+        )
+            .into_response(),
         None => (
             StatusCode::NOT_FOUND,
             "A interface nao foi embutida neste binario.",
