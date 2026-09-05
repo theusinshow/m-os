@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 import type { EstadoDoAparelho, Panorama } from "../api";
 import { Cartao } from "../componentes/Cartao";
 import type { Dados, Pagina } from "../navegacao";
@@ -76,6 +76,24 @@ export function Home({
     medidas.current = medir(nos.current);
   });
 
+  /**
+   * Com um cartão na mão, o dedo não rola a página.
+   *
+   * `touch-action: none` no cartão não resolve: o navegador decide o que o
+   * gesto é no instante em que o dedo encosta, e nesse instante ainda não se
+   * sabe que vai virar arrasto — a pressão de 300 ms ainda nem começou. O
+   * `touchmove` não-passivo é o único jeito de mudar de ideia depois.
+   *
+   * Sem isto o iPhone faz as duas coisas ao mesmo tempo: o cartão segue o dedo
+   * e a página desliza por baixo dele, e o cartão nunca alcança onde se quer.
+   */
+  useEffect(() => {
+    if (!pegado) return;
+    const segurar = (evento: TouchEvent) => evento.preventDefault();
+    document.addEventListener("touchmove", segurar, { passive: false });
+    return () => document.removeEventListener("touchmove", segurar);
+  }, [pegado]);
+
   function guardarNo(chave: string, no: HTMLElement | null) {
     if (no) nos.current.set(chave, no);
     else nos.current.delete(chave);
@@ -109,9 +127,16 @@ export function Home({
   function pegar(alvo: HTMLElement, ponteiro: number, chave: string) {
     if (!gesto.current) return;
     gesto.current.arrastando = true;
-    // Sem a captura, tirar o dedo de cima do cartão entrega os eventos ao
-    // elemento de baixo e o arrasto morre no meio do caminho.
-    alvo.setPointerCapture?.(ponteiro);
+    try {
+      // Sem a captura, tirar o dedo de cima do cartão entrega os eventos ao
+      // elemento de baixo e o arrasto morre no meio do caminho.
+      alvo.setPointerCapture?.(ponteiro);
+    } catch {
+      // O ponteiro pode ter sido solto entre o `pointerdown` e o fim da
+      // pressão — chamada tardia, o dedo já saiu. O arrasto continua válido
+      // sem a captura; ele só deixa de sobreviver a sair de cima do cartão, e
+      // isso é melhor que a Home inteira parar de responder ao gesto.
+    }
     setPegado(chave);
   }
 
