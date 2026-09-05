@@ -126,6 +126,17 @@ function Moldura({
   );
 }
 
+/** Um mês espalhado, para a grade ter o que desenhar em mais de uma semana. */
+const AGENDA_DO_MES = [-9, -8, -8, -5, -3, -3, -3, -1, 0, 0, 2, 4, 9, 11].map((quantos, i) => ({
+  kind: i % 5 === 0 ? "exam_scheduled" : i % 3 === 0 ? "capture" : "session",
+  at: comHora(9 + (i % 8), 0, quantos),
+  endsAt: null,
+  title: ["046 - Ratones · desenho", "Prova de Cálculo III", "Conferir o radier"][i % 3],
+  projectId: null,
+  seconds: i % 3 === 0 ? 0 : 3_600 * (1 + (i % 3)),
+  amountCents: 0,
+}));
+
 const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNode }[] = [
   {
     titulo: "Home",
@@ -194,6 +205,8 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
     pagina: "agenda",
     corpo: (
       <Agenda
+        vista="lista"
+        aoTrocarVista={NADA}
         agora={new Date()}
         itens={[
           {
@@ -242,6 +255,18 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
             amountCents: 0,
           },
         ]}
+      />
+    ),
+  },
+  {
+    titulo: "Agenda · mês",
+    pagina: "agenda",
+    corpo: (
+      <Agenda
+        vista="mes"
+        aoTrocarVista={NADA}
+        agora={new Date()}
+        itens={AGENDA_DO_MES}
       />
     ),
   },

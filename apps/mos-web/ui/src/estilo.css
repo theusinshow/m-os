@@ -256,15 +256,24 @@ body {
   list-style: none;
 }
 
+/* Linha, e nao cartao.
+ *
+ * Cada item era uma caixa com borda e fundo, e oito caixas empilhadas gastavam
+ * meia tela em molduras. A hairline no topo separa tanto quanto a borda e nao
+ * cobra espaco nenhum — que e o que a queixa de "pobre de informacao" pedia:
+ * mais linha visivel por tela, e nao mais decoracao por linha. */
 .item {
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
   min-height: var(--toque);
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  padding: 11px 0;
+  border-top: 1px solid var(--border);
+}
+
+/* A grade da lista some junto: as linhas ja se separam sozinhas. */
+.lista {
+  gap: 0;
 }
 
 /* O corpo é quem encolhe. Sem `min-width: 0` num flex item, uma palavra longa
@@ -290,9 +299,12 @@ body {
 
 /* O lembrete que já venceu ganha uma barra, e não um fundo colorido: o fundo
    competiria com o texto justamente na linha que precisa ser lida. */
+/* Quem cobra ganha o filete em sodio na lateral, e a linha recua para ele
+   caber sem empurrar o texto. */
 .item[data-cobra] {
-  border-color: var(--border-strong);
-  box-shadow: inset 2px 0 0 var(--signal);
+  border-left: 2px solid var(--signal);
+  padding-left: 10px;
+  margin-left: -2px;
 }
 
 .item[data-cobra] small {
@@ -307,7 +319,7 @@ body {
   flex: none;
   width: var(--toque);
   height: var(--toque);
-  margin: calc(var(--space-3) * -1) 0 0 calc(var(--space-3) * -1);
+  margin: -11px 0 0 calc(var(--space-2) * -1);
   border: 0;
   background: none;
   cursor: pointer;

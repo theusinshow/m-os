@@ -26,7 +26,7 @@ import { Capturar } from "./paginas/Capturar";
 import { Fazer } from "./paginas/Fazer";
 import { Lembretes } from "./paginas/Lembretes";
 import { Mais } from "./paginas/Mais";
-import { Agenda } from "./paginas/Agenda";
+import { Agenda, type VistaDaAgenda } from "./paginas/Agenda";
 import { Horas } from "./paginas/Horas";
 import { Academico } from "./paginas/Academico";
 
@@ -67,6 +67,7 @@ export function App() {
   const [estado, setEstado] = useState<EstadoDoAparelho | null>(null);
   const [panorama, setPanorama] = useState<Panorama | null>(null);
   const [agenda, setAgenda] = useState<ItemDaAgenda[]>([]);
+  const [vistaDaAgenda, setVistaDaAgenda] = useState<VistaDaAgenda>("lista");
   const [horas, setHoras] = useState<HorasDeProjeto[]>([]);
   const [janelaDasHoras, setJanelaDasHoras] = useState<"semana" | "mes">("semana");
   const [academico, setAcademico] = useState<CompromissoDaLista[]>([]);
@@ -112,11 +113,13 @@ export function App() {
       // Nulo em vez de erro: um servidor sem a rota ainda serve a Home inteira,
       // só sem os dois cartões novos.
       api.panorama().catch(() => null),
-      // A janela: de ontem a uma semana. Para tras um dia porque "o que eu fiz
-      // ontem" e pergunta de manha; para a frente sete porque prova marcada
-      // para daqui a duas semanas nao muda o que se faz hoje.
+      // A janela depende da vista. A lista quer de ontem a uma semana — para
+      // tras um dia porque "o que eu fiz ontem" e pergunta de manha, e para a
+      // frente sete porque prova marcada para daqui a duas semanas nao muda o
+      // que se faz hoje. O mes quer o mes, senao a grade desenharia pontos so
+      // na semana que o servidor mandou e mentiria sobre o resto.
       api
-        .agenda(diasDaqui(-1), diasDaqui(7))
+        .agenda(...janelaDaAgenda(vistaDaAgenda))
         .catch(() => [] as ItemDaAgenda[]),
       api.academico().catch(() => [] as CompromissoDaLista[]),
     ]);
@@ -131,7 +134,7 @@ export function App() {
     // — instalar na tela de início, mexer em Ajustes —, e uma tela que só olha
     // uma vez ficaria dizendo "instale" depois de você já ter instalado.
     setAvisos(await situacao(proximoEstado?.chavePush ?? null));
-  }, []);
+  }, [vistaDaAgenda]);
 
   useEffect(() => {
     // As horas seguem a janela escolhida, e nao o laco geral: elas so importam
@@ -401,7 +404,14 @@ export function App() {
             aoResolver={(lembrete, como) => void resolverLembrete(lembrete, como)}
           />
         ) : null}
-        {pagina === "agenda" ? <Agenda itens={agenda} agora={new Date()} /> : null}
+        {pagina === "agenda" ? (
+          <Agenda
+            itens={agenda}
+            agora={new Date()}
+            vista={vistaDaAgenda}
+            aoTrocarVista={setVistaDaAgenda}
+          />
+        ) : null}
         {pagina === "horas" ? (
           <Horas linhas={horas} janela={janelaDasHoras} aoTrocarJanela={setJanelaDasHoras} />
         ) : null}
@@ -480,6 +490,18 @@ export function App() {
 function sinalDaFila(estado: EstadoDoAparelho | null, pendentes: number): string {
   if (estado?.sincroniza === false) return "sem-hub";
   return pendentes > 0 ? "fila" : "em-dia";
+}
+
+/** De quando ate quando a agenda pergunta, para cada vista. */
+function janelaDaAgenda(vista: VistaDaAgenda): [Date, Date] {
+  if (vista === "lista") return [diasDaqui(-1), diasDaqui(7)];
+  const agora = new Date();
+  return [
+    new Date(agora.getFullYear(), agora.getMonth(), 1),
+    // Dia zero do mes seguinte e o ultimo deste, sem precisar saber quantos
+    // dias ele tem — e sem errar em fevereiro de ano bissexto.
+    new Date(agora.getFullYear(), agora.getMonth() + 1, 0, 23, 59, 59),
+  ];
 }
 
 /** O instante de N dias a partir de agora. Negativo volta no tempo. */

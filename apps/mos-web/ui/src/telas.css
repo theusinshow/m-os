@@ -518,22 +518,12 @@
 
 /* ------------------------------------------------------------ marcador */
 
-/* A barra reaparece como marcador do item que cobra ação — mesmo papel que ela
-   tem nas listas do desktop. Um filete inclinado, e não um fundo colorido: o
-   fundo competiria com o cartão urgente da Home pela mesma atenção. */
+/* O marcador do item que cobra acao virou a borda esquerda da propria linha
+   (`.item[data-cobra]` em `estilo.css`). O filete inclinado que morava aqui era
+   desenhado sobre a borda do cartao — e o cartao deixou de existir quando a
+   lista virou linhas separadas por hairline. */
 .item {
   position: relative;
-}
-
-.item[data-cobra]::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 3px;
-  height: 20px;
-  transform: translateY(-50%) skewX(-14deg);
-  background: var(--signal);
 }
 
 /* ------------------------------------------------------------ movimento */
@@ -619,11 +609,212 @@
 
 .agenda {
   display: grid;
-  gap: var(--space-5);
+  gap: var(--space-4);
+}
+
+.agenda-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.agenda-topo h2 {
+  margin: 0;
+  font: 600 25px/1.1 var(--font-product);
+  letter-spacing: -0.025em;
+}
+
+/* Lista e mes como interruptor, e nao como menu: sao duas opcoes, e um menu
+   para duas escolhas custa um toque a mais para ganhar nada. */
+.agenda-vista {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.agenda-vista button {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: var(--text-system);
+  font: 500 11px/1 var(--font-system);
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.agenda-vista button[aria-pressed="true"] {
+  background: var(--signal);
+  color: var(--canvas);
+}
+
+/* A faixa de dias: responde *tem coisa na sexta?* sem rolar ate sexta. */
+.agenda-faixa {
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  gap: 4px;
+}
+
+.agenda-faixa button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.agenda-faixa button b:first-child {
+  font: 500 10px/1 var(--font-system);
+  color: var(--text-system);
+}
+
+.agenda-faixa button b:nth-child(2) {
+  font: 500 14px/1 var(--font-system);
+  color: var(--text-secondary);
+}
+
+.agenda-faixa button[data-hoje] {
+  background: var(--surface-card);
+  border-color: var(--signal);
+}
+
+.agenda-faixa button[data-hoje] b:first-child {
+  color: var(--signal);
+}
+
+.agenda-faixa button[data-hoje] b:nth-child(2) {
+  color: var(--text);
+}
+
+/* O ponto embaixo do numero: o dia tem registro. Vazio fica em cinza de fundo,
+   e nao some — a coluna de pontos e uma regua, e regua com buraco nao alinha. */
+.agenda-faixa i {
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+}
+
+.agenda-faixa button[data-vazio] i {
+  background: var(--border-strong);
+}
+
+.agenda-faixa i[data-cobra] {
+  background: var(--signal);
+}
+
+/* A grade do mes. */
+.agenda-grade {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.agenda-cabecalho {
+  padding-bottom: 6px;
+  font: 500 10px/1 var(--font-system);
+  letter-spacing: 0.06em;
+  color: var(--text-system);
+  text-align: center;
+}
+
+.agenda-celula {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 52px;
+  padding: 0;
+  border: 1.25px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.agenda-celula[data-folga] {
+  cursor: default;
+}
+
+.agenda-celula b {
+  font: 500 14px/1 var(--font-system);
+  font-weight: 500;
+}
+
+/* Hoje e um fato: contorno neutro. Escolhido e uma decisao: anel de sodio.
+   Quando coincidem, vence o escolhido — dois aneis diriam a mesma coisa. */
+.agenda-celula[data-hoje] {
+  border-color: var(--border-strong);
+}
+
+.agenda-celula[data-escolhido] {
+  border-color: var(--signal);
+  background: var(--signal-wash);
+}
+
+.agenda-pontos {
+  display: flex;
+  gap: 3px;
+  height: 4px;
+}
+
+.agenda-pontos i {
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+}
+
+.agenda-pontos i[data-cobra] {
+  background: var(--signal);
+}
+
+.agenda-legenda {
+  display: flex;
+  gap: var(--space-4);
+  font: 500 10px/1 var(--font-system);
+  letter-spacing: 0.06em;
+  color: var(--text-system);
+}
+
+.agenda-legenda span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agenda-legenda i {
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+}
+
+.agenda-legenda i[data-cobra] {
+  background: var(--signal);
+}
+
+.agenda-nada {
+  margin: var(--space-3) 0 0;
+  color: var(--text-system);
+  font: 400 14px/1.5 var(--font-product);
 }
 
 /* O dia e o total na mesma linha: a pergunta "quanto rendeu quinta" se responde
-   sem descer até o fim da lista. */
+   sem descer ate o fim da lista. */
 .agenda-dia {
   display: flex;
   align-items: baseline;
@@ -639,8 +830,13 @@
   color: var(--text-secondary);
 }
 
-/* A hora em coluna fixa, e não colada no título: alinhadas, as horas do dia
-   viram uma régua que o olho desce; desalinhadas, viram texto. */
+/* O que ja passou fica apagado: rastro nao pede atencao. */
+.agenda section[data-passado] {
+  opacity: 0.62;
+}
+
+/* A hora em coluna fixa, e nao colada no titulo: alinhadas, as horas do dia
+   viram uma regua que o olho desce; desalinhadas, viram texto. */
 .agenda-hora {
   flex: none;
   width: 40px;
@@ -650,8 +846,8 @@
   color: var(--text-system);
 }
 
-/* O item que cobra atenção já ganha o filete de sódio da regra geral de
-   `.item[data-cobra]`; aqui só a hora acompanha, para a linha inteira dizer a
+/* O item que cobra atencao ja ganha o filete de sodio da regra geral de
+   `.item[data-cobra]`; aqui so a hora acompanha, para a linha inteira dizer a
    mesma coisa. */
 .agenda .item[data-cobra] .agenda-hora {
   color: var(--signal);
@@ -701,8 +897,11 @@
   margin: 0;
 }
 
+/* O total em mono, como todo numero grande do app agora: e a fonte do dado, e
+   trocar de familia entre a Home e esta tela faria o mesmo `15h38` parecer duas
+   grandezas diferentes. */
 .horas-total strong {
-  font: 500 32px/1.1 var(--font-product);
+  font: 500 32px/1.1 var(--font-system);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
 }
