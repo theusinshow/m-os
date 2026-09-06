@@ -15,6 +15,7 @@ import { Lembrete } from "./paginas/Lembrete";
 import { Lembretes } from "./paginas/Lembretes";
 import { Mais } from "./paginas/Mais";
 import { Agenda } from "./paginas/Agenda";
+import { TUDO } from "./paginas/categorias";
 import { Horas } from "./paginas/Horas";
 import { Academico } from "./paginas/Academico";
 
@@ -257,7 +258,9 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
     corpo: (
       <Agenda
         vista="lista"
+        filtro={TUDO}
         aoTrocarVista={NADA}
+        aoFiltrar={NADA}
         agora={new Date()}
         itens={[
           {
@@ -315,7 +318,9 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
     corpo: (
       <Agenda
         vista="mes"
+        filtro={TUDO}
         aoTrocarVista={NADA}
+        aoFiltrar={NADA}
         agora={new Date()}
         itens={AGENDA_DO_MES}
       />
@@ -327,7 +332,9 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
     corpo: (
       <Horas
         janela="semana"
+        periodo={[new Date(2026, 8, 1), new Date()]}
         aoTrocarJanela={NADA}
+        aoEscolherPeriodo={NADA}
         linhas={[
           { projeto: "046 - Ratones", segundos: 32_880, valorCents: 27_400, lancamentos: 8 },
           { projeto: "JABOTICATUBA", segundos: 18_000, valorCents: 15_000, lancamentos: 5 },

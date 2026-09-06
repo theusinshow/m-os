@@ -904,6 +904,48 @@
   color: var(--canvas);
 }
 
+/* O filtro fica fechado por padrao: oito interruptores permanentes gastariam um
+   terco da tela para responder uma pergunta que se faz uma vez por semana. */
+.agenda-filtrar {
+  justify-self: start;
+  padding: var(--space-2) 0;
+  border: 0;
+  background: none;
+  color: var(--text-system);
+  font: 500 11px/1 var(--font-system);
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+/* Filtrando, ele acende: uma agenda com menos coisa do que o normal e uma
+   agenda que parece vazia, e a pessoa precisa saber que foi ela quem pediu. */
+.agenda-filtrar[data-ligado] {
+  color: var(--signal);
+}
+
+.agenda-categorias {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.agenda-categorias button {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-system);
+  font: 500 11px/1 var(--font-system);
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.agenda-categorias button[aria-pressed="true"] {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
 /* A faixa de dias: responde *tem coisa na sexta?* sem rolar ate sexta. */
 .agenda-faixa {
   display: grid;
@@ -1112,15 +1154,17 @@
   gap: var(--space-4);
 }
 
-/* Semana e mês como interruptor, e não como menu: são duas opções, e um select
-   para duas escolhas custa um toque a mais para ganhar nada. */
+/* Seis janelas: as cinco que se pergunta quase sempre, mais a livre.
+   Elas embrulham em vez de espremer — seis alvos numa linha de 390px dariam 60px
+   cada, e "Mês passado" não cabe em 60px sem virar "Mês p…". */
 .horas-janela {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
 .horas-janela button {
-  flex: 1;
+  flex: 1 0 auto;
   min-height: var(--toque);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1139,6 +1183,23 @@
 
 .horas-janela button:active {
   background: var(--surface-active);
+}
+
+/* A faixa que a tela está somando, escrita.
+   Sem ela "15h38" é um número sem pergunta — e duas janelas diferentes produzem
+   o mesmo número com significados diferentes. */
+.horas-faixa {
+  margin: 0;
+  color: var(--text-system);
+  font: 500 11px/1 var(--font-system);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.horas-periodo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
 }
 
 /* O total antes da lista: a resposta primeiro, o detalhamento depois. */

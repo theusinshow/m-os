@@ -33,7 +33,9 @@ import { Lembrete } from "./paginas/Lembrete";
 import { Lembretes, type VistaDosLembretes } from "./paginas/Lembretes";
 import { Mais } from "./paginas/Mais";
 import { Agenda, type VistaDaAgenda } from "./paginas/Agenda";
+import { gravarFiltro, lerFiltro, type Filtro } from "./paginas/categorias";
 import { Horas } from "./paginas/Horas";
+import { periodo, type Janela } from "./paginas/janelas";
 import { Academico } from "./paginas/Academico";
 
 /** O que a folha de *quando* está agendando, enquanto ela está aberta. */
@@ -81,8 +83,15 @@ export function App() {
   const [panorama, setPanorama] = useState<Panorama | null>(null);
   const [agenda, setAgenda] = useState<ItemDaAgenda[]>([]);
   const [vistaDaAgenda, setVistaDaAgenda] = useState<VistaDaAgenda>("lista");
+  /** O que a agenda mostra. Deste aparelho, como o arranjo da Home. */
+  const [filtroDaAgenda, setFiltroDaAgenda] = useState<Filtro>(lerFiltro);
   const [horas, setHoras] = useState<HorasDeProjeto[]>([]);
-  const [janelaDasHoras, setJanelaDasHoras] = useState<"semana" | "mes">("semana");
+  const [janelaDasHoras, setJanelaDasHoras] = useState<Janela>("semana");
+  /** As duas pontas em uso. Elas seguem a janela, e a janela `personalizado`
+   *  segue elas — é o único caso em que quem manda é o campo, e não o botão. */
+  const [periodoDasHoras, setPeriodoDasHoras] = useState<[Date, Date]>(() =>
+    periodo("semana"),
+  );
   const [academico, setAcademico] = useState<CompromissoDaLista[]>([]);
   const [recado, setRecado] = useState("");
   const [erro, setErro] = useState(false);
@@ -164,16 +173,22 @@ export function App() {
     setAvisos(await situacao(proximoEstado?.chavePush ?? null));
   }, [vistaDaAgenda]);
 
+  // Trocar de janela recalcula as pontas. `personalizado` e a excecao: ali quem
+  // manda sao os campos, e sobrescreve-los aqui apagaria o que a pessoa acabou
+  // de escolher.
+  useEffect(() => {
+    if (janelaDasHoras !== "personalizado") setPeriodoDasHoras(periodo(janelaDasHoras));
+  }, [janelaDasHoras]);
+
   useEffect(() => {
     // As horas seguem a janela escolhida, e nao o laco geral: elas so importam
     // com a pagina aberta, e recarrega-las a cada trinta segundos seria uma ida
     // a rede por um numero que ninguem esta olhando.
-    const inicio = janelaDasHoras === "semana" ? inicioDaSemana() : inicioDoMes();
     void api
-      .horas(inicio, new Date())
+      .horas(periodoDasHoras[0], periodoDasHoras[1])
       .then(setHoras)
       .catch(() => setHoras([]));
-  }, [janelaDasHoras, pagina]);
+  }, [periodoDasHoras, pagina]);
 
   useEffect(() => {
     void atualizar();
@@ -587,11 +602,22 @@ export function App() {
             itens={agenda}
             agora={new Date()}
             vista={vistaDaAgenda}
+            filtro={filtroDaAgenda}
             aoTrocarVista={setVistaDaAgenda}
+            aoFiltrar={(proximo) => {
+              setFiltroDaAgenda(proximo);
+              gravarFiltro(proximo);
+            }}
           />
         ) : null}
         {pagina === "horas" ? (
-          <Horas linhas={horas} janela={janelaDasHoras} aoTrocarJanela={setJanelaDasHoras} />
+          <Horas
+            linhas={horas}
+            janela={janelaDasHoras}
+            periodo={periodoDasHoras}
+            aoTrocarJanela={setJanelaDasHoras}
+            aoEscolherPeriodo={(de, ate) => setPeriodoDasHoras([de, ate])}
+          />
         ) : null}
         {pagina === "academico" ? <Academico compromissos={academico} /> : null}
         {pagina === "mais" ? (
@@ -685,21 +711,4 @@ function janelaDaAgenda(vista: VistaDaAgenda): [Date, Date] {
 /** O instante de N dias a partir de agora. Negativo volta no tempo. */
 function diasDaqui(dias: number): Date {
   return new Date(Date.now() + dias * 86_400_000);
-}
-
-/** A segunda-feira desta semana, à meia-noite local. */
-function inicioDaSemana(): Date {
-  const inicio = new Date();
-  const desdeSegunda = (inicio.getDay() + 6) % 7;
-  inicio.setDate(inicio.getDate() - desdeSegunda);
-  inicio.setHours(0, 0, 0, 0);
-  return inicio;
-}
-
-/** O dia 1 deste mês, à meia-noite local. */
-function inicioDoMes(): Date {
-  const inicio = new Date();
-  inicio.setDate(1);
-  inicio.setHours(0, 0, 0, 0);
-  return inicio;
 }

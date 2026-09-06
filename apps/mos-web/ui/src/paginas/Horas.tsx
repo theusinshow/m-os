@@ -1,6 +1,8 @@
 import type { HorasDeProjeto } from "../api";
 import { Vazio } from "../componentes/Vazio";
 import { emHoras, emReais } from "./numeros";
+import { JANELAS, pontaCurta, type Janela } from "./janelas";
+import { paraCampoLocal } from "../instantes";
 
 /**
  * As horas por projeto, na janela escolhida.
@@ -17,11 +19,16 @@ import { emHoras, emReais } from "./numeros";
 export function Horas({
   linhas,
   janela,
+  periodo,
   aoTrocarJanela,
+  aoEscolherPeriodo,
 }: {
   linhas: HorasDeProjeto[];
-  janela: "semana" | "mes";
-  aoTrocarJanela: (janela: "semana" | "mes") => void;
+  janela: Janela;
+  /** As duas pontas em uso, para a tela poder DIZER o que está somando. */
+  periodo: [Date, Date];
+  aoTrocarJanela: (janela: Janela) => void;
+  aoEscolherPeriodo: (de: Date, ate: Date) => void;
 }) {
   const maior = Math.max(...linhas.map((linha) => linha.segundos), 1);
   const totalSegundos = linhas.reduce((soma, linha) => soma + linha.segundos, 0);
@@ -29,18 +36,68 @@ export function Horas({
 
   return (
     <div className="horas">
+      {/* Cinco janelas prontas e uma livre. As prontas cobrem o que se pergunta
+          quase sempre — esta semana, a passada, o mês —, e a livre existe para
+          o resto: fechar uma fatura de um período que não é nenhum deles. */}
       <div className="horas-janela">
-        {(["semana", "mes"] as const).map((opcao) => (
+        {JANELAS.map((opcao) => (
           <button
-            key={opcao}
+            key={opcao.chave}
             type="button"
-            aria-pressed={janela === opcao}
-            onClick={() => aoTrocarJanela(opcao)}
+            aria-pressed={janela === opcao.chave}
+            onClick={() => aoTrocarJanela(opcao.chave)}
           >
-            {opcao === "semana" ? "Semana" : "Mês"}
+            {opcao.rotulo}
           </button>
         ))}
+        <button
+          type="button"
+          aria-pressed={janela === "personalizado"}
+          onClick={() => aoTrocarJanela("personalizado")}
+        >
+          Período
+        </button>
       </div>
+
+      {janela === "personalizado" ? (
+        <div className="horas-periodo">
+          <label className="campo">
+            <span>DE</span>
+            <input
+              type="date"
+              value={paraCampoLocal(periodo[0]).slice(0, 10)}
+              onChange={(evento) =>
+                aoEscolherPeriodo(
+                  new Date(`${evento.currentTarget.value}T00:00:00`),
+                  periodo[1],
+                )
+              }
+            />
+          </label>
+          <label className="campo">
+            <span>ATÉ</span>
+            <input
+              type="date"
+              value={paraCampoLocal(periodo[1]).slice(0, 10)}
+              onChange={(evento) =>
+                aoEscolherPeriodo(
+                  periodo[0],
+                  // Até o FIM do dia escolhido: `T00:00` cortaria fora tudo o
+                  // que foi lançado no próprio dia que a pessoa pediu.
+                  new Date(`${evento.currentTarget.value}T23:59:59`),
+                )
+              }
+            />
+          </label>
+        </div>
+      ) : (
+        // A tela DIZ o que está somando. Sem isto, "15h38" é um número sem
+        // pergunta — e duas janelas diferentes produzem o mesmo número com
+        // significados diferentes.
+        <p className="horas-faixa">
+          {pontaCurta(periodo[0])} — {pontaCurta(periodo[1])}
+        </p>
+      )}
 
       {linhas.length === 0 ? (
         <Vazio frase="Nenhuma hora nesta janela. O que você registrar no CronoCAD aparece aqui." />

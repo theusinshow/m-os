@@ -1008,6 +1008,14 @@ async fn agenda(
         .compromissos_entre(de, ate, ate)
         .map_err(de_core)?;
 
+    // Os lembretes ABERTOS. Os resolvidos ficam de fora: o calendario mostra o
+    // que vai acontecer e o que aconteceu, e um lembrete cancelado nao e nenhum
+    // dos dois.
+    let lembretes = estado.attention.open().map_err(de_core)?;
+    // Nacionais, calculados a partir da janela. Estadual e municipal ficam para
+    // quando existir uma fonte — ver `feriados.rs`.
+    let feriados = mos_core::nacionais_entre(de.date(), ate.date());
+
     let nome_do_projeto = |id: mos_core::ProjectId| {
         projetos
             .iter()
@@ -1030,6 +1038,8 @@ async fn agenda(
         sessions: &sessoes,
         objectives: &objetivos,
         academic: &academico,
+        reminders: &lembretes,
+        holidays: &feriados,
         project_name: &nome_do_projeto,
     })))
 }

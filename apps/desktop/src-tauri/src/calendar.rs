@@ -61,6 +61,12 @@ pub fn calendar_window<R: Runtime>(
         crate::surface::now_local(&app),
     )?;
 
+    // Os lembretes abertos entram no calendario — a mesma fonte, a mesma regra
+    // e a mesma funcao pura que o bolso usa. Um lembrete para quinta as 14h nao
+    // aparecia na agenda de quinta em NENHUMA das duas telas.
+    let lembretes = state.attention.open()?;
+    let feriados = mos_core::nacionais_entre(from.date(), to.date());
+
     let name_of = |id: mos_core::ProjectId| {
         projects
             .iter()
@@ -80,6 +86,8 @@ pub fn calendar_window<R: Runtime>(
         sessions: &sessions,
         objectives: &objectives,
         academic: &academico,
+        reminders: &lembretes,
+        holidays: &feriados,
         project_name: &name_of,
     }))
 }

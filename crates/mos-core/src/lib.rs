@@ -14,6 +14,7 @@ mod clock;
 mod conversation;
 mod daily;
 mod error;
+mod feriados;
 mod functions;
 mod ingestion;
 mod meeting;
@@ -91,6 +92,7 @@ pub use daily::{
     TaskSuggestion, SUGGESTED_SECONDARIES,
 };
 pub use error::{CoreError, ErrorCode};
+pub use feriados::{nacionais, nacionais_entre, pascoa, EscopoDoFeriado, Feriado, PesoDoFeriado};
 pub use functions::{
     function_registry, search_functions, FunctionCategory, FunctionConfirmation,
     FunctionDefinition, FunctionRisk,

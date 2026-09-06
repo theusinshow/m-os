@@ -12,6 +12,7 @@ import {
   type CelulaDoMes,
 } from "./dias";
 import { emHoras } from "./numeros";
+import { alternar, aplicar, CATEGORIAS, type Filtro } from "./categorias";
 
 export type VistaDaAgenda = "lista" | "mes";
 
@@ -35,6 +36,8 @@ const PALAVRA: Record<string, string> = {
   exam_scheduled: "prova",
   academic_planned: "planejado",
   meeting: "reunião",
+  reminder: "lembrete",
+  holiday: "feriado",
 };
 
 /**
@@ -59,13 +62,21 @@ export function Agenda({
   itens,
   agora,
   vista,
+  filtro,
   aoTrocarVista,
+  aoFiltrar,
 }: {
   itens: ItemDaAgenda[];
   agora: Date;
   vista: VistaDaAgenda;
+  filtro: Filtro;
   aoTrocarVista: (vista: VistaDaAgenda) => void;
+  aoFiltrar: (filtro: Filtro) => void;
 }) {
+  const [mostrandoFiltro, setMostrandoFiltro] = useState(false);
+  const visiveis = aplicar(itens, filtro);
+  const filtrando = filtro.length > 0 && filtro.length < CATEGORIAS.length;
+
   return (
     <div className="agenda">
       <header className="agenda-topo">
@@ -84,10 +95,38 @@ export function Agenda({
         </div>
       </header>
 
+      {/* O filtro fica FECHADO por padrão: oito interruptores permanentes
+          gastariam um terço da tela para responder uma pergunta que se faz uma
+          vez por semana. Aberto, ele é a tela inteira por um instante. */}
+      <button
+        type="button"
+        className="agenda-filtrar"
+        aria-expanded={mostrandoFiltro}
+        data-ligado={filtrando || undefined}
+        onClick={() => setMostrandoFiltro(!mostrandoFiltro)}
+      >
+        {filtrando ? `MOSTRANDO ${filtro.length} DE ${CATEGORIAS.length}` : "FILTRAR"}
+      </button>
+
+      {mostrandoFiltro ? (
+        <div className="agenda-categorias">
+          {CATEGORIAS.map((categoria) => (
+            <button
+              key={categoria.chave}
+              type="button"
+              aria-pressed={filtro.includes(categoria.chave)}
+              onClick={() => aoFiltrar(alternar(filtro, categoria.chave))}
+            >
+              {categoria.rotulo}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {vista === "mes" ? (
-        <Mes itens={itens} agora={agora} />
+        <Mes itens={visiveis} agora={agora} />
       ) : (
-        <Lista itens={itens} agora={agora} />
+        <Lista itens={visiveis} agora={agora} />
       )}
     </div>
   );

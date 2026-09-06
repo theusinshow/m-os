@@ -72,6 +72,18 @@ pub enum CalendarKind {
     /// existe no M/OS, e uma variante que sugerisse agenda prometeria uma
     /// capacidade sem lastro.
     Meeting,
+    /// Um lembrete, na hora em que ele vence.
+    ///
+    /// Faltava, e a ausencia era sentida: um lembrete para quinta as 14h nao
+    /// aparecia na agenda de quinta — nem no desktop. O calendario mostrava o
+    /// RASTRO do que aconteceu e calava sobre o que voce mesmo marcou para
+    /// acontecer.
+    Reminder,
+    /// Um feriado ou ponto facultativo.
+    ///
+    /// Nao vem de tabela: `feriados.rs` calcula a regra, e quem chama escolhe a
+    /// jurisdicao. O calendario so recebe a lista pronta.
+    Holiday,
 }
 
 impl CalendarKind {
@@ -89,6 +101,8 @@ impl CalendarKind {
             Self::ExamScheduled => "exam_scheduled",
             Self::AcademicPlanned => "academic_planned",
             Self::Meeting => "meeting",
+            Self::Reminder => "reminder",
+            Self::Holiday => "holiday",
         }
     }
 }
@@ -135,6 +149,17 @@ pub struct ComposeInput<'a> {
     /// o que entra (o que ainda nao foi entregue, o que nao foi cancelado) ja
     /// mora la — reescreve-la aqui daria duas respostas para "esta prova conta?".
     pub academic: &'a [crate::Compromisso],
+    /// Os lembretes ABERTOS. Os resolvidos ficam de fora de proposito: o
+    /// calendario mostra o que vai acontecer e o que aconteceu, e um lembrete
+    /// cancelado nao e nenhum dos dois — ele e uma coisa que se decidiu que nao
+    /// aconteceria.
+    pub reminders: &'a [crate::Reminder],
+    /// Os feriados da janela, ja escolhidos por quem chama.
+    ///
+    /// Chegam prontos, e nao calculados aqui, porque a jurisdicao e decisao de
+    /// quem monta a tela: nacional sai de `feriados::nacionais_entre`, e
+    /// estadual e municipal vao sair de uma fonte que ainda nao existe.
+    pub holidays: &'a [crate::Feriado],
     /// Como achar o nome de um Project. Fechamento e nao mapa pronto porque
     /// quem chama ja tem a lista e nao deveria precisar montar um indice.
     pub project_name: &'a dyn Fn(ProjectId) -> String,
@@ -311,6 +336,48 @@ pub fn compose(input: ComposeInput<'_>) -> Vec<CalendarItem> {
         });
     }
 
+    for lembrete in input.reminders {
+        let Some(quando) = lembrete.next_due_at else {
+            // Lembrete sem vencimento e gatilho por contexto, e nao por hora:
+            // ele nao tem dia no calendario, e chutar um seria inventar.
+            continue;
+        };
+        if !within(quando) {
+            continue;
+        }
+        items.push(CalendarItem {
+            kind: CalendarKind::Reminder,
+            at: quando,
+            ends_at: None,
+            title: lembrete.title.clone(),
+            project_id: match lembrete.target {
+                Some(crate::ReminderTarget::Project(id)) => Some(id),
+                _ => None,
+            },
+            seconds: 0,
+            amount_cents: 0,
+        });
+    }
+
+    // O feriado e um DIA, e nao um instante. Ele entra a meia-noite no fuso de
+    // quem pergunta — o mesmo de `since` — porque a meia-noite em UTC cairia no
+    // dia anterior para quem esta em UTC-3, e o feriado apareceria vespera.
+    for feriado in input.holidays {
+        let quando = feriado.data.midnight().assume_offset(input.since.offset());
+        if !within(quando) {
+            continue;
+        }
+        items.push(CalendarItem {
+            kind: CalendarKind::Holiday,
+            at: quando,
+            ends_at: None,
+            title: feriado.nome.clone(),
+            project_id: None,
+            seconds: 0,
+            amount_cents: 0,
+        });
+    }
+
     for event in input.events {
         if event.kind != crate::ActivityKind::AppOpened {
             continue;
@@ -412,6 +479,8 @@ mod tests {
             sessions: &[],
             objectives: &[],
             academic: &[],
+            reminders: &[],
+            holidays: &[],
             project_name: name,
         }
     }
@@ -430,6 +499,12 @@ mod tests {
             CalendarKind::DayStarted,
             CalendarKind::DayEnded,
             CalendarKind::ObjectiveDone,
+            CalendarKind::AssignmentDue,
+            CalendarKind::ExamScheduled,
+            CalendarKind::AcademicPlanned,
+            CalendarKind::Meeting,
+            CalendarKind::Reminder,
+            CalendarKind::Holiday,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             assert_eq!(json, format!("\"{}\"", kind.as_str()));
@@ -519,5 +594,92 @@ mod tests {
 
         let hours: Vec<_> = items.iter().map(|item| item.at).collect();
         assert_eq!(hours, [moment(2), moment(6), moment(9), moment(18)]);
+    }
+
+    /// O lembrete entra no dia em que vence.
+    ///
+    /// Ele faltava, e a ausencia era o defeito mais sentido do calendario: um
+    /// lembrete para quinta as 14h nao aparecia na agenda de quinta. O
+    /// calendario mostrava o RASTRO do que aconteceu e calava sobre o que a
+    /// propria pessoa marcou para acontecer.
+    #[test]
+    fn o_lembrete_entra_no_dia_em_que_vence() {
+        let name = |_: ProjectId| String::new();
+        let mut lembrete = crate::Reminder {
+            id: crate::ReminderId::new(),
+            title: "Ligar pro dentista".into(),
+            body: String::new(),
+            target: None,
+            trigger: crate::Trigger::At { instant: moment(9) },
+            priority: crate::Priority::Normal,
+            status: crate::ReminderStatus::Scheduled,
+            policy: crate::DeliveryPolicy::default(),
+            source: crate::ReminderSource::User,
+            next_due_at: Some(moment(9)),
+            snooze_count: 0,
+            delivered_count: 0,
+            created_at: moment(0),
+            updated_at: moment(0),
+            completed_at: None,
+            lifecycle_state: crate::LifecycleState::Active,
+        };
+        let mut entrada = input(&[], &[], &[], &[], &name);
+        let lembretes = [lembrete.clone()];
+        entrada.reminders = &lembretes;
+        let itens = compose(entrada);
+        assert_eq!(itens.len(), 1);
+        assert_eq!(itens[0].kind, CalendarKind::Reminder);
+        assert_eq!(itens[0].at, moment(9));
+
+        // Sem vencimento nao ha dia: gatilho por contexto nao tem hora, e
+        // chutar uma poria o item no calendario numa data inventada.
+        lembrete.next_due_at = None;
+        let sem_hora = [lembrete];
+        let mut entrada = input(&[], &[], &[], &[], &name);
+        entrada.reminders = &sem_hora;
+        assert!(compose(entrada).is_empty());
+    }
+
+    /// O feriado entra a meia-noite NO FUSO DE QUEM PERGUNTA.
+    ///
+    /// Em UTC ele cairia no dia anterior para quem esta em UTC-3, e o Natal
+    /// apareceria no dia 24 — o tipo de erro que ninguem procura no codigo do
+    /// calendario porque parece problema do dado.
+    #[test]
+    fn o_feriado_entra_no_fuso_de_quem_pergunta() {
+        let name = |_: ProjectId| String::new();
+        let feriados = [crate::Feriado {
+            data: time::Date::from_calendar_date(2026, time::Month::December, 25).unwrap(),
+            nome: "Natal".into(),
+            escopo: crate::EscopoDoFeriado::Nacional,
+            peso: crate::PesoDoFeriado::Feriado,
+        }];
+        let fuso = time::UtcOffset::from_hms(-3, 0, 0).unwrap();
+        let entrada = ComposeInput {
+            since: time::Date::from_calendar_date(2026, time::Month::December, 20)
+                .unwrap()
+                .midnight()
+                .assume_offset(fuso),
+            until: time::Date::from_calendar_date(2026, time::Month::December, 31)
+                .unwrap()
+                .midnight()
+                .assume_offset(fuso),
+            rounding: rounding(),
+            entries: &[],
+            tasks: &[],
+            captures: &[],
+            events: &[],
+            sessions: &[],
+            objectives: &[],
+            academic: &[],
+            reminders: &[],
+            holidays: &feriados,
+            project_name: &name,
+        };
+        let itens = compose(entrada);
+        assert_eq!(itens.len(), 1);
+        assert_eq!(itens[0].kind, CalendarKind::Holiday);
+        assert_eq!(itens[0].at.offset(), fuso);
+        assert_eq!(itens[0].at.day(), 25, "o feriado caiu na vespera");
     }
 }
