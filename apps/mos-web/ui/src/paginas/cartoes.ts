@@ -1,4 +1,4 @@
-import { pedeAtencao, type EstadoDoAparelho, type Panorama } from "../api";
+import { pedeAtencao, type EstadoDoAparelho, type ODia, type Panorama } from "../api";
 import type { Dados, Pagina } from "../navegacao";
 import { idade } from "./idade";
 import { emHoras, emReais } from "./numeros";
@@ -14,7 +14,14 @@ export type Enfeite =
    *  depois dele é futuro e sai em traço apagado. */
   | { tipo: "semana"; dias: number[]; hoje: number }
   /** Uma barra de 0 a 1. */
-  | { tipo: "progresso"; fracao: number };
+  | { tipo: "progresso"; fracao: number }
+  /** Um anel de 0 a 1.
+   *
+   *  Sem número no meio de propósito: o cartão já mostra `2/3` como conteúdo, e
+   *  o anel repetindo "1" ali dentro diria a mesma coisa numa segunda
+   *  codificação — dois desenhos para um fato só. Ele é reforço visual, como a
+   *  sparkline das horas. */
+  | { tipo: "anel"; fracao: number };
 
 export type CartaoDaHome = {
   chave: string;
@@ -47,6 +54,7 @@ export function cartoesDaHome(
   dados: Dados,
   agora: Date = new Date(),
   panorama: Panorama | null = null,
+  dia: ODia | null = null,
 ): CartaoDaHome[] {
   const cartoes: CartaoDaHome[] = [];
 
@@ -65,6 +73,24 @@ export function cartoesDaHome(
     urgente: semHub || undefined,
     palavra: pendentes === 0 || semHub || undefined,
   });
+
+  // O DIA vem antes de tudo o que se conta, e nao no fim: ele e o unico cartao
+  // que responde *o que eu decidi que importa hoje* — os outros respondem
+  // quanta coisa existe.
+  if (dia && dia.status !== "not_started" && dia.objetivos.length > 0) {
+    cartoes.push({
+      chave: "dia",
+      rotulo: dia.status === "ended" ? "DIA ENCERRADO" : "O DIA",
+      numero: `${dia.resolvidos}/${dia.objetivos.length}`,
+      legenda:
+        dia.resolvidos === dia.objetivos.length
+          ? "tudo o que você decidiu"
+          : (dia.objetivos.find((o) => o.status === "pending")?.titulo ?? "objetivos"),
+      destino: "home",
+      enfeite: { tipo: "anel", fracao: dia.resolvidos / dia.objetivos.length },
+      palavra: true,
+    });
+  }
 
   const cobrando = dados.lembretes.filter(pedeAtencao);
   const proximos = dados.lembretes.filter(
@@ -142,6 +168,31 @@ export function cartoesDaHome(
         dados.tasks.length > 0
           ? { tipo: "progresso", fracao: feitas / dados.tasks.length }
           : undefined,
+    });
+  }
+
+  // Feitas hoje: o unico cartao que celebra em vez de cobrar. Some quando o dia
+  // ainda nao rendeu — um "0 feitas" as nove da manha e uma acusacao.
+  if (dia && dia.feitasHoje > 0) {
+    cartoes.push({
+      chave: "feitas",
+      rotulo: "FEITAS HOJE",
+      numero: String(dia.feitasHoje),
+      legenda: dia.feitasHoje === 1 ? "task concluída" : "tasks concluídas",
+      destino: "fazer",
+    });
+  }
+
+  // A sequencia so aparece a partir de dois: um dia nao e sequencia de nada, e
+  // chamar de "1 dia seguido" faria o numero perder o sentido justamente
+  // quando ele deveria comecar a ter.
+  if (dia && dia.sequencia >= 2) {
+    cartoes.push({
+      chave: "sequencia",
+      rotulo: "SEQUÊNCIA",
+      numero: String(dia.sequencia),
+      legenda: "dias encerrados seguidos",
+      destino: "home",
     });
   }
 

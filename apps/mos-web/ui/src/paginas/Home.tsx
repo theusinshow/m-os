@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
-import type { EstadoDoAparelho, Panorama } from "../api";
+import type { EstadoDoAparelho, ODia, Panorama } from "../api";
 import { Cartao } from "../componentes/Cartao";
 import type { Dados, Pagina } from "../navegacao";
 import { alternarOculto, aplicarArranjo, ordenar, reordenar, type Arranjo } from "./arranjo";
@@ -33,6 +33,7 @@ export function Home({
   estado,
   dados,
   panorama,
+  dia,
   arranjo,
   arrumando,
   aoArrumando,
@@ -44,6 +45,9 @@ export function Home({
   /** Nulo enquanto não chegou, ou quando o servidor é antigo demais para ter a
    *  rota. A Home continua inteira nos dois casos. */
   panorama: Panorama | null;
+  /** O dia, quando o servidor tem a rota. Nulo deixa a Home sem os cartões
+   *  do Start My Day, e inteira no resto. */
+  dia: ODia | null;
   arranjo: Arranjo;
   arrumando: boolean;
   aoArrumando: (arrumando: boolean) => void;
@@ -51,7 +55,7 @@ export function Home({
   aoIr: (pagina: Pagina) => void;
 }) {
   const agora = new Date();
-  const todos = cartoesDaHome(estado, dados, agora, panorama);
+  const todos = cartoesDaHome(estado, dados, agora, panorama, dia);
   // Dentro do modo, o escondido continua na grade — apagado. Fora dele, some.
   // É a única forma de descobrir que ele existe para trazê-lo de volta.
   const cartoes = arrumando ? ordenar(todos, arranjo) : aplicarArranjo(todos, arranjo);

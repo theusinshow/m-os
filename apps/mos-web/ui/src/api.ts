@@ -30,6 +30,23 @@ export type Task = {
   completedAt: string | null;
 };
 
+/** O dia: o Start My Day visto do bolso. */
+export type ODia = {
+  status: "not_started" | "active" | "ended";
+  objetivos: {
+    id: string;
+    titulo: string;
+    status: "pending" | "done" | "dropped" | "carried";
+    prioridade: string;
+  }[];
+  /** Quantos objetivos já foram resolvidos — o numerador do anel. */
+  resolvidos: number;
+  /** Tasks concluídas hoje. Não é o mesmo que objetivos. */
+  feitasHoje: number;
+  /** Dias seguidos com o dia encerrado. */
+  sequencia: number;
+};
+
 /** Um projeto, só com o que a tela do bolso precisa saber dele. */
 export type Projeto = {
   id: string;
@@ -285,6 +302,9 @@ export const api = {
   },
   projetos() {
     return pedir<Projeto[]>("/api/projetos");
+  },
+  dia() {
+    return pedir<ODia>(`/api/dia?agora=${encodeURIComponent(comOffsetLocal(new Date()))}`);
   },
   /**
    * Cria um lembrete.

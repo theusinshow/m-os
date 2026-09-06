@@ -33,6 +33,18 @@ import { Academico } from "./paginas/Academico";
  */
 const LARGURAS = [390, 430];
 
+const O_DIA = {
+  status: "active" as const,
+  objetivos: [
+    { id: "o1", titulo: "Fechar o quantitativo de aço", status: "done" as const, prioridade: "high" },
+    { id: "o2", titulo: "Visitar a obra da Ratones", status: "done" as const, prioridade: "normal" },
+    { id: "o3", titulo: "Estudar para a prova de Cálculo", status: "pending" as const, prioridade: "high" },
+  ],
+  resolvidos: 2,
+  feitasHoje: 3,
+  sequencia: 6,
+};
+
 const PANORAMA = {
   horas: {
     semanaSegundos: 32_880,
@@ -64,6 +76,7 @@ function HomeArrumando() {
       estado={FALSO.estado}
       dados={FALSO}
       panorama={PANORAMA}
+      dia={O_DIA}
       arranjo={arranjo}
       arrumando
       aoArrumando={NADA}
@@ -149,6 +162,7 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
         estado={FALSO.estado}
         dados={FALSO}
         panorama={PANORAMA}
+        dia={O_DIA}
         arranjo={ARRANJO_VAZIO}
         arrumando={false}
         aoArrumando={NADA}

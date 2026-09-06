@@ -48,6 +48,7 @@ pub fn rotas() -> Router<Estado> {
         .route("/api/lembretes/{id}/arquivar", post(arquivar_lembrete))
         .route("/api/estado", get(estado_do_aparelho))
         .route("/api/panorama", get(panorama))
+        .route("/api/dia", get(dia))
         .route("/api/agenda", get(agenda))
         .route("/api/horas", get(horas))
         .route("/api/academico", get(academico))
@@ -962,6 +963,134 @@ async fn panorama(
     }))
 }
 
+// ------------------------------------------------------------------- dia
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ObjetivoDoDia {
+    id: String,
+    titulo: String,
+    /// `pending`, `done`, `dropped`, `carried`.
+    status: String,
+    prioridade: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ODia {
+    /// `not_started`, `active` ou `ended`.
+    status: String,
+    objetivos: Vec<ObjetivoDoDia>,
+    /// Quantos objetivos ja foram resolvidos — o numerador do anel.
+    resolvidos: usize,
+    /// Tasks concluidas hoje. Nao e o mesmo que objetivos: uma pessoa fecha
+    /// tasks que nunca virou objetivo do dia, e o dia rendeu do mesmo jeito.
+    feitas_hoje: usize,
+    /// Dias seguidos com o dia ENCERRADO, contando para tras a partir de hoje
+    /// ou de ontem.
+    sequencia: usize,
+}
+
+/// O dia: o Start My Day visto do bolso.
+///
+/// # Por que uma rota, e nao um campo do panorama
+///
+/// O panorama responde *como estao as coisas* — numeros que nao mudam quando se
+/// toca neles. O dia e estado com ciclo proprio: comeca, ganha objetivos,
+/// encerra. Junta-los faria a Home recarregar o panorama inteiro a cada
+/// objetivo marcado.
+async fn dia(
+    State(estado): State<Estado>,
+    Query(pergunta): Query<QuandoPergunta>,
+) -> Resultado<Json<ODia>> {
+    let agora = pergunta
+        .agora
+        .as_deref()
+        .and_then(|texto| {
+            time::OffsetDateTime::parse(texto, &time::format_description::well_known::Rfc3339).ok()
+        })
+        .unwrap_or_else(time::OffsetDateTime::now_utc);
+
+    let hoje = mos_core::Day::from_local(agora);
+    let dia = estado.daily.today(&hoje).map_err(de_core)?;
+
+    let objetivos: Vec<_> = dia
+        .objectives
+        .iter()
+        .map(|objetivo| ObjetivoDoDia {
+            id: objetivo.id.to_string(),
+            titulo: objetivo.title.clone(),
+            status: objetivo.status.as_str().to_owned(),
+            prioridade: objetivo.priority.as_str().to_owned(),
+        })
+        .collect();
+    let resolvidos = dia
+        .objectives
+        .iter()
+        .filter(|objetivo| objetivo.status.is_resolved())
+        .count();
+
+    // Concluida HOJE, e nao "concluida": a pergunta que o cartao responde e
+    // *o dia rendeu?*, e uma task fechada semana passada nao responde isso.
+    let inicio_do_dia = agora.replace_time(time::Time::MIDNIGHT);
+    let feitas_hoje = estado
+        .work
+        .tasks(false)
+        .map_err(de_core)?
+        .iter()
+        .filter(|task| {
+            task.completed_at
+                .is_some_and(|quando| quando >= inicio_do_dia && quando <= agora)
+        })
+        .count();
+
+    let sessoes = estado.daily.sessions(400).map_err(de_core)?;
+    let sequencia = sequencia_de_dias(&sessoes, hoje);
+
+    Ok(Json(ODia {
+        status: dia.status.as_str().to_owned(),
+        objetivos,
+        resolvidos,
+        feitas_hoje,
+        sequencia,
+    }))
+}
+
+/// Quantos dias seguidos foram ENCERRADOS, contando para tras.
+///
+/// # As duas decisoes que fazem a conta ser justa
+///
+/// **Começa em hoje OU em ontem.** Se exigisse hoje, a sequencia zeraria toda
+/// manha e so voltaria a existir a noite — e um numero que passa metade do dia
+/// mentindo nao serve para nada. Se aceitasse qualquer ponto de partida, ela
+/// nunca zeraria.
+///
+/// **Conta o dia ENCERRADO, e nao o comecado.** Comecar o dia e uma intencao;
+/// encerra-lo e o fato. Uma sequencia de dias que so foram abertos mediria
+/// quantas vezes o app foi aberto de manha.
+fn sequencia_de_dias(sessoes: &[mos_core::DailySession], hoje: mos_core::Day) -> usize {
+    use std::collections::HashSet;
+    let encerrados: HashSet<String> = sessoes
+        .iter()
+        .filter(|sessao| sessao.ended_at.is_some())
+        .map(|sessao| sessao.day.as_str().to_owned())
+        .collect();
+
+    let mut cursor = if encerrados.contains(hoje.as_str()) {
+        hoje
+    } else {
+        hoje.previous()
+    };
+    let mut dias = 0;
+    // Teto igual ao que se leu: sem ele, um banco corrompido com o mesmo dia
+    // repetido faria isto girar para sempre.
+    while encerrados.contains(cursor.as_str()) && dias < sessoes.len() + 1 {
+        dias += 1;
+        cursor = cursor.previous();
+    }
+    dias
+}
+
 // ----------------------------------------------------------------- agenda
 
 /// A janela vem como INSTANTE, e nao como data.
@@ -1177,4 +1306,88 @@ async fn academico(
             .map(|compromisso| em(compromisso, "")),
     );
     Ok(Json(lista))
+}
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    fn sessao(dia: &str, encerrada: bool) -> mos_core::DailySession {
+        let instante = time::OffsetDateTime::UNIX_EPOCH;
+        mos_core::DailySession {
+            id: mos_core::DailySessionId::new(),
+            day: mos_core::Day::parse(dia).unwrap(),
+            status: if encerrada {
+                mos_core::SessionStatus::Completed
+            } else {
+                mos_core::SessionStatus::Active
+            },
+            note: String::new(),
+            started_at: instante,
+            ended_at: encerrada.then_some(instante),
+            created_at: instante,
+            updated_at: instante,
+        }
+    }
+
+    fn dia(texto: &str) -> mos_core::Day {
+        mos_core::Day::parse(texto).unwrap()
+    }
+
+    #[test]
+    fn a_sequencia_conta_dias_seguidos_encerrados() {
+        let sessoes = [
+            sessao("2026-09-05", true),
+            sessao("2026-09-04", true),
+            sessao("2026-09-03", true),
+        ];
+        assert_eq!(sequencia_de_dias(&sessoes, dia("2026-09-05")), 3);
+    }
+
+    /// A sequencia comeca em hoje OU em ontem.
+    ///
+    /// Se exigisse hoje, ela zeraria toda manha e so voltaria a existir a
+    /// noite — e um numero que passa metade do dia mentindo nao serve.
+    #[test]
+    fn a_sequencia_sobrevive_ao_dia_que_ainda_nao_foi_encerrado() {
+        let sessoes = [sessao("2026-09-04", true), sessao("2026-09-03", true)];
+        assert_eq!(sequencia_de_dias(&sessoes, dia("2026-09-05")), 2);
+    }
+
+    /// Um buraco quebra a corrente. E o que faz o numero significar alguma
+    /// coisa: sem isso ele contaria dias encerrados, e nao dias SEGUIDOS.
+    #[test]
+    fn um_dia_pulado_quebra_a_sequencia() {
+        let sessoes = [
+            sessao("2026-09-05", true),
+            // 04 faltando
+            sessao("2026-09-03", true),
+            sessao("2026-09-02", true),
+        ];
+        assert_eq!(sequencia_de_dias(&sessoes, dia("2026-09-05")), 1);
+    }
+
+    /// Comecar o dia e uma intencao; encerra-lo e o fato. Uma sequencia de dias
+    /// so abertos mediria quantas vezes o app foi aberto de manha.
+    #[test]
+    fn dia_comecado_e_nao_encerrado_nao_conta() {
+        let sessoes = [sessao("2026-09-05", false), sessao("2026-09-04", false)];
+        assert_eq!(sequencia_de_dias(&sessoes, dia("2026-09-05")), 0);
+    }
+
+    #[test]
+    fn sem_sessao_nenhuma_a_sequencia_e_zero() {
+        assert_eq!(sequencia_de_dias(&[], dia("2026-09-05")), 0);
+    }
+
+    /// A virada do mes e onde "o dia anterior" costuma quebrar.
+    #[test]
+    fn a_sequencia_atravessa_a_virada_do_mes() {
+        let sessoes = [
+            sessao("2026-09-01", true),
+            sessao("2026-08-31", true),
+            sessao("2026-08-30", true),
+        ];
+        assert_eq!(sequencia_de_dias(&sessoes, dia("2026-09-01")), 3);
+    }
 }

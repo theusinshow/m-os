@@ -354,6 +354,43 @@
   animation: none;
 }
 
+/* O anel: responde *quanto falta* ocupando um quadrado.
+   A barra precisaria de largura para o mesmo, e num cartao de meia coluna ela
+   vira um traco que nao distingue 60% de 70%. */
+.anel {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+}
+
+.anel svg {
+  position: absolute;
+  inset: 0;
+}
+
+.anel-trilho {
+  stroke: var(--border-strong);
+}
+
+/* O arco em sodio: e progresso do que a PESSOA decidiu fazer hoje, e essa e a
+   unica coisa na Home que merece o acento junto do que cobra. */
+.anel-arco {
+  stroke: var(--signal);
+  transition: stroke-dasharray var(--tempo-mover) var(--curva);
+}
+
+.anel-centro {
+  position: relative;
+  font: 500 15px/1 var(--font-system);
+  font-variant-numeric: tabular-nums;
+}
+
+/* No cartao do dia o anel divide a linha com o numero, em vez de empilhar. */
+.cartao .anel {
+  align-self: flex-start;
+}
+
 .cartao-progresso {
   display: block;
   height: 3px;

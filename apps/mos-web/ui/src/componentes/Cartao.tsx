@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { Anel } from "./Anel";
 import type { Enfeite } from "../paginas/cartoes";
 
 /**
@@ -61,6 +62,9 @@ export function Cartao({
 }
 
 function Desenho({ enfeite }: { enfeite: Enfeite }) {
+  if (enfeite.tipo === "anel") {
+    return <Anel fracao={enfeite.fracao} tamanho={26} espessura={3} />;
+  }
   if (enfeite.tipo === "progresso") {
     return (
       <span className="cartao-progresso" aria-hidden="true">

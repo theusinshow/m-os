@@ -14,6 +14,7 @@ import {
   type Panorama,
   type EdicaoDeTask,
   type EstadoDaTask,
+  type ODia,
   type Projeto,
   type Task as ItemDeTask,
 } from "./api";
@@ -79,6 +80,7 @@ export function App() {
   /** Qual task está aberta no detalhe. Nulo é "a lista". */
   const [taskAberta, setTaskAberta] = useState<string | null>(null);
   const [projetos, setProjetos] = useState<Projeto[]>([]);
+  const [oDia, setODia] = useState<ODia | null>(null);
   const [estado, setEstado] = useState<EstadoDoAparelho | null>(null);
   const [panorama, setPanorama] = useState<Panorama | null>(null);
   const [agenda, setAgenda] = useState<ItemDaAgenda[]>([]);
@@ -130,6 +132,7 @@ export function App() {
       proximoAcademico,
       proximosResolvidos,
       proximosProjetos,
+      proximoDia,
     ] = await Promise.all([
       api.inbox().catch(() => [] as Capture[]),
       api.tasks().catch(() => [] as ItemDeTask[]),
@@ -153,6 +156,9 @@ export function App() {
       // escrever o NOME do projeto de uma task em vez do id, que nao e nome de
       // nada.
       api.projetos().catch(() => [] as Projeto[]),
+      // Nulo quando o servidor e antigo demais para ter a rota. A Home continua
+      // inteira sem os tres cartoes do dia.
+      api.dia().catch(() => null),
     ]);
     if (proximoEstado) setEstado(proximoEstado);
     setCapturas(proximaInbox);
@@ -163,6 +169,7 @@ export function App() {
     setAcademico(proximoAcademico);
     setResolvidos(proximosResolvidos);
     setProjetos(proximosProjetos);
+    setODia(proximoDia);
     // A situação das notificações é recalculada junto: ela muda por fora do app
     // — instalar na tela de início, mexer em Ajustes —, e uma tela que só olha
     // uma vez ficaria dizendo "instale" depois de você já ter instalado.
@@ -516,6 +523,7 @@ export function App() {
             estado={estado}
             dados={dados}
             panorama={panorama}
+            dia={oDia}
             arranjo={arranjo}
             arrumando={arrumando}
             aoArrumando={setArrumando}
