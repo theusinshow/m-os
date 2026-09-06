@@ -40,6 +40,12 @@ pub struct Estado {
     pub storage: Arc<SqliteStorage>,
     pub captures: Arc<CaptureService>,
     pub work: Arc<WorkService>,
+    /// Onde a Capture vira REFERENCIA em vez de virar tarefa.
+    ///
+    /// Existe no bolso porque o sintoma que originou isto era exatamente este:
+    /// um link salvo so para consultar aparecia na lista de coisas a fazer, e
+    /// nao havia como dizer ao sistema que aquilo era so uma referencia.
+    pub memoria: Arc<mos_core::MemoryService>,
     /// Os lembretes, que e o que decide quando o celular vibra.
     pub attention: Arc<AttentionService>,
     /// As horas do CronoCAD. So LEITURA no bolso, por enquanto: lancar hora e a
@@ -191,6 +197,7 @@ impl Estado {
         Ok(Self {
             captures: Arc::new(CaptureService::new(Arc::clone(&storage) as Arc<_>)),
             work: Arc::new(WorkService::new(Arc::clone(&storage) as Arc<_>)),
+            memoria: Arc::new(mos_core::MemoryService::new(Arc::clone(&storage) as Arc<_>)),
             tracking: Arc::new(TrackingService::new(Arc::clone(&storage) as Arc<_>)),
             academic: Arc::new(AcademicService::new(Arc::clone(&storage) as Arc<_>)),
             daily: Arc::new(DailyService::new(

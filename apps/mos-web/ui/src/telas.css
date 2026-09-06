@@ -487,6 +487,54 @@
   color: var(--text-secondary);
 }
 
+/* A captura que carrega um link se anuncia: um filete apagado na lateral, e o
+   dominio na segunda linha. Nao e sodio — ela nao cobra nada, so avisa o que
+   provavelmente e. */
+.fazer .item[data-link] {
+  border-left: 2px solid var(--border-strong);
+  padding-left: 10px;
+  margin-left: -2px;
+}
+
+/* As tres saidas de uma captura. Nao ha quarta: uma opcao a mais aqui seria uma
+   decisao a mais no momento em que a pessoa so quer esvaziar a inbox. */
+.triagem {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  flex-basis: 100%;
+  padding-top: var(--space-2);
+}
+
+.triagem button {
+  flex: 1 0 auto;
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font: 500 11px/1 var(--font-system);
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+/* A primeira e a que o conteudo sugere: com link, "guardar referencia" vem
+   antes; sem, "virar task". O sistema nao adivinha — ele oferece. */
+.triagem button:first-child {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+.triagem button:active {
+  background: var(--surface-active);
+}
+
+/* A linha da captura embrulha para a triagem caber embaixo dela. */
+.fazer .item {
+  flex-wrap: wrap;
+}
+
 /* A task feita nao some da lista — some do primeiro plano. Apagada, ela
    continua sendo a prova de que a marcacao funcionou. */
 .fazer .item[data-feita] .item-corpo p {

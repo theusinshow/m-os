@@ -303,6 +303,23 @@ export const api = {
   projetos() {
     return pedir<Projeto[]>("/api/projetos");
   },
+  /** A Capture vira Task. Sai da inbox na mesma transação. */
+  capturaParaTask(id: string, titulo?: string) {
+    return pedir<Task>(`/api/capturas/${id}/task`, {
+      method: "POST",
+      body: JSON.stringify(titulo === undefined ? {} : { titulo }),
+    });
+  },
+  /** A Capture vira referência — o que se consulta, e não o que se faz. */
+  capturaParaReferencia(id: string) {
+    return pedir<{ id: string; kind: string; title: string; url: string }>(
+      `/api/capturas/${id}/referencia`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+  },
+  arquivarCaptura(id: string) {
+    return pedir<Capture>(`/api/capturas/${id}/arquivar`, { method: "POST" });
+  },
   dia() {
     return pedir<ODia>(`/api/dia?agora=${encodeURIComponent(comOffsetLocal(new Date()))}`);
   },

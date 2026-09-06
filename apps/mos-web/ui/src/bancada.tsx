@@ -188,13 +188,21 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
     compoe: true,
     corpo: (
       <Fazer
-        capturas={FALSO.capturas}
+        capturas={[
+          {
+            id: "c0",
+            content: "tabela de aço CA-50 https://exemplo.com/ca50 boa pra consultar",
+            capturedAt: new Date(Date.now() - 900_000).toISOString(),
+          },
+          ...FALSO.capturas,
+        ]}
         tasks={FALSO.tasks}
         tasksLembradas={new Set(["t3"])}
         aoCapturar={NADA}
         aoAbrir={NADA}
         aoAlternar={NADA}
         aoLembrar={NADA}
+        aoTriar={NADA}
       />
     ),
   },
@@ -210,6 +218,7 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
         aoAbrir={NADA}
         aoAlternar={NADA}
         aoLembrar={NADA}
+        aoTriar={NADA}
       />
     ),
   },

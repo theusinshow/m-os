@@ -887,3 +887,156 @@ async fn arquivar_a_task_no_bolso_tira_da_lista() {
         .unwrap();
     assert_eq!(ainda["lifecycleState"], "archived");
 }
+
+/// A Capture vira Task, e sai da inbox na mesma transação.
+///
+/// É a resposta ao sintoma que originou o P3: *"clico em algo dentro de Fazer e
+/// aparece um link que eu havia salvo apenas como referência"*. A Capture não
+/// tem tipo — ela é o registro cru — e o tipo aparece quando ela é PROCESSADA.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_captura_vira_task_e_sai_da_inbox() {
+    let hub = servir_hub().await;
+    let pasta = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    cliente
+        .post(format!("http://{web}/api/capturar"))
+        .json(&serde_json::json!({ "texto": "Pedir a ART ao CREA" }))
+        .send()
+        .await
+        .unwrap();
+
+    let inbox: serde_json::Value = cliente
+        .get(format!("http://{web}/api/inbox"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = inbox[0]["id"].as_str().unwrap().to_owned();
+
+    let task: serde_json::Value = cliente
+        .post(format!("http://{web}/api/capturas/{id}/task"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(task["title"], "Pedir a ART ao CREA");
+    assert_eq!(
+        task["sourceCaptureId"],
+        id.as_str(),
+        "a proveniencia se perdeu: a Task nao sabe de que Capture veio"
+    );
+
+    let depois: serde_json::Value = cliente
+        .get(format!("http://{web}/api/inbox"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        depois.as_array().map(Vec::len),
+        Some(0),
+        "a captura processada continua na inbox"
+    );
+}
+
+/// Um link vira REFERÊNCIA, e a rota acha o endereço sozinha.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_captura_com_link_vira_referencia() {
+    let hub = servir_hub().await;
+    let pasta = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    cliente
+        .post(format!("http://{web}/api/capturar"))
+        .json(&serde_json::json!({
+            "texto": "tabela de aço https://exemplo.com/ca50 boa pra consultar",
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    let inbox: serde_json::Value = cliente
+        .get(format!("http://{web}/api/inbox"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = inbox[0]["id"].as_str().unwrap().to_owned();
+
+    let recurso: serde_json::Value = cliente
+        .post(format!("http://{web}/api/capturas/{id}/referencia"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        recurso["url"], "https://exemplo.com/ca50",
+        "a rota nao achou o endereco dentro do texto"
+    );
+    // Com url, o tipo é `site`: é o que o próprio conteúdo diz sobre si.
+    assert_eq!(recurso["kind"], "site");
+    assert_eq!(recurso["sourceCaptureId"], id.as_str());
+
+    let depois: serde_json::Value = cliente
+        .get(format!("http://{web}/api/inbox"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(depois.as_array().map(Vec::len), Some(0));
+}
+
+/// Sem link, a referência é uma NOTA — e não um site com endereço vazio.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_captura_sem_link_vira_nota() {
+    let hub = servir_hub().await;
+    let pasta = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    cliente
+        .post(format!("http://{web}/api/capturar"))
+        .json(&serde_json::json!({ "texto": "o fck do concreto da obra e 30 MPa" }))
+        .send()
+        .await
+        .unwrap();
+    let inbox: serde_json::Value = cliente
+        .get(format!("http://{web}/api/inbox"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = inbox[0]["id"].as_str().unwrap().to_owned();
+
+    let recurso: serde_json::Value = cliente
+        .post(format!("http://{web}/api/capturas/{id}/referencia"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(recurso["kind"], "note");
+    assert_eq!(recurso["url"], "");
+}

@@ -34,6 +34,12 @@ pub fn rotas() -> Router<Estado> {
     Router::new()
         .route("/api/capturar", post(capturar))
         .route("/api/inbox", get(inbox))
+        .route("/api/capturas/{id}/task", post(capturar_para_task))
+        .route(
+            "/api/capturas/{id}/referencia",
+            post(capturar_para_referencia),
+        )
+        .route("/api/capturas/{id}/arquivar", post(arquivar_captura))
         .route("/api/tasks", get(tasks).post(criar_task))
         .route("/api/tasks/{id}", get(task).patch(editar_task))
         .route("/api/tasks/{id}/estado", post(mudar_estado))
@@ -478,6 +484,153 @@ async fn arquivar_task(
 async fn projetos(State(estado): State<Estado>) -> Resultado<Json<serde_json::Value>> {
     let itens = estado.work.projects(false).map_err(de_core)?;
     Ok(Json(serde_json::to_value(itens).unwrap_or_default()))
+}
+
+// ---------------------------------------------------------------- triagem
+
+/// # Por que a Capture nao tem TIPO
+///
+/// Porque ela e o registro cru, e nao a coisa. Um link colado as onze da noite
+/// pode virar uma task, uma referencia para consultar depois, ou nada — e qual
+/// dos tres so se sabe depois de olhar. Dar um tipo a ela na hora da captura
+/// obrigaria a decidir no pior momento possivel: aquele em que a pessoa so
+/// queria nao esquecer.
+///
+/// O tipo aparece quando ela e PROCESSADA. E o que estas rotas fazem, e as duas
+/// operacoes ja existiam inteiras no nucleo — o bolso e que nao as alcancava.
+/// A proveniencia sobrevive nas duas: `source_capture_id` diz de onde veio.
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VirarTask {
+    /// O titulo da Task. Ausente usa o conteudo da propria Capture.
+    titulo: Option<String>,
+    #[serde(default)]
+    descricao: String,
+    project_id: Option<String>,
+}
+
+/// A Capture vira Task.
+async fn capturar_para_task(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+    Json(pedido): Json<VirarTask>,
+) -> Resultado<Json<serde_json::Value>> {
+    let task = escrever(&estado, move |estado| {
+        let captura = estado.captures.get(&id)?;
+        let titulo = pedido
+            .titulo
+            .clone()
+            .unwrap_or_else(|| captura.content.clone());
+        let projeto = pedido
+            .project_id
+            .as_deref()
+            .map(mos_core::ProjectId::parse)
+            .transpose()?;
+        // A versao com reminder, sem reminder: e a mesma chamada que o desktop
+        // faz, e ela ja marca a Capture como processada na mesma transacao —
+        // duas escritas separadas deixariam a Capture na inbox se a segunda
+        // falhasse.
+        estado
+            .work
+            .create_task_from_capture_with_reminder(&id, &titulo, &pedido.descricao, projeto, None)
+            .map(|(task, _)| task)
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(task).unwrap_or_default()))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VirarReferencia {
+    titulo: Option<String>,
+    /// O endereco. Ausente, a tela manda o proprio conteudo quando ele e um link.
+    #[serde(default)]
+    url: String,
+    #[serde(default)]
+    nota: String,
+    /// `site`, `library`, `image`, `note`. Ausente vira `note` quando nao ha
+    /// url, e `site` quando ha — que e o que o conteudo diz sobre si mesmo.
+    tipo: Option<String>,
+}
+
+/// A Capture vira Resource — a referencia que se consulta, e nao a coisa que se
+/// faz.
+async fn capturar_para_referencia(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+    Json(pedido): Json<VirarReferencia>,
+) -> Resultado<Json<serde_json::Value>> {
+    let recurso = escrever(&estado, move |estado| {
+        let captura = estado.captures.get(&id)?;
+        let url = if pedido.url.trim().is_empty() {
+            endereco_em(&captura.content).unwrap_or_default()
+        } else {
+            pedido.url.clone()
+        };
+        let tipo = match pedido.tipo.as_deref() {
+            Some(texto) => mos_core::ResourceKind::parse(texto)?,
+            None if url.is_empty() => mos_core::ResourceKind::Note,
+            None => mos_core::ResourceKind::Site,
+        };
+        estado
+            .memoria
+            .create_resource(mos_core::CreateResourceInput {
+                kind: tipo,
+                title: pedido
+                    .titulo
+                    .clone()
+                    .unwrap_or_else(|| titulo_curto(&captura.content)),
+                url,
+                note: pedido.nota.clone(),
+                source_capture_id: Some(id.clone()),
+            })
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(recurso).unwrap_or_default()))
+}
+
+/// Arquivar a Capture: nem task, nem referencia — nao era nada.
+async fn arquivar_captura(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+) -> Resultado<Json<serde_json::Value>> {
+    let captura = escrever(&estado, move |estado| estado.captures.archive(&id)).await?;
+    Ok(Json(serde_json::to_value(captura).unwrap_or_default()))
+}
+
+/// O primeiro endereco dentro de um texto, se houver.
+///
+/// Existe porque a queixa que originou tudo isto era um LINK que parecia task.
+/// Reconhece-lo permite a tela oferecer "guardar como referencia" antes de a
+/// pessoa pedir — que e a diferenca entre o app entender o que voce colou e o
+/// app tratar tudo como texto.
+fn endereco_em(texto: &str) -> Option<String> {
+    texto.split_whitespace().find_map(|bruto| {
+        // A pontuacao que cerca o link sai dos DOIS lados. Um link colado no
+        // fim de uma frase leva o ponto junto — e endereco com ponto no fim
+        // abre pagina que nao existe. Entre parenteses, ele nem seria
+        // reconhecido, porque a palavra comeca em `(`.
+        let palavra = bruto
+            .trim_start_matches(['(', '[', '<', '"', '\''])
+            .trim_end_matches(['.', ',', ';', ':', ')', ']', '>', '"', '\'']);
+        (palavra.starts_with("http://") || palavra.starts_with("https://"))
+            .then(|| palavra.to_owned())
+    })
+}
+
+/// Um titulo a partir do conteudo cru.
+///
+/// Uma Capture pode ser um paragrafo; um Resource com paragrafo no titulo fica
+/// ilegivel em qualquer lista. Corta na primeira quebra de linha, e depois em
+/// 80 — o suficiente para uma frase e pouco para um texto.
+fn titulo_curto(conteudo: &str) -> String {
+    let primeira = conteudo.lines().next().unwrap_or("").trim();
+    if primeira.chars().count() <= 80 {
+        return primeira.to_owned();
+    }
+    let cortado: String = primeira.chars().take(79).collect();
+    format!("{}…", cortado.trim_end())
 }
 
 // -------------------------------------------------------------- lembretes
@@ -1389,5 +1542,57 @@ mod testes {
             sessao("2026-08-30", true),
         ];
         assert_eq!(sequencia_de_dias(&sessoes, dia("2026-09-01")), 3);
+    }
+}
+
+#[cfg(test)]
+mod testes_de_link {
+    use super::*;
+
+    #[test]
+    fn acha_o_link_no_meio_da_frase() {
+        assert_eq!(
+            endereco_em("tabela de aco https://exemplo.com/ca50 boa"),
+            Some(String::from("https://exemplo.com/ca50"))
+        );
+    }
+
+    /// A pontuacao sai dos dois lados: um endereco com ponto no fim abre pagina
+    /// que nao existe, e entre parenteses ele nem era reconhecido.
+    #[test]
+    fn a_pontuacao_em_volta_nao_entra_no_endereco() {
+        for texto in [
+            "ver https://exemplo.com/a.",
+            "ver (https://exemplo.com/a)",
+            "ver [https://exemplo.com/a],",
+            "ver \"https://exemplo.com/a\"",
+        ] {
+            assert_eq!(
+                endereco_em(texto),
+                Some(String::from("https://exemplo.com/a")),
+                "{texto}"
+            );
+        }
+    }
+
+    #[test]
+    fn texto_sem_link_nao_inventa_um() {
+        assert_eq!(endereco_em("o fck do concreto e 30 MPa"), None);
+        assert_eq!(endereco_em("exemplo.com sem protocolo"), None);
+    }
+
+    /// Uma Capture pode ser um paragrafo, e paragrafo em titulo de Resource
+    /// fica ilegivel em qualquer lista.
+    #[test]
+    fn o_titulo_curto_corta_na_primeira_linha() {
+        assert_eq!(titulo_curto("Primeira linha\nsegunda"), "Primeira linha");
+    }
+
+    #[test]
+    fn o_titulo_curto_tem_teto() {
+        let longo = "a".repeat(200);
+        let curto = titulo_curto(&longo);
+        assert!(curto.chars().count() <= 80, "{}", curto.chars().count());
+        assert!(curto.ends_with('…'));
     }
 }

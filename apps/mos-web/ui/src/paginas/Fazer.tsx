@@ -1,7 +1,8 @@
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import type { Capture, Task } from "../api";
 import { Vazio } from "../componentes/Vazio";
 import { idade } from "./idade";
+import { dominioDe, enderecoEm } from "./links";
 
 /** Os estados de Task, na palavra que a tela usa. */
 const ESTADO_DA_TASK: Record<Task["state"], string> = {
@@ -35,6 +36,7 @@ export function Fazer({
   aoAlternar,
   aoAbrir,
   aoLembrar,
+  aoTriar,
 }: {
   capturas: Capture[];
   tasks: Task[];
@@ -43,6 +45,7 @@ export function Fazer({
   aoAlternar: (task: Task) => void;
   aoAbrir: (task: Task) => void;
   aoLembrar: (task: Task, jaTem: boolean) => void;
+  aoTriar: (captura: Capture, como: "task" | "referencia" | "arquivar") => void;
 }) {
   const abertas = tasks.filter((task) => task.state !== "done");
 
@@ -65,19 +68,15 @@ export function Fazer({
           </h2>
           <ul className="lista">
             {capturas.map((captura, indice) => (
-              <li
-                className="item"
+              <Captura
                 key={captura.id}
+                captura={captura}
                 // A escada de entrada é por posição, e para no oitavo: passado
                 // isso a soma dos atrasos vira espera, e uma lista que demora a
                 // aparecer não parece animada — parece lenta.
-                style={escada(indice)}
-              >
-                <div className="item-corpo">
-                  <p>{captura.content}</p>
-                  <small>{idade(captura.capturedAt)}</small>
-                </div>
-              </li>
+                estilo={escada(indice)}
+                aoTriar={(como) => aoTriar(captura, como)}
+              />
             ))}
           </ul>
         </section>
@@ -150,6 +149,78 @@ export function Fazer({
         </section>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Uma captura por triar.
+ *
+ * # Por que ela se anuncia como link
+ *
+ * A queixa era exata: *"clico em algo dentro de Fazer e aparece um link que eu
+ * havia salvo apenas como referência"*. A Capture não tem tipo — ela é o
+ * registro cru, e isso é decisão do domínio, não esquecimento —, mas o texto
+ * dela DIZ o que ela provavelmente é. Um endereço no meio dela é um sinal forte
+ * de que aquilo se consulta, e não se faz.
+ *
+ * Então a linha mostra o domínio, e a ação de virar referência vem PRIMEIRO
+ * quando há link. O sistema continua não adivinhando: ele oferece.
+ */
+function Captura({
+  captura,
+  estilo,
+  aoTriar,
+}: {
+  captura: Capture;
+  estilo: CSSProperties;
+  aoTriar: (como: "task" | "referencia" | "arquivar") => void;
+}) {
+  const [aberta, setAberta] = useState(false);
+  const link = enderecoEm(captura.content);
+  const dominio = link ? dominioDe(link) : null;
+
+  return (
+    <li className="item" data-link={link ? "" : undefined} style={estilo}>
+      <button className="linha-destino" type="button" onClick={() => setAberta(!aberta)}>
+        <div className="item-corpo">
+          <p>{captura.content}</p>
+          <small>
+            {idade(captura.capturedAt)}
+            {dominio ? ` · ${dominio}` : ""}
+          </small>
+        </div>
+      </button>
+
+      {aberta ? (
+        // As três saídas de uma captura, e não mais: virar tarefa, virar
+        // referência, ou não ser nada. Uma quarta opção aqui seria uma decisão
+        // a mais no momento em que a pessoa só quer esvaziar a inbox.
+        <div className="triagem">
+          {link ? (
+            <>
+              <button type="button" onClick={() => aoTriar("referencia")}>
+                Guardar referência
+              </button>
+              <button type="button" onClick={() => aoTriar("task")}>
+                Virar task
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" onClick={() => aoTriar("task")}>
+                Virar task
+              </button>
+              <button type="button" onClick={() => aoTriar("referencia")}>
+                Guardar nota
+              </button>
+            </>
+          )}
+          <button type="button" onClick={() => aoTriar("arquivar")}>
+            Arquivar
+          </button>
+        </div>
+      ) : null}
+    </li>
   );
 }
 

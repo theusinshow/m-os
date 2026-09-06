@@ -411,6 +411,35 @@ export function App() {
     setOcupado(false);
   }
 
+  /**
+   * Triar uma captura: virar task, virar referencia, ou arquivar.
+   *
+   * A confirmacao diz o que a coisa VIROU, e nao "pronto": a pessoa acabou de
+   * classificar algo, e saber em que ela caiu e o que fecha a decisao.
+   */
+  async function triar(
+    captura: Capture,
+    como: "task" | "referencia" | "arquivar",
+  ) {
+    setOcupado(true);
+    try {
+      if (como === "task") {
+        await api.capturaParaTask(captura.id);
+        contar("Virou task.");
+      } else if (como === "referencia") {
+        const recurso = await api.capturaParaReferencia(captura.id);
+        contar(recurso.url ? "Guardado como referência." : "Guardado como nota.");
+      } else {
+        await api.arquivarCaptura(captura.id);
+        contar("Captura arquivada.");
+      }
+      await atualizar();
+    } catch (causa) {
+      reclamar(causa);
+    }
+    setOcupado(false);
+  }
+
   async function ativarAvisos() {
     if (!estado?.chavePush) return;
     setOcupado(true);
@@ -566,6 +595,7 @@ export function App() {
             tasksLembradas={tasksLembradas}
             aoCapturar={() => setPagina("capturar")}
             aoAbrir={(task) => setTaskAberta(task.id)}
+            aoTriar={(captura, como) => void triar(captura, como)}
             aoAlternar={(task) => void alternar(task)}
             aoLembrar={(task, jaTem) =>
               setAgendando({
