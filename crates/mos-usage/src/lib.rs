@@ -28,6 +28,7 @@
 
 pub mod cota;
 pub mod leitura;
+pub mod openai;
 
 pub use leitura::{varrer, Fonte, Ponteiro, Varredura};
 

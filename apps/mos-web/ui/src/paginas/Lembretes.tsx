@@ -1,5 +1,6 @@
 import { pedeAtencao, type Lembrete } from "../api";
 import { daquiA } from "../instantes";
+import { Esqueleto } from "../componentes/Esqueleto";
 import { Vazio } from "../componentes/Vazio";
 
 export type VistaDosLembretes = "abertos" | "resolvidos";
@@ -31,6 +32,7 @@ export function Lembretes({
   resolvidos,
   vista,
   ocupado,
+  carregando,
   aoTrocarVista,
   aoAbrir,
   aoResolver,
@@ -39,6 +41,7 @@ export function Lembretes({
   resolvidos: Lembrete[];
   vista: VistaDosLembretes;
   ocupado: boolean;
+  carregando?: boolean;
   aoTrocarVista: (vista: VistaDosLembretes) => void;
   aoAbrir: (lembrete: Lembrete) => void;
   aoResolver: (lembrete: Lembrete, como: "concluir" | "cancelar") => void;
@@ -64,7 +67,9 @@ export function Lembretes({
         ))}
       </div>
 
-      {vista === "resolvidos" ? (
+      {carregando && lembretes.length === 0 && resolvidos.length === 0 ? (
+        <Esqueleto />
+      ) : vista === "resolvidos" ? (
         resolvidos.length === 0 ? (
           <Vazio frase="Nada resolvido ainda. O que você concluir ou cancelar fica guardado aqui." />
         ) : (

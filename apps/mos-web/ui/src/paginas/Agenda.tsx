@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import type { ItemDaAgenda } from "../api";
+import { Esqueleto } from "../componentes/Esqueleto";
 import { Vazio } from "../componentes/Vazio";
 import {
   cobraAtencao,
@@ -63,6 +64,7 @@ export function Agenda({
   agora,
   vista,
   filtro,
+  carregando,
   aoTrocarVista,
   aoFiltrar,
 }: {
@@ -70,6 +72,7 @@ export function Agenda({
   agora: Date;
   vista: VistaDaAgenda;
   filtro: Filtro;
+  carregando?: boolean;
   aoTrocarVista: (vista: VistaDaAgenda) => void;
   aoFiltrar: (filtro: Filtro) => void;
 }) {
@@ -123,7 +126,9 @@ export function Agenda({
         </div>
       ) : null}
 
-      {vista === "mes" ? (
+      {carregando && itens.length === 0 ? (
+        <Esqueleto linhas={5} />
+      ) : vista === "mes" ? (
         <Mes itens={visiveis} agora={agora} />
       ) : (
         <Lista itens={visiveis} agora={agora} />

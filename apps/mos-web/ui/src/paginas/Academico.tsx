@@ -1,4 +1,5 @@
 import type { CompromissoDaLista } from "../api";
+import { Esqueleto } from "../componentes/Esqueleto";
 import { Vazio } from "../componentes/Vazio";
 import { daquiA } from "../instantes";
 
@@ -13,7 +14,16 @@ import { daquiA } from "../instantes";
  *
  * Depois vem o de hoje, e só então o que ainda vai acontecer.
  */
-export function Academico({ compromissos }: { compromissos: CompromissoDaLista[] }) {
+export function Academico({
+  compromissos,
+  carregando,
+}: {
+  compromissos: CompromissoDaLista[];
+  carregando?: boolean;
+}) {
+  if (carregando && compromissos.length === 0) {
+    return <Esqueleto />;
+  }
   if (compromissos.length === 0) {
     return (
       <Vazio frase="Nada por aqui. Provas e entregas cadastradas no M/OS aparecem nesta lista." />

@@ -689,15 +689,41 @@ body {
 }
 
 /* O recado da última ação, ao lado do botão que a provocou. */
+/* O recado flutua acima da barra, e vale em qualquer pagina.
+   Ele morava dentro do compositor, e por isso so aparecia nas tres telas que
+   compoem — salvar um lembrete confirmava para uma tela que ninguem via. */
 .recado {
-  min-height: 18px;
+  position: fixed;
+  left: var(--space-4);
+  right: var(--space-4);
+  bottom: calc(72px + env(safe-area-inset-bottom));
+  z-index: 10;
   margin: 0;
-  color: var(--text-system);
+  padding: var(--space-3);
+  background: var(--surface-lifted);
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elev-2);
+  color: var(--text);
   font: 500 12px/1.4 var(--font-system);
   letter-spacing: 0.05em;
+  text-align: center;
+  animation: subir-recado 200ms var(--curva);
 }
 
+@keyframes subir-recado {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recado { animation: none; }
+}
+
+/* O erro em sodio, com a borda acesa: e o unico acento do app, e um recado que
+   pede decisao merece o mesmo peso de um lembrete vencido. */
 .recado[data-estado="erro"] {
+  border-color: var(--signal);
   color: var(--signal);
 }
 

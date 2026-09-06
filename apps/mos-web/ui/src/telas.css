@@ -822,6 +822,62 @@
   font: 400 13px/1.55 var(--font-product);
 }
 
+/* ------------------------------------------------------------ esqueleto */
+
+/* O que a tela mostra enquanto o dado nao chegou.
+   Sem ele, uma lista que ainda esta na rede aparece com a frase do vazio — e
+   "nenhuma hora nesta janela" e uma AFIRMACAO, indistinguivel da verdade para
+   quem le. A regra: estado vazio so depois de uma resposta. */
+.esqueleto {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.esqueleto li {
+  display: grid;
+  gap: var(--space-2);
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+  animation: respirar 1.4s ease-in-out infinite;
+}
+
+/* Duas barras por linha, com a segunda mais curta: e a forma de um item — uma
+   frase e uma legenda. A tela nao salta quando o conteudo chega. */
+.esqueleto span,
+.esqueleto b {
+  display: block;
+  height: 12px;
+  border-radius: var(--radius);
+  background: var(--surface-active);
+}
+
+.esqueleto span {
+  width: 78%;
+}
+
+.esqueleto b {
+  width: 38%;
+  height: 9px;
+  opacity: 0.6;
+}
+
+@keyframes respirar {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.85; }
+}
+
+/* Quem pediu menos movimento ve o esqueleto parado — ele continua dizendo
+   "ainda nao chegou" pela forma, que e o que importa. */
+@media (prefers-reduced-motion: reduce) {
+  .esqueleto li {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
 /* --------------------------------------------------------------- vazio */
 
 /* O vazio deixou de ser um `<p>` e virou um bloco com frase e, às vezes, uma

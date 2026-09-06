@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import type { Capture, Task } from "../api";
+import { Esqueleto } from "../componentes/Esqueleto";
 import { Vazio } from "../componentes/Vazio";
 import { idade } from "./idade";
 import { dominioDe, enderecoEm } from "./links";
@@ -37,6 +38,7 @@ export function Fazer({
   aoAbrir,
   aoLembrar,
   aoTriar,
+  carregando,
 }: {
   capturas: Capture[];
   tasks: Task[];
@@ -46,8 +48,16 @@ export function Fazer({
   aoAbrir: (task: Task) => void;
   aoLembrar: (task: Task, jaTem: boolean) => void;
   aoTriar: (captura: Capture, como: "task" | "referencia" | "arquivar") => void;
+  /** O primeiro carregamento ainda não voltou. */
+  carregando?: boolean;
 }) {
   const abertas = tasks.filter((task) => task.state !== "done");
+
+  // Vazio só depois de uma resposta: antes disso, a tela não sabe se está
+  // vazio — ela sabe que ainda não perguntou.
+  if (carregando && capturas.length === 0 && tasks.length === 0) {
+    return <Esqueleto linhas={4} />;
+  }
 
   if (capturas.length === 0 && tasks.length === 0) {
     return (

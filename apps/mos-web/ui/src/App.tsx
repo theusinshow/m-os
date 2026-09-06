@@ -88,6 +88,10 @@ export function App() {
   /** O que a agenda mostra. Deste aparelho, como o arranjo da Home. */
   const [filtroDaAgenda, setFiltroDaAgenda] = useState<Filtro>(lerFiltro);
   const [horas, setHoras] = useState<HorasDeProjeto[]>([]);
+  /** As horas recarregam a cada troca de janela, e por isso tem o proprio
+   *  sinal: sem ele, trocar para "Mês passado" mostraria "nenhuma hora" por um
+   *  instante — e essa frase e uma afirmacao. */
+  const [carregandoHoras, setCarregandoHoras] = useState(true);
   const [janelaDasHoras, setJanelaDasHoras] = useState<Janela>("semana");
   /** As duas pontas em uso. Elas seguem a janela, e a janela `personalizado`
    *  segue elas — é o único caso em que quem manda é o campo, e não o botão. */
@@ -108,6 +112,12 @@ export function App() {
   const [arrumando, setArrumando] = useState(false);
   /** `true` enquanto o servidor recusar por falta de sessão. */
   const [fechado, setFechado] = useState(false);
+  /** A PRIMEIRA resposta ainda não voltou.
+   *
+   *  Existe para a tela não afirmar "vazio" sobre dado que ela nem pediu —
+   *  uma frase como "nenhuma hora nesta janela" é indistinguível da verdade
+   *  para quem lê, e faz a pessoa fechar o app e ir conferir no PC. */
+  const [carregando, setCarregando] = useState(true);
 
   const atualizar = useCallback(async () => {
     // O `estado` é o que decide se há sessão: ele é a chamada mais barata, e um
@@ -170,6 +180,7 @@ export function App() {
     setResolvidos(proximosResolvidos);
     setProjetos(proximosProjetos);
     setODia(proximoDia);
+    setCarregando(false);
     // A situação das notificações é recalculada junto: ela muda por fora do app
     // — instalar na tela de início, mexer em Ajustes —, e uma tela que só olha
     // uma vez ficaria dizendo "instale" depois de você já ter instalado.
@@ -191,10 +202,12 @@ export function App() {
     // As horas seguem a janela escolhida, e nao o laco geral: elas so importam
     // com a pagina aberta, e recarrega-las a cada trinta segundos seria uma ida
     // a rede por um numero que ninguem esta olhando.
+    setCarregandoHoras(true);
     void api
       .horas(periodoDasHoras[0], periodoDasHoras[1])
       .then(setHoras)
-      .catch(() => setHoras([]));
+      .catch(() => setHoras([]))
+      .finally(() => setCarregandoHoras(false));
   }, [periodoDasHoras, pagina]);
 
   useEffect(() => {
@@ -209,6 +222,19 @@ export function App() {
     setRecado(mensagem);
     setErro(falhou);
   }
+
+  /**
+   * O recado some sozinho.
+   *
+   * Um aviso que fica para sempre deixa de ser aviso e vira parte do layout —
+   * e na proxima vez que ele mudar, ninguem vai notar. O erro fica mais tempo
+   * porque ele costuma pedir uma decisao, e "Guardado." nao pede nada.
+   */
+  useEffect(() => {
+    if (!recado) return;
+    const relogio = window.setTimeout(() => setRecado(""), erro ? 6000 : 3000);
+    return () => window.clearTimeout(relogio);
+  }, [recado, erro]);
 
   /** O que a última ação falhou dizendo, na frase que o servidor mandou. */
   function reclamar(causa: unknown) {
@@ -596,6 +622,7 @@ export function App() {
             aoCapturar={() => setPagina("capturar")}
             aoAbrir={(task) => setTaskAberta(task.id)}
             aoTriar={(captura, como) => void triar(captura, como)}
+            carregando={carregando}
             aoAlternar={(task) => void alternar(task)}
             aoLembrar={(task, jaTem) =>
               setAgendando({
@@ -641,6 +668,7 @@ export function App() {
             agora={new Date()}
             vista={vistaDaAgenda}
             filtro={filtroDaAgenda}
+            carregando={carregando}
             aoTrocarVista={setVistaDaAgenda}
             aoFiltrar={(proximo) => {
               setFiltroDaAgenda(proximo);
@@ -653,11 +681,14 @@ export function App() {
             linhas={horas}
             janela={janelaDasHoras}
             periodo={periodoDasHoras}
+            carregando={carregandoHoras}
             aoTrocarJanela={setJanelaDasHoras}
             aoEscolherPeriodo={(de, ate) => setPeriodoDasHoras([de, ate])}
           />
         ) : null}
-        {pagina === "academico" ? <Academico compromissos={academico} /> : null}
+        {pagina === "academico" ? (
+          <Academico compromissos={academico} carregando={carregando} />
+        ) : null}
         {pagina === "mais" ? (
           <Mais
             estado={estado}
@@ -707,10 +738,26 @@ export function App() {
                   : "Guardar"}
             </button>
           </div>
-          <p className="recado" data-estado={erro ? "erro" : "ok"} aria-live="polite">
-            {recado}
-          </p>
         </form>
+      ) : null}
+
+      {/* O recado morava DENTRO do compositor, e por isso so aparecia nas tres
+          paginas que compoem. Salvar um lembrete, adiar, triar uma captura —
+          tudo isso confirmava para uma tela que ninguem estava vendo.
+
+          Agora ele flutua acima da barra e vale em qualquer lugar. A `key` o
+          remonta a cada mensagem, que e o que faz a animacao rodar de novo
+          quando duas confirmacoes iguais chegam seguidas. */}
+      {recado ? (
+        <p
+          className="recado"
+          key={recado + String(erro)}
+          data-estado={erro ? "erro" : "ok"}
+          role="status"
+          aria-live="polite"
+        >
+          {recado}
+        </p>
       ) : null}
 
       <Barra atual={pagina} dados={dados} aoIr={setPagina} />

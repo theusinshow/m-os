@@ -3614,3 +3614,57 @@ e meio, e subiu com a constante.
 O dono quiser o popover no hover em vez do clique. A ADR-059 recusou hover
 porque a tira abria sozinha quando o ponteiro passava a caminho de outra coisa —
 e depois da ADR-061 isso mudou: a tira só recebe evento onde ela pinta.
+
+## ADR-065 — OpenAI entra pela fatura oficial, e restante significa limite menos gasto
+
+**Estado:** Accepted · 2026-09-06
+
+### Contexto
+
+NexoDoc, Truss e Hermes usam a OpenAI. A faixa já aceitava fontes externas, mas
+o contrato da ADR-063 dizia apenas percentuais de sessão e semana: não sabia
+dinheiro, projetos nem o total restante.
+
+A API administrativa oficial agora entrega o conjunto necessário: projetos,
+custos agrupados por `project_id` e limites rígidos mensais de organização e de
+projeto. Ela não entrega “saldo pré-pago restante” como esse mesmo conceito.
+
+### Decisão
+
+**1. A régua financeira é oficial de ponta a ponta.** Custo vem de
+`/organization/costs`; denominador vem de `/organization/spend_limit`. O
+restante é a subtração dos dois. Sem limite configurado existe gasto, não existe
+porcentagem — ausência nunca vira zero.
+
+**2. Projeto é proveniência da OpenAI.** O M/OS agrupa pelo `project_id` que a
+fatura devolve e resolve o nome em `/organization/projects`. NexoDoc, Truss e
+Hermes precisam usar projetos/chaves distintos na origem. Repartir uma chave
+compartilhada depois seria inventar atribuição.
+
+**3. Dinheiro entra como micros de dólar.** A resposta JSON pode trazer fração
+de centavo. Ela vira inteiro uma vez na borda; limite em centavos é convertido
+para a mesma unidade. A soma e o restante nunca usam ponto flutuante.
+
+**4. O segredo é local e seguro; o retrato é efêmero.** A Admin API Key vive no
+Credential Manager no Windows e no Keychain no iOS. O renderer só sabe se ela
+existe. O retrato não entra no banco nem no sync porque a OpenAI já é a fonte
+autoritativa e todos os aparelhos obteriam o mesmo fato.
+
+**5. A faixa continua sendo faixa.** OpenAI ocupa um dos três anéis. O painel
+existente ganha uma síntese mensal e linhas compactas por projeto; não nasce
+dashboard, gráfico ou item de rail.
+
+### Consequências
+
+- `mos-usage` ganha um parser OpenAI puro e continua sem falar com rede;
+- o shell desktop ganha o cliente HTTP e a credencial, atrás de secure storage;
+- nenhuma migration e nenhuma operação de sync;
+- o iOS reaproveita parser e regras, mas não replica a janela always-on-top;
+- uma leitura boa que não renovou continua marcada como velha, sem fingir que é
+  atual;
+- “restante” é restante do **limite mensal**, não saldo de créditos.
+
+### Revisar quando
+
+A OpenAI publicar um endpoint oficial de créditos/saldo pré-pago, ou quando a
+quarta fonte exigir substituir a tira fixa por outra superfície.

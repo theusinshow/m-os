@@ -1,4 +1,5 @@
 import type { HorasDeProjeto } from "../api";
+import { Esqueleto } from "../componentes/Esqueleto";
 import { Vazio } from "../componentes/Vazio";
 import { emHoras, emReais } from "./numeros";
 import { JANELAS, pontaCurta, type Janela } from "./janelas";
@@ -22,6 +23,7 @@ export function Horas({
   periodo,
   aoTrocarJanela,
   aoEscolherPeriodo,
+  carregando,
 }: {
   linhas: HorasDeProjeto[];
   janela: Janela;
@@ -29,6 +31,7 @@ export function Horas({
   periodo: [Date, Date];
   aoTrocarJanela: (janela: Janela) => void;
   aoEscolherPeriodo: (de: Date, ate: Date) => void;
+  carregando?: boolean;
 }) {
   const maior = Math.max(...linhas.map((linha) => linha.segundos), 1);
   const totalSegundos = linhas.reduce((soma, linha) => soma + linha.segundos, 0);
@@ -99,7 +102,9 @@ export function Horas({
         </p>
       )}
 
-      {linhas.length === 0 ? (
+      {carregando && linhas.length === 0 ? (
+        <Esqueleto />
+      ) : linhas.length === 0 ? (
         <Vazio frase="Nenhuma hora nesta janela. O que você registrar no CronoCAD aparece aqui." />
       ) : (
         <>
