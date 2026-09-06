@@ -10,13 +10,10 @@ use serde::Deserialize;
 
 pub const PROJECTS_URL: &str = "https://api.openai.com/v1/organization/projects";
 pub const COSTS_URL: &str = "https://api.openai.com/v1/organization/costs";
-pub const ORGANIZATION_LIMIT_URL: &str =
-    "https://api.openai.com/v1/organization/spend_limit";
+pub const ORGANIZATION_LIMIT_URL: &str = "https://api.openai.com/v1/organization/spend_limit";
 
 pub fn project_limit_url(project_id: &str) -> String {
-    format!(
-        "https://api.openai.com/v1/organization/projects/{project_id}/spend_limit"
-    )
+    format!("https://api.openai.com/v1/organization/projects/{project_id}/spend_limit")
 }
 
 /// US$ 1 em micros. Custo de modelo pode ser menor que um centavo; centavos
@@ -123,12 +120,14 @@ fn para_micros(valor: f64) -> Result<i64, String> {
 }
 
 pub fn ler_custos(corpo: &str) -> Result<PaginaDeCustos, String> {
-    let resposta: CostsResponse = serde_json::from_str(corpo)
-        .map_err(|erro| format!("custos inesperados: {erro}"))?;
+    let resposta: CostsResponse =
+        serde_json::from_str(corpo).map_err(|erro| format!("custos inesperados: {erro}"))?;
     let mut por_projeto = BTreeMap::new();
     for bucket in resposta.data {
         for resultado in bucket.results {
-            let Some(amount) = resultado.amount else { continue };
+            let Some(amount) = resultado.amount else {
+                continue;
+            };
             if !amount.currency.eq_ignore_ascii_case("usd") {
                 return Err(format!("moeda de custo nao suportada: {}", amount.currency));
             }
@@ -164,13 +163,19 @@ struct Enforcement {
 }
 
 pub fn ler_limite(corpo: &str) -> Result<LimiteMensal, String> {
-    let resposta: SpendLimitResponse = serde_json::from_str(corpo)
-        .map_err(|erro| format!("limite inesperado: {erro}"))?;
+    let resposta: SpendLimitResponse =
+        serde_json::from_str(corpo).map_err(|erro| format!("limite inesperado: {erro}"))?;
     if !resposta.currency.eq_ignore_ascii_case("usd") {
-        return Err(format!("moeda de limite nao suportada: {}", resposta.currency));
+        return Err(format!(
+            "moeda de limite nao suportada: {}",
+            resposta.currency
+        ));
     }
     if resposta.interval != "month" {
-        return Err(format!("intervalo de limite nao suportado: {}", resposta.interval));
+        return Err(format!(
+            "intervalo de limite nao suportado: {}",
+            resposta.interval
+        ));
     }
     if resposta.threshold_amount < 0 {
         return Err("limite mensal negativo".into());
