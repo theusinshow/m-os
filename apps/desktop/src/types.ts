@@ -1521,6 +1521,8 @@ export type SyncRound = {
  */
 export type AnelDaFaixa = {
   nome: string;
+  /** Gasto mensal oficial de uma API. Não é convertido em tokens. */
+  financeiro: ResumoFinanceiroOpenAi | null;
   peso: number;
   pico: number;
   pesoHoje: number;
@@ -1547,6 +1549,35 @@ export type AnelDaFaixa = {
    * uma frase diferente de "esta fonte não me conta o histórico dela".
    */
   temHistorico: boolean;
+};
+
+export type GastoDeProjetoOpenAi = {
+  id: string;
+  nome: string;
+  /** Dólares em milionésimos, para não acumular erro de ponto flutuante. */
+  gastoMicros: number;
+  /** Limite mensal em centavos, quando configurado na OpenAI. */
+  limiteCentavos: number | null;
+  restanteMicros: number | null;
+  limiteAtivo: boolean;
+};
+
+export type ResumoFinanceiroOpenAi = {
+  gastoMicros: number;
+  limiteCentavos: number | null;
+  restanteMicros: number | null;
+  limiteAtivo: boolean;
+  mesInicio: string;
+  atualizadoEm: string;
+  obsoleto: boolean;
+  projetos: GastoDeProjetoOpenAi[];
+};
+
+export type OpenAiUsageStatus = {
+  temChave: boolean;
+  atualizando: boolean;
+  ultimoErro: string | null;
+  resumo: ResumoFinanceiroOpenAi | null;
 };
 
 /** Uma janela de cota vinda do servidor, com denominador de verdade. */

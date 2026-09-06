@@ -11,6 +11,7 @@ import type { AnelDaFaixa, JanelaDaFaixa } from "./types";
 function anel(over: Partial<AnelDaFaixa> = {}): AnelDaFaixa {
   return {
     nome: "Claude Code",
+    financeiro: null,
     peso: 40_000,
     pico: 100_000,
     pesoHoje: 60_000,
@@ -31,6 +32,24 @@ function janela(over: Partial<JanelaDaFaixa> = {}): JanelaDaFaixa {
 }
 
 describe("qual régua está valendo", () => {
+  it("dinheiro não é convertido em cota de tokens", () => {
+    const financeiro = {
+      gastoMicros: 12_500_000,
+      limiteCentavos: 5_000,
+      restanteMicros: 37_500_000,
+      limiteAtivo: true,
+      mesInicio: "2026-08-01T00:00:00Z",
+      atualizadoEm: "2026-08-31T12:00:00Z",
+      obsoleto: false,
+      projetos: [],
+    };
+    const comDinheiro = anel({ financeiro });
+    const r = regua(comDinheiro, false);
+    expect(r).toMatchObject({ tipo: "financeiro", fracao: 0.25 });
+    expect(nomeDaRegua(r, false)).toBe("DO LIMITE MENSAL");
+    expect(rotuloDaRegua(r, comDinheiro)).toContain("12,50");
+  });
+
   it("com cota, é a cota — mesmo havendo pico de sobra", () => {
     const r = regua(anel({ cotaSessao: janela() }), false);
     expect(r.tipo).toBe("cota");

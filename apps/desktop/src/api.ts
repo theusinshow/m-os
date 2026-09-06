@@ -4,6 +4,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { EstadoDaAtualizacao } from "./atualizacao";
 import type { Ocorrencia } from "./types";
+import type { OpenAiUsageStatus } from "./types";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
   VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
@@ -658,6 +659,18 @@ export const api = {
   },
   faixaDeUso() {
     return invoke<Faixa>("usage_faixa");
+  },
+  openAiUsageStatus() {
+    return invoke<OpenAiUsageStatus>("openai_usage_status");
+  },
+  openAiUsageSetKey(key: string) {
+    return invoke<OpenAiUsageStatus>("openai_usage_set_key", { key });
+  },
+  openAiUsageClearKey() {
+    return invoke<void>("openai_usage_clear_key");
+  },
+  openAiUsageRefresh() {
+    return invoke<OpenAiUsageStatus>("openai_usage_refresh");
   },
   /** Alterna o painel da faixa. Devolve se ele ficou aberto. */
   alternarPainelDaFaixa() {

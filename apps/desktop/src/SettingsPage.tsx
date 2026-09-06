@@ -25,10 +25,11 @@ import { PaneHeader, Panel, StateMessage } from "./Surface";
 import type { FunctionIntentTarget } from "./functionIntents";
 import { functionCategoryLabels, functionConfirmationLabels, functionRiskLabels } from "./functionLabels";
 import { relativeTime } from "./relativeTime";
+import { usdDeMicros } from "./openaiUsage";
 import { SETTINGS_SECTIONS, secaoVisivel } from "./settingsNav";
 import type {
   AppStatus, BackupInspection, Capture, FunctionDefinition, ImportReport, Ocorrencia,
-  AparelhoNaMalha, Project, RegisteredApp, Resource, SyncReport, SyncStatus, Task,
+  AparelhoNaMalha, OpenAiUsageStatus, Project, RegisteredApp, Resource, SyncReport, SyncStatus, Task,
   UnivirtusStatus,
   Workspace,
 } from "./types";
@@ -270,6 +271,113 @@ function HermesSettings() {
       <div><dt>CREDENCIAL</dt><dd>{status?.hasCredentials ? "Configurada" : <span className="fact-empty">Não configurada</span>}</dd></div>
     </dl>
     {status?.detail ? <p className="support-copy">{status.detail}</p> : null}
+    {message ? <StateMessage state={messageState} label={message} /> : null}
+  </Panel>;
+}
+
+/**
+ * A credencial administrativa fica fora do renderer. A tela recebe apenas
+ * "configurada" e o retrato financeiro que os endpoints GET devolveram.
+ */
+function OpenAiUsageSettings() {
+  const [status, setStatus] = useState<OpenAiUsageStatus | null>(null);
+  const [key, setKey] = useState("");
+  const [message, setMessage] = useState("");
+  const [messageState, setMessageState] = useState<"saving" | "saved" | "error">("saved");
+
+  const load = useCallback(async () => {
+    setStatus(await api.openAiUsageStatus());
+  }, []);
+  useEffect(() => { void load().catch(() => undefined); }, [load]);
+
+  async function saveKey(event: FormEvent) {
+    event.preventDefault();
+    setMessageState("saving");
+    setMessage("Conferindo a chave e lendo o mês...");
+    try {
+      const next = await api.openAiUsageSetKey(key);
+      setStatus(next);
+      setKey("");
+      setMessageState("saved");
+      setMessage("Chave conferida e guardada no Windows Credential Manager.");
+    } catch (error) {
+      setMessageState("error");
+      setMessage(appError(error).message);
+    }
+  }
+
+  async function refresh() {
+    setMessageState("saving");
+    setMessage("Lendo custos e limites na OpenAI...");
+    try {
+      const next = await api.openAiUsageRefresh();
+      setStatus(next);
+      setMessageState("saved");
+      setMessage("Leitura atualizada.");
+    } catch (error) {
+      setMessageState("error");
+      setMessage(appError(error).message);
+      await load().catch(() => undefined);
+    }
+  }
+
+  async function remove() {
+    try {
+      await api.openAiUsageClearKey();
+      setKey("");
+      setMessageState("saved");
+      setMessage("Chave removida deste aparelho.");
+      await load();
+    } catch (error) {
+      setMessageState("error");
+      setMessage(appError(error).message);
+    }
+  }
+
+  const resumo = status?.resumo;
+  return <Panel label="OPENAI · CUSTOS">
+    <p className="support-copy">
+      Mostra na Faixa quanto NexoDoc, Truss, Hermes e os outros OpenAI Projects gastaram no mês.
+      Para separar corretamente, cada produto precisa usar seu próprio Project — uma chave
+      compartilhada não revela depois quem fez cada gasto.
+    </p>
+    <p className="support-copy">
+      Use uma Admin API Key da organização. O M/OS faz somente leituras oficiais de projetos,
+      custos e limites; a chave fica no cofre deste aparelho e não entra no banco nem no sync.
+    </p>
+    <form className="stack-form" onSubmit={saveKey}>
+      <label>
+        <span>ADMIN API KEY</span>
+        <input
+          className="mono-input"
+          type="password"
+          value={key}
+          onChange={(event) => setKey(event.currentTarget.value)}
+          placeholder={status?.temChave ? "Configurada — cole outra para trocar" : "sk-admin-…"}
+          autoComplete="off"
+        />
+      </label>
+      <div className="form-actions">
+        {status?.temChave
+          ? <Button variant="ghost" type="button" onClick={() => void remove()}>Remover chave</Button>
+          : null}
+        <Button variant="primary" type="submit" disabled={!key.trim() || status?.atualizando}>
+          {status?.temChave ? "Trocar chave" : "Conectar"}
+        </Button>
+      </div>
+    </form>
+    <dl className="fact-grid">
+      <div><dt>ESTADO</dt><dd>{status?.temChave ? "Conectada" : <span className="fact-empty">Não configurada</span>}</dd></div>
+      <div><dt>GASTO NO MÊS</dt><dd>{resumo ? usdDeMicros(resumo.gastoMicros) : <span className="fact-empty">—</span>}</dd></div>
+      <div><dt>RESTANTE DO LIMITE</dt><dd>{resumo ? (resumo.restanteMicros != null ? usdDeMicros(resumo.restanteMicros) : <span className="fact-empty">Sem limite hard</span>) : <span className="fact-empty">—</span>}</dd></div>
+      <div><dt>PROJETOS</dt><dd>{resumo?.projetos.length ?? <span className="fact-empty">—</span>}</dd></div>
+    </dl>
+    {status?.temChave ? <div className="button-line">
+      <Button variant="secondary" type="button" onClick={() => void refresh()} disabled={status.atualizando}>
+        {status.atualizando ? "Atualizando" : "Atualizar agora"}
+      </Button>
+    </div> : null}
+    {status?.ultimoErro && !message ? <StateMessage state="error" label={status.ultimoErro} /> : null}
     {message ? <StateMessage state={messageState} label={message} /> : null}
   </Panel>;
 }
@@ -748,7 +856,7 @@ export function SettingsPage({ theme, setTheme, status, capturesArchived, captur
      `arrange_widgets`, que existiu em Rust e em TypeScript ao mesmo tempo. */
   const conteudo: Record<string, ReactNode> = {
     sync: <><SyncSettings /></>,
-    conexoes: <><HermesSettings /><UnivirtusSettings /><FinanceActionSettings /></>,
+    conexoes: <><HermesSettings /><OpenAiUsageSettings /><UnivirtusSettings /><FinanceActionSettings /></>,
     aparencia: <><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" aria-label="Tema claro" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form>{/* A voz mora no mesmo Panel porque ela e a mesma captura por outra
      porta — separa-la num painel proprio a transformaria numa feature
      ao lado, que e exatamente o que o §Voz do design system recusa. */}<form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setVoiceShortcut(voiceShortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="voice-shortcut">Atalho da voz</label><p>{status?.voiceShortcut}</p><p className="support-copy">Segure para falar, solte para guardar. Vale de qualquer lugar do Windows, e o microfone só abre enquanto a tecla está pressionada.</p></div><div className="inline-form"><input id="voice-shortcut" value={voiceShortcut} onChange={(event) => setVoiceShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="ATALHOS"><p className="support-copy">O M/OS é operável quase inteiro pelo teclado. Nada aqui precisa ser decorado — esta lista existe para quando você quiser.</p><dl className="shortcut-list">{SHORTCUTS.map((entry) => <div key={entry.keys}><dt>{entry.keys}</dt><dd>{entry.does}</dd></div>)}</dl></Panel></>,

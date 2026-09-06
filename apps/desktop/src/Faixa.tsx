@@ -3,8 +3,9 @@ import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { Button } from "./Button";
 import { MarcaDeIA } from "./MarcaDeIA";
+import { fracaoDoLimite, usdDeMicros } from "./openaiUsage";
 import { Ring } from "./Ring";
-import type { AnelDaFaixa, Faixa, JanelaDaFaixa } from "./types";
+import type { AnelDaFaixa, Faixa, JanelaDaFaixa, ResumoFinanceiroOpenAi } from "./types";
 
 /**
  * A faixa de uso, colada na borda direita da tela.
@@ -102,11 +103,19 @@ export function temRegua(anel: AnelDaFaixa, calibrando: boolean) {
  *    preenchido com número inventado.
  */
 export type Regua =
+  | { tipo: "financeiro"; fracao: number | null; obsoleta: boolean }
   | { tipo: "cota"; janela: JanelaDaFaixa }
   | { tipo: "pico"; fracao: number }
   | { tipo: "nenhuma" };
 
 export function regua(anel: AnelDaFaixa, calibrando: boolean): Regua {
+  if (anel.financeiro) {
+    return {
+      tipo: "financeiro",
+      fracao: fracaoDoLimite(anel.financeiro.gastoMicros, anel.financeiro.limiteCentavos),
+      obsoleta: anel.financeiro.obsoleto,
+    };
+  }
   if (anel.cotaSessao) return { tipo: "cota", janela: anel.cotaSessao };
   if (temRegua(anel, calibrando)) {
     return { tipo: "pico", fracao: proporcao(anel.peso, anel.pico) };
@@ -123,6 +132,9 @@ export function regua(anel: AnelDaFaixa, calibrando: boolean): Regua {
  * de agora seria a mentira que este desenho recusa.
  */
 export function rotuloDaRegua(r: Regua, anel: AnelDaFaixa): string {
+  if (r.tipo === "financeiro" && anel.financeiro) {
+    return `${r.obsoleta ? "~" : ""}${usdDeMicros(anel.financeiro.gastoMicros)}`;
+  }
   if (r.tipo === "cota") {
     return `${r.janela.obsoleta ? "~" : ""}${r.janela.percentual}%`;
   }
@@ -132,6 +144,7 @@ export function rotuloDaRegua(r: Regua, anel: AnelDaFaixa): string {
 
 /** O que a régua se chama. Vai no rótulo acessível e no painel, não na tira. */
 export function nomeDaRegua(r: Regua, calibrando: boolean): string {
+  if (r.tipo === "financeiro") return r.fracao === null ? "GASTO NO MÊS" : "DO LIMITE MENSAL";
   if (r.tipo === "cota") return "DA SESSÃO";
   if (r.tipo === "pico") return "DO PICO";
   return calibrando ? "LENDO" : "SEM RÉGUA";
@@ -162,7 +175,10 @@ export function nomeDaRegua(r: Regua, calibrando: boolean): string {
  */
 export function degrau(r: Regua): "calmo" | "atencao" | "limite" | undefined {
   const percentual =
-    r.tipo === "cota" ? r.janela.percentual : r.tipo === "pico" ? r.fracao * 100 : undefined;
+    r.tipo === "financeiro" ? r.fracao == null ? undefined : r.fracao * 100
+    : r.tipo === "cota" ? r.janela.percentual
+    : r.tipo === "pico" ? r.fracao * 100
+    : undefined;
   if (percentual === undefined) return undefined;
   if (percentual >= 80) return "limite";
   if (percentual >= 50) return "atencao";
@@ -248,6 +264,54 @@ function Barra({ rotulo, valor, teto, nota, regua, exato }: {
       </span>
     </div>
   );
+}
+
+function FinanceiroDaFaixa({ resumo }: { resumo: ResumoFinanceiroOpenAi }) {
+  const fracao = fracaoDoLimite(resumo.gastoMicros, resumo.limiteCentavos);
+  const limiteMicros = resumo.limiteCentavos == null ? null : resumo.limiteCentavos * 10_000;
+
+  return <div className="faixa-financeiro">
+    <div className="faixa-financeiro-totais">
+      <div>
+        <span className="micro-label">GASTO NO MÊS</span>
+        <strong>{usdDeMicros(resumo.gastoMicros)}</strong>
+      </div>
+      <div>
+        <span className="micro-label">RESTANTE DO LIMITE</span>
+        <strong>{resumo.restanteMicros == null ? "Sem limite hard" : usdDeMicros(resumo.restanteMicros)}</strong>
+      </div>
+    </div>
+    {fracao != null && limiteMicros != null ? <>
+      <div className="faixa-trilho" data-degrau={degrauDaFracao(fracao)}>
+        <div className="faixa-carga" style={{ width: `${Math.min(1, fracao) * 100}%` }} />
+      </div>
+      <span className="faixa-barra-valor">
+        {Math.round(fracao * 100)}% de {usdDeMicros(limiteMicros)}
+      </span>
+    </> : null}
+
+    <div className="faixa-projetos" role="list" aria-label="Gasto por OpenAI Project">
+      {resumo.projetos.map((projeto) => (
+        <div className="faixa-projeto" role="listitem" key={projeto.id}>
+          <div>
+            <strong>{projeto.nome}</strong>
+            {projeto.restanteMicros != null
+              ? <span>{usdDeMicros(projeto.restanteMicros)} restantes</span>
+              : <span>sem limite próprio</span>}
+          </div>
+          <span>{usdDeMicros(projeto.gastoMicros)}</span>
+        </div>
+      ))}
+    </div>
+
+    <p className="faixa-regua">
+      {resumo.obsoleto
+        ? "Última leitura válida da OpenAI. O ~ marca que a atualização mais recente falhou."
+        : resumo.limiteCentavos == null
+          ? "Custos reconciliados pela OpenAI neste mês. A organização não tem limite hard mensal disponível."
+          : `Custos reconciliados pela OpenAI neste mês. O limite mensal está ${resumo.limiteAtivo ? "ativo" : "configurado, mas não está impondo bloqueio"}.`}
+    </p>
+  </div>;
 }
 
 /**
@@ -343,7 +407,8 @@ export function FaixaDeUso() {
           /* O anel satura em 1 e o número NÃO: acima de 100% o arco não tem
              para onde crescer, e o número é justamente o que importa ali. */
           const fracao =
-            r.tipo === "cota" ? Math.min(1, r.janela.percentual / 100)
+            r.tipo === "financeiro" ? Math.min(1, r.fracao ?? 0)
+            : r.tipo === "cota" ? Math.min(1, r.janela.percentual / 100)
             : r.tipo === "pico" ? r.fracao
             : 0;
           return (
@@ -358,7 +423,9 @@ export function FaixaDeUso() {
               style={{ ["--faixa-atraso" as string]: `${indice * 70}ms` }}
               aria-expanded={aberto}
               aria-label={
-                r.tipo === "cota"
+                r.tipo === "financeiro"
+                  ? `${anel.nome}: ${valor} gastos no mês${r.fracao == null ? ", sem limite mensal" : `, ${Math.round(r.fracao * 100)}% do limite mensal`}${r.obsoleta ? ", valor desatualizado" : ""}`
+                : r.tipo === "cota"
                   ? `${anel.nome}: ${r.janela.percentual}% da sessão de 5h${r.janela.obsoleta ? ", valor desatualizado" : ""}`
                   : r.tipo === "pico"
                     ? `${anel.nome}: ${valor} do pico de consumo`
@@ -371,7 +438,12 @@ export function FaixaDeUso() {
                   três anéis empilhados: com o número dentro, três anéis são
                   três números e nenhuma identidade — não dá para saber QUEM
                   está em 73%. */}
-              <Ring size={44} segments={r.tipo === "nenhuma" ? [] : [{ value: fracao }]}>
+              <Ring
+                size={44}
+                segments={r.tipo === "nenhuma" || (r.tipo === "financeiro" && r.fracao == null)
+                  ? []
+                  : [{ value: fracao }]}
+              >
                 <span className="faixa-marca">
                   <MarcaDeIA nome={anel.nome} />
                 </span>
@@ -391,6 +463,14 @@ export function PainelDaFaixa() {
   const { aneis, calibrando, demonstracao, agora } = useFaixa();
 
   const conteudo = useMemo(() => aneis.map((anel) => {
+    if (anel.financeiro) {
+      return (
+        <div className="faixa-painel-fonte" key={anel.nome}>
+          <span className="faixa-painel-nome">{anel.nome}</span>
+          <FinanceiroDaFaixa resumo={anel.financeiro} />
+        </div>
+      );
+    }
     const temPico = temRegua(anel, calibrando);
     const cota = anel.cotaSessao;
     const semana = anel.cotaSemana;
@@ -464,7 +544,7 @@ export function PainelDaFaixa() {
         </p>
       </div>
     );
-  }), [aneis, calibrando, agora]);
+  }), [aneis, calibrando, demonstracao, agora]);
 
   if (!aneis.length) return null;
 

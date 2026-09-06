@@ -37,6 +37,7 @@ mod jarvis;
 mod meeting;
 mod microfone;
 mod monitor;
+mod openai_usage;
 mod pdf;
 mod stale;
 mod surface;
@@ -2278,12 +2279,14 @@ pub fn run() {
             // cada cinco segundos.
             app.manage(monitor::Monitor::default());
             app.manage(usage::Uso::default());
+            app.manage(openai_usage::OpenAiUsage::default());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(monitor::run(handle));
             tauri::async_runtime::spawn(attention::run(app.handle().clone()));
             tauri::async_runtime::spawn(meeting::run(app.handle().clone()));
             tauri::async_runtime::spawn(meeting::run_levels(app.handle().clone()));
             tauri::async_runtime::spawn(usage::run(app.handle().clone()));
+            tauri::async_runtime::spawn(openai_usage::run(app.handle().clone()));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -2320,6 +2323,10 @@ pub fn run() {
                     finance::finance_set_action_secret,
                     finance::finance_clear_action_secret,
                     finance::finance_action_secret_configured,
+                    openai_usage::openai_usage_status,
+                    openai_usage::openai_usage_set_key,
+                    openai_usage::openai_usage_clear_key,
+                    openai_usage::openai_usage_refresh,
                     hermes::hermes_status,
                     sync::sync_status,
                     sync::sync_set_endpoint,

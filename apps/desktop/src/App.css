@@ -11578,6 +11578,73 @@ button.daily-objective-title:focus-visible {
   gap: 4px;
 }
 
+.faixa-financeiro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.faixa-financeiro-totais {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.faixa-financeiro-totais > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.faixa-financeiro-totais strong {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.94);
+  font: 600 14px/1.25 var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.faixa-projetos {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.faixa-projeto {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 12px;
+}
+
+.faixa-projeto > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.faixa-projeto strong {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.faixa-projeto span {
+  color: rgba(255, 255, 255, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+.faixa-projeto > span {
+  flex: none;
+  color: rgba(255, 255, 255, 0.9);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
 .faixa-barra-head {
   display: flex;
   align-items: baseline;

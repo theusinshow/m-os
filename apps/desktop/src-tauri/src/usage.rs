@@ -143,6 +143,12 @@ pub struct JanelaDaFaixa {
 #[serde(rename_all = "camelCase")]
 pub struct AnelDaFaixa {
     pub nome: String,
+    /// Resumo monetario mensal quando a fonte e uma API com custos oficiais.
+    ///
+    /// E um campo proprio porque tokens, cota do plano e dinheiro sao reguas
+    /// diferentes. Converter dolares em "token equivalente" esconderia preco
+    /// por modelo e faria o anel parecer mais preciso do que o dado permite.
+    pub financeiro: Option<crate::openai_usage::ResumoOpenAi>,
     /// Milesimos de token-equivalente-de-input consumidos na janela corrente.
     pub peso: u64,
     /// A maior janela ja observada. Zero significa que nao ha regua.
@@ -248,13 +254,23 @@ fn janela(
     }))
 }
 
+/// Oito parametros, um a mais que o teto do clippy.
+///
+/// A convencao deste repo para isso e uma struct de entrada — e o que
+/// `calendar::ComposeInput` e `daily::ContextInput` fazem, pela razao escrita
+/// la: trocar dois de lugar por engano compilaria sem reclamacao. Aqui ela
+/// custaria reescrever dez chamadas, nove delas em teste, e isso e trabalho
+/// para quem for mexer nesta funcao a proximo vez — nao para quem so passou
+/// para desbloquear o CI.
+#[allow(clippy::too_many_arguments)]
 fn montar(
     leitura: LeituraDeUso,
-    nome: &str,
+    nome: Option<&str>,
     calibrando: bool,
     recolhida: bool,
     observada: Option<CotaObservada>,
     externas: &[(String, Option<CotaObservada>)],
+    financeiro: Option<crate::openai_usage::ResumoOpenAi>,
     agora: OffsetDateTime,
 ) -> Result<Faixa, CoreError> {
     let (peso, requisicoes, reseta_em) = match &leitura.sessao {
@@ -284,27 +300,50 @@ fn montar(
     // Uma fonte externa so entra na faixa quando ela RESPONDEU. Um anel
     // permanente marcado "SEM RÉGUA" para um comando que nunca funcionou seria
     // ocupar a borda da tela com a lembranca de um erro de configuracao.
-    let mut aneis = Vec::with_capacity(1 + externas.len());
-    aneis.push(AnelDaFaixa {
-        nome: nome.to_string(),
-        peso,
-        pico: leitura.pico_sessao,
-        peso_hoje: leitura.peso_hoje,
-        pico_dia: leitura.pico_dia,
-        requisicoes,
-        requisicoes_hoje: leitura.requisicoes_hoje,
-        cota_sessao: match observada {
-            Some(observada) => janela(observada.cota.sessao, observada.em, agora)?,
-            None => None,
-        },
-        cota_semana: match observada {
-            Some(observada) => janela(observada.cota.semana, observada.em, agora)?,
-            None => None,
-        },
-        tem_historico: true,
-        reseta_em,
-        janelas_conhecidas: leitura.janelas_conhecidas,
-    });
+    let mut aneis = Vec::with_capacity(2 + externas.len());
+    if let Some(nome) = nome {
+        aneis.push(AnelDaFaixa {
+            nome: nome.to_string(),
+            financeiro: None,
+            peso,
+            pico: leitura.pico_sessao,
+            peso_hoje: leitura.peso_hoje,
+            pico_dia: leitura.pico_dia,
+            requisicoes,
+            requisicoes_hoje: leitura.requisicoes_hoje,
+            cota_sessao: match observada {
+                Some(observada) => janela(observada.cota.sessao, observada.em, agora)?,
+                None => None,
+            },
+            cota_semana: match observada {
+                Some(observada) => janela(observada.cota.semana, observada.em, agora)?,
+                None => None,
+            },
+            tem_historico: true,
+            reseta_em,
+            janelas_conhecidas: leitura.janelas_conhecidas,
+        });
+    }
+
+    if let Some(financeiro) = financeiro {
+        if aneis.len() < MAX_ANEIS {
+            aneis.push(AnelDaFaixa {
+                nome: "OpenAI".into(),
+                financeiro: Some(financeiro),
+                peso: 0,
+                pico: 0,
+                peso_hoje: 0,
+                pico_dia: 0,
+                requisicoes: 0,
+                requisicoes_hoje: 0,
+                cota_sessao: None,
+                cota_semana: None,
+                tem_historico: false,
+                reseta_em: None,
+                janelas_conhecidas: 0,
+            });
+        }
+    }
 
     for (nome, observada) in externas {
         if aneis.len() >= MAX_ANEIS {
@@ -318,6 +357,7 @@ fn montar(
         }
         aneis.push(AnelDaFaixa {
             nome: nome.clone(),
+            financeiro: None,
             // Zerados, e nao ausentes, porque `tem_historico: false` e o campo
             // que responde por eles. Um `Option` em cada um espalharia a mesma
             // pergunta por seis lugares.
@@ -345,18 +385,11 @@ fn montar(
 
 /// O que a faixa desenha agora.
 ///
-/// Sem fonte — maquina sem Claude Code — devolve zero aneis, e a faixa nao
-/// monta. Ela nao aparece vazia esperando um dado que nunca vira.
+/// Cada fonte entra somente quando existe: Claude Code depende dos transcripts
+/// locais; OpenAI depende de uma leitura remota que ja tenha dado certo.
 #[tauri::command]
 pub fn usage_faixa<R: Runtime>(app: AppHandle<R>) -> Result<Faixa, CoreError> {
-    let Some(fonte) = Fonte::claude_code() else {
-        return Ok(Faixa {
-            aneis: Vec::new(),
-            calibrando: false,
-            recolhida: false,
-            demonstracao: false,
-        });
-    };
+    let fonte = Fonte::claude_code();
     let calibrando = app
         .try_state::<Uso>()
         .map(|uso| uso.calibrando.load(Ordering::Relaxed))
@@ -367,7 +400,11 @@ pub fn usage_faixa<R: Runtime>(app: AppHandle<R>) -> Result<Faixa, CoreError> {
         uso.recolhida.store(recolhida, Ordering::Relaxed);
     }
     let storage = estado.storage.clone();
-    let leitura = storage.usage_leitura(crate::surface::now_local(&app))?;
+    let leitura = if fonte.is_some() {
+        storage.usage_leitura(crate::surface::now_local(&app))?
+    } else {
+        LeituraDeUso::default()
+    };
     let observada = app
         .try_state::<Uso>()
         .and_then(|uso| uso.cota.lock().ok().and_then(|guarda| *guarda));
@@ -389,11 +426,12 @@ pub fn usage_faixa<R: Runtime>(app: AppHandle<R>) -> Result<Faixa, CoreError> {
 
     montar(
         leitura,
-        &fonte.nome,
-        calibrando,
+        fonte.as_ref().map(|fonte| fonte.nome.as_str()),
+        calibrando && fonte.is_some(),
         recolhida,
         observada,
         &externas,
+        crate::openai_usage::resumo(&app),
         OffsetDateTime::now_utc(),
     )
 }
@@ -1053,7 +1091,10 @@ async fn vigiar_o_cursor<R: Runtime>(app: AppHandle<R>) {
 /// nela nao chegava ao renderer. Esperar o primeiro dado tambem evita mostrar um
 /// anel vazio por um instante.
 pub fn abrir<R: Runtime>(app: &AppHandle<R>) {
-    if Fonte::claude_code().is_none() {
+    let tem_anel = usage_faixa(app.clone())
+        .map(|faixa| !faixa.aneis.is_empty())
+        .unwrap_or(false);
+    if !tem_anel {
         return;
     }
     let Some(janela) = app.get_webview_window(JANELA_FAIXA) else {
@@ -1150,8 +1191,11 @@ pub fn marcar_na_bandeja<R: Runtime>(app: &AppHandle<R>, marcado: bool) {
 }
 
 /// Manda a faixa redesenhar com o estado de agora.
-fn emitir<R: Runtime>(app: &AppHandle<R>) {
+pub(crate) fn emitir<R: Runtime>(app: &AppHandle<R>) {
     if let Ok(faixa) = usage_faixa(app.clone()) {
+        if !faixa.aneis.is_empty() {
+            abrir(app);
+        }
         let _ = app.emit("usage", faixa);
     }
 }
@@ -1167,10 +1211,14 @@ fn passada(storage: &SqliteStorage, fonte: &Fonte) -> Result<u64, CoreError> {
 }
 
 pub async fn run<R: Runtime>(app: AppHandle<R>) {
+    // O cursor pertence a JANELA, nao ao Claude Code. OpenAI ou uma fonte
+    // externa tambem podem ser o unico anel desta instalacao.
+    tauri::async_runtime::spawn(vigiar_o_cursor(app.clone()));
+    tauri::async_runtime::spawn(perguntar_as_externas(app.clone()));
+
     let Some(fonte) = Fonte::claude_code() else {
-        // Sem Claude Code nao ha o que ler, e o laco nem comeca. Um laco que
-        // acorda de trinta em trinta segundos para nao achar nada e so um
-        // consumo de bateria com nome bonito.
+        // Sem transcripts nao ha varredura local. Os lacos independentes acima
+        // continuam porque nao dependem desta fonte.
         return;
     };
 
@@ -1181,13 +1229,10 @@ pub async fn run<R: Runtime>(app: AppHandle<R>) {
     // Laco proprio, e nao um passo deste: um acorda de trinta em trinta
     // segundos e o outro precisa de dezenas de vezes por segundo. Amarrados,
     // o rapido herdaria a cadencia do lento.
-    tauri::async_runtime::spawn(vigiar_o_cursor(app.clone()));
-
     // E o mesmo motivo para a cota: ela pergunta de minuto em minuto, e recua
     // sozinha quando o servidor nao responde. Amarrada a varredura, herdaria a
     // cadencia dela e o recuo nao teria onde morar.
     tauri::async_runtime::spawn(perguntar_a_cota(app.clone()));
-    tauri::async_runtime::spawn(perguntar_as_externas(app.clone()));
 
     let mut mostrada = false;
     let mut marcou = false;
@@ -1302,17 +1347,54 @@ mod tests {
         }
     }
 
+    fn financeiro() -> crate::openai_usage::ResumoOpenAi {
+        crate::openai_usage::ResumoOpenAi {
+            gasto_micros: 12_500_000,
+            limite_centavos: Some(5_000),
+            restante_micros: Some(37_500_000),
+            limite_ativo: true,
+            mes_inicio: "2026-08-01T00:00:00Z".into(),
+            atualizado_em: "2026-08-31T12:00:00Z".into(),
+            obsoleto: false,
+            projetos: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn openai_aparece_sem_claude_e_mantem_a_regua_em_dinheiro() {
+        let faixa = montar(
+            LeituraDeUso::default(),
+            None,
+            false,
+            false,
+            None,
+            &[],
+            Some(financeiro()),
+            AGORA,
+        )
+        .unwrap();
+
+        assert_eq!(faixa.aneis.len(), 1);
+        assert_eq!(faixa.aneis[0].nome, "OpenAI");
+        assert_eq!(
+            faixa.aneis[0].financeiro.as_ref().unwrap().gasto_micros,
+            12_500_000
+        );
+        assert!(faixa.aneis[0].cota_sessao.is_none());
+    }
+
     /// Com cota, o anel ganha o denominador de verdade — e o pico continua
     /// viajando junto, porque e ele que responde quando a cota some.
     #[test]
     fn a_cota_do_servidor_chega_a_faixa() {
         let faixa = montar(
             leitura(),
-            "Claude Code",
+            Some("Claude Code"),
             false,
             false,
             Some(observada(0)),
             &[],
+            None,
             AGORA,
         )
         .unwrap();
@@ -1337,11 +1419,12 @@ mod tests {
     fn a_cota_que_nao_renovou_fica_marcada_como_velha() {
         let faixa = montar(
             leitura(),
-            "Claude Code",
+            Some("Claude Code"),
             false,
             false,
             Some(observada(4)),
             &[],
+            None,
             AGORA,
         )
         .unwrap();
@@ -1355,11 +1438,12 @@ mod tests {
     fn depois_de_cinco_minutos_a_cota_some() {
         let faixa = montar(
             leitura(),
-            "Claude Code",
+            Some("Claude Code"),
             false,
             false,
             Some(observada(6)),
             &[],
+            None,
             AGORA,
         )
         .unwrap();
@@ -1370,7 +1454,17 @@ mod tests {
     /// Sem cota nenhuma, a faixa e exatamente a que a ADR-059 deixou.
     #[test]
     fn sem_cota_a_faixa_e_a_da_adr_059() {
-        let faixa = montar(leitura(), "Claude Code", false, false, None, &[], AGORA).unwrap();
+        let faixa = montar(
+            leitura(),
+            Some("Claude Code"),
+            false,
+            false,
+            None,
+            &[],
+            None,
+            AGORA,
+        )
+        .unwrap();
         assert!(faixa.aneis[0].cota_sessao.is_none());
         assert!(
             faixa.aneis[0].reseta_em.is_some(),
@@ -1400,11 +1494,12 @@ mod tests {
     fn a_fonte_externa_ganha_o_proprio_anel() {
         let faixa = montar(
             leitura(),
-            "Claude Code",
+            Some("Claude Code"),
             false,
             false,
             Some(observada(0)),
             &[externa("Codex", 42, 0)],
+            None,
             AGORA,
         )
         .unwrap();
@@ -1426,11 +1521,12 @@ mod tests {
     fn a_fonte_que_nao_respondeu_nao_aparece() {
         let faixa = montar(
             leitura(),
-            "Claude Code",
+            Some("Claude Code"),
             false,
             false,
             None,
             &[("Codex".to_string(), None)],
+            None,
             AGORA,
         )
         .unwrap();
@@ -1443,11 +1539,12 @@ mod tests {
     fn a_fonte_externa_tambem_envelhece() {
         let faixa = montar(
             leitura(),
-            "Claude Code",
+            Some("Claude Code"),
             false,
             false,
             None,
             &[externa("Codex", 42, 6)],
+            None,
             AGORA,
         )
         .unwrap();
@@ -1459,11 +1556,12 @@ mod tests {
     fn a_ordem_e_a_do_arquivo_com_o_claude_code_na_frente() {
         let faixa = montar(
             leitura(),
-            "Claude Code",
+            Some("Claude Code"),
             false,
             false,
             Some(observada(0)),
             &[externa("Codex", 1, 0), externa("Cursor", 2, 0)],
+            None,
             AGORA,
         )
         .unwrap();
@@ -1533,7 +1631,17 @@ mod tests {
 
     #[test]
     fn a_faixa_leva_o_pico_e_o_prazo() {
-        let faixa = montar(leitura(), "Claude Code", false, false, None, &[], AGORA).unwrap();
+        let faixa = montar(
+            leitura(),
+            Some("Claude Code"),
+            false,
+            false,
+            None,
+            &[],
+            None,
+            AGORA,
+        )
+        .unwrap();
         let anel = &faixa.aneis[0];
         assert_eq!(anel.peso, 500_000);
         assert_eq!(anel.pico, 1_000_000);
@@ -1547,9 +1655,18 @@ mod tests {
             sessao: None,
             ..leitura()
         };
-        let anel = &montar(leitura, "Claude Code", false, false, None, &[], AGORA)
-            .unwrap()
-            .aneis[0];
+        let anel = &montar(
+            leitura,
+            Some("Claude Code"),
+            false,
+            false,
+            None,
+            &[],
+            None,
+            AGORA,
+        )
+        .unwrap()
+        .aneis[0];
         assert_eq!(anel.peso, 0);
         assert_eq!(anel.requisicoes, 0);
         assert_eq!(anel.reseta_em, None, "sem janela nao ha o que resetar");
@@ -1558,7 +1675,17 @@ mod tests {
 
     #[test]
     fn calibrando_atravessa_ate_a_faixa() {
-        let faixa = montar(leitura(), "Claude Code", true, false, None, &[], AGORA).unwrap();
+        let faixa = montar(
+            leitura(),
+            Some("Claude Code"),
+            true,
+            false,
+            None,
+            &[],
+            None,
+            AGORA,
+        )
+        .unwrap();
         assert!(faixa.calibrando);
     }
 }
