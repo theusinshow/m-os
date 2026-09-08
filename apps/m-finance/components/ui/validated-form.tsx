@@ -30,6 +30,34 @@ export function useFormResetSignal() {
   return useContext(FormResetContext);
 }
 
+/**
+ * Os erros de campo que não têm onde aparecer.
+ *
+ * `ValidatedInput` desenha a mensagem embaixo do próprio campo, e a action
+ * confia nisso: com `fieldErrors`, ela não pede toast nenhum. Só que um erro
+ * pode cair num campo `hidden` — ou num campo que o formulário nem renderiza —
+ * e aí não existe lugar para a mensagem: o botão pisca, nada é gravado e nada
+ * é dito. Foi assim que lançar compra no cartão falhou em silêncio desde que a
+ * tela existe (o "à vista" mandava `installments=1` num campo escondido, e o
+ * schema exigia no mínimo 2).
+ */
+export function orphanFieldErrors(
+  form: HTMLFormElement | null,
+  fieldErrors: Record<string, string> | undefined,
+) {
+  if (!fieldErrors) return [];
+  const names = form
+    ? new Set(
+        [...form.elements]
+          .filter((element): element is HTMLInputElement => "name" in element)
+          .filter((element) => element.name && element.type !== "hidden")
+          .map((element) => element.name),
+      )
+    : new Set<string>();
+
+  return Object.keys(fieldErrors).filter((name) => !names.has(name));
+}
+
 function useFieldError(name: string) {
   return useContext(FieldErrorContext)[name];
 }
@@ -70,8 +98,13 @@ export function ValidatedForm({
         formRef.current?.reset();
       }
       onSuccessRef.current?.();
-    } else if (state.status === "error" && state.message && !state.fieldErrors) {
-      addToast(state.message, "error");
+    } else if (state.status === "error" && state.message) {
+      // Erro com campo na tela já se explica sozinho embaixo do campo; erro
+      // sem campo visível precisa do toast, ou vira silêncio.
+      const orphans = orphanFieldErrors(formRef.current, state.fieldErrors);
+      if (!state.fieldErrors || orphans.length > 0) {
+        addToast(state.message, "error");
+      }
     }
   }, [state, addToast, successMessage, resetOnSuccess]);
 

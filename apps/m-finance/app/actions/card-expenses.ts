@@ -49,9 +49,14 @@ export async function addCardExpense(_prev: FormState, formData: FormData): Prom
     amountCents: parseCurrencyToCents(formData.get("amount")),
     purchaseDate: String(formData.get("purchaseDate") ?? "") || undefined,
     paymentType: formData.get("paymentType") ?? "cash",
-    installments: formData.get("installments")
-      ? Number(formData.get("installments"))
-      : undefined,
+    // À vista o formulário manda `installments=1` num campo escondido, e o
+    // schema exige no mínimo 2. O erro caía num campo sem tela onde aparecer:
+    // a compra nunca era gravada e nada era dito. Fora do parcelamento, o
+    // número de parcelas não existe.
+    installments:
+      formData.get("paymentType") === "installment" && formData.get("installments")
+        ? Number(formData.get("installments"))
+        : undefined,
   });
 
   if (!parsed.success) {
@@ -87,7 +92,7 @@ export async function addCardExpense(_prev: FormState, formData: FormData): Prom
     );
   }
 
-  const inserted = await db
+  await db
     .insert(creditCardExpenses)
     .values(
       targetMonths.map((targetMonth, index) => ({
@@ -101,8 +106,7 @@ export async function addCardExpense(_prev: FormState, formData: FormData): Prom
         installmentNumber: installmentId ? index + 1 : null,
         installmentTotal: installmentId ? installmentTotal : null,
       })),
-    )
-    .returning({ id: creditCardExpenses.id });
+    );
 
   for (const targetMonth of targetMonths) {
     await syncInvoiceTotal(
@@ -118,8 +122,8 @@ export async function addCardExpense(_prev: FormState, formData: FormData): Prom
   revalidateCardSurfaces(cardId);
   return successState(
     installmentTotal > 1
-      ? `Compra parcelada em ${installmentTotal} vezes (${inserted.length} linhas).`
-      : `Compra lançada (${inserted.length} linha).`,
+      ? `Compra parcelada em ${installmentTotal} vezes.`
+      : "Compra lançada.",
   );
 }
 
