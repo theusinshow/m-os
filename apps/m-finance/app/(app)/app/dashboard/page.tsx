@@ -6,8 +6,11 @@ import { AlertsPanel } from "@/components/dashboard/alerts-panel";
 import { IncomeFormCard } from "@/components/dashboard/income-form-card";
 import { InvoiceSummaryCard } from "@/components/dashboard/invoice-summary-card";
 import { MonthGenerationReviewCard } from "@/components/dashboard/month-generation-review-card";
+import { CommitmentsCard } from "@/components/dashboard/commitments-card";
+import { PersonalBusinessCard } from "@/components/dashboard/personal-business-card";
 import { QuickActionButton } from "@/components/quick-action-button";
 import { StatusBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { UpcomingBillsList } from "@/components/dashboard/upcoming-bills-list";
 import { BalanceDisplay } from "@/components/dashboard/balance-display";
 import { CategoryBreakdownChart } from "@/components/charts/category-breakdown-chart";
@@ -24,9 +27,17 @@ import { getAppUserBySupabaseId } from "@/lib/months";
 import { getActiveMonthForUser, isViewingCurrentMonth } from "@/lib/active-month";
 import { getMonthlySnapshots } from "@/lib/history";
 import { getIncomesByMonth } from "@/lib/incomes";
-import { getBillCategories, getBillsByMonth, getRecurringBillsByMonth } from "@/lib/bills";
+import {
+  getBillCategories,
+  getBillsByMonth,
+  getInstallmentBillsForUser,
+  getRecurringBillsByMonth,
+} from "@/lib/bills";
 import { getInvoicesByMonth } from "@/lib/cards";
 import { getNextMonthForUser } from "@/lib/months";
+import { summarizeInstallments } from "@/lib/calculations/commitments";
+import { toMonthCategoryData } from "@/lib/calculations/charts/month-categories";
+import { pendingRecurrences } from "@/lib/recurrence";
 import { getSettingsForUser } from "@/lib/settings";
 
 export default async function DashboardPage() {
@@ -38,6 +49,11 @@ export default async function DashboardPage() {
   const realIncomes = currentMonth ? await getIncomesByMonth(currentMonth.id) : [];
   const realBills = currentMonth ? await getBillsByMonth(currentMonth.id) : [];
   const recurringBills = currentMonth ? await getRecurringBillsByMonth(currentMonth.id) : [];
+  const nextMonthBills = nextMonth ? await getBillsByMonth(nextMonth.id) : [];
+  // O card de revisão aparece pelo que falta no mês seguinte, não pela
+  // existência da linha do mês: uma série parcelada cria meses até 2028 e
+  // fazia o card sumir para sempre.
+  const recurrencesToReview = pendingRecurrences(recurringBills, nextMonthBills);
   const realInvoices = currentMonth ? await getInvoicesByMonth(currentMonth.id) : [];
   const categories = appUser ? await getBillCategories(appUser.id) : [];
   const settings = appUser ? await getSettingsForUser(appUser.id) : null;
@@ -50,13 +66,9 @@ export default async function DashboardPage() {
     bills: realBills,
     invoices: realInvoices,
   });
-  const categoryData = Object.values(
-    realBills.reduce<Record<string, { name: string; value: number }>>((acc, bill) => {
-      const name = bill.categoryName ?? "Sem categoria";
-      acc[name] ??= { name, value: 0 };
-      acc[name].value += bill.amountCents;
-      return acc;
-    }, {}),
+  const categoryData = toMonthCategoryData(realBills, realInvoices);
+  const installmentSeries = summarizeInstallments(
+    appUser ? await getInstallmentBillsForUser(appUser.id) : [],
   );
   const totalOutstandingCents = summary.totalPendingCents + summary.totalOverdueCents;
   const totalCommittedCents = summary.totalBillsCents + summary.totalInvoicesCents;
@@ -106,7 +118,7 @@ export default async function DashboardPage() {
     {
       label: "Sobra estimada",
       value: summary.estimatedRemainingCents,
-      note: "Depois de pagar tudo",
+      note: summary.totalIncomeCents === 0 ? "Falta lançar a receita" : "Depois de pagar tudo",
       points: history.map((snapshot) => snapshot.estimatedRemainingCents),
       // A sobra é a métrica que a pessoa acompanha; ela ganha o acento.
       tone: "accent" as const,
@@ -142,7 +154,17 @@ export default async function DashboardPage() {
           <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <div className="mb-4 flex items-center gap-3">
-                <StatusBadge status={summary.monthHealth} />
+                {/* Sem receita, a saúde do mês é sempre "Negativo" — o veredito
+                    é do dado que falta, não do mês. */}
+                {summary.totalIncomeCents === 0 ? (
+                  <Badge
+                    className="border-border-default bg-background-elevated text-text-secondary"
+                    icon={<TriangleMark className="text-current" size={9} variant="solid" />}
+                    label="Sem receita"
+                  />
+                ) : (
+                  <StatusBadge status={summary.monthHealth} />
+                )}
                 <span className="text-sm text-text-muted">
                   {currentMonth
                     ? formatMonthLabel(new Date(currentMonth.year, currentMonth.month - 1, 1))
@@ -173,13 +195,30 @@ export default async function DashboardPage() {
                 </div>
               )}
 
-              <p className="mt-4 max-w-xl text-sm leading-6 text-text-muted">
-                De {formatCurrency(summary.totalIncomeCents)} previstos este mês, sobra estimada de{" "}
-                <span className="font-medium text-text-secondary">
-                  {formatCurrency(summary.estimatedRemainingCents)}
-                </span>{" "}
-                depois de tudo pago.
-              </p>
+              {summary.totalIncomeCents === 0 ? (
+                // Sem receita, "sobra estimada" é só o comprometido com sinal
+                // trocado — um número que parece resposta e não é. Melhor pedir
+                // o dado que falta do que exibir a conta pela metade.
+                <p className="mt-4 max-w-xl text-sm leading-6 text-text-muted">
+                  Nenhuma receita lançada neste mês, então não dá para dizer quanto sobra. Você tem{" "}
+                  <span className="font-medium text-text-secondary">
+                    {formatCurrency(totalCommittedCents)}
+                  </span>{" "}
+                  comprometidos —{" "}
+                  <a className="focus-ring rounded font-medium text-accent underline underline-offset-4" href="#receitas">
+                    lance sua receita
+                  </a>{" "}
+                  para fechar a conta.
+                </p>
+              ) : (
+                <p className="mt-4 max-w-xl text-sm leading-6 text-text-muted">
+                  De {formatCurrency(summary.totalIncomeCents)} previstos este mês, sobra estimada de{" "}
+                  <span className="font-medium text-text-secondary">
+                    {formatCurrency(summary.estimatedRemainingCents)}
+                  </span>{" "}
+                  depois de tudo pago.
+                </p>
+              )}
             </div>
             <div className="flex flex-col gap-3 lg:w-72">
               <QuickActionButton href="/app/bills" label="Adicionar conta" />
@@ -211,9 +250,39 @@ export default async function DashboardPage() {
         ))}
       </section>
 
+      {currentMonth ? (
+        <details
+          className="group scroll-mt-24 rounded-xl border border-border-subtle bg-background-card/95 p-5 shadow-xl shadow-black/15"
+          id="receitas"
+          open={realIncomes.length === 0}
+        >
+          <summary className="focus-ring flex cursor-pointer items-center justify-between gap-2 rounded-md text-sm font-semibold uppercase tracking-[0.16em] text-text-muted [&::-webkit-details-marker]:hidden">
+            <span className="flex items-center gap-2">
+              <TriangleMark className="shrink-0 text-accent/70" size={10} variant="solid" />
+              Receitas do mês
+            </span>
+            <span className="flex items-center gap-2 text-xs font-medium normal-case tracking-normal text-text-muted">
+              <span className="num group-open:hidden">
+                {formatCurrency(summary.totalIncomeCents)} previstos
+              </span>
+              <ChevronDown
+                aria-hidden="true"
+                className="transition-transform duration-200 group-open:rotate-180"
+                size={14}
+              />
+            </span>
+          </summary>
+          <div className="mt-4">
+            <IncomeFormCard incomes={realIncomes} />
+          </div>
+        </details>
+      ) : null}
       <section className="grid gap-4 xl:grid-cols-[1fr_0.8fr]">
         <UpcomingBillsList bills={realBills} invoices={realInvoices} />
-        <InvoiceSummaryCard invoices={realInvoices} />
+        <div className="space-y-4">
+          <InvoiceSummaryCard invoices={realInvoices} />
+          <PersonalBusinessCard invoices={realInvoices} />
+        </div>
       </section>
 
       {currentMonth ? (
@@ -243,38 +312,20 @@ export default async function DashboardPage() {
       ) : null}
 
       {categoryData.length > 0 ? (
-        <DashboardCard description="Para onde as contas do mês estão indo." title="Por categoria">
+        <DashboardCard
+          description="Contas e faturas — para onde o dinheiro do mês está indo."
+          title="Por categoria"
+        >
           <CategoryBreakdownChart data={categoryData} />
         </DashboardCard>
       ) : null}
 
-      {currentMonth && viewingCurrent && !nextMonth ? (
-        <MonthGenerationReviewCard categories={categories} recurringBills={recurringBills} />
+      {installmentSeries.length > 0 ? <CommitmentsCard series={installmentSeries} /> : null}
+
+      {currentMonth && viewingCurrent && recurrencesToReview.length > 0 ? (
+        <MonthGenerationReviewCard categories={categories} recurringBills={recurrencesToReview} />
       ) : null}
 
-      {currentMonth ? (
-        <details className="group rounded-xl border border-border-subtle bg-background-card/95 p-5 shadow-xl shadow-black/15">
-          <summary className="focus-ring flex cursor-pointer items-center justify-between gap-2 rounded-md text-sm font-semibold uppercase tracking-[0.16em] text-text-muted [&::-webkit-details-marker]:hidden">
-            <span className="flex items-center gap-2">
-              <TriangleMark className="shrink-0 text-accent/70" size={10} variant="solid" />
-              Receitas do mês
-            </span>
-            <span className="flex items-center gap-2 text-xs font-medium normal-case tracking-normal text-text-muted">
-              <span className="num group-open:hidden">
-                {formatCurrency(summary.totalIncomeCents)} previstos
-              </span>
-              <ChevronDown
-                aria-hidden="true"
-                className="transition-transform duration-200 group-open:rotate-180"
-                size={14}
-              />
-            </span>
-          </summary>
-          <div className="mt-4">
-            <IncomeFormCard incomes={realIncomes} />
-          </div>
-        </details>
-      ) : null}
     </div>
   );
 }

@@ -12,7 +12,10 @@ export async function setActiveMonth(value: string) {
   const store = await cookies();
   store.set(ACTIVE_MONTH_COOKIE, value, {
     path: "/",
-    maxAge: 60 * 60 * 24 * 365,
+    // O mês escolhido é estado de navegação, não preferência. Guardado por um
+    // ano, o app reabria semanas depois num mês vazio do passado e mostrava
+    // tudo zerado como se fosse a vida real. Seis horas cobrem a sessão.
+    maxAge: 60 * 60 * 6,
     sameSite: "lax",
   });
 

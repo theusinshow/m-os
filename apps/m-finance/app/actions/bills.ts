@@ -10,6 +10,7 @@ import { parseCurrencyToCents } from "@/lib/money";
 import { composeMonthDate, parseDueDay } from "@/lib/due-date";
 import { ensureConsecutiveMonthsForUser, getAppUserBySupabaseId } from "@/lib/months";
 import { getActiveMonthForUser } from "@/lib/active-month";
+import { createRecurringBillSeries } from "@/lib/recurrence";
 import {
   errorState,
   fieldErrorsFromZod,
@@ -54,6 +55,28 @@ export async function createBill(_prev: FormState, formData: FormData): Promise<
 
   const payload = parsed.data;
 
+  // "Recorrente, sem fim" cria a regra e materializa os próximos meses. Antes
+  // gravava só `isRecurring: true` numa linha do mês corrente: a conta era
+  // marcada como recorrente e não repetia em lugar nenhum.
+  if (payload.scheduleType === "ongoing") {
+    const { months: createdMonths } = await createRecurringBillSeries({
+      userId: appUser.id,
+      name: payload.name,
+      amountCents: payload.amountCents,
+      // Sem dia informado, a conta cai no fim do mês para não nascer vencida.
+      dueDay: payload.dueDay ?? 31,
+      startMonth: currentMonth.month,
+      startYear: currentMonth.year,
+      categoryId: payload.categoryId ?? null,
+      notes: payload.notes ?? null,
+    });
+
+    revalidatePath("/app/dashboard");
+    revalidatePath("/app/bills");
+    revalidatePath("/app/calendar");
+    return successState(`Conta recorrente criada nos próximos ${createdMonths} meses.`);
+  }
+
   // No day informed defaults to the end of the month, so the bill never looks
   // overdue just because the user skipped the date.
   const occurrenceTotal = payload.scheduleType === "fixed" ? (payload.repeatMonths ?? 1) : 1;
@@ -76,7 +99,8 @@ export async function createBill(_prev: FormState, formData: FormData): Promise<
       name: payload.name,
       amountCents: payload.amountCents,
       dueDate: composeMonthDate(month.year, month.month, payload.dueDay ?? 31),
-      isRecurring: payload.scheduleType === "ongoing",
+      // Chegando aqui, "ongoing" já retornou acima: sobram "once" e "fixed".
+      isRecurring: false,
       seriesId,
       seriesNumber: seriesId ? index + 1 : null,
       seriesTotal: seriesId ? occurrenceTotal : null,

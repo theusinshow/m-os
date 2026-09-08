@@ -39,8 +39,11 @@ export function MonthGenerationReviewCard({
         <div>
           <p className="text-lg font-semibold text-text-primary">Revisar recorrências</p>
           <p className="mt-1 text-sm leading-6 text-text-muted">
-            Confirme as contas recorrentes antes de gerar o próximo mês. O app não cria o mês
-            novo silenciosamente.
+            {recurringBills.length === 1
+              ? "Esta recorrência ainda não está no próximo mês."
+              : `Estas ${recurringBills.length} recorrências ainda não estão no próximo mês.`}{" "}
+            Confirme valores e vencimentos antes de gerar — o app não cria o mês novo
+            silenciosamente.
           </p>
         </div>
 

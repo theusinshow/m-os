@@ -96,17 +96,24 @@ export function PayableList({
     <div className="space-y-5">
       <ProgressHeader isPending={isPending} progress={progress} />
 
-      {groups.map((group) => (
+      {groups.map((group) => {
+        const openCount = group.items.filter((item) => item.status !== "paid").length;
+        return (
         <section className="space-y-2" key={group.key}>
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
                 {group.title}
               </h3>
-              <p className="mt-1 text-xs text-text-muted">{group.description}</p>
+              {/* O grupo sai da data, não do status — de propósito. Mas um
+                  bloco só de contas pagas não pode continuar mandando
+                  "resolva antes de olhar o restante". */}
+              <p className="mt-1 text-xs text-text-muted">
+                {openCount === 0 ? "Tudo pago aqui." : group.description}
+              </p>
             </div>
             <span className="rounded-sm border border-border-subtle px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">
-              {group.items.filter((item) => item.status !== "paid").length}/{group.items.length}
+              {openCount}/{group.items.length}
             </span>
           </div>
           <div className="space-y-3">
@@ -130,7 +137,8 @@ export function PayableList({
             })}
           </div>
         </section>
-      ))}
+        );
+      })}
     </div>
   );
 }

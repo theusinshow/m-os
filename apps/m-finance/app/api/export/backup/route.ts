@@ -4,6 +4,7 @@ import {
   alerts,
   billCategories,
   bills,
+  budgets,
   creditCardExpenses,
   creditCardInvoices,
   creditCards,
@@ -15,6 +16,7 @@ import {
   purchaseSimulations,
   recurrenceRules,
   settings,
+  subscriptions,
 } from "@/db/schema";
 import { requireUser } from "@/lib/auth/guard";
 import { getAppUserBySupabaseId } from "@/lib/months";
@@ -43,6 +45,8 @@ export async function GET() {
     goalsData,
     contributionsData,
     settingsData,
+    subscriptionsData,
+    budgetsData,
   ] = await Promise.all([
     db.select().from(months).where(eq(months.userId, uid)),
     db.select().from(incomes).where(eq(incomes.userId, uid)),
@@ -58,10 +62,12 @@ export async function GET() {
     db.select().from(goals).where(eq(goals.userId, uid)),
     db.select().from(goalContributions).where(eq(goalContributions.userId, uid)),
     db.select().from(settings).where(eq(settings.userId, uid)),
+    db.select().from(subscriptions).where(eq(subscriptions.userId, uid)),
+    db.select().from(budgets).where(eq(budgets.userId, uid)),
   ]);
 
   const backup = {
-    version: 1,
+    version: 2,
     exportedFor: appUser.email,
     data: {
       months: monthsData,
@@ -78,6 +84,8 @@ export async function GET() {
       goals: goalsData,
       goalContributions: contributionsData,
       settings: settingsData,
+      subscriptions: subscriptionsData,
+      budgets: budgetsData,
     },
   };
 

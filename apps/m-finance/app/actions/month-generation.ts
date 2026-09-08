@@ -8,6 +8,8 @@ import { getAppUserBySupabaseId, getNextMonthParts } from "@/lib/months";
 import { getActiveMonthForUser } from "@/lib/active-month";
 import { parseCurrencyToCents } from "@/lib/money";
 import { composeMonthDate, parseDueDay } from "@/lib/due-date";
+import { getBillsByMonth } from "@/lib/bills";
+import { pendingRecurrences } from "@/lib/recurrence";
 import { writeMonthSnapshot } from "@/lib/snapshot";
 
 function field(formData: FormData, name: string) {
@@ -64,8 +66,14 @@ export async function generateNextMonthFromReview(formData: FormData) {
     }))
     .filter((bill) => bill.name && bill.amountCents > 0);
 
-  if (reviewedBills.length > 0) {
-    await db.insert(bills).values(reviewedBills);
+  // O mês seguinte pode já ter contas — de uma série parcelada, de um
+  // lançamento pelo WhatsApp, ou de um clique repetido neste mesmo botão.
+  // Gerar duas vezes não pode duplicar a conta.
+  const existing = await getBillsByMonth(nextMonth.id);
+  const toInsert = pendingRecurrences(reviewedBills, existing);
+
+  if (toInsert.length > 0) {
+    await db.insert(bills).values(toInsert);
   }
 
   revalidatePath("/app/dashboard");

@@ -6,7 +6,6 @@ import {
   creditCardExpenses,
   creditCardInvoices,
   months,
-  recurrenceRules,
   whatsappPendingActions,
 } from "@/db/schema";
 import { getCardById } from "@/lib/card-expenses";
@@ -14,12 +13,8 @@ import { composeMonthDate } from "@/lib/due-date";
 import { formatCurrency } from "@/lib/formatters/currency";
 import { syncInvoiceTotal } from "@/lib/invoice-sync";
 import { ensureConsecutiveMonthsForUser, getCurrentMonthForUser } from "@/lib/months";
+import { createRecurringBillSeries, RECURRING_PREGENERATE_MONTHS } from "@/lib/recurrence";
 import { updateWhatsappPendingActionStatus } from "@/lib/whatsapp/audit";
-
-// Quantos meses à frente uma recorrência criada pelo WhatsApp já materializa
-// na primeira confirmação. Espelha a ideia de "series" do app e mantém o usuário
-// com as próximas contas já visíveis sem depender de um job mensal.
-const RECURRING_PREGENERATE_MONTHS = 12;
 
 const cardExpensePayloadSchema = z.object({
   amountCents: z.number().int().positive(),
@@ -169,43 +164,20 @@ async function executeCreateBill(action: PendingAction) {
   // próximos meses como contas vinculadas. Exige dueDay porque a regra precisa
   // de um dia fixo; sem ele, mantemos o comportamento antigo (flag only).
   if (payload.isRecurring && payload.dueDay) {
-    const [rule] = await db
-      .insert(recurrenceRules)
-      .values({
+    // O executor responde por texto: uma exceção viraria silêncio no WhatsApp.
+    try {
+      await createRecurringBillSeries({
         userId: action.userId,
-        name: payload.description,
-        defaultAmountCents: payload.amountCents,
-        dueDay: payload.dueDay,
-        isVariableAmount: false,
-        isActive: true,
-      })
-      .returning();
-
-    if (!rule) {
-      return "Não consegui criar a regra de recorrência agora.";
-    }
-
-    const targetMonths = await ensureConsecutiveMonthsForUser(
-      action.userId,
-      month.month,
-      month.year,
-      RECURRING_PREGENERATE_MONTHS,
-    );
-
-    const recurringDueDay = payload.dueDay;
-    await db.insert(bills).values(
-      targetMonths.map((targetMonth) => ({
-        userId: action.userId,
-        monthId: targetMonth.id,
-        recurrenceRuleId: rule.id,
         name: payload.description,
         amountCents: payload.amountCents,
-        dueDate: composeMonthDate(targetMonth.year, targetMonth.month, recurringDueDay),
-        isRecurring: true,
-        status: "pending" as const,
+        dueDay: payload.dueDay,
+        startMonth: month.month,
+        startYear: month.year,
         whatsappPendingActionId: action.id,
-      })),
-    );
+      });
+    } catch {
+      return "Não consegui criar a regra de recorrência agora.";
+    }
 
     await updateWhatsappPendingActionStatus(action.id, "confirmed");
 

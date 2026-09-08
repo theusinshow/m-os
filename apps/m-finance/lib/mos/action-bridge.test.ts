@@ -184,10 +184,12 @@ describe("conta recorrente", () => {
       {
         userId: USER,
         name: "Internet",
+        categoryId: null,
         defaultAmountCents: 12990,
         dueDay: 10,
         isVariableAmount: false,
         isActive: true,
+        notes: null,
       },
     ]);
 

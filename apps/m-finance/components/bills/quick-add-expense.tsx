@@ -120,7 +120,7 @@ export function QuickAddExpense({
             >
               <option value="once">Somente este mês</option>
               <option value="fixed">Por alguns meses</option>
-              <option value="ongoing">Recorrente, sem fim</option>
+              <option value="ongoing">Recorrente (12 meses)</option>
             </ValidatedSelect>
           </div>
 

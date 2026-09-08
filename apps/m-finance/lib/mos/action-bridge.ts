@@ -1,10 +1,9 @@
 import { z } from "zod";
 import { db } from "@/db/client";
-import { bills, recurrenceRules } from "@/db/schema";
+import { bills } from "@/db/schema";
 import { composeMonthDate } from "@/lib/due-date";
-import { ensureConsecutiveMonthsForUser, getCurrentMonthForUser } from "@/lib/months";
-
-const RECURRING_PREGENERATE_MONTHS = 12;
+import { getCurrentMonthForUser } from "@/lib/months";
+import { createRecurringBillSeries } from "@/lib/recurrence";
 
 const billPayloadSchema = z.object({
   amountCents: z.number().int().positive(),
@@ -44,47 +43,28 @@ export async function createBillFromMosAction(
   }
 
   if (payload.isRecurring && payload.dueDay) {
-    const [rule] = await db
-      .insert(recurrenceRules)
-      .values({
+    // O helper lança; a ponte do M/OS responde com `{ ok: false }` e uma frase
+    // que o Hermes sabe mostrar, então a falha é traduzida aqui.
+    try {
+      const { rule, billIds } = await createRecurringBillSeries({
         userId,
         name: payload.description,
-        defaultAmountCents: payload.amountCents,
+        amountCents: payload.amountCents,
         dueDay: payload.dueDay,
-        isVariableAmount: false,
-        isActive: true,
-      })
-      .returning();
+        startMonth: month.month,
+        startYear: month.year,
+      });
 
-    if (!rule) {
-      return { ok: false, error: "Não consegui criar a regra de recorrência agora." };
+      return { ok: true, billId: billIds[0] ?? rule.id };
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Não consegui criar a regra de recorrência agora.",
+      };
     }
-
-    const targetMonths = await ensureConsecutiveMonthsForUser(
-      userId,
-      month.month,
-      month.year,
-      RECURRING_PREGENERATE_MONTHS,
-    );
-    const recurringDueDay = payload.dueDay;
-
-    const created = await db
-      .insert(bills)
-      .values(
-        targetMonths.map((targetMonth) => ({
-          userId,
-          monthId: targetMonth.id,
-          recurrenceRuleId: rule.id,
-          name: payload.description,
-          amountCents: payload.amountCents,
-          dueDate: composeMonthDate(targetMonth.year, targetMonth.month, recurringDueDay),
-          isRecurring: true,
-          status: "pending" as const,
-        })),
-      )
-      .returning({ id: bills.id });
-
-    return { ok: true, billId: created[0]?.id ?? rule.id };
   }
 
   const dueDay = payload.dueDay ?? 31;
