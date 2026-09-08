@@ -254,8 +254,25 @@ pub enum PartBody {
         /// em toda proposta gravada antes deste campo existir — por isso
         /// `serde(default)`: a parte e persistida como JSON, e uma conversa
         /// antiga precisa continuar abrindo.
+        ///
+        /// # Por que ele mora atras de um `Box`
+        ///
+        /// Porque um `enum` custa o tamanho do MAIOR braco em toda parte, e
+        /// `Text { text: String }` tem 32 bytes contra os 320 deste. Cada
+        /// mensagem de texto de uma conversa pagava o preco do rastro de
+        /// auditoria que ela nunca vai ter.
+        ///
+        /// A diferenca passou do teto do clippy quando `ActionArgs` cresceu com
+        /// as acoes de lembrete da ADR-067 — e o CI roda com `-D warnings`, entao
+        /// ela derrubou a compilacao. Com o `Box`, o braco cai para ~144 bytes e
+        /// a conversa inteira fica mais barata.
+        ///
+        /// `Option<Box<T>>` e nao `Box<Option<T>>`: o caso comum e a proposta
+        /// PENDENTE, e nele nao se aloca nada. No JSON os dois sao iguais — o
+        /// `Box` e transparente para o serde —, entao nenhuma conversa gravada
+        /// muda de forma.
         #[serde(default)]
-        audit: Option<crate::ActionAudit>,
+        audit: Option<Box<crate::ActionAudit>>,
     },
     /// O que EFETIVAMENTE atravessou a ponte. A pergunta "o que foi para a VPS?"
     /// precisa de resposta depois do envio, nao so antes (ADR-027).

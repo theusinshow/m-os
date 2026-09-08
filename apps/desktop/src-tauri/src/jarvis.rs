@@ -1561,7 +1561,7 @@ pub async fn action_resolve<R: Runtime>(
                 preview: preview.clone(),
                 status,
                 outcome: outcome.clone(),
-                audit: audit.clone(),
+                audit: audit.clone().map(Box::new),
             },
             body => body,
         })
