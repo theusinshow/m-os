@@ -19,6 +19,9 @@ export type EstadoDaTask =
   | "review"
   | "done";
 
+/** A mesma escala do lembrete, e não uma segunda. */
+export type PrioridadeDaTask = "low" | "normal" | "high" | "urgent";
+
 export type Task = {
   id: string;
   title: string;
@@ -26,8 +29,40 @@ export type Task = {
   state: EstadoDaTask;
   projectId: string | null;
   lifecycleState: "active" | "archived" | "trashed";
+  /** Quando o trabalho VENCE. Não é o lembrete — ver a ADR-066. */
+  dueAt: string | null;
+  priority: PrioridadeDaTask;
+  estimateMinutes: number | null;
+  parentTaskId: string | null;
+  blockedByTaskId: string | null;
+  waitingFor: string;
+  followUpAt: string | null;
+  /* Os dois números do progresso vêm DENTRO da Task. A lista de Fazer desenha
+     `3/6` sem pedir o checklist de cada linha — no 4G da rua, uma chamada por
+     task seria a diferença entre a tela abrir e a tela travar. */
+  checklistTotal: number;
+  checklistDone: number;
   createdAt: string;
   completedAt: string | null;
+};
+
+/** Um passo dentro de uma Task. */
+export type ItemDeChecklist = {
+  id: string;
+  taskId: string;
+  label: string;
+  position: number;
+  completedAt: string | null;
+};
+
+/** A Task com tudo que a tela de detalhe mostra, numa ida só. */
+export type DetalheDaTask = {
+  task: Task;
+  checklist: ItemDeChecklist[];
+  subtasks: Task[];
+  blockedBy: Task | null;
+  references: { id: string; title: string; url: string }[];
+  reminders: Lembrete[];
 };
 
 /** O dia: o Start My Day visto do bolso. */
@@ -59,6 +94,12 @@ export type EdicaoDeTask = {
   descricao?: string;
   /** `null` desliga o projeto. Ausente deixa como está. */
   projectId?: string | null;
+  /** `null` TIRA o prazo. Ausente deixa como está — é a mesma dupla-opção. */
+  prazo?: string | null;
+  prioridade?: PrioridadeDaTask;
+  estimativaMinutos?: number | null;
+  aguardando?: string;
+  cobrarEm?: string | null;
 };
 
 /**
@@ -84,6 +125,31 @@ export type EstadoDoLembrete =
   | "missed"
   | "expired";
 
+/** Que pergunta a tela faz sobre este lembrete. */
+export type TipoDeLembrete = "standard" | "follow_up";
+
+/* A regra de repeticao, como o dominio a guarda.
+
+   Hora e minuto sao LOCAIS, mais o deslocamento em que a regra nasceu: "todo dia
+   as 08:00" quer dizer oito da manha onde a pessoa esta. Ver
+   `crates/mos-core/src/recurrence.rs`. */
+export type RegraDeRepeticao =
+  | { kind: "daily" }
+  | { kind: "weekdays" }
+  | { kind: "weekly"; days: number[] }
+  | { kind: "monthly"; day: { kind: string; day?: number; weekday?: number; ordinal?: number } }
+  | { kind: "yearly"; month: number; day: number }
+  | { kind: "everyDays"; days: number }
+  | { kind: "everyWeeks"; weeks: number };
+
+export type Repeticao = {
+  rule: RegraDeRepeticao;
+  anchor: "fixed" | "completion";
+  hour: number;
+  minute: number;
+  offsetMinutes: number;
+};
+
 export type Lembrete = {
   id: string;
   title: string;
@@ -91,12 +157,44 @@ export type Lembrete = {
   target: AlvoDoLembrete | null;
   status: EstadoDoLembrete;
   priority: "low" | "normal" | "high" | "urgent";
-  /** Quando vence — ou quando venceu. RFC 3339. */
+  /** Quando vence — ou quando venceu. `null` e "algum dia". RFC 3339. */
   nextDueAt: string | null;
   snoozeCount: number;
+  kind: TipoDeLembrete;
+  waitingFor: string;
+  /** "Nao me deixa esquecer": volta a cobrar ate ser resolvido. */
+  persistent: boolean;
+  recurrence: Repeticao | null;
   createdAt: string;
   updatedAt: string;
   lifecycleState: "active" | "archived" | "trashed";
+};
+
+/** Por que um lembrete esta sendo esquecido. Vem decidido do dominio. */
+export type MotivoDeAtencao =
+  | "missed"
+  | "overdue"
+  | "ignored"
+  | "snooze_fatigue"
+  | "persistent"
+  | "high_priority"
+  | "carried_over";
+
+export type LinhaDeAtencao = {
+  reminder: Lembrete;
+  reasons: MotivoDeAtencao[];
+  weight: number;
+};
+
+/** Como cada motivo se le na tela. */
+export const MOTIVO: Record<MotivoDeAtencao, string> = {
+  missed: "perdido",
+  overdue: "atrasado",
+  ignored: "ignorado",
+  snooze_fatigue: "adiado demais",
+  persistent: "nao deixar esquecer",
+  high_priority: "prioridade alta",
+  carried_over: "veio de ontem",
 };
 
 /** O que se manda para editar. Campo ausente é "não mexi" — não "apague". */
@@ -270,6 +368,37 @@ export const api = {
   tasks() {
     return pedir<Task[]>("/api/tasks");
   },
+  detalheDaTask(id: string) {
+    return pedir<DetalheDaTask>(`/api/tasks/${id}/detalhe`);
+  },
+  /** Uma linha vira um passo; várias linhas coladas viram vários. */
+  criarItem(taskId: string, texto: string) {
+    return pedir<Task>(`/api/tasks/${taskId}/checklist`, {
+      method: "POST",
+      body: JSON.stringify({ texto }),
+    });
+  },
+  marcarItem(id: string, feito: boolean) {
+    return pedir<Task>(`/api/checklist/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ feito }),
+    });
+  },
+  renomearItem(id: string, texto: string) {
+    return pedir<Task>(`/api/checklist/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ texto }),
+    });
+  },
+  apagarItem(id: string) {
+    return pedir<Task>(`/api/checklist/${id}`, { method: "DELETE" });
+  },
+  reordenarChecklist(taskId: string, ids: string[]) {
+    return pedir<ItemDeChecklist[]>(`/api/tasks/${taskId}/checklist/ordem`, {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+  },
   criarTask(titulo: string) {
     return pedir<Task>("/api/tasks", {
       method: "POST",
@@ -331,6 +460,45 @@ export const api = {
    * quem tocou no botao, e meia-noite em UTC e nove da noite no Brasil. Mesmo
    * caminho que o `ReminderComposer` do desktop segue.
    */
+  /**
+   * Criar lembrete, com tudo que ele pode ser.
+   *
+   * `quando: null` e "algum dia" — o lembrete existe e nao interrompe.
+   */
+  novoLembrete(pedido: {
+    titulo: string;
+    quando: Date | null;
+    nota?: string;
+    alvo?: AlvoDoLembrete;
+    persistente?: boolean;
+    aguardando?: string;
+    repeticao?: Repeticao | null;
+    adiantamentos?: number[];
+  }) {
+    return pedir<Lembrete>("/api/lembretes", {
+      method: "POST",
+      body: JSON.stringify({
+        titulo: pedido.titulo,
+        nota: pedido.nota ?? "",
+        quando: pedido.quando ? pedido.quando.toISOString() : null,
+        alvo_tipo: pedido.alvo?.type,
+        alvo_id: pedido.alvo?.id,
+        persistente: pedido.persistente ?? false,
+        aguardando: pedido.aguardando,
+        repeticao: pedido.repeticao ?? null,
+        adiantamentos: pedido.adiantamentos ?? [],
+      }),
+    });
+  },
+  /** O que esta sendo esquecido, com o motivo de cada um. */
+  lembretesEmAtencao() {
+    return pedir<LinhaDeAtencao[]>("/api/lembretes/atencao");
+  },
+  alertasDoLembrete(id: string) {
+    return pedir<{ id: string; scheduledAt: string; kind: string; leadMinutes: number | null; status: string }[]>(
+      `/api/lembretes/${id}/alertas`,
+    );
+  },
   criarLembrete(titulo: string, quando: Date, nota = "", alvo?: AlvoDoLembrete) {
     return pedir<Lembrete>("/api/lembretes", {
       method: "POST",

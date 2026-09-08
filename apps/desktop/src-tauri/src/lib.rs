@@ -98,6 +98,25 @@ pub(crate) struct AppState {
     active_voice_shortcut: Mutex<Option<String>>,
     snapshot_status: Arc<Mutex<String>>,
     settings_path: PathBuf,
+    /// O sino do agendador de lembretes.
+    ///
+    /// # O defeito que ele conserta
+    ///
+    /// O laco do `attention.rs` dorme ate o proximo vencimento — no maximo
+    /// quinze minutos. Criar um lembrete chamava `poke`, que rodava UM tick
+    /// avulso e ia embora: o laco continuava dormindo com o prazo calculado
+    /// ANTES do lembrete existir.
+    ///
+    /// Resultado, medido na maquina em 2026-09-08: um lembrete criado para
+    /// daqui a um minuto tocava quatorze minutos depois. O comentario do
+    /// proprio `poke` ja prometia o contrario — *"sem isto, um lembrete para
+    /// daqui a dois minutos esperaria o laco acordar pelo teto de quinze"* —, e
+    /// a promessa estava escrita e nao cumprida.
+    ///
+    /// Com o sino, `poke` ACORDA o laco: ele recalcula o proximo despertar com
+    /// o lembrete novo na conta. Um `Notify` e nao um canal porque a mensagem e
+    /// vazia — o que se transmite e "olhe de novo", e nada mais.
+    attention_wake: Arc<tokio::sync::Notify>,
 }
 
 impl AppState {
@@ -849,6 +868,115 @@ fn list_tasks(
     state.work.tasks(include_archived)
 }
 
+/// A Task com checklist, subtasks, referencias e lembretes.
+///
+/// Pedida so quando a gaveta abre. O QUADRO nao chama isto: o card ja recebe
+/// `checklistTotal` e `checklistDone` dentro da propria Task, e pedir a folha
+/// inteira por cartao seria o N+1 que o desenho recusa.
+#[tauri::command]
+fn get_task_detail(
+    id: &str,
+    state: tauri::State<'_, AppState>,
+) -> Result<mos_core::TaskDetail, CoreError> {
+    state.work.task_detail(id)
+}
+
+/// Acrescenta um passo, ou VARIOS quando o texto tem mais de uma linha.
+///
+/// Quem decide o que e uma linha e o dominio (`parse_checklist_lines`), e nao
+/// esta funcao: a mesma colagem tem de virar os mesmos itens aqui e no bolso.
+#[tauri::command]
+fn add_checklist_item(
+    task_id: &str,
+    text: &str,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Task, CoreError> {
+    let linhas = mos_core::parse_checklist_lines(text);
+    let task = if linhas.len() > 1 {
+        state.work.add_checklist_lines(task_id, text)?;
+        state.work.task(task_id)?
+    } else {
+        state.work.add_checklist_item(task_id, text)?
+    };
+    notify_data_changed(&app, "checklist-added");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(task)
+}
+
+#[tauri::command]
+fn rename_checklist_item(
+    id: &str,
+    text: &str,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<mos_core::ChecklistItem, CoreError> {
+    let item = state.work.rename_checklist_item(id, text)?;
+    notify_data_changed(&app, "checklist-renamed");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(item)
+}
+
+/// Marca ou desmarca. Devolve a TASK porque o que a tela redesenha e a barra de
+/// progresso, e ela e da Task.
+#[tauri::command]
+fn set_checklist_item_done(
+    id: &str,
+    done: bool,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Task, CoreError> {
+    let task = state.work.set_checklist_item_done(id, done)?;
+    notify_data_changed(&app, "checklist-toggled");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(task)
+}
+
+#[tauri::command]
+fn delete_checklist_item(
+    id: &str,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Task, CoreError> {
+    let task = state.work.delete_checklist_item(id)?;
+    notify_data_changed(&app, "checklist-deleted");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(task)
+}
+
+#[tauri::command]
+fn reorder_checklist(
+    task_id: &str,
+    ids: Vec<String>,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<mos_core::ChecklistItem>, CoreError> {
+    let itens = state.work.reorder_checklist(task_id, &ids)?;
+    notify_data_changed(&app, "checklist-reordered");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(itens)
+}
+
+/// Liga ou desliga um Resource a uma Task.
+///
+/// E o MESMO Resource da Library, ligado pela mesma maquinaria de relacao que
+/// liga Resource a Project. Nao ha upload aqui, nem um segundo tipo de anexo.
+#[tauri::command]
+fn set_task_reference(
+    task_id: &str,
+    resource_id: &str,
+    linked: bool,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<mos_core::TaskDetail, CoreError> {
+    state
+        .work
+        .set_task_reference(task_id, resource_id, linked)?;
+    notify_data_changed(&app, "task-reference");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    state.work.task_detail(task_id)
+}
+
 #[tauri::command]
 fn set_task_state(
     id: &str,
@@ -1223,6 +1351,23 @@ fn hide_quick_capture(app: AppHandle) {
     }
 }
 
+/// A caixa de um campo do Quick Reminder.
+///
+/// Mesmo par de comandos da Captura rapida, e pelo mesmo motivo: a janela nasce
+/// escondida no `tauri.conf.json` e so aparece quando alguem a chama — pelo
+/// atalho global, pelo rodape do rail ou pelo leque.
+#[tauri::command]
+fn show_quick_reminder(app: AppHandle) {
+    reveal_window(&app, "quick-reminder");
+}
+
+#[tauri::command]
+fn hide_quick_reminder(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("quick-reminder") {
+        let _ = window.hide();
+    }
+}
+
 fn notify_capture_changed(app: &AppHandle, id: &str) {
     let _ = app.emit_to("main", "capture-changed", id);
 }
@@ -1298,7 +1443,7 @@ fn schedule_snapshot(data: &DataService, snapshot_status: &Arc<Mutex<String>>, a
 
 pub(crate) fn reveal_window<R: Runtime>(app: &AppHandle<R>, label: &str) {
     if let Some(window) = app.get_webview_window(label) {
-        if label == "quick-capture" {
+        if label == "quick-capture" || label == "quick-reminder" {
             if let (Ok(Some(monitor)), Ok(size)) = (window.current_monitor(), window.outer_size()) {
                 let monitor_size = monitor.size();
                 let monitor_position = monitor.position();
@@ -1949,6 +2094,18 @@ pub fn run() {
                         }
                         return;
                     }
+                    // O Quick Reminder. Antes da Captura pelo mesmo motivo que
+                    // a faixa: o ramo da Captura e o fallback de tudo que nao
+                    // foi reconhecido antes.
+                    let lembrete = attention::QUICK_SHORTCUT
+                        .parse::<tauri_plugin_global_shortcut::Shortcut>()
+                        .is_ok_and(|parsed| &parsed == shortcut);
+                    if lembrete {
+                        if event.state == ShortcutState::Pressed {
+                            reveal_window(app, "quick-reminder");
+                        }
+                        return;
+                    }
                     if event.state == ShortcutState::Pressed {
                         reveal_window(app, "quick-capture");
                     }
@@ -2109,6 +2266,7 @@ pub fn run() {
                 active_voice_shortcut: Mutex::new(None),
                 snapshot_status: Arc::new(Mutex::new("Snapshot ainda nao verificado.".into())),
                 settings_path,
+                attention_wake: Arc::new(tokio::sync::Notify::new()),
             });
 
             app.manage(sync::SyncRuntime::default());
@@ -2241,6 +2399,34 @@ pub fn run() {
                     diagnostico::Nivel::Aviso,
                     "faixa",
                     &format!("o atalho {} ja pertence a outro gesto", usage::ATALHO),
+                );
+            }
+
+            // O Quick Reminder, pela mesma regra da faixa: registrado depois,
+            // e a falha nao derruba nada. Sem ele, o lembrete continua a um
+            // clique no rodape do rail.
+            if attention::QUICK_SHORTCUT != configured_shortcut
+                && attention::QUICK_SHORTCUT != configured_voice_shortcut
+                && attention::QUICK_SHORTCUT != usage::ATALHO
+            {
+                if let Err(causa) = app.global_shortcut().register(attention::QUICK_SHORTCUT) {
+                    diagnostico::escrever(
+                        diagnostico::Nivel::Aviso,
+                        "atencao",
+                        &format!(
+                            "o atalho {} nao registrou: {causa}",
+                            attention::QUICK_SHORTCUT
+                        ),
+                    );
+                }
+            } else {
+                diagnostico::escrever(
+                    diagnostico::Nivel::Aviso,
+                    "atencao",
+                    &format!(
+                        "o atalho {} ja pertence a outro gesto",
+                        attention::QUICK_SHORTCUT
+                    ),
                 );
             }
 
@@ -2467,6 +2653,17 @@ pub fn run() {
                     attention::attention_acknowledge,
                     attention::attention_cancel,
                     attention::attention_archive,
+                    attention::attention_new,
+                    attention::attention_reschedule,
+                    attention::attention_needs,
+                    attention::attention_triggers,
+                    attention::attention_add_trigger,
+                    attention::attention_cancel_trigger,
+                    attention::attention_history,
+                    attention::attention_settings,
+                    attention::attention_save_settings,
+                    attention::attention_set_offset,
+                    attention::attention_parse,
                     usage::usage_faixa,
                     usage::faixa_painel_alternar,
                     usage::faixa_painel_fechar,
@@ -2586,6 +2783,13 @@ pub fn run() {
                     update_task,
                     get_task,
                     list_tasks,
+                    get_task_detail,
+                    add_checklist_item,
+                    rename_checklist_item,
+                    set_checklist_item_done,
+                    delete_checklist_item,
+                    reorder_checklist,
+                    set_task_reference,
                     set_task_state,
                     set_task_archived,
                     create_registered_app,
@@ -2605,6 +2809,8 @@ pub fn run() {
                     set_capture_shortcut,
                     set_voice_shortcut,
                     show_quick_capture,
+                    show_quick_reminder,
+                    hide_quick_reminder,
                     hide_quick_capture,
                     voice::voice_start,
                     voice::voice_stop,

@@ -132,6 +132,10 @@ si, e sincroniza-la era um terceiro que ninguem era forcado a considerar.
 Nao ha lista certa. `usage_requisicao` fora do sync esta tao correto quanto
 `time_entries` dentro. O que estava errado era nao ter escolhido.
 
+Desde 2026-09-08 a cobertura esta na **geracao 3**: ela acrescentou
+`task_checklist_items` e a juncao `resource_tasks` (ADR-066). Quem ja tinha
+passado pelo backfill da geracao 2 passa de novo, e so pelo que entrou.
+
 Fica de fora, em resumo: a maquinaria do proprio sync; a telemetria de uso e de
 atividade; o que descreve a maquina (apps monitorados, cronometro em curso,
 deteccao de ociosidade); o que guarda ARQUIVO em disco, porque o hub carrega
@@ -338,12 +342,45 @@ mostrou o aviso — o iPhone tocar não significa que o PC tocou, e sincronizar
 esse número faria dois aparelhos disputarem um contador que nem descreve a mesma
 coisa. `snoozeCount` viaja, porque adiar é ação da pessoa e não do aparelho.
 
+**Só o que MUDOU viaja.** Uma edição de Task grava os onze campos — a escrita é
+autoritativa — e emite só os que ficaram diferentes. A razão é desta seção e não
+da interface: **um campo emitido é um campo disputado.** Emitindo os onze
+sempre, mudar a prioridade no celular carregaria junto o `dueAt: null` que ele
+leu antes, e, sendo a operação mais recente, apagaria o prazo que o PC acabou de
+pôr — dois gestos em campos diferentes, e um vencendo o outro, que é exatamente
+o que o §4 promete que não acontece. Com quatro campos isso era teoria; a
+ADR-066 levou a Task a onze, e aí virou o caminho normal de perder trabalho.
+
 **Arquivar é mudança de campo, não `OpBody::Delete`.**
 O `Delete` é para a exclusão definitiva, a que o M/OS só aceita depois de
 arquivar. Se arquivar virasse `Delete`, a regra de "apagar ganha" faria o
 arquivamento vencer a restauração para sempre — e a Capture nunca mais voltaria.
 
 ---
+
+## 12.1 O checklist é o caso que decidiu o desenho
+
+O item de checklist de uma Task é **entidade**, e não campo. Isso não é
+preferência de esquema — é a única forma de o cenário abaixo terminar certo:
+
+```
+PC:      marca o item A
+celular: acrescenta o item B
+         ↓ sincroniza
+A continua marcado. B continua existindo.
+```
+
+Com um array numa coluna, os dois gestos seriam escritas concorrentes sobre o
+**mesmo campo**: o merge por campo escolheria uma, e a outra iria para
+`sync_conflicts` em vez de para a tela. Com uma linha por item, os dois gestos
+nem se encontram — são operações sobre entidades diferentes, e não há conflito a
+resolver.
+
+Merge por campo não serve para conjunto. É a mesma frase do §13, aplicada
+dentro de uma entidade em vez de entre duas.
+
+A prova está em `crates/mos-sync-http/tests/task_de_verdade.rs`, com dois bancos
+de verdade e o hub HTTP.
 
 ## 13. Relações: o Knowledge Graph
 
@@ -384,7 +421,7 @@ trava o valor.
 ## 14. O que falta
 
 - **Emitir operações nas outras entidades.** Já emitem: Captures, Tasks,
-  Projects, Reminders, Resources e a Daily Session (`daily_session`,
+  Projects, Reminders, Resources, o checklist das Tasks e a Daily Session (`daily_session`,
   `daily_objective`, `daily_reflection` — ver `DAILY-SESSION.md`), o fecho da
   semana (`weekly_review`) e o M/Academic (`academic_semester`,
   `academic_subject`, `academic_assignment`, `academic_exam`,

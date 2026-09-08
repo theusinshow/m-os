@@ -72,6 +72,20 @@ pub enum CalendarKind {
     /// existe no M/OS, e uma variante que sugerisse agenda prometeria uma
     /// capacidade sem lastro.
     Meeting,
+    /// **Quando a Task vence.**
+    ///
+    /// A quarta fonte com instante marcado, e a primeira que nao vem da
+    /// faculdade. Ela so pode existir desde a migration 0039: ate 2026-09-08 a
+    /// decisao D-1 mantinha `Task.due_at` fora do M/OS, e o comentario de
+    /// `AssignmentDue` acima registra o argumento que valia enquanto isso —
+    /// uma variante sem dado por tras prometeria capacidade sem lastro. Agora
+    /// ha lastro. Ver a ADR-066.
+    ///
+    /// O item de checklist NAO entra aqui, e a ausencia e deliberada: uma Task
+    /// com seis passos viraria sete marcas no mesmo dia, e o calendario
+    /// passaria a contar a execucao em vez do compromisso. Subtask entra, sim,
+    /// mas por ter prazo PROPRIO — e ai ela e uma Task como qualquer outra.
+    TaskDue,
     /// Um lembrete, na hora em que ele vence.
     ///
     /// Faltava, e a ausencia era sentida: um lembrete para quinta as 14h nao
@@ -92,6 +106,7 @@ impl CalendarKind {
             Self::Session => "session",
             Self::TaskDone => "task_done",
             Self::TaskCreated => "task_created",
+            Self::TaskDue => "task_due",
             Self::Capture => "capture",
             Self::AppOpened => "app_opened",
             Self::DayStarted => "day_started",
@@ -252,6 +267,22 @@ pub fn compose(input: ComposeInput<'_>) -> Vec<CalendarItem> {
                 seconds: 0,
                 amount_cents: 0,
             });
+        }
+        // O prazo, quando ha. Uma Task concluida nao volta a vencer: o item
+        // de prazo desaparece assim que o trabalho fecha, senao o calendario
+        // continuaria cobrando o que ja foi entregue.
+        if let Some(due) = task.due_at {
+            if within(due) && task.completed_at.is_none() {
+                items.push(CalendarItem {
+                    kind: CalendarKind::TaskDue,
+                    at: due,
+                    ends_at: None,
+                    title: task.title.clone(),
+                    project_id: task.project_id,
+                    seconds: 0,
+                    amount_cents: 0,
+                });
+            }
         }
         if let Some(done) = task.completed_at {
             if within(done) {
@@ -445,6 +476,15 @@ mod tests {
             source_capture_id: None,
             state: crate::TaskState::Backlog,
             lifecycle_state: crate::LifecycleState::Active,
+            due_at: None,
+            priority: crate::Priority::Normal,
+            estimate_minutes: None,
+            parent_task_id: None,
+            blocked_by_task_id: None,
+            waiting_for: String::new(),
+            follow_up_at: None,
+            checklist_total: 0,
+            checklist_done: 0,
             created_at: created,
             updated_at: created,
             completed_at: done,
@@ -618,6 +658,13 @@ mod tests {
             next_due_at: Some(moment(9)),
             snooze_count: 0,
             delivered_count: 0,
+            kind: crate::ReminderKind::Standard,
+            waiting_for: String::new(),
+            persistent: false,
+            escalation_step: 0,
+            last_triggered_at: None,
+            retry_at: None,
+            recurrence: None,
             created_at: moment(0),
             updated_at: moment(0),
             completed_at: None,

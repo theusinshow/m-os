@@ -41,7 +41,7 @@ pub use cronocad_import::ImportReport;
 pub use sync_manifesto::LinhaDoManifesto;
 pub use sync_reparo::Reparo;
 
-const SCHEMA_VERSION: u32 = 38;
+const SCHEMA_VERSION: u32 = 40;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -94,6 +94,8 @@ const MIGRATION_035: &str = include_str!("../migrations/0035_sync_state.sql");
 const MIGRATION_036: &str = include_str!("../migrations/0036_usage.sql");
 const MIGRATION_037: &str = include_str!("../migrations/0037_default_hourly_rate.sql");
 const MIGRATION_038: &str = include_str!("../migrations/0038_sync_pendentes.sql");
+const MIGRATION_039: &str = include_str!("../migrations/0039_task_execution.sql");
+const MIGRATION_040: &str = include_str!("../migrations/0040_reminder_depth.sql");
 
 pub struct SqliteStorage {
     /// O PORTAO: quem vai mexer na conexao E no relogio passa por aqui antes.
@@ -527,6 +529,16 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
             .execute_batch(MIGRATION_038)
             .map_err(map_sql_error)?;
     }
+    if current <= 38 {
+        connection
+            .execute_batch(MIGRATION_039)
+            .map_err(map_sql_error)?;
+    }
+    if current <= 39 {
+        connection
+            .execute_batch(MIGRATION_040)
+            .map_err(map_sql_error)?;
+    }
     if current < SCHEMA_VERSION {
         verify_foreign_keys(connection, &orfas_antes)?;
     }
@@ -629,6 +641,7 @@ fn ensure_search_projection(connection: &Connection) -> Result<(), CoreError> {
         ("captures", "capture_search"),
         ("projects", "project_search"),
         ("tasks", "task_search"),
+        ("task_checklist_items", "task_checklist_search"),
         ("apps", "app_search"),
         ("workspaces", "workspace_search"),
         ("resources", "resource_search"),
@@ -886,6 +899,8 @@ mod tests {
             MIGRATION_036,
             MIGRATION_037,
             MIGRATION_038,
+            MIGRATION_039,
+            MIGRATION_040,
         ];
         for migration in migrations.into_iter().take(ate as usize) {
             connection.execute_batch(migration).unwrap();

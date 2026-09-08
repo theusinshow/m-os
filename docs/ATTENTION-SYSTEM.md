@@ -721,7 +721,7 @@ Semântica do `[Concluir]` de um Reminder cujo target é Task — e essa é uma 
 
 A superfície oferece **duas** ações explícitas quando há Task: `Concluir lembrete` e `Concluir tarefa`. Duas ações claras custam um clique; uma ação ambígua custa confiança.
 
-**`Task.due_at` não existe** e é pré-requisito de metade do que se espera aqui. Ver D-1.
+**`Task.due_at` passou a existir** em 2026-09-08 (ADR-066). Isso NÃO muda a semântica acima: concluir o lembrete continua não concluindo a Task, e a superfície continua oferecendo as duas ações separadas. O que muda é que a Task agora tem prazo próprio — e o Reminder deixou de ser o único jeito de dar hora a ela. As duas ações passam a ser ainda mais distintas, e não menos.
 
 ---
 
@@ -943,7 +943,7 @@ Reordenado em relação ao pedido, por causa da §0.2. Duas capacidades saem de 
 
 | Item | O que fica de fora com ele | Decisão |
 |---|---|---|
-| `Task.due_at` | reminder relativo a prazo, escalonamento por prazo, digest de prazos | **D-1: não por agora** |
+| `Task.due_at` | reminder relativo a prazo, escalonamento por prazo, digest de prazos | **existe desde a ADR-066**; os três continuam fora, agora por falta de decisão sobre interrupção — e não por falta de dado |
 | Entidade `Event` | reminder relativo a evento, Smart Snooze por agenda, cascata de reagendamento | **D-4: decidir separadamente** |
 
 Nenhum dos dois bloqueia P0–P3. O que eles bloqueiam está listado acima, e a superfície não deve oferecer a opção nem sugerir que ela existe.
@@ -952,11 +952,11 @@ Nenhum dos dois bloqueia P0–P3. O que eles bloqueiam está listado acima, e a 
 
 Domínio, persistência (migration 0015), Clock, agendador de um timer, máquinas de estado, `Trigger::At`, reconciliação na abertura, `missed`, Attention Center, entrega in-app. Fecha pelos gates da §27.1.
 
-### P1 — Windows
+### P1 — Windows · **feito** (ADR-067)
 
 Canal Windows por `notify-rust` (§11.2), botões e ativação, deep links, tray com "Próximo" e contagem, autostart opt-in (D-5), privacidade de conteúdo em tela bloqueada. Gate empírico de AUMID.
 
-### P2 — Reminders inteligentes
+### P2 — Reminders inteligentes · **feito** (ADR-067, ver §42)
 
 Snooze completo, `FollowUp` (§5.2), recorrência, dedupe, bundling, Quiet Hours.
 
@@ -982,7 +982,7 @@ Fechadas em 2026-08-18 pelo proprietário do produto. Ficam registradas com o qu
 
 | | Decisão | Custo aceito |
 |---|---|---|
-| **D-1** | `Task.due_at` **não entra por agora** | reminder relativo a prazo, escalonamento por prazo e digest de prazos ficam fora indefinidamente |
+| **D-1** | ~~`Task.due_at` **não entra por agora**~~ — **superada pela ADR-066 em 2026-09-08** | o custo aceito deixou de existir junto com a decisão; ver §35.3 |
 | **D-2** | Hermes lê por **tipo de contexto `attention`** | leitura só acontece quando o usuário anexa o contexto; o modelo não consulta por iniciativa própria |
 | **D-3** | Canal Windows por **`notify-rust` direto** | dependência direta de um crate hoje transitivo, e um caminho fora do plugin oficial |
 | **D-4** | Entidade `Event` **decidida separadamente** | tudo que precisa de âncora de evento fica fora; a página Calendar segue significando "o que aconteceu" |
@@ -990,15 +990,37 @@ Fechadas em 2026-08-18 pelo proprietário do produto. Ficam registradas com o qu
 | **D-6** | Attention Center no **rodapé do rail** | não é destino de conteúdo; some da contagem de onze e vive na zona de Quick Capture e Settings |
 | **D-7** | Aviso do monitor e Reminder são **coisas declaradamente diferentes** | o monitor mantém falha em silêncio; só o nome muda no código |
 
-### 35.1 O que D-1 e D-4 juntos implicam
+### 35.1 O que D-1 e D-4 juntos implicavam
 
-As duas negativas se somam: sem prazo e sem evento, **não existe âncora de tempo futuro em nenhum lugar do M/OS**. Consequências que valem estar escritas, para ninguém as redescobrir:
+> **Metade disto caiu.** A ADR-066 (2026-09-08) trouxe `Task.due_at`. Existe
+> âncora de tempo futuro; continua não existindo entidade `Event`. O texto
+> abaixo fica como estava, porque é o registro do que valia — e a §35.3 diz
+> exatamente qual linha ainda vale e qual não vale mais.
+
+As duas negativas se somavam: sem prazo e sem evento, **não existia âncora de tempo futuro em nenhum lugar do M/OS**. Consequências que valem estar escritas, para ninguém as redescobrir:
 
 - `Trigger::Relative` sai do modelo (§5.1);
 - Smart Snooze entrega só sugestões de relógio (§13.1);
 - escalonamento existe, mas só a partir do próprio vencimento do Reminder, nunca de um prazo alheio (§14);
 - os widgets W04 *Next Up* e W06 *Day Arc* (ADR-034) destravam **parcialmente** — passam a ter Reminders para mostrar, mas continuam sem eventos;
 - a UI **não oferece** essas opções nem as mostra desabilitadas. Um campo cinza ensina que a capacidade existe e está quebrada; a ausência é honesta.
+
+### 35.3 O que sobrou da §35.1 depois da ADR-066
+
+| linha da §35.1 | agora |
+|---|---|
+| `Trigger::Relative` sai do modelo | **continua fora**, e por outro motivo: ela precisaria de âncora de EVENTO, não de prazo |
+| Smart Snooze entrega só sugestões de relógio | continua |
+| escalonamento só a partir do vencimento do próprio Reminder | continua — ter prazo não é ter aviso |
+| W04 e W06 destravam parcialmente | continuam parciais: há prazo, não há evento |
+| a UI **não oferece** o que depende de âncora futura | **muda**: prazo de Task é oferecido, porque agora existe |
+
+A distinção que a ADR-066 fixou, e que este documento precisa manter:
+**`due_at` responde *quando vence*; o Reminder responde *quando eu te
+interrompo*.** Ter prazo não gera aviso nenhum sozinho — reminder relativo a
+prazo, escalonamento por prazo e digest de prazos deixaram de estar bloqueados
+por falta de dado, e passaram a depender de uma decisão sobre **quando é
+legítimo interromper**. Nenhum deles foi implementado.
 
 ### 35.2 O caminho de D-2, e por que ele não precisou de ADR
 
@@ -1102,10 +1124,218 @@ Seguindo a ADR-037, o texto na tela explica em português o que o sistema faz, o
 
 ## 41. O que este documento não autoriza
 
-- **P1 em diante** — P0 está autorizado; a ADR-043 destravou o autostart, o resto de P1 segue por fazer;
-- entidade `Event` ou `Task.due_at` — negados por D-4 e D-1; voltam por decisão própria, não por conveniência de uma fase;
+- **P3 em diante** — P0, P1 e P2 estão feitos (ADR-067, §42). P3 — Attention Score, Focus, digests, orçamento de notificação — segue por fazer;
+- entidade `Event` — negada por D-4; volta por decisão própria, não por conveniência de uma fase. (`Task.due_at` saiu desta lista: a ADR-066 o trouxe.);
 - oferecer na UI qualquer opção que dependa de âncora de tempo futuro (§35.1);
 - connectors externos;
 - qualquer sinal de contexto além dos três da ADR-037;
 - ferramentas de leitura do Hermes antes de D-2;
 - machine learning no caminho de decisão de entrega.
+
+---
+
+## 42. A camada profunda — o que a ADR-067 implementou
+
+Escrito depois, em 2026-09-08, e por isso este capítulo fala no passado onde o
+resto do documento fala no futuro. **P1 e P2 estão fechados**; o que segue
+descreve o sistema como ele é, com os limites reais ao lado.
+
+O pedido que originou este capítulo nomeou o defeito num ciclo de quatro passos:
+*dispara → ignoro → some → esqueço*. O P0 já garantia que o Reminder não sumia do
+banco. O que faltava era o passo 3 deixar de ser verdade na **experiência**.
+
+### 42.1 Persistir, e a política de insistência
+
+`reminders.persistent` é a decisão da pessoa. Um lembrete persistente volta a
+cobrar em **30 min, 1 h, 2 h** — e então **para de tocar e continua existindo**.
+
+| quem | re-alertas |
+|---|---|
+| persistente | 3 |
+| `high` / `urgent` | 1 |
+| resto | 0 |
+
+`escalation_delay(step)` e `retry_budget(reminder)`, ambas no domínio e puras.
+Determinísticas de propósito (§30): dá para prever quando se vai ser incomodado
+de novo, e é isso que permite confiar no sistema em vez de negociar com ele.
+
+**Insistir não é um estado.** `Transition::Escalate` sobe o degrau e remarca; o
+Reminder continua `due` / `delivered` / `missed`, continua contando o atraso
+desde o instante ORIGINAL e continua no Attention Center. Insistir é uma entrega
+a mais sobre o mesmo estado — que é a separação inteira entre Reminder e
+Notification, aplicada de novo.
+
+`retry_at` é coluna própria e não `next_due_at` reaproveitada, pela razão de
+sempre: aquela coluna é o que sustenta o *"atrasado há 2 h"*, e empurrá-la
+apagaria o tamanho do atraso.
+
+### 42.2 Dois agendadores, um resultado
+
+O desktop escreve `retry_at`. A VPS **lê e não escreve** — a fronteira do
+`avisos.rs` continua intacta, e ela existe porque dois agendadores disputando a
+mesma coluna produzem o lembrete que some do PC porque o celular achou que já
+tinha dado conta.
+
+`mos_core::alert_slot(reminder, now)` é como o lado que só lê chega ao **mesmo
+degrau** que o lado que escreve alcançaria, derivando-o do vencimento e do
+relógio. Os dois leem os mesmos intervalos da mesma função. Um teste no domínio
+prova que o degrau derivado é o que o agendador de verdade atinge.
+
+### 42.3 Repetição
+
+`Recurrence { rule, anchor, hour, minute, offset_minutes }`, em JSON na coluna
+`reminders.recurrence`. `None` é o normal e significa *acontece uma vez* — não
+"repetição desconhecida".
+
+Formas: diária, dias úteis, dias da semana escolhidos, mensal por dia, mensal por
+ordinal (*primeira segunda*, *última sexta*), **último dia útil do mês**, anual, a
+cada N dias, a cada N semanas.
+
+**Duas âncoras, e a diferença é de produto:**
+
+- **fixa** — "toda segunda às 09:00" continua sendo toda segunda, mesmo que a da
+  semana passada só tenha sido resolvida na quarta;
+- **por conclusão** — "limpar o computador a cada 30 dias **depois que eu
+  fizer**". Concluído no dia 8, o próximo é o dia 38.
+
+**Uma série é UMA linha que avança.** Concluir uma ocorrência não encerra a série:
+`apply` devolve o Reminder a `scheduled` com a próxima hora. Uma linha por
+ocorrência geraria centenas em um ano, nenhuma consultada de novo; o que
+aconteceu fica em `reminder_events`, que é onde alguém procura.
+
+Dia 31 num mês de 30 cai no **dia 30**, e não pula o mês.
+
+### 42.4 A pilha de alertas
+
+`reminder_triggers` é tabela pela mesma razão que `task_checklist_items` é
+(ADR-066): um array numa coluna sincroniza como **campo**, e merge por campo não
+serve para conjunto.
+
+"Entregar atividade, sexta 23:59" com alerta 1 dia antes, 4 h antes, 1 h antes e
+no prazo é **um** Reminder com quatro alertas — `🔔 4 alertas` na tela, expansível.
+
+Enquanto houver alerta pela frente, o vencimento anterior era um **aviso
+antecipado**: o Reminder volta a `scheduled` com a hora do próximo, em vez de
+ficar marcado como vencido. Só depois do último ele fica cobrando de verdade.
+
+Concluir ou cancelar mata a pilha pendente numa transação — quatro alertas para
+algo já resolvido são quatro interrupções que não significam nada.
+
+Nenhum adiantamento vem marcado por default (§17).
+
+### 42.5 Follow-up, e Someday
+
+`reminders.kind` tem dois valores. `follow_up` mais `waiting_for` mudam a
+**pergunta** que a superfície faz: *"o Victor respondeu?"* em vez de *"concluir"*.
+Mesmo ciclo de vida, mesmo agendador, mesma linha — não há Task-cópia chamada
+"Cobrar Victor".
+
+`Trigger::Someday` é lembrete sem data. Existe, aparece na lista, não gera
+despertar nenhum. Sem ele, guardar "comprar cabo HDMI" exigiria inventar uma
+hora — e uma hora inventada é uma notificação que se aprende a ignorar.
+
+### 42.6 Horas de silêncio
+
+`attention_settings`, linha única, **não sincroniza**: silenciar o celular à noite
+não pode silenciar o PC do escritório.
+
+Durante a janela o Reminder continua vencido, continua contando o atraso e
+continua no Attention Center. O que espera é a **entrega**, remarcada para o fim
+do silêncio, e ela sai então com o atraso dito por extenso.
+
+Furar o silêncio é opt-in e só para `urgent`.
+
+A tabela guarda também `local_offset_minutes`, e ele existe por uma razão
+concreta: o processo que decide o silêncio nem sempre tem como perguntar o fuso.
+O `time` sem a feature `local-offset` não sabe, e a VPS está em UTC enquanto a
+pessoa não está. O desktop reescreve a coluna a cada abertura, com o valor real
+da máquina.
+
+### 42.7 Needs Attention
+
+`needs_attention(reminders, now_local)` é pura e determinística. Sete motivos:
+
+| motivo | quando | peso |
+|---|---|---|
+| `missed` | venceu com o M/OS fora | 30 |
+| `overdue` | passou da hora e continua aberto | 20 |
+| `ignored` | duas entregas sem resposta | 15 |
+| `persistent` | marcado como "não me deixa esquecer" **e** já com outro motivo | 15 |
+| `carried_over` | ficou de um dia anterior | 12 |
+| `snooze_fatigue` | adiado 5× ou mais | 10 |
+| `high_priority` | prioridade alta e a hora chegou | 8 |
+
+A soma ordena; empate desfeito pelo id, para a ordem ser estável entre duas
+leituras — uma lista que se reordena sozinha é uma lista em que se clica no item
+errado.
+
+`persistent` não entra sozinho: um lembrete para daqui a três dias marcado como
+"não me deixa esquecer" ainda não está sendo esquecido.
+
+**A tela não recalcula nada disso.** Ela recebe a lista com os motivos e desenha.
+
+### 42.8 Histórico
+
+`reminder_events`, append-only, **local**. Doze tipos, e só o que responde uma
+pergunta que alguém faz: *por que isso apareceu?*, *quando tocou?*, *quantas vezes
+eu adiei?*.
+
+Não sincroniza porque descreve o que **este** aparelho fez; fazê-lo viajar exigiria
+um segundo motor de sync. O que a pessoa decidiu já viaja nos campos do próprio
+lembrete.
+
+### 42.9 O que atravessa entre aparelhos
+
+Cobertura do sync na **geração 4**:
+
+| viaja | fica |
+|---|---|
+| `persistent`, `recurrence`, `kind`, `waitingFor` | `escalationStep`, `retryAt`, `lastTriggeredAt` |
+| `nextDueAt` já no CREATE (era um defeito: o celular recebia lembrete sem hora) | `deliveredCount` |
+| a pilha inteira (`reminder_triggers`) | `attention_notifications`, `reminder_events`, `attention_settings` |
+
+A regra de corte é uma só: **decisão da pessoa viaja; escrituração da entrega
+fica**.
+
+### 42.10 Captura em segundos
+
+`Ctrl+Shift+R` abre uma caixa de um campo. *"Enviar as bases para o Victor hoje
+20:30 e não me deixa esquecer"* → Enter → o lembrete existe, com hora e com
+insistência.
+
+A leitura da frase é `resolve_when`, o mesmo parser determinístico que a voz usa
+desde antes disto — **não há chamada de modelo**. "amanhã 9h" não precisa de um,
+e mandá-la para um custaria latência, dinheiro e a possibilidade de a resposta
+mudar amanhã. A prévia mostra o instante resolvido e ecoa o trecho que virou
+hora, com a grafia que a pessoa usou.
+
+Sem tempo na frase, o lembrete nasce em Someday. Sem título, nada acontece.
+
+### 42.11 Limites reais da plataforma
+
+Escritos aqui para ninguém os redescobrir:
+
+1. **Sem botões no toast do Windows.** "Concluir" e "Adiar" a partir da
+   notificação exigiriam AUMID registrada e o caminho WinRT (§11.3). O clique
+   abre o M/OS **na coisa certa** — a Task, o Project, a reunião — e a ação é um
+   clique lá. Prometer o que a plataforma não dá seria prometer o que não se
+   cumpre.
+2. **Deduplicação entre aparelhos não é perfeita.** Com PC e celular ligados, os
+   dois avisam. A memória do que já foi avisado é local a cada um por decisão
+   (§39); centralizá-la exigiria que a entrega virasse estado sincronizado, e aí
+   um aparelho offline calaria o outro. A garantia que existe é a que importa:
+   **nenhum aparelho continua cobrando algo já resolvido em outro**, porque o
+   estado da intenção viaja.
+3. **A repetição usa deslocamento fixo, não tzdb.** Numa mudança de horário de
+   verão ela andaria uma hora. O Brasil não tem HV desde 2019. A saída, no dia em
+   que doer, é `offset_minutes` virar um identificador IANA.
+4. **O histórico é por aparelho.** Ver §42.8.
+5. **Sem permissão de notificação, o canal do SO falha em silêncio do lado do
+   sistema** — e isso **não** resolve o lembrete: a falha é gravada em
+   `attention_notifications.failure`, e ele continua no Attention Center. É a
+   §27 inteira, e é o que garante que nenhuma API quebrada apague uma intenção.
+
+### 42.12 O que continua fora
+
+`Trigger::Relative` (D-4 segue de pé para `Event`), Attention Score, digests,
+bundling, Focus, connectors externos, e leitura autônoma pelo Hermes (D-2).

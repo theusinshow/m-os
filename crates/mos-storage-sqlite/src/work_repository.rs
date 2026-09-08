@@ -2,8 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use mos_core::{
     validate_widget_id, AppId, AttentionRepository, Capture, CaptureId, CaptureRepository,
-    CoreError, ErrorCode, HiddenWidget, LifecycleState, NewProject, NewReminder, NewTask,
-    NewWorkspace, Project, ProjectId, RegisteredApp, Reminder, SearchItem, SearchRequest, Task,
+    ChecklistItem, ChecklistItemId, CoreError, EditTask, ErrorCode, HiddenWidget, LifecycleState,
+    NewChecklistItem, NewProject, NewReminder, NewTask, NewWorkspace, Priority, Project, ProjectId,
+    RegisteredApp, Reminder, Resource, ResourceId, SearchItem, SearchRequest, Task, TaskDetail,
     TaskId, TaskState, WorkRepository, Workspace, WorkspaceId,
 };
 use rusqlite::{params, OptionalExtension, Row, Transaction};
@@ -24,7 +25,46 @@ pub(crate) const PROJECT_COLUMNS: &str =
     "id, name, description, lifecycle_state, created_at, updated_at, repository";
 pub(crate) const WORKSPACE_COLUMNS: &str =
     "id, name, description, lifecycle_state, created_at, updated_at";
-pub(crate) const TASK_COLUMNS: &str = "id, title, description, project_id, source_capture_id, work_state, lifecycle_state, created_at, updated_at, completed_at";
+pub(crate) const TASK_COLUMNS: &str = "id, title, description, project_id, source_capture_id, work_state, lifecycle_state, due_at, priority, estimate_minutes, parent_task_id, blocked_by_task_id, waiting_for, follow_up_at, created_at, updated_at, completed_at";
+
+pub(crate) const CHECKLIST_COLUMNS: &str =
+    "id, task_id, label, position, completed_at, created_at, updated_at";
+
+/// A lista de colunas da Task, com apelido, MAIS as duas contagens do checklist.
+///
+/// # Por que subconsulta, e nao uma segunda ida ao banco
+///
+/// O card do Kanban mostra `4/7` e uma barra. Buscar isso por Task seria um
+/// `SELECT` por cartao — o N+1 classico, e num quadro de sessenta Tasks sao
+/// sessenta consultas para desenhar uma tela. As duas correlacionadas aqui
+/// resolvem tudo numa consulta so, e as duas caem no indice
+/// `task_checklist_order`, que comeca por `task_id`.
+///
+/// # Por que aqui, e nao um JOIN com GROUP BY
+///
+/// Um `LEFT JOIN ... GROUP BY` obrigaria toda consulta de Task a agrupar por
+/// dezessete colunas, e a primeira que esquecesse uma delas devolveria linha
+/// duplicada em silencio. A subconsulta e local: quem escreve SQL de Task nao
+/// precisa saber que checklist existe.
+///
+/// Item `trashed` nao conta. Um item apagado no celular chega aqui como
+/// `lifecycle_state = 'trashed'` (o apagamento do sync e logico), e conta-lo
+/// faria a barra do card encolher sozinha no outro PC.
+pub(crate) fn task_select(alias: &str) -> String {
+    let colunas = TASK_COLUMNS
+        .split(", ")
+        .map(|coluna| format!("{alias}.{coluna}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "{colunas}, \
+         (SELECT COUNT(*) FROM task_checklist_items ci \
+           WHERE ci.task_id = {alias}.id AND ci.lifecycle_state = 'active'), \
+         (SELECT COUNT(*) FROM task_checklist_items ci \
+           WHERE ci.task_id = {alias}.id AND ci.lifecycle_state = 'active' \
+             AND ci.completed_at IS NOT NULL)"
+    )
+}
 
 struct RawProject {
     id: String,
@@ -103,9 +143,18 @@ struct RawTask {
     source_capture_id: Option<String>,
     state: String,
     lifecycle_state: String,
+    due_at: Option<String>,
+    priority: String,
+    estimate_minutes: Option<i64>,
+    parent_task_id: Option<String>,
+    blocked_by_task_id: Option<String>,
+    waiting_for: String,
+    follow_up_at: Option<String>,
     created_at: String,
     updated_at: String,
     completed_at: Option<String>,
+    checklist_total: i64,
+    checklist_done: i64,
 }
 
 impl RawTask {
@@ -118,9 +167,18 @@ impl RawTask {
             source_capture_id: row.get(4)?,
             state: row.get(5)?,
             lifecycle_state: row.get(6)?,
-            created_at: row.get(7)?,
-            updated_at: row.get(8)?,
-            completed_at: row.get(9)?,
+            due_at: row.get(7)?,
+            priority: row.get(8)?,
+            estimate_minutes: row.get(9)?,
+            parent_task_id: row.get(10)?,
+            blocked_by_task_id: row.get(11)?,
+            waiting_for: row.get(12)?,
+            follow_up_at: row.get(13)?,
+            created_at: row.get(14)?,
+            updated_at: row.get(15)?,
+            completed_at: row.get(16)?,
+            checklist_total: row.get(17)?,
+            checklist_done: row.get(18)?,
         })
     }
 
@@ -141,9 +199,62 @@ impl RawTask {
                 .transpose()?,
             state: TaskState::parse(&self.state)?,
             lifecycle_state: LifecycleState::parse(&self.lifecycle_state)?,
+            due_at: self.due_at.as_deref().map(parse_time).transpose()?,
+            priority: Priority::parse(&self.priority)?,
+            estimate_minutes: self.estimate_minutes,
+            parent_task_id: self
+                .parent_task_id
+                .as_deref()
+                .map(TaskId::parse)
+                .transpose()?,
+            blocked_by_task_id: self
+                .blocked_by_task_id
+                .as_deref()
+                .map(TaskId::parse)
+                .transpose()?,
+            waiting_for: self.waiting_for,
+            follow_up_at: self.follow_up_at.as_deref().map(parse_time).transpose()?,
+            checklist_total: self.checklist_total.max(0) as usize,
+            checklist_done: self.checklist_done.max(0) as usize,
             created_at: parse_time(&self.created_at)?,
             updated_at: parse_time(&self.updated_at)?,
             completed_at: self.completed_at.as_deref().map(parse_time).transpose()?,
+        })
+    }
+}
+
+struct RawChecklistItem {
+    id: String,
+    task_id: String,
+    label: String,
+    position: i64,
+    completed_at: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+impl RawChecklistItem {
+    fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get(0)?,
+            task_id: row.get(1)?,
+            label: row.get(2)?,
+            position: row.get(3)?,
+            completed_at: row.get(4)?,
+            created_at: row.get(5)?,
+            updated_at: row.get(6)?,
+        })
+    }
+
+    fn into_item(self) -> Result<ChecklistItem, CoreError> {
+        Ok(ChecklistItem {
+            id: ChecklistItemId::parse(&self.id)?,
+            task_id: TaskId::parse(&self.task_id)?,
+            label: self.label,
+            position: self.position,
+            completed_at: self.completed_at.as_deref().map(parse_time).transpose()?,
+            created_at: parse_time(&self.created_at)?,
+            updated_at: parse_time(&self.updated_at)?,
         })
     }
 }
@@ -426,6 +537,29 @@ impl WorkRepository for SqliteStorage {
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         guard_deletable(&transaction, "tasks", &id.to_string(), "Task")?;
         delete_task_search(&transaction, id)?;
+        // O checklist cai por CASCADE (migration 0039), e o indice dele NAO —
+        // um FTS nao tem chave estrangeira. Sem esta linha ficariam linhas de
+        // indice apontando para rowids que nao existem mais, e a busca acharia
+        // passos de uma Task apagada.
+        {
+            let mut consulta = transaction
+                .prepare("SELECT rowid FROM task_checklist_items WHERE task_id = ?1")
+                .map_err(map_sql_error)?;
+            let rowids: Vec<i64> = consulta
+                .query_map([id.to_string()], |linha| linha.get(0))
+                .map_err(map_sql_error)?
+                .collect::<Result<_, _>>()
+                .map_err(map_sql_error)?;
+            for rowid in rowids {
+                crate::repository::tirar_do_indice(
+                    &transaction,
+                    "task_checklist_search",
+                    "task_checklist_items",
+                    &["label"],
+                    rowid,
+                )?;
+            }
+        }
         transaction
             .execute("DELETE FROM tasks WHERE id = ?1", [id.to_string()])
             .map_err(map_sql_error)?;
@@ -1016,25 +1150,38 @@ impl WorkRepository for SqliteStorage {
         Ok((task, reminder))
     }
 
-    fn update_task(
-        &self,
-        id: TaskId,
-        title: &str,
-        description: &str,
-        project_id: Option<ProjectId>,
-    ) -> Result<Task, CoreError> {
+    fn update_task(&self, id: TaskId, edit: EditTask) -> Result<Task, CoreError> {
+        let edit = edit.validate(id)?;
         let now = format_time(OffsetDateTime::now_utc())?;
+        let prazo = edit.due_at.map(format_time).transpose()?;
+        let cobranca = edit.follow_up_at.map(format_time).transpose()?;
+        let projeto = edit.project_id.map(|valor| valor.to_string());
+        let pai = edit.parent_task_id.map(|valor| valor.to_string());
+        let travada = edit.blocked_by_task_id.map(|valor| valor.to_string());
         let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        // Lido ANTES da escrita: e a unica hora em que o valor antigo existe, e
+        // sem ele nao ha diff para emitir.
+        let antes = query_task(&transaction, id)?;
         delete_task_search(&transaction, id)?;
         let changed = transaction
             .execute(
-                "UPDATE tasks SET title = ?1, description = ?2, project_id = ?3, updated_at = ?4
-                 WHERE id = ?5",
+                "UPDATE tasks SET title = ?1, description = ?2, project_id = ?3, due_at = ?4,
+                        priority = ?5, estimate_minutes = ?6, parent_task_id = ?7,
+                        blocked_by_task_id = ?8, waiting_for = ?9, follow_up_at = ?10,
+                        updated_at = ?11
+                 WHERE id = ?12",
                 params![
-                    title,
-                    description,
-                    project_id.map(|value| value.to_string()),
+                    edit.title,
+                    edit.description,
+                    projeto,
+                    prazo,
+                    edit.priority.as_str(),
+                    edit.estimate_minutes,
+                    pai,
+                    travada,
+                    edit.waiting_for,
+                    cobranca,
                     now,
                     id.to_string()
                 ],
@@ -1049,21 +1196,303 @@ impl WorkRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
         insert_task_search(&transaction, rowid)?;
-        self.emitir_update(
-            &transaction,
-            "task",
-            id.as_uuid(),
-            &[
-                ("title", serde_json::json!(title)),
-                ("description", serde_json::json!(description)),
-                (
-                    "projectId",
-                    serde_json::json!(project_id.map(|value| value.to_string())),
-                ),
-            ],
-        )?;
+        // **So o que MUDOU viaja.**
+        //
+        // A escrita e autoritativa (a Task inteira chega pronta), mas a emissao
+        // nao pode ser: o merge do M/OS e por campo, e um campo emitido e um
+        // campo DISPUTADO. Emitindo os dez sempre, mudar a prioridade no
+        // celular mandaria junto o `dueAt: null` que ele leu antes — e como a
+        // operacao do celular e mais recente, ela apagaria o prazo que o PC
+        // acabou de pôr. Os dois gestos tocaram campos diferentes e mesmo assim
+        // um venceria o outro, que e exatamente o que o `SYNC.md` §4 promete
+        // que nao acontece.
+        //
+        // Com quatro campos isso era teoria; com dez e o caminho normal de
+        // perder trabalho. O diff contra a linha ANTERIOR resolve, e de quebra
+        // encolhe a fila: renomear uma Task emite um campo, e nao dez.
+        let mut mudancas: Vec<(&str, serde_json::Value)> = Vec::new();
+        let mut mudou = |nome: &'static str, antes: serde_json::Value, agora: serde_json::Value| {
+            if antes != agora {
+                mudancas.push((nome, agora));
+            }
+        };
+        mudou(
+            "title",
+            serde_json::json!(antes.title),
+            serde_json::json!(edit.title),
+        );
+        mudou(
+            "description",
+            serde_json::json!(antes.description),
+            serde_json::json!(edit.description),
+        );
+        mudou(
+            "projectId",
+            serde_json::json!(antes.project_id.map(|valor| valor.to_string())),
+            serde_json::json!(projeto),
+        );
+        mudou(
+            "dueAt",
+            serde_json::json!(antes.due_at.map(format_time).transpose()?),
+            serde_json::json!(prazo),
+        );
+        mudou(
+            "priority",
+            serde_json::json!(antes.priority.as_str()),
+            serde_json::json!(edit.priority.as_str()),
+        );
+        mudou(
+            "estimateMinutes",
+            serde_json::json!(antes.estimate_minutes),
+            serde_json::json!(edit.estimate_minutes),
+        );
+        mudou(
+            "parentTaskId",
+            serde_json::json!(antes.parent_task_id.map(|valor| valor.to_string())),
+            serde_json::json!(pai),
+        );
+        mudou(
+            "blockedByTaskId",
+            serde_json::json!(antes.blocked_by_task_id.map(|valor| valor.to_string())),
+            serde_json::json!(travada),
+        );
+        mudou(
+            "waitingFor",
+            serde_json::json!(antes.waiting_for),
+            serde_json::json!(edit.waiting_for),
+        );
+        mudou(
+            "followUpAt",
+            serde_json::json!(antes.follow_up_at.map(format_time).transpose()?),
+            serde_json::json!(cobranca),
+        );
+        if !mudancas.is_empty() {
+            self.emitir_update(&transaction, "task", id.as_uuid(), &mudancas)?;
+        }
         transaction.commit().map_err(map_sql_error)?;
         query_task(&connection, id)
+    }
+
+    /// A folha inteira da Task, numa conexao so.
+    ///
+    /// Os lembretes vem de `AttentionRepository::reminders_for` — o Attention
+    /// System, e nao um agendador proprio. As referencias vem de `resources`
+    /// pela juncao. Nada aqui e uma segunda implementacao de nada.
+    fn task_detail(&self, id: TaskId) -> Result<TaskDetail, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let task = query_task(&connection, id)?;
+        let checklist = query_checklist(&connection, id)?;
+        let subtasks = query_tasks(
+            &connection,
+            &format!(
+                "SELECT {colunas} FROM tasks t
+                  WHERE t.parent_task_id = '{pai}' AND t.lifecycle_state = 'active'
+                  ORDER BY t.created_at ASC",
+                colunas = task_select("t"),
+                pai = id.to_string().replace('\'', "''"),
+            ),
+        )?;
+        let blocked_by = match task.blocked_by_task_id {
+            // `ok()` e nao `?`: a Task que bloqueava pode ter sido apagada, e a
+            // coluna vira NULL pela FK — mas um banco vindo de outro aparelho
+            // pode ter o id sem a linha ainda. Uma gaveta que se recusa a abrir
+            // por causa disso e pior que uma gaveta sem o titulo do bloqueio.
+            Some(travada) => query_task(&connection, travada).ok(),
+            None => None,
+        };
+        let references = query_task_references(&connection, id)?;
+        let reminders = crate::attention_repository::query_reminders_for_target(
+            &connection,
+            "task",
+            &id.to_string(),
+        )?;
+        Ok(TaskDetail {
+            task,
+            checklist,
+            subtasks,
+            blocked_by,
+            references,
+            reminders,
+        })
+    }
+
+    fn add_checklist_item(&self, item: NewChecklistItem) -> Result<Task, CoreError> {
+        let task_id = item.task_id;
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let position = next_checklist_position(&transaction, task_id)?;
+        insert_checklist_item(self, &transaction, &item, position)?;
+        touch_task(self, &transaction, task_id)?;
+        transaction.commit().map_err(map_sql_error)?;
+        query_task(&connection, task_id)
+    }
+
+    fn add_checklist_items(
+        &self,
+        task_id: TaskId,
+        labels: &[String],
+    ) -> Result<Vec<ChecklistItem>, CoreError> {
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        // A partir do fim do que ja existe: colar cinco linhas numa Task que ja
+        // tem tres passos poe os cinco DEPOIS deles, e nao por cima.
+        let primeira = next_checklist_position(&transaction, task_id)?;
+        for (position, label) in (primeira..).zip(labels.iter()) {
+            let item = NewChecklistItem::create(task_id, label)?;
+            insert_checklist_item(self, &transaction, &item, position)?;
+        }
+        touch_task(self, &transaction, task_id)?;
+        transaction.commit().map_err(map_sql_error)?;
+        query_checklist(&connection, task_id)
+    }
+
+    fn rename_checklist_item(
+        &self,
+        id: ChecklistItemId,
+        label: &str,
+    ) -> Result<ChecklistItem, CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        // Uma unica passagem pelo portao. Pedir `escrita()` duas vezes na mesma
+        // funcao e o abraco mortal que o portao existe para impedir — ele nao e
+        // reentrante, e a segunda chamada esperaria a primeira soltar.
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let task_id = task_of_item(&transaction, id)?;
+        let label = NewChecklistItem::create(task_id, label)?.label;
+        delete_checklist_search(&transaction, id)?;
+        let changed = transaction
+            .execute(
+                "UPDATE task_checklist_items SET label = ?1, updated_at = ?2 WHERE id = ?3",
+                params![label, now, id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        ensure_changed(changed)?;
+        let rowid: i64 = transaction
+            .query_row(
+                "SELECT rowid FROM task_checklist_items WHERE id = ?1",
+                [id.to_string()],
+                |linha| linha.get(0),
+            )
+            .map_err(map_sql_error)?;
+        insert_checklist_search(&transaction, rowid)?;
+        self.emitir_update(
+            &transaction,
+            "task_checklist_item",
+            id.as_uuid(),
+            &[("label", serde_json::json!(label))],
+        )?;
+        touch_task(self, &transaction, task_id)?;
+        transaction.commit().map_err(map_sql_error)?;
+        query_checklist_item(&connection, id)
+    }
+
+    /// Marcar e desmarcar sao a MESMA operacao com valores opostos.
+    ///
+    /// `completedAt` e um campo so, entao marcar no PC e desmarcar no celular e
+    /// uma escrita concorrente sobre o mesmo campo: o instante decide, e o lado
+    /// perdedor vai para `sync_conflicts` em vez de sumir. Um par de campos
+    /// (`done` + `completedAt`) daria dois campos que podem discordar.
+    fn set_checklist_item_done(&self, id: ChecklistItemId, done: bool) -> Result<Task, CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let completed_at = done.then(|| now.clone());
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let task_id = task_of_item(&transaction, id)?;
+        let changed = transaction
+            .execute(
+                "UPDATE task_checklist_items SET completed_at = ?1, updated_at = ?2 WHERE id = ?3",
+                params![completed_at, now, id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        ensure_changed(changed)?;
+        self.emitir_update(
+            &transaction,
+            "task_checklist_item",
+            id.as_uuid(),
+            &[("completedAt", serde_json::json!(completed_at))],
+        )?;
+        touch_task(self, &transaction, task_id)?;
+        transaction.commit().map_err(map_sql_error)?;
+        query_task(&connection, task_id)
+    }
+
+    /// Apagar e LOGICO, como todo apagamento que atravessa.
+    ///
+    /// `lifecycle_state = 'trashed'` e nao `DELETE`: e o que a projecao escreve
+    /// quando um `OpBody::Delete` chega de fora, e divergir aqui faria a mesma
+    /// acao deixar dois estados diferentes nos dois PCs.
+    fn delete_checklist_item(&self, id: ChecklistItemId) -> Result<Task, CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let task_id = task_of_item(&transaction, id)?;
+        // A linha do indice FICA. Ela espelha a tabela uma-para-uma, e
+        // `ensure_search_projection` compara as duas contagens na abertura:
+        // tirar do indice o que continua na tabela faria o app reconstruir o
+        // indice inteiro toda vez que alguem apagasse um item. Quem filtra
+        // `trashed` e a consulta da busca, que ja o faz.
+        let changed = transaction
+            .execute(
+                "UPDATE task_checklist_items SET lifecycle_state = 'trashed', updated_at = ?1
+                  WHERE id = ?2",
+                params![now, id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        ensure_changed(changed)?;
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("task_checklist_item", id.as_uuid()),
+            mos_sync::OpBody::Delete,
+        )?;
+        touch_task(self, &transaction, task_id)?;
+        transaction.commit().map_err(map_sql_error)?;
+        query_task(&connection, task_id)
+    }
+
+    fn reorder_checklist(
+        &self,
+        task_id: TaskId,
+        ids: &[ChecklistItemId],
+    ) -> Result<Vec<ChecklistItem>, CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        for (posicao, id) in ids.iter().enumerate() {
+            let posicao = posicao as i64;
+            // `AND task_id = ?` de proposito: um id de outra Task chegando aqui
+            // reordenaria o checklist alheio em silencio. Zero linhas alteradas
+            // e a resposta certa, e nao um erro — a lista pode ter mudado
+            // debaixo de quem arrastou.
+            transaction
+                .execute(
+                    "UPDATE task_checklist_items SET position = ?1, updated_at = ?2
+                      WHERE id = ?3 AND task_id = ?4",
+                    params![posicao, now, id.to_string(), task_id.to_string()],
+                )
+                .map_err(map_sql_error)?;
+            self.emitir_update(
+                &transaction,
+                "task_checklist_item",
+                id.as_uuid(),
+                &[("position", serde_json::json!(posicao))],
+            )?;
+        }
+        touch_task(self, &transaction, task_id)?;
+        transaction.commit().map_err(map_sql_error)?;
+        query_checklist(&connection, task_id)
+    }
+
+    fn set_task_reference(
+        &self,
+        task_id: TaskId,
+        resource_id: ResourceId,
+        linked: bool,
+    ) -> Result<(), CoreError> {
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        link_resource_task(self, &transaction, resource_id, task_id, linked)?;
+        transaction.commit().map_err(map_sql_error)?;
+        Ok(())
     }
 
     fn get_task(&self, id: TaskId) -> Result<Task, CoreError> {
@@ -1081,9 +1510,10 @@ impl WorkRepository for SqliteStorage {
         query_tasks(
             &connection,
             &format!(
-                "SELECT {TASK_COLUMNS} FROM tasks WHERE {lifecycle}
-                 ORDER BY CASE work_state WHEN 'doing' THEN 0 WHEN 'backlog' THEN 1 ELSE 2 END,
-                 updated_at DESC"
+                "SELECT {colunas} FROM tasks t WHERE t.{lifecycle}
+                 ORDER BY CASE t.work_state WHEN 'doing' THEN 0 WHEN 'backlog' THEN 1 ELSE 2 END,
+                 t.updated_at DESC",
+                colunas = task_select("t")
             ),
         )
     }
@@ -1160,13 +1590,35 @@ impl WorkRepository for SqliteStorage {
         } else {
             "= 'active'"
         };
+        // A Task chega pelo TITULO ou pelo texto de um PASSO dela.
+        //
+        // Dois indices e um `UNION`, e nao uma coluna a mais em `task_search`:
+        // aquela tabela e de conteudo externo sobre `tasks`, e so pode ter
+        // colunas que `tasks` tem. O item de checklist promove a Task pelo
+        // mesmo desenho que o segmento de transcricao promove a Meeting
+        // (`MEETING-AGENT.md` §15) — procurar "armadura Caixa 01" acha o
+        // trabalho, e nao um checkbox solto.
+        //
+        // `MIN(rank)` porque uma Task pode casar pelos dois lados; sem ele, ela
+        // apareceria duas vezes na mesma lista.
         let task_hits = query_tasks(
             &connection,
             &format!(
-                "SELECT t.{columns} FROM task_search s JOIN tasks t ON t.rowid = s.rowid
-                 WHERE task_search MATCH {query} AND t.lifecycle_state {lifecycle}
-                 ORDER BY bm25(task_search), t.updated_at DESC LIMIT {limit}",
-                columns = TASK_COLUMNS.replace(", ", ", t."),
+                "SELECT {columns} FROM tasks t
+                   JOIN (SELECT rowid AS alvo, bm25(task_search) AS rank
+                           FROM task_search WHERE task_search MATCH {query}
+                         UNION ALL
+                         SELECT ci.rowid AS alvo, bm25(task_checklist_search) AS rank
+                           FROM task_checklist_search s
+                           JOIN task_checklist_items c ON c.rowid = s.rowid
+                           JOIN tasks ci ON ci.id = c.task_id
+                          WHERE task_checklist_search MATCH {query}
+                            AND c.lifecycle_state = 'active') acerto
+                     ON acerto.alvo = t.rowid
+                  WHERE t.lifecycle_state {lifecycle}
+                  GROUP BY t.rowid
+                  ORDER BY MIN(acerto.rank), t.updated_at DESC LIMIT {limit}",
+                columns = task_select("t"),
                 query = quote_sql(&fts_query),
                 limit = request.limit,
             ),
@@ -1258,6 +1710,7 @@ impl WorkRepository for SqliteStorage {
             "capture_search",
             "project_search",
             "task_search",
+            "task_checklist_search",
             "workspace_search",
         ] {
             transaction
@@ -1271,6 +1724,7 @@ impl WorkRepository for SqliteStorage {
             "capture_search",
             "project_search",
             "task_search",
+            "task_checklist_search",
             "workspace_search",
         ]
         .into_iter()
@@ -1309,18 +1763,26 @@ pub(crate) fn insert_task(
     let titulo = task.title.clone();
     let descricao = task.description.clone();
     let projeto = task.project_id;
+    let prazo = task.due_at.map(format_time).transpose()?;
+    let prioridade = task.priority.as_str();
+    let pai = task.parent_task_id.map(|value| value.to_string());
     transaction
         .execute(
             "INSERT INTO tasks (
                 id, title, description, project_id, source_capture_id, work_state,
-                lifecycle_state, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, 'backlog', 'active', ?6, ?6)",
+                lifecycle_state, due_at, priority, estimate_minutes, parent_task_id,
+                created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, 'backlog', 'active', ?6, ?7, ?8, ?9, ?10, ?10)",
             params![
                 task.id.to_string(),
                 task.title,
                 task.description,
                 task.project_id.map(|value| value.to_string()),
                 source_capture_id.map(|value| value.to_string()),
+                prazo,
+                prioridade,
+                task.estimate_minutes,
+                pai,
                 now,
             ],
         )
@@ -1342,12 +1804,29 @@ pub(crate) fn insert_task(
                     serde_json::json!(source_capture_id.map(|value| value.to_string())),
                 ),
                 ("workState".to_owned(), serde_json::json!("backlog")),
+                ("dueAt".to_owned(), serde_json::json!(prazo)),
+                ("priority".to_owned(), serde_json::json!(prioridade)),
+                (
+                    "estimateMinutes".to_owned(),
+                    serde_json::json!(task.estimate_minutes),
+                ),
+                ("parentTaskId".to_owned(), serde_json::json!(pai)),
                 ("createdAt".to_owned(), serde_json::json!(now)),
             ]
             .into_iter()
             .collect(),
         },
-    )
+    )?;
+    // Os passos entram NA MESMA TRANSACAO da Task.
+    //
+    // Em duas transacoes existiria um instante em que a Task aparece vazia no
+    // quadro, e um `0/0` piscando onde a pessoa acabou de escrever cinco
+    // linhas nao e "quase certo" — e uma tela que mente.
+    for (indice, label) in task.checklist.iter().enumerate() {
+        let item = NewChecklistItem::create(id, label)?;
+        insert_checklist_item(storage, transaction, &item, indice as i64)?;
+    }
+    Ok(())
 }
 
 fn insert_project_search(transaction: &Transaction<'_>, rowid: i64) -> Result<(), CoreError> {
@@ -1394,15 +1873,25 @@ fn delete_project_search(transaction: &Transaction<'_>, id: ProjectId) -> Result
     Ok(())
 }
 
+/// Tira a Task do indice, e nao faz nada quando ela nunca entrou nele.
+///
+/// A tolerancia NAO e defensiva: uma Task que CHEGOU pelo sync e materializada
+/// direto na tabela, e ate 2026-09-08 sem passar pelo indice. Editar essa Task
+/// aqui pedia ao fts5 para apagar uma linha que ele nao tinha, e o erro dele
+/// para isso e `SQLITE_CORRUPT` — o app acusava o banco de estar corrompido
+/// quando o que faltava era uma linha de indice. Ver `repository::tirar_do_indice`.
 fn delete_task_search(transaction: &Transaction<'_>, id: TaskId) -> Result<(), CoreError> {
-    transaction
-        .execute(
-            "INSERT INTO task_search(task_search, rowid, title, description)
-             SELECT 'delete', rowid, title, description FROM tasks WHERE id = ?1",
-            [id.to_string()],
-        )
-        .map_err(map_sql_error)?;
-    Ok(())
+    let Some(rowid) = crate::repository::rowid_de(transaction, "tasks", "id", &id.to_string())?
+    else {
+        return Ok(());
+    };
+    crate::repository::tirar_do_indice(
+        transaction,
+        "task_search",
+        "tasks",
+        &["title", "description"],
+        rowid,
+    )
 }
 
 fn delete_workspace_search(
@@ -1454,7 +1943,7 @@ pub(crate) fn query_workspace(
 pub(crate) fn query_task(connection: &rusqlite::Connection, id: TaskId) -> Result<Task, CoreError> {
     connection
         .query_row(
-            &format!("SELECT {TASK_COLUMNS} FROM tasks WHERE id = ?1"),
+            &format!("SELECT {} FROM tasks t WHERE t.id = ?1", task_select("t")),
             [id.to_string()],
             RawTask::from_row,
         )
@@ -1462,6 +1951,250 @@ pub(crate) fn query_task(connection: &rusqlite::Connection, id: TaskId) -> Resul
         .map_err(map_sql_error)?
         .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "Task nao encontrada.", false))?
         .into_task()
+}
+
+/// Os itens ATIVOS de uma Task, na ordem escolhida.
+///
+/// `position` primeiro e `created_at` como desempate: dois itens colados na
+/// mesma transacao nascem com posicoes distintas, mas um banco vindo de um
+/// aparelho que reordenou pode ter empate — e ordem instavel faz a lista trocar
+/// de arranjo entre dois desenhos da mesma tela.
+pub(crate) fn query_checklist(
+    connection: &rusqlite::Connection,
+    task_id: TaskId,
+) -> Result<Vec<ChecklistItem>, CoreError> {
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {CHECKLIST_COLUMNS} FROM task_checklist_items
+              WHERE task_id = ?1 AND lifecycle_state = 'active'
+              ORDER BY position, created_at"
+        ))
+        .map_err(map_sql_error)?;
+    let itens: Vec<ChecklistItem> = statement
+        .query_map([task_id.to_string()], RawChecklistItem::from_row)
+        .map_err(map_sql_error)?
+        .map(|linha| linha.map_err(map_sql_error)?.into_item())
+        .collect::<Result<_, _>>()?;
+    Ok(itens)
+}
+
+fn query_checklist_item(
+    connection: &rusqlite::Connection,
+    id: ChecklistItemId,
+) -> Result<ChecklistItem, CoreError> {
+    connection
+        .query_row(
+            &format!("SELECT {CHECKLIST_COLUMNS} FROM task_checklist_items WHERE id = ?1"),
+            [id.to_string()],
+            RawChecklistItem::from_row,
+        )
+        .optional()
+        .map_err(map_sql_error)?
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::NotFound,
+                "Item de checklist nao encontrado.",
+                false,
+            )
+        })?
+        .into_item()
+}
+
+/// De que Task e este item. Toda escrita de item precisa saber, porque o que
+/// volta para a tela e a Task com o progresso novo.
+fn task_of_item(
+    connection: &rusqlite::Connection,
+    id: ChecklistItemId,
+) -> Result<TaskId, CoreError> {
+    let bruto: Option<String> = connection
+        .query_row(
+            "SELECT task_id FROM task_checklist_items WHERE id = ?1",
+            [id.to_string()],
+            |linha| linha.get(0),
+        )
+        .optional()
+        .map_err(map_sql_error)?;
+    TaskId::parse(&bruto.ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::NotFound,
+            "Item de checklist nao encontrado.",
+            false,
+        )
+    })?)
+}
+
+/// A proxima posicao livre no checklist de uma Task.
+///
+/// Item novo vai para o FIM, e nao para onde a tabela sortear. E a mesma regra
+/// que `WidgetPlacement` segue na Home, e pela mesma razao: quem arrumou a lista
+/// escolheu aquela ordem, e um item novo no meio dela seria o sistema
+/// desarrumando o que a pessoa arrumou.
+fn next_checklist_position(
+    connection: &rusqlite::Connection,
+    task_id: TaskId,
+) -> Result<i64, CoreError> {
+    connection
+        .query_row(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM task_checklist_items WHERE task_id = ?1",
+            [task_id.to_string()],
+            |linha| linha.get(0),
+        )
+        .map_err(map_sql_error)
+}
+
+fn insert_checklist_search(transaction: &Transaction<'_>, rowid: i64) -> Result<(), CoreError> {
+    transaction
+        .execute(
+            "INSERT INTO task_checklist_search (rowid, label)
+             SELECT rowid, label FROM task_checklist_items WHERE rowid = ?1",
+            [rowid],
+        )
+        .map_err(map_sql_error)?;
+    Ok(())
+}
+
+fn delete_checklist_search(
+    transaction: &Transaction<'_>,
+    id: ChecklistItemId,
+) -> Result<(), CoreError> {
+    let Some(rowid) =
+        crate::repository::rowid_de(transaction, "task_checklist_items", "id", &id.to_string())?
+    else {
+        return Ok(());
+    };
+    crate::repository::tirar_do_indice(
+        transaction,
+        "task_checklist_search",
+        "task_checklist_items",
+        &["label"],
+        rowid,
+    )
+}
+
+/// Grava UM item e emite a operacao, dentro de uma transacao ja aberta.
+///
+/// Existe fora do trait porque a criacao de Task com checklist precisa dos
+/// itens na MESMA transacao da Task: uma Task que nasce e um checklist que
+/// chega depois sao dois estados observaveis, e o de dentro e uma Task vazia
+/// piscando no quadro.
+fn insert_checklist_item(
+    storage: &SqliteStorage,
+    transaction: &Transaction<'_>,
+    item: &NewChecklistItem,
+    position: i64,
+) -> Result<(), CoreError> {
+    let now = format_time(item.created_at)?;
+    transaction
+        .execute(
+            "INSERT INTO task_checklist_items
+                (id, task_id, label, position, lifecycle_state, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?5)",
+            params![
+                item.id.to_string(),
+                item.task_id.to_string(),
+                item.label,
+                position,
+                now
+            ],
+        )
+        .map_err(map_sql_error)?;
+    insert_checklist_search(transaction, transaction.last_insert_rowid())?;
+    storage.emitir(
+        transaction,
+        mos_sync::EntityRef::new("task_checklist_item", item.id.as_uuid()),
+        mos_sync::OpBody::Create {
+            fields: [
+                (
+                    "taskId".to_owned(),
+                    serde_json::json!(item.task_id.to_string()),
+                ),
+                ("label".to_owned(), serde_json::json!(item.label)),
+                ("position".to_owned(), serde_json::json!(position)),
+                ("completedAt".to_owned(), serde_json::Value::Null),
+                ("createdAt".to_owned(), serde_json::json!(now)),
+            ]
+            .into_iter()
+            .collect(),
+        },
+    )
+}
+
+/// Os Resources ligados a uma Task, do mais recente para o mais antigo.
+fn query_task_references(
+    connection: &rusqlite::Connection,
+    task_id: TaskId,
+) -> Result<Vec<Resource>, CoreError> {
+    crate::resource_repository::query_resources(
+        connection,
+        &format!(
+            "SELECT r.{colunas} FROM resources r
+               JOIN resource_tasks rt ON rt.resource_id = r.id
+              WHERE rt.task_id = '{task}' AND r.lifecycle_state = 'active'
+              ORDER BY rt.created_at DESC",
+            colunas = crate::resource_repository::RESOURCE_COLUMNS.replace(", ", ", r."),
+            task = task_id.to_string().replace('\'', "''"),
+        ),
+    )
+}
+
+/// Marca a Task como mexida agora.
+///
+/// Mexer no checklist E mexer na Task: o quadro ordena por `updated_at`, a
+/// deteccao de parada (`stale.rs`) conta dias desde ela, e uma Task cujo
+/// checklist andou a manha inteira apareceria como abandonada sem isto.
+///
+/// **Nao emite operacao de `updatedAt`.** O carimbo e de quem APLICOU a
+/// mudanca, e nao um campo do dominio — quem recebe a operacao do item ja
+/// carimba a Task dele pelo mesmo caminho. Sincronizar o carimbo faria os dois
+/// aparelhos disputarem um numero que nem descreve a mesma coisa, que e
+/// exatamente o argumento que manteve `deliveredCount` fora do sync.
+fn touch_task(
+    _storage: &SqliteStorage,
+    transaction: &Transaction<'_>,
+    task_id: TaskId,
+) -> Result<(), CoreError> {
+    let now = format_time(OffsetDateTime::now_utc())?;
+    transaction
+        .execute(
+            "UPDATE tasks SET updated_at = ?1 WHERE id = ?2",
+            params![now, task_id.to_string()],
+        )
+        .map_err(map_sql_error)?;
+    Ok(())
+}
+
+/// Liga ou desliga um Resource a uma Task. Gemeo de `link_resource_project`.
+pub(crate) fn link_resource_task(
+    storage: &SqliteStorage,
+    connection: &rusqlite::Connection,
+    resource_id: ResourceId,
+    task_id: TaskId,
+    linked: bool,
+) -> Result<(), CoreError> {
+    if linked {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO resource_tasks (resource_id, task_id, created_at)
+                 VALUES (?1, ?2, ?3)",
+                params![resource_id.to_string(), task_id.to_string(), now],
+            )
+            .map_err(map_sql_error)?;
+    } else {
+        connection
+            .execute(
+                "DELETE FROM resource_tasks WHERE resource_id = ?1 AND task_id = ?2",
+                params![resource_id.to_string(), task_id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+    }
+    storage.emitir_relacao(
+        connection,
+        "resourceTask",
+        resource_id.as_uuid(),
+        task_id.as_uuid(),
+        linked,
+    )
 }
 
 fn query_task_for_capture(
@@ -1477,7 +2210,8 @@ fn query_task_for_capture(
     connection
         .query_row(
             &format!(
-                "SELECT {TASK_COLUMNS} FROM tasks WHERE source_capture_id = ?1 AND {lifecycle}"
+                "SELECT {colunas} FROM tasks t WHERE t.source_capture_id = ?1 AND t.{lifecycle}",
+                colunas = task_select("t")
             ),
             [capture_id.to_string()],
             RawTask::from_row,
@@ -1610,6 +2344,345 @@ mod tests {
         )
         .unwrap();
         (directory, storage)
+    }
+
+    // ---------------------------------------------------------- o checklist
+
+    fn task_de(storage: &SqliteStorage, titulo: &str) -> Task {
+        storage
+            .create_task(NewTask::create(titulo, "", None).unwrap())
+            .unwrap()
+    }
+
+    #[test]
+    fn o_ciclo_de_um_item_de_checklist() {
+        let (_guarda, storage) = storage();
+        let task = task_de(&storage, "Revisar projeto estrutural");
+        assert_eq!((task.checklist_total, task.checklist_done), (0, 0));
+
+        let task = storage
+            .add_checklist_item(NewChecklistItem::create(task.id, "Conferir niveis").unwrap())
+            .unwrap();
+        assert_eq!((task.checklist_total, task.checklist_done), (1, 0));
+
+        let itens = storage.task_detail(task.id).unwrap().checklist;
+        let item = itens[0].id;
+
+        let task = storage.set_checklist_item_done(item, true).unwrap();
+        assert_eq!((task.checklist_total, task.checklist_done), (1, 1));
+        assert_eq!(task.checklist_progress(), Some(1.0));
+        assert!(
+            task.checklist_is_complete(),
+            "oferece concluir, sem concluir"
+        );
+        assert_eq!(
+            storage.get_task(task.id).unwrap().state,
+            TaskState::Backlog,
+            "marcar todo o checklist NAO conclui a Task sozinha"
+        );
+
+        let task = storage.set_checklist_item_done(item, false).unwrap();
+        assert_eq!((task.checklist_total, task.checklist_done), (1, 0));
+
+        let renomeado = storage
+            .rename_checklist_item(item, "  - Conferir os niveis ")
+            .unwrap();
+        assert_eq!(renomeado.label, "Conferir os niveis");
+
+        let task = storage.delete_checklist_item(item).unwrap();
+        assert_eq!((task.checklist_total, task.checklist_done), (0, 0));
+        assert!(storage.task_detail(task.id).unwrap().checklist.is_empty());
+    }
+
+    /// Concluir a Task PRESERVA o checklist, e reabrir a devolve como estava.
+    #[test]
+    fn concluir_a_task_nao_apaga_o_que_foi_feito() {
+        let (_guarda, storage) = storage();
+        let task = task_de(&storage, "Ajustes reuniao");
+        storage
+            .add_checklist_items(task.id, &["Corrigir nivel".into(), "Gerar PDF".into()])
+            .unwrap();
+        let itens = storage.task_detail(task.id).unwrap().checklist;
+        storage.set_checklist_item_done(itens[0].id, true).unwrap();
+
+        let concluida = storage.set_task_state(task.id, TaskState::Done).unwrap();
+        assert_eq!(
+            (concluida.checklist_total, concluida.checklist_done),
+            (2, 1)
+        );
+
+        let reaberta = storage.set_task_state(task.id, TaskState::Doing).unwrap();
+        assert_eq!((reaberta.checklist_total, reaberta.checklist_done), (2, 1));
+        let depois = storage.task_detail(task.id).unwrap().checklist;
+        assert!(depois[0].completed(), "o item feito continua feito");
+        assert!(!depois[1].completed());
+    }
+
+    #[test]
+    fn item_novo_vai_para_o_fim_e_a_ordem_e_do_usuario() {
+        let (_guarda, storage) = storage();
+        let task = task_de(&storage, "Finalizar 167-25");
+        storage
+            .add_checklist_items(task.id, &["Um".into(), "Dois".into(), "Tres".into()])
+            .unwrap();
+        let itens = storage.task_detail(task.id).unwrap().checklist;
+        assert_eq!(
+            itens
+                .iter()
+                .map(|item| item.label.as_str())
+                .collect::<Vec<_>>(),
+            ["Um", "Dois", "Tres"]
+        );
+
+        let invertido: Vec<_> = itens.iter().rev().map(|item| item.id).collect();
+        let depois = storage.reorder_checklist(task.id, &invertido).unwrap();
+        assert_eq!(
+            depois
+                .iter()
+                .map(|item| item.label.as_str())
+                .collect::<Vec<_>>(),
+            ["Tres", "Dois", "Um"]
+        );
+
+        storage
+            .add_checklist_item(NewChecklistItem::create(task.id, "Quatro").unwrap())
+            .unwrap();
+        let final_ = storage.task_detail(task.id).unwrap().checklist;
+        assert_eq!(
+            final_.last().unwrap().label,
+            "Quatro",
+            "item novo nasce no fim, e nao no meio do que a pessoa arrumou"
+        );
+    }
+
+    /// Reordenar com o id de OUTRA Task nao mexe no checklist alheio.
+    #[test]
+    fn reordenar_nao_alcanca_o_checklist_de_outra_task() {
+        let (_guarda, storage) = storage();
+        let uma = task_de(&storage, "Uma");
+        let outra = task_de(&storage, "Outra");
+        storage
+            .add_checklist_items(uma.id, &["A".into(), "B".into()])
+            .unwrap();
+        storage
+            .add_checklist_items(outra.id, &["X".into()])
+            .unwrap();
+        let alheio = storage.task_detail(outra.id).unwrap().checklist[0].id;
+        let posicao_antes = storage.task_detail(outra.id).unwrap().checklist[0].position;
+
+        storage.reorder_checklist(uma.id, &[alheio]).unwrap();
+
+        assert_eq!(
+            storage.task_detail(outra.id).unwrap().checklist[0].position,
+            posicao_antes
+        );
+    }
+
+    /// A busca acha a Task pelo texto do PASSO, e nao so pelo titulo.
+    #[test]
+    fn buscar_o_texto_de_um_item_acha_a_task() {
+        let (_guarda, storage) = storage();
+        let task = task_de(&storage, "Ajustes reuniao");
+        storage
+            .add_checklist_items(task.id, &["Corrigir armadura Caixa 01".into()])
+            .unwrap();
+
+        let achados = storage
+            .search_all(SearchRequest {
+                query: "armadura Caixa 01".into(),
+                limit: 10,
+                include_archived: false,
+            })
+            .unwrap();
+        assert!(
+            achados.iter().any(|item| matches!(
+                item,
+                SearchItem::Task { task: achada, .. } if achada.id == task.id
+            )),
+            "o passo tem de promover a Task: {achados:?}"
+        );
+
+        // E uma vez so, mesmo quando o titulo tambem casa.
+        let por_titulo = storage
+            .search_all(SearchRequest {
+                query: "Ajustes".into(),
+                limit: 10,
+                include_archived: false,
+            })
+            .unwrap();
+        let vezes = por_titulo
+            .iter()
+            .filter(|item| matches!(item, SearchItem::Task { task: achada, .. } if achada.id == task.id))
+            .count();
+        assert_eq!(vezes, 1, "a mesma Task nao pode aparecer duas vezes");
+    }
+
+    /// Item apagado sai da busca — e sem derrubar a contagem do indice, que e o
+    /// que faria o app reconstruir o FTS a cada abertura.
+    #[test]
+    fn item_apagado_some_da_busca_sem_desalinhar_o_indice() {
+        let (_guarda, storage) = storage();
+        let task = task_de(&storage, "Ajustes");
+        storage
+            .add_checklist_items(task.id, &["Revisar cobrimento".into()])
+            .unwrap();
+        let item = storage.task_detail(task.id).unwrap().checklist[0].id;
+        storage.delete_checklist_item(item).unwrap();
+
+        let achados = storage
+            .search_all(SearchRequest {
+                query: "cobrimento".into(),
+                limit: 10,
+                include_archived: false,
+            })
+            .unwrap();
+        assert!(achados.is_empty(), "{achados:?}");
+
+        let connection = storage.connection.lock().unwrap();
+        let na_tabela: i64 = connection
+            .query_row("SELECT count(*) FROM task_checklist_items", [], |linha| {
+                linha.get(0)
+            })
+            .unwrap();
+        let no_indice: i64 = connection
+            .query_row("SELECT count(*) FROM task_checklist_search", [], |linha| {
+                linha.get(0)
+            })
+            .unwrap();
+        assert_eq!(na_tabela, no_indice);
+    }
+
+    /// A Task antiga — sem nenhuma coluna da 0039 preenchida — continua valida.
+    #[test]
+    fn a_task_de_antes_da_migration_continua_inteira() {
+        let (_guarda, storage) = storage();
+        let task = task_de(&storage, "Task de antes");
+        assert!(task.due_at.is_none());
+        assert_eq!(task.priority, Priority::Normal);
+        assert!(task.estimate_minutes.is_none());
+        assert!(task.parent_task_id.is_none());
+        assert!(task.blocked_by_task_id.is_none());
+        assert!(task.waiting_for.is_empty());
+        assert_eq!((task.checklist_total, task.checklist_done), (0, 0));
+
+        let detalhe = storage.task_detail(task.id).unwrap();
+        assert!(detalhe.checklist.is_empty());
+        assert!(detalhe.subtasks.is_empty());
+        assert!(detalhe.references.is_empty());
+        assert!(detalhe.reminders.is_empty());
+    }
+
+    /// Prazo, prioridade, subtask e bloqueio sobrevivem a uma edicao.
+    #[test]
+    fn a_gaveta_grava_prazo_prioridade_e_hierarquia() {
+        let (_guarda, storage) = storage();
+        let pai = task_de(&storage, "Finalizar 167-25");
+        let trava = task_de(&storage, "Finalizar revisao");
+        let filha = task_de(&storage, "Gerar PDF");
+
+        let prazo = OffsetDateTime::from_unix_timestamp(1_790_000_000).unwrap();
+        let editada = storage
+            .update_task(
+                filha.id,
+                EditTask {
+                    priority: Priority::High,
+                    due_at: Some(prazo),
+                    estimate_minutes: Some(30),
+                    parent_task_id: Some(pai.id),
+                    blocked_by_task_id: Some(trava.id),
+                    waiting_for: "Victor".into(),
+                    follow_up_at: Some(prazo),
+                    ..EditTask::from_task(&filha)
+                },
+            )
+            .unwrap();
+        assert_eq!(editada.priority, Priority::High);
+        assert_eq!(editada.due_at, Some(prazo));
+        assert_eq!(editada.estimate_minutes, Some(30));
+        assert_eq!(editada.waiting_for, "Victor");
+
+        let detalhe = storage.task_detail(pai.id).unwrap();
+        assert_eq!(detalhe.subtasks.len(), 1);
+        assert_eq!(detalhe.subtasks[0].id, filha.id);
+        assert_eq!(
+            storage
+                .task_detail(filha.id)
+                .unwrap()
+                .blocked_by
+                .unwrap()
+                .title,
+            "Finalizar revisao"
+        );
+
+        // Tirar o prazo e mandar `None`, e nao omitir o campo.
+        let limpa = storage
+            .update_task(
+                filha.id,
+                EditTask {
+                    due_at: None,
+                    ..EditTask::from_task(&editada)
+                },
+            )
+            .unwrap();
+        assert!(limpa.due_at.is_none());
+        assert_eq!(limpa.priority, Priority::High, "so o prazo saiu");
+    }
+
+    #[test]
+    fn uma_task_nao_e_subtask_nem_bloqueio_de_si_mesma() {
+        let (_guarda, storage) = storage();
+        let task = task_de(&storage, "Uma");
+        assert!(storage
+            .update_task(
+                task.id,
+                EditTask {
+                    parent_task_id: Some(task.id),
+                    ..EditTask::from_task(&task)
+                }
+            )
+            .is_err());
+        assert!(storage
+            .update_task(
+                task.id,
+                EditTask {
+                    blocked_by_task_id: Some(task.id),
+                    ..EditTask::from_task(&task)
+                }
+            )
+            .is_err());
+    }
+
+    /// A referencia da Task e o mesmo Resource da Library.
+    #[test]
+    fn a_referencia_da_task_e_um_resource_de_verdade() {
+        use mos_core::{NewResource, ResourceKind, ResourceRepository};
+
+        let (_guarda, storage) = storage();
+        let task = task_de(&storage, "Revisar projeto");
+        let resource = storage
+            .create_resource(
+                NewResource::create(
+                    ResourceKind::Site,
+                    "Projeto estrutural R02",
+                    "https://exemplo.test/r02.pdf",
+                    "",
+                    None,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        storage
+            .set_task_reference(task.id, resource.id, true)
+            .unwrap();
+        let detalhe = storage.task_detail(task.id).unwrap();
+        assert_eq!(detalhe.references.len(), 1);
+        assert_eq!(detalhe.references[0].id, resource.id);
+
+        storage
+            .set_task_reference(task.id, resource.id, false)
+            .unwrap();
+        assert!(storage.task_detail(task.id).unwrap().references.is_empty());
     }
 
     /// Task, Reminder e o processamento da Capture caem juntos ou nao caem.

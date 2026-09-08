@@ -21,6 +21,7 @@ mod meeting;
 mod meeting_analysis;
 mod monitoring;
 mod ports;
+mod recurrence;
 mod resource;
 mod service;
 mod stale;
@@ -70,10 +71,15 @@ pub use app::{
     AppCatalogEntry, AppId, AppLaunchKind, NewRegisteredApp, RegisteredApp,
 };
 pub use attention::{
-    apply, edit, next_wake, reconcile, Channel, ContentPrivacy, DeliveryPolicy, EditReminder,
-    NewNotification, NewReminder, Notification, NotificationId, NotificationStatus, Priority,
-    ReconcileReason, Reconciliation, Reminder, ReminderId, ReminderSource, ReminderStatus,
-    ReminderTarget, Transition, Trigger, VisualLevel, MISS_GRACE,
+    alert_slot, apply, edit, escalation_delay, needs_attention, next_pending_trigger, next_wake,
+    pending_retries, reconcile, retry_budget, AttentionItem, AttentionReason, AttentionSettings,
+    Channel, ContentPrivacy, CreateReminder, DeliveryPolicy, DueDelivery, DueReason, EditReminder,
+    NewNotification, NewReminder, NewReminderEvent, NewReminderTrigger, Notification,
+    NotificationId, NotificationStatus, Priority, QuietHours, ReconcileReason, Reconciliation,
+    Reminder, ReminderEvent, ReminderEventId, ReminderEventKind, ReminderId, ReminderKind,
+    ReminderSource, ReminderStatus, ReminderTarget, ReminderTrigger, ReminderTriggerId,
+    StackTriggerKind, StackTriggerStatus, Transition, Trigger, VisualLevel, LEAD_PRESETS,
+    MISS_GRACE,
 };
 pub use calendar::{compose, CalendarItem, CalendarKind, ComposeInput};
 pub use capture::{Capture, CaptureId, CaptureSource, LifecycleState, NewCapture, ProcessingState};
@@ -128,6 +134,7 @@ pub use ports::{
     SearchRequest, TimeTrackingRepository, UpdateAssignment, UpdateExam, VoiceRepository,
     WorkRepository,
 };
+pub use recurrence::{weekday_index, MonthlyDay, Recurrence, RecurrenceAnchor, RecurrenceRule};
 pub use resource::{
     validate_resource_url, NewResource, Resource, ResourceId, ResourceKind, ResourceProject,
     ResourceWorkspace,
@@ -156,13 +163,15 @@ pub use voice::{
     ProjectSource, Understanding, VoiceAction, VoiceContext, VoiceNote, VoiceNoteId,
     VoiceNoteStatus, VoiceTransition, MAX_DURATION_MS, MIN_DURATION_MS, MIN_PEAK_LEVEL,
 };
-pub use voice_when::{resolve_when, ResolvedWhen};
+pub use voice_when::{fold_text as normalizar_frase, resolve_when, ResolvedWhen};
 pub use weekly::{
     compose_week, Dominant, NewWeeklyReview, Recurring, Week, WeekInput, WeekSummary, WeeklyReview,
     WeeklyReviewId,
 };
 pub use work::{
-    validate_pin_kind, validate_section_id, validate_span, validate_widget_id, HiddenWidget,
+    parse_checklist_lines, validate_pin_kind, validate_section_id, validate_span,
+    validate_widget_id, ChecklistItem, ChecklistItemId, EditTask, HiddenWidget, NewChecklistItem,
     NewProject, NewTask, NewWorkspace, Project, ProjectId, RadialPin, RadialPinInput, SearchItem,
-    Task, TaskId, TaskState, WidgetPlacement, WidgetPlacementInput, Workspace, WorkspaceId,
+    Task, TaskDetail, TaskId, TaskState, WidgetPlacement, WidgetPlacementInput, Workspace,
+    WorkspaceId, MAX_CHECKLIST_PASTE,
 };

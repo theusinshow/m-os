@@ -20,7 +20,7 @@ use crate::{
     verify_integrity,
     work_repository::{
         query_app_workspace_links, query_captures_all, query_project_workspace_links,
-        query_projects, query_tasks, query_workspaces_all, PROJECT_COLUMNS, TASK_COLUMNS,
+        query_projects, query_tasks, query_workspaces_all, task_select, PROJECT_COLUMNS,
     },
     SqliteStorage, SCHEMA_VERSION,
 };
@@ -173,7 +173,10 @@ impl SqliteStorage {
                 )?,
                 tasks: query_tasks(
                     &connection,
-                    &format!("SELECT {TASK_COLUMNS} FROM tasks ORDER BY created_at ASC"),
+                    &format!(
+                        "SELECT {colunas} FROM tasks t ORDER BY t.created_at ASC",
+                        colunas = task_select("t")
+                    ),
                 )?,
                 apps: query_apps_all(&connection)?,
                 resources: query_resources_all(&connection)?,

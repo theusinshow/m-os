@@ -1374,3 +1374,248 @@
   background: var(--signal);
   opacity: 0.75;
 }
+
+/* ------------------------------------------------------------- checklist
+   O passo dentro da task, no bolso.
+
+   Duas coisas mandam neste bloco, e nenhuma delas é estética.
+
+   1. **44px de alvo, na largura toda.** O checkbox tem 20px, mas quem recebe o
+      toque é a LINHA. Um alvo do tamanho do desenho funciona com um mouse e
+      falha com um polegar dentro de um ônibus.
+
+   2. **Nenhuma cor nova.** Este app tem um acento só — o sódio —, e o comentário
+      do botão de excluir já registra por quê: um segundo acento faria "excluir"
+      gritar mais alto que um lembrete vencido. Prazo estourado usa o mesmo
+      sódio, com peso e não com matiz. */
+
+.checklist {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: 2px;
+  list-style: none;
+}
+
+.checklist li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-radius: var(--radius);
+  transition: opacity var(--tempo) var(--curva);
+}
+
+.checklist-linha {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--toque);
+  padding: 0 var(--space-2) 0 0;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font: 400 15px/1.35 var(--font-product);
+  text-align: left;
+  cursor: pointer;
+}
+
+.checklist-linha:active {
+  background: var(--surface-active);
+}
+
+.checklist-caixa {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  transition: background var(--tempo) var(--curva), border-color var(--tempo) var(--curva);
+}
+
+.checklist-linha[aria-pressed="true"] .checklist-caixa {
+  background: var(--signal);
+  border-color: var(--signal);
+}
+
+/* O glifo desenhado em CSS: sem fonte de ícone e sem SVG, o que importa num
+   app que abre no 4G. */
+.checklist-linha[aria-pressed="true"] .checklist-caixa::after {
+  width: 4px;
+  height: 9px;
+  border: solid var(--canvas);
+  border-width: 0 2px 2px 0;
+  transform: translateY(-1px) rotate(45deg);
+  content: "";
+}
+
+.checklist-texto {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  transition: color var(--tempo) var(--curva);
+}
+
+.checklist li[data-feito] .checklist-texto {
+  color: var(--text-system);
+  text-decoration: line-through;
+  text-decoration-color: var(--text-system);
+}
+
+/* Sempre visível, e não atrás de um hover: não existe hover aqui, e um botão
+   que só aparece ao passar o mouse é um botão que não existe no celular. */
+.checklist-remover {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--toque);
+  height: var(--toque);
+  background: none;
+  border: 0;
+  color: var(--text-system);
+  font: 400 20px/1 var(--font-system);
+  cursor: pointer;
+}
+
+.checklist-remover:active {
+  color: var(--signal);
+}
+
+.checklist-novo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.checklist-novo input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--toque);
+  padding: 0 var(--space-2);
+  background: none;
+  border: 0;
+  border-bottom: 1px dashed var(--border-strong);
+  border-radius: 0;
+  color: var(--text);
+  font: 400 15px/1.35 var(--font-product);
+}
+
+/* Tracejada quando vazia, sólida quando focada: a linha diz "cabe mais aqui", e
+   é o estado vazio do checklist sem uma frase explicando o óbvio. */
+.checklist-novo input:focus {
+  border-bottom-style: solid;
+  border-bottom-color: var(--signal);
+  outline: none;
+}
+
+.detalhe-bloco h3 .checklist-contagem {
+  margin-left: var(--space-2);
+  color: var(--text-system);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------- progresso */
+
+.progresso {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: 2px;
+  color: var(--text-system);
+  font: 500 11px/1.2 var(--font-system);
+}
+
+.progresso-numero {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.progresso-barra {
+  position: relative;
+  flex: 1;
+  max-width: 120px;
+  height: 2px;
+  overflow: hidden;
+  background: var(--border-strong);
+  border-radius: var(--radius);
+}
+
+/* `transform` e não `width`: largura recalcula o layout a cada quadro, e a
+   linha inteira reflui enquanto a barra anda. */
+.progresso-barra > span {
+  display: block;
+  height: 100%;
+  background: var(--text-secondary);
+  transform-origin: left center;
+  transition: transform var(--tempo) var(--curva);
+}
+
+/* Prazo estourado: o sódio na borda de ataque da linha, e nada mais. Um fundo
+   colorido faria a lista inteira piscar num dia de três atrasos. */
+.fazer .item[data-atrasada]:not([data-feita]) {
+  box-shadow: inset 2px 0 0 var(--signal);
+}
+
+.fazer .item[data-atrasada]:not([data-feita]) .item-corpo small {
+  color: var(--signal);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progresso-barra > span,
+  .checklist-caixa,
+  .checklist-texto {
+    transition: none;
+  }
+}
+
+/* ------------------------------------------------ o lembrete, camada nova
+
+   O que a migration 0040 trouxe para o bolso: a pergunta do follow-up e o
+   interruptor de "nao me deixe esquecer".
+
+   Nenhum dos dois usa cor para dizer o que diz. `DESIGN-FOUNDATIONS.md` §14
+   proibe estado que dependa so dela, e numa tela de celular ao sol a proibicao
+   deixa de ser principio e vira a diferenca entre ler e nao ler. */
+
+/* A pergunta que um follow-up faz. Ela e o conteudo, e nao um subtitulo: quem
+   abre a lista precisa saber que a resposta esperada e "sim/nao", e nao
+   "concluir". */
+.item-pergunta {
+  margin: 2px 0 0;
+  font-weight: 600;
+}
+
+/* Caixa de marcar de verdade, e nao um chip que finge ser uma: o estado
+   ligado/desligado precisa chegar ao leitor de tela como o que e, e
+   `aria-pressed` num botao diz outra coisa. */
+.folha-interruptor {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-top: 12px;
+  /* 44px e o alvo minimo de toque do iOS. Um interruptor menor que o polegar e
+     um interruptor que se erra. */
+  min-height: 44px;
+  padding: 8px 0;
+  cursor: pointer;
+}
+
+.folha-interruptor input {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  flex: none;
+}
+
+.folha-interruptor span {
+  display: flex;
+  flex-direction: column;
+}
+
+.folha-interruptor small {
+  opacity: 0.62;
+}

@@ -212,8 +212,8 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
     corpo: (
       <Fazer
         capturas={[]}
-        tasks={[]}
-        tasksLembradas={new Set()}
+        tasks={FALSO.tasks}
+        tasksLembradas={new Set(["t1"])}
         aoCapturar={NADA}
         aoAbrir={NADA}
         aoAlternar={NADA}
@@ -228,6 +228,23 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
     corpo: (
       <Task
         task={FALSO.tasks[0]}
+        detalhe={{
+          task: FALSO.tasks[0],
+          /* Cinco passos com dois feitos: é a proporção que mostra ao mesmo
+             tempo o texto riscado, o texto vivo e a barra a meio caminho. Uma
+             lista toda marcada ou toda aberta esconderia dois dos três. */
+          checklist: [
+            { id: "i1", taskId: "t1", label: "Conferir o nível do radier", position: 0, completedAt: "2026-09-08T12:00:00Z" },
+            { id: "i2", taskId: "t1", label: "Atualizar o corte AA", position: 1, completedAt: "2026-09-08T13:00:00Z" },
+            { id: "i3", taskId: "t1", label: "Revisar a armadura da caixa 01, incluindo o cobrimento de 5 cm combinado na reunião", position: 2, completedAt: null },
+            { id: "i4", taskId: "t1", label: "Gerar o PDF", position: 3, completedAt: null },
+            { id: "i5", taskId: "t1", label: "Enviar para o Victor", position: 4, completedAt: null },
+          ],
+          subtasks: [FALSO.tasks[1]],
+          blockedBy: null,
+          references: [],
+          reminders: [],
+        }}
         projeto={{ id: "p1", name: "046 - Ratones" }}
         projetos={[
           { id: "p1", name: "046 - Ratones" },
@@ -240,6 +257,9 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
         aoArquivar={NADA}
         aoLembrar={NADA}
         aoVoltar={NADA}
+        aoMarcarItem={NADA}
+        aoCriarItem={NADA}
+        aoApagarItem={NADA}
       />
     ),
   },

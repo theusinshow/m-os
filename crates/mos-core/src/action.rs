@@ -32,6 +32,19 @@ pub enum ActionKind {
     TaskCreate,
     TaskSetState,
     TaskSetProject,
+    /// As tres da execucao dentro da Task.
+    ///
+    /// Elas existem pelo motivo estrutural que ja justificou `ReminderCreate` e
+    /// as cinco do dia: **um modelo sem a acao certa usa a errada.** Sem
+    /// `TaskAddChecklist`, "adiciona enviar para o Victor no checklist" so
+    /// podia virar `mos.task.create` — uma Task nova solta no quadro, no lugar
+    /// de um passo dentro do trabalho que ja existe.
+    TaskAddChecklist,
+    TaskCheckItem,
+    /// Prazo, prioridade e estimativa numa acao so: sao os tres campos que a
+    /// mesma frase costuma trazer junta ("urgente, para hoje as 17h"), e tres
+    /// acoes separadas fariam o modelo propor tres cartoes para uma decisao.
+    TaskSetPlan,
     ProjectCreate,
     ResourceCreate,
     /// O lembrete, que e o que faltava para o M/OS ter ancora de tempo futuro
@@ -39,6 +52,15 @@ pub enum ActionKind {
     /// nada — e "me lembra hoje as 20:30" nao tinha para onde ir.
     ReminderCreate,
     ReminderResolve,
+    /// Adiar. Ela existe pelo mesmo motivo estrutural das outras: sem ela,
+    /// "adia isso para amanha" so podia virar `mos.reminder.create` — um
+    /// lembrete NOVO ao lado do que ficou vencido, que e exatamente a duplicata
+    /// que o Attention System existe para nao produzir.
+    ///
+    /// Adiar e nao remarcar: a diferenca e de produto e o cartao a diz. Adiar
+    /// conta fadiga, porque adiar quinze vezes e um sinal; corrigir a hora que
+    /// se digitou errado nao e.
+    ReminderSnooze,
     TimeStart,
     TimeStop,
     TimeRecord,
@@ -72,10 +94,14 @@ impl ActionKind {
             Self::TaskCreate => "mos.task.create",
             Self::TaskSetState => "mos.task.set_state",
             Self::TaskSetProject => "mos.task.set_project",
+            Self::TaskAddChecklist => "mos.task.add_checklist",
+            Self::TaskCheckItem => "mos.task.check_item",
+            Self::TaskSetPlan => "mos.task.set_plan",
             Self::ProjectCreate => "mos.project.create",
             Self::ResourceCreate => "mos.resource.create",
             Self::ReminderCreate => "mos.reminder.create",
             Self::ReminderResolve => "mos.reminder.resolve",
+            Self::ReminderSnooze => "mos.reminder.snooze",
             Self::TimeStart => "mos.time.start",
             Self::TimeStop => "mos.time.stop",
             Self::TimeRecord => "mos.time.record",
@@ -95,10 +121,14 @@ impl ActionKind {
             "mos.task.create" => Some(Self::TaskCreate),
             "mos.task.set_state" => Some(Self::TaskSetState),
             "mos.task.set_project" => Some(Self::TaskSetProject),
+            "mos.task.add_checklist" => Some(Self::TaskAddChecklist),
+            "mos.task.check_item" => Some(Self::TaskCheckItem),
+            "mos.task.set_plan" => Some(Self::TaskSetPlan),
             "mos.project.create" => Some(Self::ProjectCreate),
             "mos.resource.create" => Some(Self::ResourceCreate),
             "mos.reminder.create" => Some(Self::ReminderCreate),
             "mos.reminder.resolve" => Some(Self::ReminderResolve),
+            "mos.reminder.snooze" => Some(Self::ReminderSnooze),
             "mos.time.start" => Some(Self::TimeStart),
             "mos.time.stop" => Some(Self::TimeStop),
             "mos.time.record" => Some(Self::TimeRecord),
@@ -121,10 +151,14 @@ impl ActionKind {
             Self::TaskCreate => "task.create",
             Self::TaskSetState => "task.set_state",
             Self::TaskSetProject => "task.set_project",
+            Self::TaskAddChecklist => "task.add_checklist",
+            Self::TaskCheckItem => "task.check_item",
+            Self::TaskSetPlan => "task.set_plan",
             Self::ProjectCreate => "project.create",
             Self::ResourceCreate => "resource.create",
             Self::ReminderCreate => "attention.create_reminder",
             Self::ReminderResolve => "attention.resolve_reminder",
+            Self::ReminderSnooze => "attention.snooze_reminder",
             Self::TimeStart => "time.start",
             Self::TimeStop => "time.stop",
             Self::TimeRecord => "time.record",
@@ -137,17 +171,21 @@ impl ActionKind {
         }
     }
 
-    pub fn all() -> [ActionKind; 18] {
+    pub fn all() -> [ActionKind; 22] {
         [
             Self::CaptureCreate,
             Self::CaptureToTask,
             Self::TaskCreate,
             Self::TaskSetState,
             Self::TaskSetProject,
+            Self::TaskAddChecklist,
+            Self::TaskCheckItem,
+            Self::TaskSetPlan,
             Self::ProjectCreate,
             Self::ResourceCreate,
             Self::ReminderCreate,
             Self::ReminderResolve,
+            Self::ReminderSnooze,
             Self::TimeStart,
             Self::TimeStop,
             Self::TimeRecord,
@@ -167,9 +205,22 @@ impl ActionKind {
         match self {
             Self::CaptureCreate => "{ content }",
             Self::CaptureToTask => "{ capture, title?, project? }",
-            Self::TaskCreate => "{ title, description?, project? }",
+            // `checklist` entra AQUI e nao numa acao separada porque "cria uma
+            // task para revisar a Caixa 01 com checklist: ..." e uma frase so,
+            // e parti-la em dois cartoes faria a pessoa autorizar duas vezes o
+            // que ela pediu uma.
+            Self::TaskCreate => {
+                "{ title, description?, project?, checklist?: [\"...\"], due?: AAAA-MM-DDTHH:MM, priority?: low|normal|high|urgent }"
+            }
             Self::TaskSetState => "{ task, state: inbox|backlog|planned|doing|review|done }",
             Self::TaskSetProject => "{ task, project }",
+            Self::TaskAddChecklist => "{ task, items: [\"...\"] }",
+            // `item` e o TEXTO do passo, e nao o id: ninguem diz "marca o
+            // 018f2a3c". A execucao casa pelo texto dentro daquela Task.
+            Self::TaskCheckItem => "{ task, item, done?: true|false }",
+            Self::TaskSetPlan => {
+                "{ task, due?: AAAA-MM-DDTHH:MM, clearDue?: true, priority?: low|normal|high|urgent, estimateMinutes?, waitingFor?, followUp?: AAAA-MM-DDTHH:MM }"
+            }
             Self::ProjectCreate => "{ name, description? }",
             Self::ResourceCreate => "{ kind: site|library|image|note, title, url?, note? }",
             // `at` e `when` sao alternativos, e os dois existem por motivos
@@ -179,9 +230,15 @@ impl ActionKind {
             // faladas que a voz usa. Sem `when`, "sexta que vem" viraria uma
             // data inventada com cara de certa.
             Self::ReminderCreate => {
-                "{ title, at?: AAAA-MM-DDTHH:MM, when?: \"hoje 20:30\", body?, taskRef?, projectRef?, captureRef? }"
+                "{ title, at?: AAAA-MM-DDTHH:MM, when?: \"hoje 20:30\", body?, \
+                 persistent?: true quando a pessoa disser \"nao me deixa esquecer\", \
+                 waitingFor?: nome de quem se esta cobrando, \
+                 taskRef?, projectRef?, captureRef? }"
             }
             Self::ReminderResolve => "{ reminder, state: done|cancelled }",
+            Self::ReminderSnooze => {
+                "{ reminder, at?: AAAA-MM-DDTHH:MM, when?: \"amanha de manha\" }"
+            }
             Self::TimeStart => "{ project, activity?, description? }",
             Self::TimeStop => "{ }",
             // Em MINUTOS, e nao "1h30": tres jeitos de escrever a mesma duracao
@@ -248,6 +305,12 @@ pub enum ActionArgs {
         description: String,
         /// Nome do Project, como o usuario fala. Resolvido na execucao.
         project: Option<String>,
+        /// Os passos com que a Task nasce. Vazio e o caso comum.
+        checklist: Vec<String>,
+        /// Prazo em RFC 3339, ou vazio.
+        due: String,
+        /// `low|normal|high|urgent`, ou vazio para o padrao neutro.
+        priority: String,
     },
     TaskSetState {
         /// Id ou titulo da Task, como o usuario fala. Resolvido na execucao.
@@ -257,6 +320,29 @@ pub enum ActionArgs {
     TaskSetProject {
         task: String,
         project: String,
+    },
+    TaskAddChecklist {
+        task: String,
+        /// Os passos, ja limpos de decoracao de lista pelo dominio.
+        items: Vec<String>,
+    },
+    TaskCheckItem {
+        task: String,
+        /// O texto do passo, como a pessoa falou.
+        item: String,
+        done: bool,
+    },
+    TaskSetPlan {
+        task: String,
+        /// Instante RFC 3339, ou vazio quando nao veio.
+        due: String,
+        /// `true` quando a frase pede para TIRAR o prazo. Sem este campo,
+        /// "tira o prazo dessa task" e "nao mexi no prazo" chegariam iguais.
+        clear_due: bool,
+        priority: String,
+        estimate_minutes: Option<i64>,
+        waiting_for: String,
+        follow_up: String,
     },
     ProjectCreate {
         name: String,
@@ -283,6 +369,29 @@ pub enum ActionArgs {
         when_raw: String,
         /// A que entidade o lembrete se prende. Resolvido na execucao.
         target: Option<TargetRef>,
+        /// "Nao me deixa esquecer disso."
+        ///
+        /// Um lembrete persistente NAO se resolve por ter sido entregue: ele
+        /// volta, em intervalos que crescem, ate a pessoa concluir, adiar,
+        /// reagendar ou cancelar. E a diferenca entre um despertador e um
+        /// sistema de atencao, e o cartao a diz por extenso — autorizar algo
+        /// que vai insistir e uma decisao diferente de autorizar um aviso.
+        persistent: bool,
+        /// De quem se esta esperando, quando a frase for uma cobranca.
+        ///
+        /// Preenchido, o lembrete vira follow-up e a pergunta muda: "o Victor
+        /// respondeu?" em vez de "concluir". Nao cria Task nenhuma — o §18 do
+        /// pedido recusa por escrito a copia chamada "Cobrar Victor".
+        waiting_for: String,
+    },
+    ReminderSnooze {
+        /// Id ou titulo do lembrete.
+        reminder: String,
+        /// O instante JA RESOLVIDO, pelo mesmo motivo do `ReminderCreate`: o
+        /// cartao precisa dizer para QUANDO isto vai antes de alguem autorizar.
+        at: String,
+        /// A frase como foi dita, quando o instante veio de `when`.
+        when_raw: String,
     },
     ReminderResolve {
         /// Id ou titulo do lembrete.
@@ -355,10 +464,14 @@ impl ActionArgs {
             Self::TaskCreate { .. } => ActionKind::TaskCreate,
             Self::TaskSetState { .. } => ActionKind::TaskSetState,
             Self::TaskSetProject { .. } => ActionKind::TaskSetProject,
+            Self::TaskAddChecklist { .. } => ActionKind::TaskAddChecklist,
+            Self::TaskCheckItem { .. } => ActionKind::TaskCheckItem,
+            Self::TaskSetPlan { .. } => ActionKind::TaskSetPlan,
             Self::ProjectCreate { .. } => ActionKind::ProjectCreate,
             Self::ResourceCreate { .. } => ActionKind::ResourceCreate,
             Self::ReminderCreate { .. } => ActionKind::ReminderCreate,
             Self::ReminderResolve { .. } => ActionKind::ReminderResolve,
+            Self::ReminderSnooze { .. } => ActionKind::ReminderSnooze,
             Self::TimeStart { .. } => ActionKind::TimeStart,
             Self::TimeStop => ActionKind::TimeStop,
             Self::TimeRecord { .. } => ActionKind::TimeRecord,
@@ -379,6 +492,26 @@ fn text(value: &serde_json::Value, key: &str) -> String {
         .unwrap_or_default()
         .trim()
         .to_owned()
+}
+
+/// Um booleano do modelo, tolerante ao jeito que ele o escreve.
+///
+/// `true`, `"true"`, `"sim"` e `1` significam a mesma coisa, e todos os quatro
+/// aparecem: o modelo devolve JSON e nem sempre tipa o booleano como booleano.
+/// Recusar `"true"` faria a capacidade central do Attention System — "nao me
+/// deixa esquecer" — falhar em silencio por causa de aspas.
+///
+/// Qualquer outra coisa e `false`. Um valor desconhecido virando `true` seria o
+/// erro na direcao errada: um lembrete que insiste sem ninguem ter pedido.
+fn flag(value: &serde_json::Value, key: &str) -> bool {
+    match value.get(key) {
+        Some(serde_json::Value::Bool(sim)) => *sim,
+        Some(serde_json::Value::Number(numero)) => numero.as_i64() == Some(1),
+        Some(serde_json::Value::String(texto)) => {
+            matches!(texto.trim().to_lowercase().as_str(), "true" | "sim" | "1")
+        }
+        _ => false,
+    }
 }
 
 fn required(value: &serde_json::Value, key: &str, action: ActionKind) -> Result<String, CoreError> {
@@ -459,6 +592,16 @@ pub fn parse_action_at(raw: &str, now_local: OffsetDateTime) -> Result<ActionArg
                 at,
                 when_raw,
                 target: target_of(&args),
+                persistent: flag(&args, "persistent"),
+                waiting_for: text(&args, "waitingFor"),
+            }
+        }
+        ActionKind::ReminderSnooze => {
+            let (at, when_raw) = reminder_instant(&args, now_local)?;
+            ActionArgs::ReminderSnooze {
+                reminder: required(&args, "reminder", kind)?,
+                at,
+                when_raw,
             }
         }
         ActionKind::ReminderResolve => {
@@ -482,7 +625,71 @@ pub fn parse_action_at(raw: &str, now_local: OffsetDateTime) -> Result<ActionArg
                 let project = text(&args, "project");
                 (!project.is_empty()).then_some(project)
             },
+            checklist: lista(&args, "checklist"),
+            due: instante_do_plano(&args, "due", now_local)?,
+            priority: prioridade(&args)?,
         },
+        ActionKind::TaskAddChecklist => {
+            let items = lista(&args, "items");
+            if items.is_empty() {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidInput,
+                    "A proposta de `mos.task.add_checklist` veio sem nenhum item.",
+                    false,
+                ));
+            }
+            ActionArgs::TaskAddChecklist {
+                task: required(&args, "task", kind)?,
+                items,
+            }
+        }
+        ActionKind::TaskCheckItem => ActionArgs::TaskCheckItem {
+            task: required(&args, "task", kind)?,
+            item: required(&args, "item", kind)?,
+            // Ausente e `true`: a frase que chega e "marca X como concluido".
+            // Desmarcar existe, e por isso o campo existe — mas ele e a
+            // excecao, e obrigar o modelo a dizer `done: true` toda vez seria
+            // um token gasto em toda conversa para nada.
+            done: args
+                .get("done")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true),
+        },
+        ActionKind::TaskSetPlan => {
+            let due = instante_do_plano(&args, "due", now_local)?;
+            let clear_due = args
+                .get("clearDue")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let priority = prioridade(&args)?;
+            let estimate_minutes = args
+                .get("estimateMinutes")
+                .and_then(serde_json::Value::as_i64);
+            let follow_up = instante_do_plano(&args, "followUp", now_local)?;
+            let waiting_for = text(&args, "waitingFor");
+            if due.is_empty()
+                && !clear_due
+                && priority.is_empty()
+                && estimate_minutes.is_none()
+                && follow_up.is_empty()
+                && waiting_for.is_empty()
+            {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidInput,
+                    "A proposta de `mos.task.set_plan` nao muda nada.",
+                    false,
+                ));
+            }
+            ActionArgs::TaskSetPlan {
+                task: required(&args, "task", kind)?,
+                due,
+                clear_due,
+                priority,
+                estimate_minutes,
+                waiting_for,
+                follow_up,
+            }
+        }
         ActionKind::TaskSetState => {
             let state = required(&args, "state", kind)?;
             crate::TaskState::parse(&state).map_err(|_| {
@@ -657,6 +864,76 @@ const REMINDER_GRACE: time::Duration = time::Duration::minutes(1);
 /// modelo que conseguiu fazer a conta ja aplicou o que sabe: mandar os dois e
 /// dizer a mesma coisa duas vezes, e reinterpretar a frase por cima da data
 /// pronta poderia trocar uma pela outra.
+/// Uma lista de textos vinda da proposta, ja limpa pelo dominio.
+///
+/// A limpeza usa `NewTask::with_checklist`, que e a MESMA regra da colagem na
+/// interface: um passo escrito `- Gerar PDF` pelo modelo tem de virar o mesmo
+/// item que a pessoa criaria colando aquela linha. Duas regras dariam dois
+/// textos para o mesmo passo.
+fn lista(args: &serde_json::Value, key: &str) -> Vec<String> {
+    let cru: Vec<String> = args
+        .get(key)
+        .and_then(serde_json::Value::as_array)
+        .map(|itens| {
+            itens
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    crate::NewTask::create("_", "", None)
+        .map(|rascunho| rascunho.with_checklist(&cru).checklist)
+        .unwrap_or_default()
+}
+
+/// A prioridade da proposta. Vazio significa "nao mexi nisso".
+fn prioridade(args: &serde_json::Value) -> Result<String, CoreError> {
+    let valor = text(args, "priority");
+    if valor.is_empty() {
+        return Ok(valor);
+    }
+    crate::Priority::parse(&valor).map_err(|_| {
+        CoreError::new(
+            ErrorCode::InvalidInput,
+            format!("`{valor}` nao e uma prioridade. Use low, normal, high ou urgent."),
+            false,
+        )
+    })?;
+    Ok(valor)
+}
+
+/// Um instante de PRAZO, e nao de lembrete.
+///
+/// Duas diferencas em relacao a `reminder_instant`, e as duas sao de produto:
+///
+/// - ele e opcional (vazio devolve vazio), porque nem toda Task vence;
+/// - **passado e aceito**. Um lembrete no passado nao faz sentido — nao da para
+///   ser avisado de ontem. Um prazo no passado faz: e uma Task atrasada, que e
+///   uma coisa que existe e que a pessoa precisa poder registrar.
+fn instante_do_plano(
+    args: &serde_json::Value,
+    key: &str,
+    now_local: OffsetDateTime,
+) -> Result<String, CoreError> {
+    let bruto = text(args, key);
+    if bruto.is_empty() {
+        return Ok(String::new());
+    }
+    let instante = parse_local_moment(&bruto, now_local)
+        .or_else(|| crate::resolve_when(&bruto, now_local).map(|lido| lido.instant))
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::InvalidInput,
+                format!("Nao consegui entender \"{bruto}\" como data."),
+                false,
+            )
+        })?;
+    instante
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|_| CoreError::new(ErrorCode::InvalidInput, "Data ilegivel na proposta.", false))
+}
+
 fn reminder_instant(
     args: &serde_json::Value,
     now_local: OffsetDateTime,
@@ -835,6 +1112,29 @@ pub struct ActionLine {
     pub value: String,
 }
 
+/// Um instante RFC 3339 escrito por extenso para o cartao de preview.
+///
+/// Absoluto, pelo mesmo motivo de `spoken_moment`: e a linha onde a pessoa
+/// CONFERE o prazo antes de autorizar, e "hoje as 17:00" so confere se ela ja
+/// souber que dia e hoje.
+fn spoken_instant(rfc3339: &str) -> String {
+    OffsetDateTime::parse(rfc3339, &time::format_description::well_known::Rfc3339)
+        .map(crate::spoken_moment)
+        .unwrap_or_else(|_| rfc3339.to_owned())
+}
+
+/// A prioridade na palavra que a tela usa.
+fn prioridade_falada(valor: &str) -> String {
+    match valor {
+        "low" => "baixa",
+        "normal" => "normal",
+        "high" => "alta",
+        "urgent" => "urgente",
+        outro => outro,
+    }
+    .to_owned()
+}
+
 fn line(label: &str, value: &str) -> ActionLine {
     ActionLine {
         label: label.to_owned(),
@@ -918,6 +1218,8 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
             at,
             when_raw,
             target,
+            persistent,
+            waiting_for,
         } => {
             let quando = crate::parse_moment(at)
                 .map(crate::spoken_moment)
@@ -944,10 +1246,36 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
                     &target.reference,
                 ));
             }
+            if !waiting_for.is_empty() {
+                lines.push(line("Cobrando", waiting_for));
+            }
+            if *persistent {
+                // Por extenso, e no cartao. Autorizar algo que vai INSISTIR e
+                // uma decisao diferente de autorizar um aviso, e quem autoriza
+                // precisa ver a diferenca antes de tocar em "sim".
+                lines.push(line(
+                    "Insistência",
+                    "vou continuar cobrando até você resolver",
+                ));
+            }
             if !body.is_empty() {
                 lines.push(line("Detalhe", body));
             }
             ("CRIAR LEMBRETE", lines)
+        }
+        ActionArgs::ReminderSnooze {
+            reminder,
+            at,
+            when_raw,
+        } => {
+            let quando = crate::parse_moment(at)
+                .map(crate::spoken_moment)
+                .unwrap_or_else(|_| at.clone());
+            let mut lines = vec![line("Lembrete", reminder), line("Volta em", &quando)];
+            if !when_raw.is_empty() {
+                lines.push(line("Você disse", when_raw));
+            }
+            ("ADIAR LEMBRETE", lines)
         }
         ActionArgs::ReminderResolve { reminder, state } => (
             "RESOLVER LEMBRETE",
@@ -967,10 +1295,25 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
             title,
             description,
             project,
+            checklist,
+            due,
+            priority,
         } => {
             let mut lines = vec![line("Título", title)];
             if let Some(project) = project {
                 lines.push(line("Project", project));
+            }
+            if !due.is_empty() {
+                lines.push(line("Prazo", &spoken_instant(due)));
+            }
+            if !priority.is_empty() {
+                lines.push(line("Prioridade", &prioridade_falada(priority)));
+            }
+            // Cada passo numa linha, e nao "5 itens": o cartao existe para a
+            // pessoa CONFERIR antes de autorizar, e um numero nao deixa ver que
+            // o modelo escreveu "Victor" onde ela disse "Vitor".
+            for (numero, passo) in checklist.iter().enumerate() {
+                lines.push(line(&format!("Passo {}", numero + 1), passo));
             }
             if !description.is_empty() {
                 lines.push(line("Descrição", description));
@@ -979,6 +1322,50 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
         }
         ActionArgs::TaskSetState { task, state } => {
             ("MOVER TASK", vec![line("Task", task), line("Para", state)])
+        }
+        ActionArgs::TaskAddChecklist { task, items } => {
+            let mut lines = vec![line("Task", task)];
+            for (numero, passo) in items.iter().enumerate() {
+                lines.push(line(&format!("Passo {}", numero + 1), passo));
+            }
+            ("ACRESCENTAR AO CHECKLIST", lines)
+        }
+        ActionArgs::TaskCheckItem { task, item, done } => (
+            if *done {
+                "CONCLUIR PASSO"
+            } else {
+                "REABRIR PASSO"
+            },
+            vec![line("Task", task), line("Passo", item)],
+        ),
+        ActionArgs::TaskSetPlan {
+            task,
+            due,
+            clear_due,
+            priority,
+            estimate_minutes,
+            waiting_for,
+            follow_up,
+        } => {
+            let mut lines = vec![line("Task", task)];
+            if *clear_due {
+                lines.push(line("Prazo", "sem prazo"));
+            } else if !due.is_empty() {
+                lines.push(line("Prazo", &spoken_instant(due)));
+            }
+            if !priority.is_empty() {
+                lines.push(line("Prioridade", &prioridade_falada(priority)));
+            }
+            if let Some(minutos) = estimate_minutes {
+                lines.push(line("Estimativa", &format!("{minutos} min")));
+            }
+            if !waiting_for.is_empty() {
+                lines.push(line("Aguardando", waiting_for));
+            }
+            if !follow_up.is_empty() {
+                lines.push(line("Cobrar em", &spoken_instant(follow_up)));
+            }
+            ("AJUSTAR TASK", lines)
         }
         // Os cinco cartoes do dia. O `note` entra no preview de proposito: e a
         // justificativa que o Hermes deu, e autorizar um dia montado por outro
@@ -1292,6 +1679,34 @@ pub enum UndoStep {
         id: String,
         project_id: Option<String>,
     },
+    /// Apaga os passos que o Hermes acabou de acrescentar.
+    ///
+    /// APAGA, e a excecao a ADR-035 e a mesma do `RemoveDailyObjective`: um
+    /// passo criado ha cinco segundos por engano nunca chegou a ser historia.
+    /// Arquiva-lo deixaria a Task com um item invisivel que so reaparece se
+    /// alguem for procurar na lixeira.
+    RemoveChecklistItems {
+        ids: Vec<String>,
+    },
+    /// O estado que o passo tinha antes de ser marcado. Espelha o
+    /// `RestoreTaskState`, e precisa ser lido ANTES da mudanca.
+    RestoreChecklistItem {
+        id: String,
+        done: bool,
+    },
+    /// O prazo, a prioridade e o resto do plano como estavam.
+    ///
+    /// Um passo so para os seis campos porque a acao tambem e uma: `set_plan`
+    /// muda o que a frase pediu, e desfazer tem de devolver o conjunto — nao
+    /// so o ultimo campo tocado.
+    RestoreTaskPlan {
+        id: String,
+        due_at: Option<String>,
+        priority: String,
+        estimate_minutes: Option<i64>,
+        waiting_for: String,
+        follow_up_at: Option<String>,
+    },
     /// O inverso de cancelar um lembrete que o Hermes criou.
     ///
     /// Cancela — nao apaga (ADR-035). O lembrete cancelado continua no
@@ -1421,6 +1836,7 @@ pub fn action_contract(finance_enabled: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use time::macros::datetime;
 
     fn record(args: &str) -> Result<ActionArgs, CoreError> {
         parse_action(&format!(r#"{{"action":"mos.time.record","args":{args}}}"#))
@@ -1538,8 +1954,103 @@ mod tests {
                 title: "Refatorar navbar".into(),
                 description: String::new(),
                 project: Some("Minarum".into()),
+                checklist: Vec::new(),
+                due: String::new(),
+                priority: String::new(),
             }
         );
+    }
+
+    /// A frase inteira do pedido — "crie uma task para revisar a Caixa 01 com
+    /// checklist: conferir niveis, revisar armadura, gerar PDF" — vira UM
+    /// cartao, com os tres passos visiveis para conferencia.
+    #[test]
+    fn uma_task_nasce_com_checklist_prazo_e_prioridade() {
+        let args = parse_action_at(
+            r#"{"action":"mos.task.create","args":{
+                 "title":"Revisar a Caixa 01",
+                 "checklist":["- conferir niveis","[ ] revisar armadura","3. gerar PDF"," "],
+                 "due":"2026-09-08T17:00",
+                 "priority":"high"}}"#,
+            datetime!(2026-09-08 09:00 -03:00),
+        )
+        .unwrap();
+        let ActionArgs::TaskCreate {
+            checklist,
+            due,
+            priority,
+            ..
+        } = args
+        else {
+            panic!("deveria ser TaskCreate");
+        };
+        assert_eq!(
+            checklist,
+            ["conferir niveis", "revisar armadura", "gerar PDF"],
+            "a decoracao de lista do modelo nao entra no texto do passo"
+        );
+        assert!(due.starts_with("2026-09-08T17:00"), "{due}");
+        assert_eq!(priority, "high");
+    }
+
+    #[test]
+    fn acrescentar_ao_checklist_precisa_de_pelo_menos_um_passo() {
+        assert!(parse_action(
+            r#"{"action":"mos.task.add_checklist","args":{"task":"Ajustes","items":[]}}"#
+        )
+        .is_err());
+        let args = parse_action(
+            r#"{"action":"mos.task.add_checklist","args":{"task":"Ajustes","items":["enviar para o Victor"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            args,
+            ActionArgs::TaskAddChecklist {
+                task: "Ajustes".into(),
+                items: vec!["enviar para o Victor".into()],
+            }
+        );
+    }
+
+    /// Marcar e o caso comum, entao `done` ausente significa concluido.
+    #[test]
+    fn marcar_um_passo_dispensa_dizer_que_e_para_marcar() {
+        let args = parse_action(
+            r#"{"action":"mos.task.check_item","args":{"task":"Ajustes","item":"conferir niveis"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            args,
+            ActionArgs::TaskCheckItem {
+                task: "Ajustes".into(),
+                item: "conferir niveis".into(),
+                done: true,
+            }
+        );
+    }
+
+    /// Um plano que nao muda nada e recusado: um cartao vazio pediria
+    /// autorizacao para coisa nenhuma.
+    #[test]
+    fn ajustar_a_task_sem_mudar_nada_e_recusado() {
+        assert!(
+            parse_action(r#"{"action":"mos.task.set_plan","args":{"task":"Ajustes"}}"#).is_err()
+        );
+    }
+
+    /// Prazo no PASSADO e aceito, e a diferenca para o lembrete e de produto:
+    /// nao da para ser avisado de ontem, mas uma Task atrasada existe.
+    #[test]
+    fn um_prazo_no_passado_e_uma_task_atrasada_e_nao_um_erro() {
+        let args = parse_action_at(
+            r#"{"action":"mos.task.set_plan","args":{"task":"Ajustes","due":"2026-09-01T17:00"}}"#,
+            datetime!(2026-09-08 09:00 -03:00),
+        )
+        .unwrap();
+        let ActionArgs::TaskSetPlan { due, .. } = args else {
+            panic!("deveria ser TaskSetPlan");
+        };
+        assert!(due.starts_with("2026-09-01T17:00"), "{due}");
     }
 
     /// Acao desconhecida e recusada nomeando o que veio. O catalogo vai crescer

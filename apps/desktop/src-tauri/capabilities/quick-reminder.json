@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "quick-reminder",
+  "description": "A caixa de um campo para criar um lembrete em segundos",
+  "windows": ["quick-reminder"],
+  "permissions": [
+    "core:default"
+  ]
+}

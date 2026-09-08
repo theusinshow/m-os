@@ -103,22 +103,34 @@ pub fn o_que_avisar(lembretes: &[Reminder], agora: OffsetDateTime) -> Vec<(Strin
     let cobrando = quantos_cobram(lembretes);
     lembretes
         .iter()
+        .filter(|lembrete| lembrete.lifecycle_state == mos_core::LifecycleState::Active)
+        .filter(|lembrete| !lembrete.status.is_terminal())
         .filter_map(|lembrete| {
             let vencimento = lembrete.next_due_at?;
             lembrete.overdue_by(agora)?;
+
+            // O degrau da insistencia, DERIVADO — nunca escrito.
+            //
+            // A fronteira do topo deste arquivo continua valendo: este aparelho
+            // le lembretes e nao escreve nenhum. `alert_slot` e como ele chega
+            // ao mesmo degrau que o agendador do PC alcancaria, a partir do
+            // vencimento e do relogio, sem tocar em `escalation_step`.
+            //
+            // Um lembrete comum tem degrau zero para sempre, e continua sendo
+            // avisado uma vez so. Um persistente ganha ate tres, nos mesmos
+            // 30 min / 1 h / 2 h que o PC usa — e e por virem da mesma funcao
+            // que os dois nunca discordam.
+            let degrau = mos_core::alert_slot(lembrete, agora);
+
             Some((
-                format!("lembrete:{}:{}", lembrete.id, vencimento.unix_timestamp()),
+                format!(
+                    "lembrete:{}:{}:{degrau}",
+                    lembrete.id,
+                    vencimento.unix_timestamp()
+                ),
                 Aviso {
                     titulo: lembrete.title.clone(),
-                    // O corpo do lembrete costuma ser vazio, e uma notificacao
-                    // com segunda linha em branco parece defeito. Nesse caso a
-                    // segunda linha diz o que a pessoa quer saber de qualquer
-                    // forma: que isto venceu.
-                    corpo: if lembrete.body.trim().is_empty() {
-                        String::from("Venceu agora.")
-                    } else {
-                        lembrete.body.clone()
-                    },
+                    corpo: corpo_do_aviso(lembrete, degrau, agora),
                     tag: format!("lembrete-{}", lembrete.id),
                     url: String::from("/"),
                     badge: Some(cobrando),
@@ -126,6 +138,56 @@ pub fn o_que_avisar(lembretes: &[Reminder], agora: OffsetDateTime) -> Vec<(Strin
             ))
         })
         .collect()
+}
+
+/// A segunda linha da notificacao.
+///
+/// O corpo do lembrete costuma ser vazio, e uma notificacao com segunda linha em
+/// branco parece defeito. O que entra no lugar depende do que a pessoa precisa
+/// saber para decidir se levanta agora:
+///
+/// - um follow-up pergunta pela PESSOA, porque "concluir" nao e a resposta que
+///   ele quer;
+/// - uma insistencia diz que isto CONTINUA pendente, e nao que venceu agora —
+///   repetir "venceu agora" tres horas depois seria mentir sobre o atraso;
+/// - o resto diz ha quanto tempo passou.
+fn corpo_do_aviso(lembrete: &Reminder, degrau: u32, agora: OffsetDateTime) -> String {
+    if lembrete.kind == mos_core::ReminderKind::FollowUp {
+        let quem = lembrete.waiting_for.trim();
+        return if quem.is_empty() {
+            String::from("Ja respondeu?")
+        } else {
+            format!("{quem} respondeu?")
+        };
+    }
+    if !lembrete.body.trim().is_empty() {
+        return lembrete.body.clone();
+    }
+    if degrau > 0 {
+        return format!(
+            "Continua pendente — {}.",
+            atraso_em_palavras(lembrete, agora)
+        );
+    }
+    match lembrete.overdue_by(agora) {
+        Some(atraso) if atraso.whole_minutes() >= 5 => {
+            format!("Venceu {}.", atraso_em_palavras(lembrete, agora))
+        }
+        _ => String::from("Venceu agora."),
+    }
+}
+
+fn atraso_em_palavras(lembrete: &Reminder, agora: OffsetDateTime) -> String {
+    let Some(atraso) = lembrete.overdue_by(agora) else {
+        return String::from("agora");
+    };
+    if atraso.whole_hours() < 1 {
+        format!("ha {} min", atraso.whole_minutes())
+    } else if atraso.whole_days() < 1 {
+        format!("ha {} h", atraso.whole_hours())
+    } else {
+        format!("ha {} d", atraso.whole_days())
+    }
 }
 
 /// O aviso de que o PC mandou coisa.
@@ -212,7 +274,40 @@ impl Avisador {
 
     /// Uma passada: confere lembretes vencidos e avisa os que faltam.
     pub fn passada(&self, attention: &AttentionService, agora: OffsetDateTime) {
-        let lembretes = match attention.waiting() {
+        // As horas de silencio DESTE aparelho. Nao sincronizam: silenciar o
+        // celular a noite nao pode silenciar o PC do escritorio, e o contrario
+        // tambem nao.
+        //
+        // Segura a NOTIFICACAO, e nao o lembrete: nada e marcado como avisado
+        // enquanto o silencio dura, entao a mesma notificacao sai inteira quando
+        // a janela terminar — com o atraso dito no corpo, que e o que o §33
+        // pede.
+        match attention.settings() {
+            Ok(ajustes) => {
+                // Pergunta pelo TOPO da escala: se nem `Urgent` pode sair, nada
+                // pode. Com `allow_urgent` desligado — o default — isso vale
+                // para a janela inteira.
+                if ajustes
+                    .quiet
+                    .defer(agora, ajustes.offset(), mos_core::Priority::Urgent)
+                    .is_some()
+                {
+                    return;
+                }
+            }
+            Err(causa) => {
+                // Sem ajustes legiveis, avisa. Perder um lembrete por causa de
+                // uma configuracao ilegivel seria a falha que o sistema inteiro
+                // existe para nao ter.
+                eprintln!("[push] ajustes ilegiveis: {}", causa.message);
+            }
+        }
+
+        // `open` e nao `waiting`: um lembrete que o PC ja marcou como `due` ou
+        // `missed` chega aqui pelo sync nesse estado, e `waiting` so devolve o
+        // que ainda espera. Com `waiting`, o celular ficava calado justamente
+        // sobre o que ja estava atrasado.
+        let lembretes = match attention.open() {
             Ok(lembretes) => lembretes,
             Err(causa) => {
                 eprintln!("[push] nao consegui ler os lembretes: {}", causa.message);
@@ -276,6 +371,13 @@ mod testes {
             next_due_at: Some(vence),
             snooze_count: 0,
             delivered_count: 0,
+            kind: mos_core::ReminderKind::Standard,
+            waiting_for: String::new(),
+            persistent: false,
+            escalation_step: 0,
+            last_triggered_at: None,
+            retry_at: None,
+            recurrence: None,
             created_at: criado,
             updated_at: criado,
             completed_at: None,
@@ -327,11 +429,76 @@ mod testes {
 
     /// Um corpo vazio viraria uma segunda linha em branco na tela de bloqueio, e
     /// isso parece defeito do app.
+    ///
+    /// A frase que entra no lugar diz o TAMANHO do atraso quando ele existe:
+    /// "venceu agora" numa notificacao de dezesseis minutos atras seria o
+    /// aparelho mentindo sobre a unica informacao que muda o que se faz a
+    /// seguir.
     #[test]
     fn corpo_vazio_vira_uma_frase_util() {
         let agora = instante(1_000_000);
-        let avisos = o_que_avisar(&[lembrete("Titulo", "   ", instante(999_000))], agora);
-        assert_eq!(avisos[0].1.corpo, "Venceu agora.");
+        // Um minuto de atraso: dentro da margem em que "agora" e verdade.
+        let recem = o_que_avisar(&[lembrete("Titulo", "   ", instante(999_940))], agora);
+        assert_eq!(recem[0].1.corpo, "Venceu agora.");
+
+        // Dezesseis minutos: a frase diz quanto.
+        let atrasado = o_que_avisar(&[lembrete("Titulo", "   ", instante(999_000))], agora);
+        assert_eq!(atrasado[0].1.corpo, "Venceu ha 16 min.");
+    }
+
+    /// Um follow-up pergunta pela PESSOA. "Concluir" nao e a resposta que ele
+    /// quer, e a notificacao nao pode fingir que e.
+    #[test]
+    fn um_follow_up_pergunta_pela_pessoa() {
+        let agora = instante(1_000_000);
+        let mut cobranca = lembrete("Base estrutural", "", instante(999_000));
+        cobranca.kind = mos_core::ReminderKind::FollowUp;
+        cobranca.waiting_for = "Victor".into();
+        let avisos = o_que_avisar(&[cobranca], agora);
+        assert_eq!(avisos[0].1.corpo, "Victor respondeu?");
+    }
+
+    /// A insistencia so existe para quem pediu, e ela usa os mesmos intervalos
+    /// do agendador do PC. Um lembrete comum avisa uma vez e pronto.
+    #[test]
+    fn so_o_persistente_ganha_um_segundo_aviso() {
+        let venceu = instante(1_000_000);
+        let comum = lembrete("Alongar", "", venceu);
+        let mut insistente = lembrete("Enviar as bases", "", venceu);
+        insistente.persistent = true;
+
+        let chave = |lembrete: &Reminder, agora| {
+            o_que_avisar(std::slice::from_ref(lembrete), agora)[0]
+                .0
+                .clone()
+        };
+
+        // Um minuto depois do vencimento: o primeiro aviso de cada um. Nao no
+        // proprio instante — `overdue_by` e estrito, e no segundo exato do
+        // vencimento ainda nao ha atraso nenhum.
+        let primeiro = venceu + time::Duration::minutes(1);
+
+        // Vinte e nove minutos: nenhum dos dois mudou de chave.
+        let cedo = venceu + time::Duration::minutes(29);
+        assert_eq!(chave(&comum, primeiro), chave(&comum, cedo));
+        assert_eq!(chave(&insistente, primeiro), chave(&insistente, cedo));
+
+        // Trinta e um: so o persistente ganha uma chave nova, e portanto so ele
+        // volta a tocar.
+        let depois = venceu + time::Duration::minutes(31);
+        assert_eq!(chave(&comum, primeiro), chave(&comum, depois));
+        assert_ne!(chave(&insistente, primeiro), chave(&insistente, depois));
+    }
+
+    /// O que ja foi resolvido nao avisa mais — mesmo que a linha ainda esteja na
+    /// lista que veio do banco.
+    #[test]
+    fn nada_terminal_avisa() {
+        let agora = instante(1_000_000);
+        let mut feito = lembrete("Ja fiz", "", instante(999_000));
+        feito.status = mos_core::ReminderStatus::Completed;
+        feito.completed_at = Some(instante(999_500));
+        assert!(o_que_avisar(&[feito], agora).is_empty());
     }
 
     #[test]

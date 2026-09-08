@@ -8090,6 +8090,16 @@ input[type="checkbox"]:disabled {
   animation: viewEnter var(--dur-enter) var(--ease-enter);
 }
 
+/* O corpo do toast empilha. Sem isto, o selo, o titulo e a hora saem na MESMA
+   linha e colados — "LEMBRETEConferir o toastagora" —, que foi o que a foto da
+   janela mostrou. Os tres sao `span`/`strong`, e nenhum e bloco por natureza. */
+.attention-toast > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+}
+
 .attention-toast p {
   margin: 0;
   color: var(--text-secondary);
@@ -8103,6 +8113,282 @@ input[type="checkbox"]:disabled {
   .attention-toast {
     animation: none;
   }
+}
+
+
+/* ------------------------------------------------- Attention, a camada nova
+
+   O que a migration 0040 trouxe para a tela: motivo dito por extenso, pilha de
+   alertas, repeticao, folha de detalhe e a caixa de um campo.
+
+   A regra que rege tudo abaixo: **urgencia vem de hierarquia e clareza, nunca
+   de piscar** (§51 do pedido). Nada aqui anima sozinho, nada muda de cor para
+   chamar atencao. O que separa o atrasado do agendado e a POSICAO na lista e a
+   PALAVRA no selo — as duas coisas que funcionam com a tela em preto e branco e
+   com um leitor de tela. */
+
+/* Os selos de motivo. Cada um carrega a palavra: `DESIGN-FOUNDATIONS.md` §14
+   proibe estado que dependa so de cor, e "atrasado" escrito e o cumprimento
+   dessa regra, nao um enfeite ao lado dela. */
+.attention-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1, 4px);
+  margin-top: 2px;
+}
+
+.attention-mark {
+  padding: 1px var(--space-2);
+  color: var(--text-meta);
+  font: var(--text-meta);
+  background: var(--surface-sunken, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+/* Os tres que mudam de peso, e so eles. Uma paleta por motivo faria sete cores
+   competindo no mesmo cartao, e sete cores competindo e ruido. */
+.attention-mark[data-reason='missed'],
+.attention-mark[data-reason='overdue'] {
+  color: var(--signal-ink);
+  border-color: color-mix(in srgb, var(--signal-ink) 40%, var(--border));
+}
+
+.attention-mark[data-reason='persistent'] {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.attention-question {
+  margin: 0;
+  color: var(--text);
+  font: var(--text-body);
+  font-weight: 600;
+}
+
+/* A lista de resolvidos: presente, e discreta. Ela responde "eu tratei aquilo?",
+   que e uma pergunta que se faz de vez em quando — e ocupar o mesmo peso do que
+   ainda falta seria responder a pergunta errada com destaque. */
+.attention-list--quiet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attention-list--quiet li {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: space-between;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+}
+
+.attention-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+/* ----------------------------------------------------------- Reminder Sheet
+
+   Sobreposicao central, e nao gaveta lateral: a gaveta ja e da Task, e duas
+   gavetas diferentes saindo do mesmo lado ensinariam que elas sao a mesma
+   coisa. O lembrete e um objeto pequeno; ele cabe numa folha. */
+/* Centraliza por MARGEM, e nao por `translateX(-50%)`.
+
+   A folha e um `motion.div`, e o framer escreve `transform` nela a cada quadro
+   para animar entrada e saida. Um `transform` no CSS seria sobrescrito, e a
+   folha nasceria deslocada meia largura para a direita — foi o que a primeira
+   foto da janela mostrou, e nenhum teste pegaria. `inset-inline: 0` mais
+   `margin-inline: auto` centraliza sem tocar em `transform`. */
+.reminder-sheet {
+  position: fixed;
+  top: 12vh;
+  inset-inline: 0;
+  margin-inline: auto;
+  z-index: calc(var(--z-rail) + 4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: min(30rem, calc(100vw - var(--space-6)));
+  max-height: 76vh;
+  padding: var(--space-5);
+  overflow-y: auto;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  outline: none;
+  box-shadow: var(--shadow-overlay, 0 20px 48px rgba(0, 0, 0, 0.45));
+}
+
+.reminder-sheet-head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.reminder-sheet-head h2 {
+  margin: 2px 0 4px;
+  font: var(--text-title, inherit);
+}
+
+.reminder-sheet-title-input {
+  width: 100%;
+  margin: 2px 0 4px;
+}
+
+.reminder-sheet-question {
+  margin: 0;
+  font: var(--text-body);
+  font-weight: 600;
+}
+
+/* A ficha. `dl` e nao tabela: sao pares rotulo/valor, e um leitor de tela
+   anuncia "Prioridade, Alta" em vez de "coluna 1, coluna 2". */
+.reminder-sheet-facts {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.reminder-sheet-facts > div {
+  display: grid;
+  grid-template-columns: 8rem 1fr;
+  gap: var(--space-3);
+  align-items: baseline;
+}
+
+.reminder-sheet-facts dt {
+  color: var(--text-meta);
+  font: var(--text-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.reminder-sheet-facts dd {
+  margin: 0;
+  color: var(--text);
+  font: var(--text-body);
+}
+
+.reminder-sheet-stack ul,
+.reminder-sheet-history ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reminder-sheet-stack li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+/* O alerta que ja tocou continua na lista, apagado. Some-lo esconderia a
+   resposta para "isso ja me avisou?" — que e a pergunta que se faz olhando
+   para uma pilha. */
+.reminder-sheet-stack li[data-status='fired'],
+.reminder-sheet-stack li[data-status='cancelled'],
+.reminder-sheet-stack li[data-status='skipped'] {
+  color: var(--text-meta);
+}
+
+.reminder-sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.reminder-sheet-history li {
+  display: grid;
+  grid-template-columns: 9rem 1fr;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+  font: var(--text-meta);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reminder-sheet {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------ Quick Reminder
+
+   A caixa de um campo. Mesma familia da Captura rapida — mesma janela sem
+   decoracao, mesma barra de sodio na esquerda —, porque e o mesmo gesto: abrir,
+   digitar, Enter, sumir. O que muda e a previa embaixo, que existe porque aqui
+   a frase vira DATA, e uma data lida errado so se descobre tarde demais. */
+.quick-reminder {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.quick-reminder .capture-line input {
+  width: 100%;
+  padding: 0;
+  color: var(--text);
+  font: var(--text-body-lg, var(--text-body));
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+
+.quick-reminder-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+  min-height: 1.4em;
+}
+
+.quick-reminder-preview strong {
+  font: var(--text-body);
+}
+
+/* O eco do que o parser entendeu, com a grafia que a pessoa usou. E o que
+   permite conferir sem abrir nada: "entendi 'sexta a tarde'" responde a duvida
+   antes de ela virar um lembrete na hora errada. */
+.quick-reminder-echo {
+  color: var(--text-meta);
+  font: var(--text-meta);
+  font-style: italic;
+}
+
+/* ---------------------------------------------------- interruptor do compositor
+
+   Caixa de marcar de verdade, e nao um botao que finge ser uma: o estado
+   ligado/desligado precisa chegar ao leitor de tela como o que e, e
+   `aria-pressed` num botao diz outra coisa. */
+.composer-switch {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.composer-switch span {
+  display: flex;
+  flex-direction: column;
+  color: var(--text);
+  font: var(--text-body);
+}
+
+.composer-switch em {
+  color: var(--text-meta);
+  font: var(--text-meta);
+  font-style: normal;
 }
 
 /* ------------------------------------------------------- Reminder Composer
@@ -8124,17 +8410,21 @@ input[type="checkbox"]:disabled {
    `.attention-scrim`: o Attention Center usa o mesmo scrim e vive em
    `--z-rail + 2`. Subir o compartilhado enterraria o Centro atras do proprio
    fundo. */
+/* Mesma correcao da `.reminder-sheet`, e pelo mesmo motivo: o framer escreve
+   `transform` neste elemento, e o `translate(-50%, -50%)` do CSS nunca chegava
+   a valer. O que se via era a folha deslocada — meia largura para a direita e
+   meia altura para baixo. */
 .reminder-composer {
   position: fixed;
-  top: 50%;
-  left: 50%;
+  top: 14vh;
+  inset-inline: 0;
   z-index: var(--z-overlay);
   width: min(26rem, calc(100vw - var(--space-6)));
+  margin-inline: auto;
   padding: var(--space-5);
   background: var(--surface-raised);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  transform: translate(-50%, -50%);
   animation: viewEnter var(--dur-enter) var(--ease-enter);
 }
 
@@ -11730,3 +12020,775 @@ button.daily-objective-title:focus-visible {
 .malha-alinhamento[data-estado="alinhado"] { color: var(--calmo, #5f8f72); }
 .malha-alinhamento[data-estado="atras"] { color: var(--text-secondary); }
 .malha-alinhamento[data-estado="divergente"] { color: var(--signal); }
+
+/* ===========================================================================
+   TASK: o cartão, o checklist e a gaveta
+   ===========================================================================
+
+   Três regras governam tudo abaixo, e elas vêm do pedido que originou a
+   feature — "o M/OS não pode virar um Jira".
+
+   1. **Nenhuma cor nova.** O sistema tem duas com função declarada (sódio para
+      "agora", --success para "concluído") mais três degraus de neutro. Prazo
+      atrasado e prioridade urgente usam --danger, que já existe e já significa
+      exatamente isso. Prioridade `normal` não pinta nada.
+
+   2. **O cartão só desenha o que existe.** Uma Task sem checklist, sem prazo e
+      sem prioridade fica idêntica ao que era antes desta feature: título e, se
+      houver, o Project. Estrutura que não está sendo usada não ocupa pixel.
+
+   3. **Metadado é uma linha só.** Project, prazo, estimativa e "aguardando"
+      dividem a mesma fileira, com quebra. Uma linha por campo transformaria o
+      cartão numa ficha. */
+
+.task-card {
+  position: relative;
+  /* Sem isto o cartão RECUSA encolher abaixo do conteúdo dele e vaza para a
+     coluna vizinha. O nome de Project longo ("167-25 — Residencial Rancho
+     Queimado, bloco C") transbordava por cima do card ao lado, e o título
+     ficava cortado pelo vizinho em vez de quebrar. Item de grade tem
+     `min-width: auto` por padrão, e `auto` aqui significa "o tamanho do meu
+     conteúdo". */
+  min-width: 0;
+  margin-top: var(--space-2);
+  background: var(--surface);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius);
+  animation: rowEnter var(--dur-move) var(--ease-state);
+  transition: border-color var(--dur-instant) var(--ease-state),
+    opacity var(--dur-state) var(--ease-state);
+}
+
+.task-card:hover {
+  border-color: var(--border-strong);
+}
+
+.task-card[data-dragging] {
+  opacity: 0.5;
+}
+
+.task-card[data-completed] {
+  opacity: 0.42;
+}
+
+.task-card[data-completed] .task-card-corpo strong {
+  text-decoration: line-through;
+}
+
+/* Parada: barra de sódio na borda de ataque, e não fundo colorido — seis
+   colunas com fundo por card transformariam o quadro num semáforo. */
+.task-card[data-stale] {
+  border-left-color: var(--signal-fill);
+  box-shadow: inset 2px 0 0 var(--signal-fill);
+}
+
+/* Prioridade marca pela BORDA, e a palavra vai junto no rodapé: quem não
+   distingue os dois matizes ainda lê "Urgente". */
+.task-card[data-prioridade="urgent"] {
+  border-left-color: var(--danger);
+  box-shadow: inset 2px 0 0 var(--danger);
+}
+
+.task-card[data-prioridade="high"] {
+  border-left-color: var(--text-secondary);
+  box-shadow: inset 2px 0 0 var(--text-secondary);
+}
+
+.task-card-corpo {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+
+/* A mesma regra, um nível abaixo: cada faixa do cartão também precisa poder
+   encolher, senão a de dentro empurra a de fora. */
+.task-card-corpo > * {
+  min-width: 0;
+}
+
+.task-card-corpo strong {
+  font: var(--text-ui);
+  line-height: 1.35;
+  /* Título longo QUEBRA, e não corta com reticências: o começo de duas Tasks
+     de um mesmo Project costuma ser igual, e cortar deixa dois cartões com o
+     mesmo texto visível. */
+  overflow-wrap: anywhere;
+}
+
+.task-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+/* O nome do Project cede primeiro.
+   `flex: 0 1 auto` com `min-width: 0` é o par que autoriza o encolhimento: sem
+   o segundo, um item de flex nunca fica menor que o conteúdo dele, e o
+   `text-overflow` não tem de onde cortar. Cede ele e não o prazo porque o prazo
+   é curto e é a informação que muda a decisão. */
+.task-card-projeto {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* `--signal-ink` e não `--signal-fill`: o âmbar puro é ilegível como TEXTO
+   sobre o claro, e o design system separa os dois exatamente por isso — `fill`
+   para preencher, `ink` para escrever. */
+.task-card-parado {
+  color: var(--signal-ink);
+}
+
+.task-card-aguardando {
+  font-style: italic;
+}
+
+/* O prazo é a única metadata que muda de cor, e só nos dois estados em que a
+   cor MUDA a decisão: vencido e vence hoje. "Em breve" e "distante" ficam
+   neutros — colorir os quatro faria a cor não separar nada. */
+.task-card-prazo[data-situacao="atrasado"],
+.task-prazo[data-situacao="atrasado"] .task-prazo-lido {
+  color: var(--danger);
+}
+
+.task-card-prazo[data-situacao="hoje"],
+.task-prazo[data-situacao="hoje"] .task-prazo-lido {
+  color: var(--signal-ink);
+}
+
+.task-card-prioridade {
+  justify-self: start;
+  color: var(--text-secondary);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+
+.task-card[data-prioridade="urgent"] .task-card-prioridade {
+  color: var(--danger);
+}
+
+/* A lingueta é uma faixa de 26px na base do cartão. Discreta o bastante para
+   não competir com o título, grande o bastante para o dedo e para o mouse. */
+.task-card-lingueta {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 26px;
+  padding: 0 var(--space-3);
+  color: var(--text-system);
+  background: transparent;
+  border: 0;
+  border-top: var(--line) solid var(--border);
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  text-align: left;
+  text-transform: uppercase;
+  transition: color var(--dur-instant) linear, background var(--dur-instant) linear;
+}
+
+.task-card-lingueta:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+/* O checklist aberto TEM TETO, e rola dentro do cartão.
+   Sem ele, uma Task de vinte passos vira um cartão de oitocentos pixels e a
+   coluna deixa de ser varrível — que é justamente o que o quadro existe para
+   ser. O teto cabe uns oito passos: o suficiente para executar sem sair do
+   quadro, e pouco o bastante para quem tem vinte abrir a Task, que é onde uma
+   lista dessas se lê inteira.
+
+   Só UM cartão fica aberto por vez (`checklistAberto`, em `App.tsx`); este teto
+   é a segunda metade da mesma regra. */
+.task-card-checklist {
+  max-height: 240px;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  overflow-y: auto;
+  border-top: var(--line) solid var(--border);
+}
+
+/* --------------------------------------------------------------- checklist */
+
+.checklist {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.task-drawer .checklist {
+  padding-top: var(--space-4);
+}
+
+.checklist-topo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.checklist-topo .micro-label,
+.checklist-contagem {
+  color: var(--text-system);
+}
+
+.checklist-contagem {
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  /* Tabular: `9/10` e `10/10` não podem empurrar o número de lugar a cada
+     item marcado. */
+  font-variant-numeric: tabular-nums;
+}
+
+.checklist-itens {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: 2px;
+  list-style: none;
+}
+
+.checklist-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--height-row-dense);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  transition: background var(--dur-instant) linear, opacity var(--dur-state) var(--ease-state);
+}
+
+.checklist-item:hover {
+  background: var(--surface-hover);
+}
+
+.checklist-item[data-arrastando] {
+  opacity: 0.4;
+}
+
+/* O alvo do arrasto se anuncia por uma linha ACIMA, e não por fundo: a linha
+   diz ONDE o item vai cair; um fundo diz apenas "aqui em algum lugar". */
+.checklist-item[data-sobre] {
+  box-shadow: inset 0 2px 0 var(--signal-fill);
+}
+
+.checklist-marca {
+  flex: none;
+}
+
+.checklist-texto {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) 0;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  font: var(--text-small);
+  text-align: left;
+  overflow-wrap: anywhere;
+  transition: color var(--dur-state) var(--ease-state);
+}
+
+/* O risco e o apagamento são a confirmação de que o clique pegou. Os dois na
+   mesma transição de 140ms — o mesmo `--dur-state` do próprio checkbox, para o
+   item inteiro mudar como uma coisa só e não como três. */
+.checklist-item[data-feito] .checklist-texto {
+  color: var(--text-disabled);
+  text-decoration: line-through;
+  text-decoration-thickness: var(--line);
+}
+
+.checklist-edicao {
+  flex: 1;
+  min-width: 0;
+  height: var(--height-control-sm);
+  padding: 0 var(--space-2);
+  color: var(--text);
+  background: var(--canvas);
+  border: var(--line) solid var(--border-control);
+  border-radius: var(--radius-sm);
+  font: var(--text-small);
+}
+
+.checklist-remover {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--text-system);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity var(--dur-instant) linear, color var(--dur-instant) linear;
+}
+
+.checklist-remover svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Aparece no hover E no foco. Só no hover, ele não existiria para quem navega
+   por teclado — e o passo ficaria sem como ser removido sem mouse. */
+.checklist-item:hover .checklist-remover,
+.checklist-remover:focus-visible {
+  opacity: 1;
+}
+
+.checklist-remover:hover {
+  color: var(--danger);
+}
+
+.checklist-novo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.checklist-novo input {
+  flex: 1;
+  min-width: 0;
+  height: var(--height-control-sm);
+  padding: 0 var(--space-2);
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-bottom: var(--line) dashed var(--border-control);
+  border-radius: 0;
+  font: var(--text-small);
+  transition: border-color var(--dur-instant) linear;
+}
+
+/* Tracejada quando vazia, sólida quando focada: a linha diz "aqui cabe mais",
+   e é o estado vazio do checklist sem uma frase explicando o óbvio. */
+.checklist-novo input:focus {
+  border-bottom-style: solid;
+  border-bottom-color: var(--signal-fill);
+  outline: none;
+}
+
+.checklist-confirmar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--height-control-sm);
+  height: var(--height-control-sm);
+  padding: 0;
+  color: var(--on-signal);
+  background: var(--signal-fill);
+  border: 0;
+  border-radius: var(--radius-sm);
+}
+
+.checklist-confirmar svg {
+  width: 14px;
+  height: 14px;
+}
+
+.checklist-erro {
+  margin: 0;
+  color: var(--danger);
+  font: var(--text-meta);
+}
+
+.checklist-carregando {
+  margin: var(--space-4) 0 0;
+  color: var(--text-disabled);
+  font: var(--text-small);
+}
+
+/* No cartão a lista é mais apertada e não tem campo de criação: quem quer
+   escrever abre a Task. O que o cartão oferece é EXECUTAR. */
+.checklist[data-compacto] .checklist-item {
+  min-height: 24px;
+}
+
+.checklist[data-compacto] .checklist-texto {
+  font: var(--text-meta);
+}
+
+/* ------------------------------------------------------------- progresso */
+
+.checklist-progresso {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+.checklist-progresso-numero {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.checklist-barra {
+  position: relative;
+  flex: 1;
+  height: var(--marker);
+  min-width: 40px;
+  overflow: hidden;
+  background: var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+/* `transform` e não `width`: a largura recalcula o layout a cada quadro, e o
+   cartão inteiro reflui enquanto a barra anda. */
+.checklist-barra > span {
+  display: block;
+  height: 100%;
+  background: var(--text-secondary);
+  transform-origin: left center;
+  transition: transform var(--dur-state) var(--ease-state);
+}
+
+.task-card[data-completed] .checklist-barra > span,
+.checklist-progresso:has(+ *) .checklist-barra > span {
+  background: var(--text-secondary);
+}
+
+/* ------------------------------------------------------------ a gaveta */
+
+/* 21px e não 28px.
+   A gaveta tem 380px, e um título de 28px corta "Ajustes reunião — Caixa 01"
+   no meio — um `<input>` não quebra linha, ele rola. O título de uma Task é
+   uma frase, e ele precisa CABER; a hierarquia continua clara porque nada mais
+   nesta folha passa de 15px. */
+.task-titulo input {
+  width: 100%;
+  padding: var(--space-2) 0;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-bottom: var(--line) solid transparent;
+  font: var(--text-capture);
+  letter-spacing: var(--tracking-capture);
+  transition: border-color var(--dur-instant) linear;
+}
+
+.task-titulo input:hover {
+  border-bottom-color: var(--border);
+}
+
+.task-titulo input:focus {
+  border-bottom-color: var(--signal-fill);
+  outline: none;
+}
+
+/* Uma grade de seis, e não um menu: o estado é o que mais muda nesta folha, e
+   escondê-lo atrás de um toque faria o gesto mais frequente ser o mais caro. */
+.task-estados,
+.task-prioridade,
+.task-estimativa {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.task-estados button,
+.task-prioridade button,
+.task-estimativa button {
+  min-height: var(--height-control-sm);
+  padding: 0 var(--space-2);
+  color: var(--text-secondary);
+  background: transparent;
+  border: var(--line) solid var(--border-control);
+  border-radius: var(--radius-sm);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  transition: color var(--dur-instant) linear, background var(--dur-instant) linear,
+    border-color var(--dur-instant) linear;
+}
+
+.task-estados button:hover,
+.task-prioridade button:hover,
+.task-estimativa button:hover {
+  color: var(--text);
+  border-color: var(--text-secondary);
+}
+
+.task-estados button[aria-pressed="true"],
+.task-prioridade button[aria-pressed="true"],
+.task-estimativa button[aria-pressed="true"] {
+  color: var(--on-signal);
+  background: var(--signal-fill);
+  border-color: var(--signal-fill);
+}
+
+.task-prioridade button[data-nivel="urgent"][aria-pressed="true"] {
+  color: var(--canvas);
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.task-estimativa input {
+  width: 68px;
+  height: var(--height-control-sm);
+  padding: 0 var(--space-2);
+  color: var(--text);
+  background: var(--canvas);
+  border: var(--line) solid var(--border-control);
+  border-radius: var(--radius-sm);
+  font: var(--text-meta);
+}
+
+.task-bloqueio {
+  margin: 0;
+  color: var(--text-system);
+  font: var(--text-meta);
+}
+
+.task-bloqueio button {
+  padding: 0;
+  color: var(--signal-ink);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* A oferta de concluir. Discreta e imperdível ao mesmo tempo: fundo de
+   superfície, sem cor de alerta — ela não é um aviso, é um atalho. */
+.task-tudo-feito {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: var(--line) solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font: var(--text-small);
+  animation: rowEnter var(--dur-move) var(--ease-state);
+}
+
+.task-bloco {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-4);
+}
+
+.task-bloco > .micro-label {
+  color: var(--text-system);
+}
+
+.task-nota {
+  width: 100%;
+  padding: var(--space-2);
+  color: var(--text);
+  background: var(--canvas);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius-sm);
+  font: var(--text-small);
+  resize: vertical;
+}
+
+.task-campos {
+  display: grid;
+  margin: var(--space-4) 0 0;
+  gap: var(--space-2);
+}
+
+.task-campos > div {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--height-row-dense);
+}
+
+.task-campos dt {
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+.task-campos dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.task-campos select,
+.task-campos input[type="datetime-local"],
+.task-campos input[type="text"],
+.task-campos dd > input:not([type]) {
+  width: 100%;
+  height: var(--height-control-sm);
+  padding: 0 var(--space-2);
+  color: var(--text);
+  background: var(--canvas);
+  border: var(--line) solid var(--border-control);
+  border-radius: var(--radius-sm);
+  font: var(--text-small);
+}
+
+.task-prazo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.task-prazo-lido {
+  flex: none;
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+.task-lembretes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font: var(--text-meta);
+}
+
+.task-vazio {
+  color: var(--text-disabled);
+}
+
+.task-referencias,
+.task-subtasks {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: 2px;
+  list-style: none;
+}
+
+.task-referencias li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--height-row-dense);
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.task-referencias li > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-referencias button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--text-system);
+  background: transparent;
+  border: 0;
+}
+
+.task-referencias button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.task-subtasks button {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+  min-height: var(--height-row-two-line);
+  padding: var(--space-2);
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-bottom: var(--line) solid var(--border);
+  text-align: left;
+}
+
+.task-subtasks button:hover {
+  background: var(--surface-hover);
+}
+
+.task-subtasks button[data-feita] {
+  opacity: 0.5;
+}
+
+.task-subtasks button[data-feita] span {
+  text-decoration: line-through;
+}
+
+.task-subtasks small {
+  color: var(--text-system);
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+}
+
+/* O gatilho de progressive disclosure. Texto e não botão: ele revela, não
+   executa, e um botão de verdade prometeria uma ação. */
+.task-mais {
+  justify-self: start;
+  margin-top: var(--space-4);
+  padding: var(--space-1) 0;
+  color: var(--text-system);
+  background: transparent;
+  border: 0;
+  font: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-align: left;
+  transition: color var(--dur-instant) linear;
+}
+
+.task-mais:hover {
+  color: var(--text);
+}
+
+.task-erro {
+  margin: var(--space-3) 0 0;
+  color: var(--danger);
+  font: var(--text-meta);
+}
+
+.task-create .task-mais {
+  margin-top: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .checklist-barra > span,
+  .task-tudo-feito,
+  .task-card {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* Um lembrete pendente dentro do fluxo do dia.
+
+   Mesma anatomia do cartao do Attention Center — corpo em cima, acoes embaixo —
+   porque e o mesmo objeto. Uma segunda anatomia para a mesma coisa ensinaria
+   que sao coisas diferentes. */
+.daily-lembrete {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}

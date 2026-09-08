@@ -33,3 +33,4 @@ Thumbs.db
 spikes/meeting-audio/meeting-spike/
 spikes/**/*.pcm
 spikes/**/report.json
+.vercel

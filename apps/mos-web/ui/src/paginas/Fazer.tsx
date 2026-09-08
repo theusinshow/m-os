@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from "react";
 import type { Capture, Task } from "../api";
 import { Esqueleto } from "../componentes/Esqueleto";
 import { Vazio } from "../componentes/Vazio";
+import { Progresso } from "./Checklist";
 import { idade } from "./idade";
 import { dominioDe, enderecoEm } from "./links";
 
@@ -106,6 +107,7 @@ export function Fazer({
                   className="item"
                   key={task.id}
                   data-feita={task.state === "done" || undefined}
+                  data-atrasada={atrasada(task) || undefined}
                   style={escada(indice)}
                 >
                   <button
@@ -130,8 +132,18 @@ export function Fazer({
                   >
                     <div className="item-corpo">
                       <p>{task.title}</p>
+                      {/* O progresso vem ANTES da linha de estado: `3/6` é a
+                          resposta a "o que falta nessa task", e o estado é
+                          contexto. Só aparece quando há checklist — uma barra
+                          vazia diria "começou e não andou" numa task que não
+                          tem passos. */}
+                      {task.checklistTotal ? (
+                        <Progresso feitos={task.checklistDone} total={task.checklistTotal} />
+                      ) : null}
                       <small>
                         {ESTADO_DA_TASK[task.state]}
+                        {task.dueAt ? ` · ${prazo(task.dueAt)}` : ""}
+                        {task.waitingFor ? ` · aguardando ${task.waitingFor}` : ""}
                         {lembrada ? " · com lembrete" : ""}
                       </small>
                     </div>
@@ -264,4 +276,38 @@ function SinoIcone() {
       />
     </svg>
   );
+}
+
+/**
+ * O prazo escrito curto, para caber na linha de apoio.
+ *
+ * "Hoje 17:00" e não "quinta-feira, 8 de setembro": a linha já carrega estado,
+ * lembrete e quem está segurando a task, e um prazo por extenso empurraria
+ * todos eles para fora numa tela de 393px.
+ */
+function prazo(iso: string): string {
+  const data = new Date(iso);
+  if (Number.isNaN(data.getTime())) return "";
+  const dia = (valor: Date) =>
+    new Date(valor.getFullYear(), valor.getMonth(), valor.getDate()).getTime();
+  const distancia = Math.round((dia(data) - dia(new Date())) / 86_400_000);
+  const p = (valor: number) => String(valor).padStart(2, "0");
+  const hora = data.getHours() || data.getMinutes() ? ` ${p(data.getHours())}:${p(data.getMinutes())}` : "";
+  if (distancia === 0) return `hoje${hora}`;
+  if (distancia === 1) return `amanhã${hora}`;
+  if (distancia === -1) return `ontem${hora}`;
+  const mes = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"][data.getMonth()];
+  return `${data.getDate()} ${mes}${hora}`;
+}
+
+/**
+ * Passou do prazo e ainda não foi feita.
+ *
+ * A segunda metade é a que importa: cobrar prazo de trabalho já entregue é o
+ * comportamento que faz as pessoas pararem de olhar para os avisos do sistema.
+ */
+function atrasada(task: Task): boolean {
+  if (!task.dueAt || task.state === "done" || task.completedAt) return false;
+  const prazoEm = new Date(task.dueAt);
+  return !Number.isNaN(prazoEm.getTime()) && prazoEm.getTime() < Date.now();
 }

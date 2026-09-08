@@ -48,8 +48,14 @@ export function Lembretes({
 }) {
   const cobrando = lembretes.filter(pedeAtencao);
   const adiados = lembretes.filter((l) => l.status === "snoozed");
+  // Sem data e um grupo proprio, e no fim: "algum dia" nao e um lembrete
+  // atrasado nem um que vem — e misturado com os que tem hora, ele so faria a
+  // lista parecer maior do que o que ela cobra.
+  const algumDia = lembretes.filter(
+    (l) => !pedeAtencao(l) && l.status !== "snoozed" && !l.nextDueAt,
+  );
   const proximos = lembretes.filter(
-    (l) => !pedeAtencao(l) && l.status !== "snoozed",
+    (l) => !pedeAtencao(l) && l.status !== "snoozed" && l.nextDueAt,
   );
 
   return (
@@ -108,6 +114,14 @@ export function Lembretes({
             aoResolver={aoResolver}
             apagado
           />
+          <Grupo
+            titulo="ALGUM DIA"
+            itens={algumDia}
+            ocupado={ocupado}
+            aoAbrir={aoAbrir}
+            aoResolver={aoResolver}
+            apagado
+          />
         </>
       )}
     </div>
@@ -153,11 +167,25 @@ function Grupo({
             <button className="linha-destino" type="button" onClick={() => aoAbrir(lembrete)}>
               <div className="item-corpo">
                 <p>{lembrete.title}</p>
+                {/* Um follow-up faz outra PERGUNTA: "concluir" nao e a resposta
+                    que ele quer, e a linha nao pode fingir que e. */}
+                {lembrete.kind === "follow_up" ? (
+                  <p className="item-pergunta">
+                    {lembrete.waitingFor.trim()
+                      ? `${lembrete.waitingFor.trim()} respondeu?`
+                      : "Já respondeu?"}
+                  </p>
+                ) : null}
                 <small>
-                  {daquiA(lembrete.nextDueAt)}
+                  {lembrete.nextDueAt ? daquiA(lembrete.nextDueAt) : "sem data"}
                   {PALAVRA[lembrete.status] ? ` · ${PALAVRA[lembrete.status]}` : ""}
                   {lembrete.target?.type === "task" ? " · task" : ""}
                   {lembrete.snoozeCount > 0 ? ` · adiado ${lembrete.snoozeCount}×` : ""}
+                  {/* Nunca so cor: `DESIGN-FOUNDATIONS.md` §14 pede que nenhum
+                      estado dependa dela, e por isso a insistencia e a
+                      repeticao entram como PALAVRA nesta linha. */}
+                  {lembrete.persistent ? " · não deixar esquecer" : ""}
+                  {lembrete.recurrence ? " · repete" : ""}
                 </small>
               </div>
             </button>
@@ -170,7 +198,7 @@ function Grupo({
                   aria-label={`Concluir ${lembrete.title}`}
                   onClick={() => aoResolver(lembrete, "concluir")}
                 >
-                  Feito
+                  {lembrete.kind === "follow_up" ? "Respondeu" : "Feito"}
                 </button>
               </div>
             ) : null}

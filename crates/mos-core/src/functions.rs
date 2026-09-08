@@ -130,6 +130,14 @@ pub fn function_registry() -> Vec<FunctionDefinition> {
             FunctionConfirmation::None,
         ),
         function(
+            "attention.snooze_reminder",
+            "Adiar lembrete",
+            "Empurra um lembrete para mais tarde. Conta como adiamento.",
+            FunctionCategory::Attention,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
             "capture.create",
             "Criar Capture",
             "Registra uma nota local na Inbox.",
@@ -173,6 +181,34 @@ pub fn function_registry() -> Vec<FunctionDefinition> {
             "task.set_state",
             "Mover Task",
             "Altera uma Task entre Backlog, Doing e Done.",
+            FunctionCategory::Work,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        // Os tres da execucao dentro da Task, todos de risco baixo e sem
+        // confirmacao — pelo mesmo criterio que `task.set_state`: sao gestos
+        // reversiveis com um clique, e pedir confirmacao para marcar um item de
+        // checklist ensinaria a pessoa a clicar em "sim" sem ler.
+        function(
+            "task.add_checklist",
+            "Acrescentar passos",
+            "Cria itens de checklist dentro de uma Task que ja existe.",
+            FunctionCategory::Work,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "task.check_item",
+            "Marcar passo",
+            "Conclui ou reabre um item de checklist de uma Task.",
+            FunctionCategory::Work,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "task.set_plan",
+            "Ajustar prazo e prioridade",
+            "Muda prazo, prioridade, estimativa ou de quem a Task esta esperando.",
             FunctionCategory::Work,
             FunctionRisk::Low,
             FunctionConfirmation::None,

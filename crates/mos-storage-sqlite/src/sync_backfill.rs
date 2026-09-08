@@ -43,10 +43,17 @@ const MARCA_ANTIGA: &str = "sync_backfill_v1";
 /// atravessavam — e e isso que faz o backfill rodar de novo em quem ja tinha
 /// passado por ele. A geracao 1 cobria doze tipos; a 2 cobre vinte e seis.
 ///
+/// A geracao 1 cobria doze tipos; a 2, vinte e seis; a 3 acrescenta o item de
+/// checklist, que nasceu com a migration 0039 — quem ja tinha Tasks e passou
+/// pelo backfill da 2 precisa re-emitir para os passos chegarem no outro PC. A
+/// 4 acrescenta a pilha de alertas do lembrete (migration 0040), e re-emite os
+/// lembretes por causa dos campos novos que passaram a viajar: `persistent`,
+/// `recurrence`, `kind`, `waitingFor` e o `nextDueAt` que o CREATE nao mandava.
+///
 /// Um teste em `sync_cobertura.rs` falha se a lista mudar sem este numero
 /// subir. Sem ele, a cobertura cresce em silencio e o dado velho fica parado
 /// num PC so — que foi exatamente o que aconteceu entre a v1 e a v0.3.4.
-pub(crate) const GERACAO_ATUAL: u32 = 2;
+pub(crate) const GERACAO_ATUAL: u32 = 4;
 
 /// Os tipos, em ORDEM DE DEPENDENCIA.
 ///
@@ -67,7 +74,14 @@ const ORDEM: &[&str] = &[
     "capture",
     "resource",
     "task",
+    // Depois de `task`: o item referencia a Task por chave estrangeira, e
+    // chegar antes dela bateria na FK exatamente como `project_tracking`
+    // bateria antes de `project`.
+    "task_checklist_item",
     "reminder",
+    // Depois de `reminder`, pela mesma razao: o alerta referencia o lembrete
+    // por chave estrangeira, e chegar antes dele seria recusado.
+    "reminder_trigger",
     // Dependem de project.
     "project_tracking",
     "time_entry",

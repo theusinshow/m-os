@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LazyMotion, m } from "framer-motion";
 import { api, appError } from "./api";
+import { LembretesDoDia } from "./LembretesDoDia";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import { StateMessage } from "./Surface";
@@ -400,6 +401,11 @@ export function StartMyDayFlow({
           <div className="daily-flow-body">
             <DailyContextSummary contexto={contexto} />
 
+            {/* O que ficou pendente de antes, resolvivel AQUI.
+                Comecar um dia sem ver o que sobrou do anterior e comecar ja
+                devendo — e e o §22 do pedido, com todas as letras. */}
+            <LembretesDoDia momento="comeco" />
+
             {carryOver.length ? (
               <section className="daily-carry" aria-labelledby="daily-carry-head">
                 <span className="micro-label" id="daily-carry-head">
@@ -628,6 +634,12 @@ export function EndMyDayFlow({
         </header>
 
         <div className="daily-flow-body">
+          {/* O que continua pendente, e uma decisao POR ITEM.
+              Nada e movido sozinho para amanha: o §23 recusa isso por escrito,
+              porque o clique poupado seria exatamente o que faria a pessoa
+              olhar para o que ela esta empurrando. */}
+          <LembretesDoDia momento="fim" />
+
           {academico && (academico.studySecondsToday || academico.overdue.length || academico.examsSoon.length) ? (
             <section className="daily-academic" aria-label="Faculdade hoje">
               <span className="micro-label">FACULDADE</span>

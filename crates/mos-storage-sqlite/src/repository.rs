@@ -390,6 +390,101 @@ pub(crate) fn guard_deletable(
     Ok(())
 }
 
+/// Se a linha JA esta no indice FTS.
+///
+/// # Por que a tabela sombra, e nao um `SELECT` no proprio indice
+///
+/// Um `SELECT ... FROM task_search WHERE rowid = ?` num indice de conteudo
+/// externo responde pela TABELA FONTE, e nao pelo indice: ele diz "sim" para
+/// uma linha que existe em `tasks` e nunca foi indexada. `<fts>_docsize` guarda
+/// uma linha por documento INDEXADO, e e a unica resposta honesta.
+///
+/// # Por que isto precisa existir
+///
+/// O comando `'delete'` do fts5 exige que os valores batam com o que esta no
+/// indice. Contra uma linha ausente ele nao devolve "nao achei" — devolve
+/// `SQLITE_CORRUPT`, com a mensagem *"database disk image is malformed"*, que
+/// acusa o banco de estar quebrado quando o que faltava era uma linha de
+/// indice. Foi assim que editar, no PC, uma Task que tinha CHEGADO pelo sync
+/// falhava dizendo que o banco estava corrompido.
+pub(crate) fn esta_no_indice(
+    conexao: &rusqlite::Connection,
+    fts: &str,
+    rowid: i64,
+) -> Result<bool, CoreError> {
+    let quantas: i64 = conexao
+        .query_row(
+            &format!("SELECT count(*) FROM {fts}_docsize WHERE id = ?1"),
+            [rowid],
+            |linha| linha.get(0),
+        )
+        .map_err(map_sql_error)?;
+    Ok(quantas > 0)
+}
+
+/// Tira a linha do indice — e nao faz nada quando ela nao esta la.
+pub(crate) fn tirar_do_indice(
+    conexao: &rusqlite::Connection,
+    fts: &str,
+    tabela: &str,
+    colunas: &[&str],
+    rowid: i64,
+) -> Result<(), CoreError> {
+    if !esta_no_indice(conexao, fts, rowid)? {
+        return Ok(());
+    }
+    let lista = colunas.join(", ");
+    conexao
+        .execute(
+            &format!(
+                "INSERT INTO {fts}({fts}, rowid, {lista}) \
+                 SELECT 'delete', rowid, {lista} FROM {tabela} WHERE rowid = ?1"
+            ),
+            [rowid],
+        )
+        .map_err(map_sql_error)?;
+    Ok(())
+}
+
+/// Poe a linha no indice, com os valores que a tabela tem AGORA.
+pub(crate) fn por_no_indice(
+    conexao: &rusqlite::Connection,
+    fts: &str,
+    tabela: &str,
+    colunas: &[&str],
+    rowid: i64,
+) -> Result<(), CoreError> {
+    let lista = colunas.join(", ");
+    conexao
+        .execute(
+            &format!(
+                "INSERT INTO {fts}(rowid, {lista}) \
+                 SELECT rowid, {lista} FROM {tabela} WHERE rowid = ?1"
+            ),
+            [rowid],
+        )
+        .map_err(map_sql_error)?;
+    Ok(())
+}
+
+/// O rowid de uma linha, pela chave dela. `None` quando a linha nao existe.
+pub(crate) fn rowid_de(
+    conexao: &rusqlite::Connection,
+    tabela: &str,
+    chave: &str,
+    valor: &str,
+) -> Result<Option<i64>, CoreError> {
+    use rusqlite::OptionalExtension;
+    conexao
+        .query_row(
+            &format!("SELECT rowid FROM {tabela} WHERE {chave} = ?1"),
+            [valor],
+            |linha| linha.get(0),
+        )
+        .optional()
+        .map_err(map_sql_error)
+}
+
 pub(crate) fn ensure_changed(changed: usize) -> Result<(), CoreError> {
     if changed == 0 {
         Err(CoreError::new(

@@ -185,7 +185,14 @@ fn renomear_emite_so_os_campos_do_formulario() {
         .create_task(NewTask::create("antigo", "", None).unwrap())
         .unwrap();
     storage
-        .update_task(task.id, "novo titulo", "com descricao", None)
+        .update_task(
+            task.id,
+            mos_core::EditTask {
+                title: "novo titulo".into(),
+                description: "com descricao".into(),
+                ..mos_core::EditTask::from_task(&task)
+            },
+        )
         .unwrap();
 
     let ultima = campos(storage.pendentes(10).unwrap().last().unwrap());
@@ -194,5 +201,96 @@ fn renomear_emite_so_os_campos_do_formulario() {
     assert!(
         !ultima.contains_key("workState"),
         "renomear nao pode mexer na coluna do Kanban"
+    );
+}
+
+/// **So o campo que mudou viaja.**
+///
+/// Um campo emitido e um campo DISPUTADO: quem manda `dueAt` numa operacao
+/// esta dizendo ao outro aparelho qual e o prazo agora. Emitir os dez campos a
+/// cada edicao faria mudar a prioridade no celular carregar junto o `dueAt`
+/// que ele leu antes — e, sendo a operacao mais recente, apagaria o prazo que
+/// o PC acabou de por. Dois gestos em campos diferentes, e um vence o outro.
+///
+/// A escrita continua autoritativa; a EMISSAO e que e um diff.
+#[test]
+fn editar_emite_so_o_que_mudou() {
+    let (_dir, storage) = com_sync();
+    let task = storage
+        .create_task(NewTask::create("Ajustes reuniao", "contexto", None).unwrap())
+        .unwrap();
+
+    let prazo = time::OffsetDateTime::from_unix_timestamp(1_790_000_000).unwrap();
+    storage
+        .update_task(
+            task.id,
+            mos_core::EditTask {
+                due_at: Some(prazo),
+                ..mos_core::EditTask::from_task(&task)
+            },
+        )
+        .unwrap();
+
+    let ultima = campos(storage.pendentes(50).unwrap().last().unwrap());
+    assert_eq!(
+        ultima.keys().collect::<Vec<_>>(),
+        ["dueAt"],
+        "so o prazo mudou, entao so o prazo pode viajar: {ultima:?}"
+    );
+
+    // Uma edicao que nao muda nada nao enfileira operacao nenhuma.
+    let antes = storage.pendentes(50).unwrap().len();
+    let atual = storage.get_task(task.id).unwrap();
+    storage
+        .update_task(task.id, mos_core::EditTask::from_task(&atual))
+        .unwrap();
+    assert_eq!(
+        storage.pendentes(50).unwrap().len(),
+        antes,
+        "salvar sem mexer em nada nao e uma mudanca"
+    );
+}
+
+/// O item de checklist emite como ENTIDADE, e nao como campo da Task.
+#[test]
+fn o_checklist_emite_por_item() {
+    let (_dir, storage) = com_sync();
+    let task = storage
+        .create_task(
+            NewTask::create("Revisar projeto", "", None)
+                .unwrap()
+                .with_checklist(&["Conferir niveis".into(), "Gerar PDF".into()]),
+        )
+        .unwrap();
+
+    let fila = storage.pendentes(50).unwrap();
+    let itens: Vec<&mos_sync::Op> = fila
+        .iter()
+        .filter(|op| op.entity.kind.as_str() == "task_checklist_item")
+        .collect();
+    assert_eq!(itens.len(), 2, "um `Create` por passo");
+    assert_eq!(
+        campos(itens[0])["label"],
+        serde_json::json!("Conferir niveis")
+    );
+    assert_eq!(
+        campos(itens[0])["taskId"],
+        serde_json::json!(task.id.to_string())
+    );
+
+    // Marcar mexe num campo so, do ITEM. A Task nao emite nada — o progresso
+    // dela e derivado, e sincronizar um numero derivado seria uma segunda
+    // verdade sobre a mesma coisa.
+    let item = storage.task_detail(task.id).unwrap().checklist[0].id;
+    let antes = storage.pendentes(50).unwrap().len();
+    storage.set_checklist_item_done(item, true).unwrap();
+    let depois = storage.pendentes(50).unwrap();
+    assert_eq!(depois.len(), antes + 1, "uma operacao, e nao duas");
+    let ultima = depois.last().unwrap();
+    assert_eq!(ultima.entity.kind.as_str(), "task_checklist_item");
+    assert_eq!(
+        campos(ultima).keys().collect::<Vec<_>>(),
+        ["completedAt"],
+        "marcar e um campo so"
     );
 }

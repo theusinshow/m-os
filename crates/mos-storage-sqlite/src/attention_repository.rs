@@ -27,7 +27,13 @@ use crate::{
 
 const REMINDER_COLUMNS: &str = "id, title, body, target_type, target_id, trigger, priority, \
      status, source, snooze_allowed, privacy, next_due_at, snooze_count, delivered_count, \
-     created_at, updated_at, completed_at, lifecycle_state";
+     created_at, updated_at, completed_at, lifecycle_state, kind, waiting_for, persistent, \
+     escalation_step, last_triggered_at, retry_at, recurrence";
+
+const TRIGGER_COLUMNS: &str = "id, reminder_id, scheduled_at, kind, lead_minutes, status, \
+     fired_at, lifecycle_state, created_at, updated_at";
+
+const EVENT_COLUMNS: &str = "id, reminder_id, kind, at, detail";
 
 const NOTIFICATION_COLUMNS: &str = "id, reminder_id, channel, dedupe_key, status, level, \
      created_at, delivered_at, resolved_at, failure";
@@ -46,6 +52,13 @@ fn read_reminder(row: &Row<'_>) -> rusqlite::Result<Result<Reminder, CoreError>>
     let updated_at: String = row.get(15)?;
     let completed_at: Option<String> = row.get(16)?;
     let lifecycle: String = row.get(17)?;
+    let kind: String = row.get(18)?;
+    let waiting_for: String = row.get(19)?;
+    let persistent: i64 = row.get(20)?;
+    let escalation_step: i64 = row.get(21)?;
+    let last_triggered_at: Option<String> = row.get(22)?;
+    let retry_at: Option<String> = row.get(23)?;
+    let recurrence: Option<String> = row.get(24)?;
 
     let title: String = row.get(1)?;
     let body: String = row.get(2)?;
@@ -87,6 +100,97 @@ fn read_reminder(row: &Row<'_>) -> rusqlite::Result<Result<Reminder, CoreError>>
             updated_at: parse_time(&updated_at)?,
             completed_at: completed_at.as_deref().map(parse_time).transpose()?,
             lifecycle_state: LifecycleState::parse(&lifecycle)?,
+            kind: mos_core::ReminderKind::parse(&kind)?,
+            waiting_for,
+            persistent: persistent != 0,
+            escalation_step: escalation_step.max(0) as u32,
+            last_triggered_at: last_triggered_at.as_deref().map(parse_time).transpose()?,
+            retry_at: retry_at.as_deref().map(parse_time).transpose()?,
+            recurrence: decode_recurrence(recurrence.as_deref())?,
+        })
+    })())
+}
+
+/// A regra de repeticao, do JSON para o dominio.
+///
+/// Regra ilegivel vira ERRO e nao `None`: um lembrete que perdesse a repeticao
+/// em silencio e exatamente a falha que este sistema inteiro existe para nao
+/// ter. Melhor a leitura falhar alto do que a serie parar de existir sem aviso.
+fn decode_recurrence(raw: Option<&str>) -> Result<Option<mos_core::Recurrence>, CoreError> {
+    let Some(raw) = raw.map(str::trim).filter(|texto| !texto.is_empty()) else {
+        return Ok(None);
+    };
+    let regra: mos_core::Recurrence = serde_json::from_str(raw).map_err(|_| {
+        CoreError::new(
+            ErrorCode::DataIntegrity,
+            "Regra de repeticao ilegivel.",
+            false,
+        )
+    })?;
+    regra.validate()?;
+    Ok(Some(regra))
+}
+
+fn encode_recurrence(
+    recurrence: Option<&mos_core::Recurrence>,
+) -> Result<Option<String>, CoreError> {
+    match recurrence {
+        None => Ok(None),
+        Some(regra) => {
+            regra.validate()?;
+            serde_json::to_string(regra).map(Some).map_err(|_| {
+                CoreError::new(
+                    ErrorCode::DataIntegrity,
+                    "Nao consegui serializar a repeticao.",
+                    false,
+                )
+            })
+        }
+    }
+}
+
+fn read_trigger(row: &Row<'_>) -> rusqlite::Result<Result<mos_core::ReminderTrigger, CoreError>> {
+    let id: String = row.get(0)?;
+    let reminder_id: String = row.get(1)?;
+    let scheduled_at: String = row.get(2)?;
+    let kind: String = row.get(3)?;
+    let lead_minutes: Option<i64> = row.get(4)?;
+    let status: String = row.get(5)?;
+    let fired_at: Option<String> = row.get(6)?;
+    let lifecycle: String = row.get(7)?;
+    let created_at: String = row.get(8)?;
+    let updated_at: String = row.get(9)?;
+
+    Ok((|| {
+        Ok(mos_core::ReminderTrigger {
+            id: mos_core::ReminderTriggerId::parse(&id)?,
+            reminder_id: ReminderId::parse(&reminder_id)?,
+            scheduled_at: parse_time(&scheduled_at)?,
+            kind: mos_core::StackTriggerKind::parse(&kind)?,
+            lead_minutes: lead_minutes.and_then(|value| u32::try_from(value).ok()),
+            status: mos_core::StackTriggerStatus::parse(&status)?,
+            fired_at: fired_at.as_deref().map(parse_time).transpose()?,
+            lifecycle_state: LifecycleState::parse(&lifecycle)?,
+            created_at: parse_time(&created_at)?,
+            updated_at: parse_time(&updated_at)?,
+        })
+    })())
+}
+
+fn read_event(row: &Row<'_>) -> rusqlite::Result<Result<mos_core::ReminderEvent, CoreError>> {
+    let id: String = row.get(0)?;
+    let reminder_id: String = row.get(1)?;
+    let kind: String = row.get(2)?;
+    let at: String = row.get(3)?;
+    let detail: Option<String> = row.get(4)?;
+
+    Ok((|| {
+        Ok(mos_core::ReminderEvent {
+            id: mos_core::ReminderEventId::parse(&id)?,
+            reminder_id: ReminderId::parse(&reminder_id)?,
+            kind: mos_core::ReminderEventKind::parse(&kind)?,
+            at: parse_time(&at)?,
+            detail,
         })
     })())
 }
@@ -206,7 +310,9 @@ impl AttentionRepository for SqliteStorage {
                 "UPDATE reminders SET title = ?2, body = ?3, target_type = ?4, target_id = ?5, \
                  trigger_kind = ?6, trigger = ?7, priority = ?8, status = ?9, \
                  snooze_allowed = ?10, privacy = ?11, next_due_at = ?12, snooze_count = ?13, \
-                 delivered_count = ?14, updated_at = ?15, completed_at = ?16 WHERE id = ?1",
+                 delivered_count = ?14, updated_at = ?15, completed_at = ?16, kind = ?17, \
+                 waiting_for = ?18, persistent = ?19, escalation_step = ?20, \
+                 last_triggered_at = ?21, retry_at = ?22, recurrence = ?23 WHERE id = ?1",
                 params![
                     reminder.id.to_string(),
                     reminder.title,
@@ -224,6 +330,13 @@ impl AttentionRepository for SqliteStorage {
                     i64::from(reminder.delivered_count),
                     format_time(reminder.updated_at)?,
                     reminder.completed_at.map(format_time).transpose()?,
+                    reminder.kind.as_str(),
+                    reminder.waiting_for,
+                    i64::from(reminder.persistent),
+                    i64::from(reminder.escalation_step),
+                    reminder.last_triggered_at.map(format_time).transpose()?,
+                    reminder.retry_at.map(format_time).transpose()?,
+                    encode_recurrence(reminder.recurrence.as_ref())?,
                 ],
             )
             .map_err(map_sql_error)?;
@@ -402,6 +515,316 @@ impl AttentionRepository for SqliteStorage {
         }
         Ok(found)
     }
+
+    // ------------------------------------------------------------ re-alerta
+
+    fn reminders_to_retry(&self, now: OffsetDateTime) -> Result<Vec<Reminder>, CoreError> {
+        let limite = format_time(now)?;
+        // O indice parcial `reminders_retry` responde esta consulta: so
+        // lembrete com re-alerta marcado participa dele, e num banco com anos
+        // de uso isso e um punhado de linhas em vez do acervo inteiro.
+        self.query_reminders(&format!(
+            "WHERE retry_at IS NOT NULL AND retry_at <= '{limite}' \
+             AND lifecycle_state = 'active' \
+             AND status NOT IN ('completed', 'cancelled', 'expired') \
+             ORDER BY retry_at"
+        ))
+    }
+
+    // ------------------------------------------------------ pilha de alertas
+
+    fn create_trigger(
+        &self,
+        trigger: mos_core::NewReminderTrigger,
+    ) -> Result<mos_core::ReminderTrigger, CoreError> {
+        let id = trigger.id;
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        insert_trigger(&transaction, &trigger)?;
+        self.emitir(
+            &transaction,
+            mos_sync::EntityRef::new("reminder_trigger", id.as_uuid()),
+            mos_sync::OpBody::Create {
+                fields: campos_do_alerta_novo(&trigger)?,
+            },
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
+        drop(connection);
+        self.trigger(id)
+    }
+
+    fn triggers_for(
+        &self,
+        reminder: ReminderId,
+    ) -> Result<Vec<mos_core::ReminderTrigger>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT {TRIGGER_COLUMNS} FROM reminder_triggers \
+                 WHERE reminder_id = ?1 AND lifecycle_state = 'active' \
+                 ORDER BY scheduled_at"
+            ))
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map(params![reminder.to_string()], read_trigger)
+            .map_err(map_sql_error)?;
+        let mut found = Vec::new();
+        for row in rows {
+            found.push(row.map_err(map_sql_error)??);
+        }
+        Ok(found)
+    }
+
+    fn set_trigger_status(
+        &self,
+        id: mos_core::ReminderTriggerId,
+        status: mos_core::StackTriggerStatus,
+        at: Option<OffsetDateTime>,
+    ) -> Result<mos_core::ReminderTrigger, CoreError> {
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let agora = format_time(OffsetDateTime::now_utc())?;
+        let changed = transaction
+            .execute(
+                "UPDATE reminder_triggers SET status = ?2, fired_at = ?3, updated_at = ?4 \
+                 WHERE id = ?1",
+                params![
+                    id.to_string(),
+                    status.as_str(),
+                    at.map(format_time).transpose()?,
+                    agora,
+                ],
+            )
+            .map_err(map_sql_error)?;
+        if changed == 0 {
+            return Err(CoreError::new(
+                ErrorCode::NotFound,
+                "Alerta nao encontrado.",
+                false,
+            ));
+        }
+        self.emitir_update(
+            &transaction,
+            "reminder_trigger",
+            id.as_uuid(),
+            &[
+                ("status", serde_json::json!(status.as_str())),
+                (
+                    "firedAt",
+                    serde_json::json!(at.map(format_time).transpose()?),
+                ),
+            ],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
+        drop(connection);
+        self.trigger(id)
+    }
+
+    fn cancel_pending_triggers(&self, reminder: ReminderId) -> Result<usize, CoreError> {
+        // Uma consulta para achar, uma para escrever, e as duas na MESMA
+        // transacao: cancelar metade da pilha e pior que nao cancelar nenhuma,
+        // porque a metade viva continuaria tocando por algo ja resolvido.
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+
+        let pendentes: Vec<String> = {
+            let mut statement = transaction
+                .prepare(
+                    "SELECT id FROM reminder_triggers WHERE reminder_id = ?1 \
+                     AND status = 'pending' AND lifecycle_state = 'active'",
+                )
+                .map_err(map_sql_error)?;
+            let rows = statement
+                .query_map(params![reminder.to_string()], |row| row.get::<_, String>(0))
+                .map_err(map_sql_error)?;
+            let mut ids = Vec::new();
+            for row in rows {
+                ids.push(row.map_err(map_sql_error)?);
+            }
+            ids
+        };
+
+        if pendentes.is_empty() {
+            return Ok(0);
+        }
+
+        let agora = format_time(OffsetDateTime::now_utc())?;
+        transaction
+            .execute(
+                "UPDATE reminder_triggers SET status = 'cancelled', updated_at = ?2 \
+                 WHERE reminder_id = ?1 AND status = 'pending' AND lifecycle_state = 'active'",
+                params![reminder.to_string(), agora],
+            )
+            .map_err(map_sql_error)?;
+
+        for id in &pendentes {
+            let uuid = mos_core::ReminderTriggerId::parse(id)?.as_uuid();
+            self.emitir_update(
+                &transaction,
+                "reminder_trigger",
+                uuid,
+                &[("status", serde_json::json!("cancelled"))],
+            )?;
+        }
+
+        transaction.commit().map_err(map_sql_error)?;
+        Ok(pendentes.len())
+    }
+
+    fn triggers_due(
+        &self,
+        now: OffsetDateTime,
+    ) -> Result<Vec<mos_core::ReminderTrigger>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT {TRIGGER_COLUMNS} FROM reminder_triggers \
+                 WHERE status = 'pending' AND lifecycle_state = 'active' \
+                 AND scheduled_at <= ?1 ORDER BY scheduled_at"
+            ))
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map(params![format_time(now)?], read_trigger)
+            .map_err(map_sql_error)?;
+        let mut found = Vec::new();
+        for row in rows {
+            found.push(row.map_err(map_sql_error)??);
+        }
+        Ok(found)
+    }
+
+    // --------------------------------------------------------------- historico
+
+    fn record_event(&self, event: mos_core::NewReminderEvent) -> Result<(), CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        connection
+            .execute(
+                "INSERT INTO reminder_events (id, reminder_id, kind, at, detail, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    event.id.to_string(),
+                    event.reminder_id.to_string(),
+                    event.kind.as_str(),
+                    format_time(event.at)?,
+                    event.detail,
+                    format_time(OffsetDateTime::now_utc())?,
+                ],
+            )
+            .map_err(map_sql_error)?;
+        Ok(())
+    }
+
+    fn events_for(
+        &self,
+        reminder: ReminderId,
+        limit: usize,
+    ) -> Result<Vec<mos_core::ReminderEvent>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT {EVENT_COLUMNS} FROM reminder_events WHERE reminder_id = ?1 \
+                 ORDER BY at DESC, rowid DESC LIMIT {limit}"
+            ))
+            .map_err(map_sql_error)?;
+        let rows = statement
+            .query_map(params![reminder.to_string()], read_event)
+            .map_err(map_sql_error)?;
+        let mut found = Vec::new();
+        for row in rows {
+            found.push(row.map_err(map_sql_error)??);
+        }
+        Ok(found)
+    }
+
+    // ------------------------------------------------------------ configuracao
+
+    fn attention_settings(&self) -> Result<mos_core::AttentionSettings, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        connection
+            .query_row(
+                "SELECT quiet_enabled, quiet_start_minute, quiet_end_minute, \
+                 quiet_allow_urgent, os_channel_enabled, local_offset_minutes \
+                 FROM attention_settings WHERE id = 1",
+                [],
+                |row| {
+                    let enabled: i64 = row.get(0)?;
+                    let start: i64 = row.get(1)?;
+                    let end: i64 = row.get(2)?;
+                    let urgent: i64 = row.get(3)?;
+                    let canal: i64 = row.get(4)?;
+                    let fuso: i64 = row.get(5)?;
+                    Ok(mos_core::AttentionSettings {
+                        quiet: mos_core::QuietHours {
+                            enabled: enabled != 0,
+                            start_minute: start.clamp(0, 1439) as u16,
+                            end_minute: end.clamp(0, 1439) as u16,
+                            allow_urgent: urgent != 0,
+                        },
+                        os_channel_enabled: canal != 0,
+                        local_offset_minutes: fuso.clamp(-840, 840) as i16,
+                    })
+                },
+            )
+            .map_err(map_sql_error)
+    }
+
+    fn save_attention_settings(
+        &self,
+        settings: mos_core::AttentionSettings,
+    ) -> Result<mos_core::AttentionSettings, CoreError> {
+        {
+            let connection = self.connection.lock().map_err(map_lock_error)?;
+            connection
+                .execute(
+                    "UPDATE attention_settings SET quiet_enabled = ?1, quiet_start_minute = ?2, \
+                     quiet_end_minute = ?3, quiet_allow_urgent = ?4, os_channel_enabled = ?5, \
+                     local_offset_minutes = ?6 WHERE id = 1",
+                    params![
+                        i64::from(settings.quiet.enabled),
+                        i64::from(settings.quiet.start_minute),
+                        i64::from(settings.quiet.end_minute),
+                        i64::from(settings.quiet.allow_urgent),
+                        i64::from(settings.os_channel_enabled),
+                        i64::from(settings.local_offset_minutes),
+                    ],
+                )
+                .map_err(map_sql_error)?;
+        }
+        // Le de volta em vez de devolver o que recebeu: o CHECK do banco e quem
+        // tem a ultima palavra sobre o que ficou gravado. Mesma regra do
+        // `save_reminder`.
+        self.attention_settings()
+    }
+}
+
+/// Os lembretes vivos de um alvo, numa conexao ou transacao ja aberta.
+///
+/// Existe fora do trait porque a gaveta da Task monta Task, checklist,
+/// referencias e lembretes numa consulta so — e pedir isto pelo `AttentionRepository`
+/// tomaria a conexao uma segunda vez, no meio de quem ja a tem na mao.
+///
+/// O indice `reminders_target` (migration 0015) foi criado exatamente para esta
+/// consulta: *"para achar os lembretes de uma Task ao abrir a Task"*.
+pub(crate) fn query_reminders_for_target(
+    connection: &rusqlite::Connection,
+    target_type: &str,
+    target_id: &str,
+) -> Result<Vec<Reminder>, CoreError> {
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {REMINDER_COLUMNS} FROM reminders
+              WHERE target_type = ?1 AND target_id = ?2 AND lifecycle_state = 'active'
+              ORDER BY next_due_at IS NULL, next_due_at ASC"
+        ))
+        .map_err(map_sql_error)?;
+    let linhas = statement
+        .query_map(params![target_type, target_id], read_reminder)
+        .map_err(map_sql_error)?;
+    let mut achados = Vec::new();
+    for linha in linhas {
+        achados.push(linha.map_err(map_sql_error)??);
+    }
+    Ok(achados)
 }
 
 impl SqliteStorage {
@@ -470,6 +893,18 @@ fn campos_do_lembrete(
             "completedAt",
             serde_json::json!(reminder.completed_at.map(format_time).transpose()?),
         ),
+        // A partir daqui, o que a migration 0040 acrescentou — e so o que e
+        // DECISAO DA PESSOA. `escalationStep`, `retryAt` e `lastTriggeredAt`
+        // ficam de fora pela mesma razao de `deliveredCount`: eles descrevem a
+        // insistencia DESTE aparelho, e dois agendadores disputando essas
+        // colunas fariam um deles silenciar o outro.
+        ("kind", serde_json::json!(reminder.kind.as_str())),
+        ("waitingFor", serde_json::json!(reminder.waiting_for)),
+        ("persistent", serde_json::json!(reminder.persistent)),
+        (
+            "recurrence",
+            serde_json::json!(encode_recurrence(reminder.recurrence.as_ref())?),
+        ),
     ])
 }
 
@@ -509,6 +944,36 @@ fn campos_do_lembrete_novo(
             "privacy".to_owned(),
             serde_json::json!(reminder.policy.privacy.as_str()),
         ),
+        // `nextDueAt` no CREATE, e nao so no primeiro update.
+        //
+        // Sem ele, um lembrete criado no PC chegava ao celular sem hora: o
+        // `Mapa` tem a coluna, mas ninguem a preenchia ate a primeira
+        // transicao. O celular entao mostrava o lembrete sem quando, e o laco
+        // de avisos nunca o via vencer — o lembrete existia nos dois aparelhos
+        // e so funcionava num.
+        (
+            "nextDueAt".to_owned(),
+            serde_json::json!(reminder.next_due_at.map(format_time).transpose()?),
+        ),
+        (
+            "status".to_owned(),
+            serde_json::json!(ReminderStatus::Scheduled.as_str()),
+        ),
+        ("lifecycleState".to_owned(), serde_json::json!("active")),
+        ("snoozeCount".to_owned(), serde_json::json!(0)),
+        ("kind".to_owned(), serde_json::json!(reminder.kind.as_str())),
+        (
+            "waitingFor".to_owned(),
+            serde_json::json!(reminder.waiting_for),
+        ),
+        (
+            "persistent".to_owned(),
+            serde_json::json!(reminder.persistent),
+        ),
+        (
+            "recurrence".to_owned(),
+            serde_json::json!(encode_recurrence(reminder.recurrence.as_ref())?),
+        ),
     ]
     .into_iter()
     .collect())
@@ -529,8 +994,9 @@ pub(crate) fn insert_reminder(
         .execute(
             "INSERT INTO reminders (id, title, body, target_type, target_id, trigger_kind, \
              trigger, priority, status, source, snooze_allowed, privacy, next_due_at, \
-             created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)",
+             created_at, updated_at, kind, waiting_for, persistent, recurrence) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14, \
+             ?15, ?16, ?17, ?18)",
             params![
                 reminder.id.to_string(),
                 reminder.title,
@@ -546,10 +1012,93 @@ pub(crate) fn insert_reminder(
                 reminder.policy.privacy.as_str(),
                 reminder.next_due_at.map(format_time).transpose()?,
                 format_time(reminder.created_at)?,
+                reminder.kind.as_str(),
+                reminder.waiting_for,
+                i64::from(reminder.persistent),
+                encode_recurrence(reminder.recurrence.as_ref())?,
             ],
         )
         .map_err(map_sql_error)?;
     Ok(())
+}
+
+/// Insere um alerta de pilha numa conexao ou transacao ja aberta.
+pub(crate) fn insert_trigger(
+    connection: &rusqlite::Connection,
+    trigger: &mos_core::NewReminderTrigger,
+) -> Result<(), CoreError> {
+    connection
+        .execute(
+            "INSERT INTO reminder_triggers (id, reminder_id, scheduled_at, kind, lead_minutes, \
+             status, lifecycle_state, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, 'pending', 'active', ?6, ?6)",
+            params![
+                trigger.id.to_string(),
+                trigger.reminder_id.to_string(),
+                format_time(trigger.scheduled_at)?,
+                trigger.kind.as_str(),
+                trigger.lead_minutes.map(i64::from),
+                format_time(trigger.created_at)?,
+            ],
+        )
+        .map_err(map_sql_error)?;
+    Ok(())
+}
+
+/// Os campos de um alerta que VIAJAM.
+///
+/// A pilha inteira viaja porque ela e a INTENCAO: escolher quatro alertas para
+/// uma entrega e uma decisao da pessoa, e ela vale nos dois aparelhos. O que nao
+/// viaja e a ENTREGA — `attention_notifications` continua local, pela mesma
+/// razao de sempre.
+fn campos_do_alerta_novo(
+    trigger: &mos_core::NewReminderTrigger,
+) -> Result<serde_json::Map<String, serde_json::Value>, CoreError> {
+    Ok([
+        (
+            "reminderId".to_owned(),
+            serde_json::json!(trigger.reminder_id.to_string()),
+        ),
+        (
+            "scheduledAt".to_owned(),
+            serde_json::json!(format_time(trigger.scheduled_at)?),
+        ),
+        ("kind".to_owned(), serde_json::json!(trigger.kind.as_str())),
+        (
+            "leadMinutes".to_owned(),
+            serde_json::json!(trigger.lead_minutes),
+        ),
+        ("status".to_owned(), serde_json::json!("pending")),
+        ("firedAt".to_owned(), serde_json::Value::Null),
+        ("lifecycleState".to_owned(), serde_json::json!("active")),
+        (
+            "createdAt".to_owned(),
+            serde_json::json!(format_time(trigger.created_at)?),
+        ),
+    ]
+    .into_iter()
+    .collect())
+}
+
+impl SqliteStorage {
+    fn trigger(
+        &self,
+        id: mos_core::ReminderTriggerId,
+    ) -> Result<mos_core::ReminderTrigger, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        connection
+            .query_row(
+                &format!("SELECT {TRIGGER_COLUMNS} FROM reminder_triggers WHERE id = ?1"),
+                params![id.to_string()],
+                read_trigger,
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    CoreError::new(ErrorCode::NotFound, "Alerta nao encontrado.", false)
+                }
+                other => map_sql_error(other),
+            })?
+    }
 }
 
 #[cfg(test)]
@@ -1327,5 +1876,263 @@ mod tests {
             Some(Duration::hours(29)),
             "o atraso e contado do vencimento original"
         );
+    }
+
+    // ---------------------------------------------------- migration 0040
+
+    /// Tudo que a 0040 acrescentou sobrevive à ida e à volta pelo banco.
+    ///
+    /// Um campo que se perde no round-trip é um lembrete que muda de
+    /// comportamento sozinho depois do primeiro restart — que é a falha mais
+    /// difícil de notar de todas.
+    #[test]
+    fn the_new_fields_survive_the_round_trip() {
+        let (storage, _guard) = storage();
+        let clock = clock();
+        let regra = mos_core::Recurrence {
+            rule: mos_core::RecurrenceRule::Weekly { days: vec![0, 3] },
+            anchor: mos_core::RecurrenceAnchor::Completion,
+            hour: 9,
+            minute: 30,
+            offset_minutes: -180,
+        };
+        let draft = new_reminder(&clock, 3)
+            .persisting()
+            .following_up("Victor")
+            .repeating(regra.clone())
+            .unwrap();
+
+        let criado = storage.create_reminder(draft).unwrap();
+        let lido = storage.reminder(criado.id).unwrap();
+
+        assert!(lido.persistent);
+        assert_eq!(lido.kind, mos_core::ReminderKind::FollowUp);
+        assert_eq!(lido.waiting_for, "Victor");
+        assert_eq!(lido.recurrence, Some(regra));
+        assert_eq!(lido.escalation_step, 0);
+        assert!(lido.retry_at.is_none());
+    }
+
+    /// O estado da insistência sobrevive ao restart. É o que impede um lembrete
+    /// persistente de voltar ao degrau zero toda vez que o app abre — e insistir
+    /// para sempre.
+    #[test]
+    fn the_escalation_state_survives_a_save() {
+        let (storage, _guard) = storage();
+        let clock = clock();
+        let criado = storage
+            .create_reminder(new_reminder(&clock, 1).persisting())
+            .unwrap();
+
+        let vencido =
+            mos_core::apply(&criado, Transition::Ring, clock.now() + Duration::hours(1)).unwrap();
+        let gravado = storage.save_reminder(&vencido).unwrap();
+        assert!(gravado.retry_at.is_some());
+        assert_eq!(
+            gravado.last_triggered_at,
+            Some(clock.now() + Duration::hours(1))
+        );
+
+        let insistiu = mos_core::apply(
+            &gravado,
+            Transition::Escalate,
+            clock.now() + Duration::hours(2),
+        )
+        .unwrap();
+        let relido = storage.save_reminder(&insistiu).unwrap();
+        assert_eq!(relido.escalation_step, 1);
+    }
+
+    /// A consulta do re-alerta acha só quem já pode insistir.
+    #[test]
+    fn only_armed_reminders_show_up_for_retry() {
+        let (storage, _guard) = storage();
+        let clock = clock();
+        let agora = clock.now();
+
+        let insistente = storage
+            .create_reminder(new_reminder(&clock, 1).persisting())
+            .unwrap();
+        let vencido = mos_core::apply(&insistente, Transition::Ring, agora).unwrap();
+        storage.save_reminder(&vencido).unwrap();
+
+        let comum = storage.create_reminder(new_reminder(&clock, 1)).unwrap();
+        storage
+            .save_reminder(&mos_core::apply(&comum, Transition::Ring, agora).unwrap())
+            .unwrap();
+
+        // Antes da hora do re-alerta: ninguém.
+        assert!(storage.reminders_to_retry(agora).unwrap().is_empty());
+        // Depois: só o persistente.
+        let achados = storage
+            .reminders_to_retry(agora + Duration::minutes(31))
+            .unwrap();
+        assert_eq!(achados.len(), 1);
+        assert_eq!(achados[0].id, insistente.id);
+    }
+
+    /// Um lembrete sem data existe no banco e não aparece para o agendador.
+    #[test]
+    fn a_someday_reminder_is_stored_without_a_due_date() {
+        let (storage, _guard) = storage();
+        let clock = clock();
+        let criado = storage
+            .create_reminder(NewReminder::someday("Comprar cabo HDMI", "", &clock).unwrap())
+            .unwrap();
+        assert!(criado.next_due_at.is_none());
+        assert_eq!(criado.trigger.kind_str(), "someday");
+        // Continua na lista aberta — é lá que ele vive.
+        assert!(storage
+            .open_reminders()
+            .unwrap()
+            .iter()
+            .any(|item| item.id == criado.id));
+    }
+
+    // ------------------------------------------------------ pilha de alertas
+
+    /// Quatro alertas, UM lembrete. É o §16 e o §53 do pedido, no banco.
+    #[test]
+    fn a_stack_of_four_alerts_belongs_to_one_reminder() {
+        let (storage, _guard) = storage();
+        let clock = clock();
+        let prazo = clock.now() + Duration::days(3);
+        let entrega = storage
+            .create_reminder(NewReminder::at("Entregar atividade", "", prazo, &clock).unwrap())
+            .unwrap();
+
+        storage
+            .create_trigger(mos_core::NewReminderTrigger::at_due(
+                entrega.id,
+                prazo,
+                clock.now(),
+            ))
+            .unwrap();
+        for minutos in [24 * 60, 4 * 60, 60] {
+            let alerta =
+                mos_core::NewReminderTrigger::lead(entrega.id, prazo, minutos, clock.now())
+                    .unwrap();
+            storage.create_trigger(alerta).unwrap();
+        }
+
+        let pilha = storage.triggers_for(entrega.id).unwrap();
+        assert_eq!(pilha.len(), 4);
+        assert!(pilha.iter().all(|item| item.reminder_id == entrega.id));
+        // Em ordem de relógio: o de um dia antes vem primeiro.
+        assert_eq!(pilha[0].scheduled_at, prazo - Duration::days(1));
+        assert_eq!(pilha[3].scheduled_at, prazo);
+
+        // E continua sendo UM lembrete na lista.
+        let abertos = storage.open_reminders().unwrap();
+        assert_eq!(abertos.len(), 1);
+    }
+
+    #[test]
+    fn firing_a_trigger_takes_it_out_of_the_pending_set() {
+        let (storage, _guard) = storage();
+        let clock = clock();
+        let prazo = clock.now() + Duration::days(1);
+        let lembrete = storage
+            .create_reminder(NewReminder::at("Entrega", "", prazo, &clock).unwrap())
+            .unwrap();
+        let alerta = storage
+            .create_trigger(mos_core::NewReminderTrigger::at_due(
+                lembrete.id,
+                prazo,
+                clock.now(),
+            ))
+            .unwrap();
+
+        assert_eq!(storage.triggers_due(prazo).unwrap().len(), 1);
+        storage
+            .set_trigger_status(alerta.id, mos_core::StackTriggerStatus::Fired, Some(prazo))
+            .unwrap();
+        assert!(storage.triggers_due(prazo).unwrap().is_empty());
+        assert_eq!(
+            storage.triggers_for(lembrete.id).unwrap()[0].status,
+            mos_core::StackTriggerStatus::Fired
+        );
+    }
+
+    /// Concluir mata a pilha pendente: quatro alertas para algo já resolvido são
+    /// quatro interrupções que não significam nada.
+    #[test]
+    fn cancelling_the_stack_takes_every_pending_alert_at_once() {
+        let (storage, _guard) = storage();
+        let clock = clock();
+        let prazo = clock.now() + Duration::days(3);
+        let lembrete = storage
+            .create_reminder(NewReminder::at("Entrega", "", prazo, &clock).unwrap())
+            .unwrap();
+        for minutos in [24 * 60, 60] {
+            storage
+                .create_trigger(
+                    mos_core::NewReminderTrigger::lead(lembrete.id, prazo, minutos, clock.now())
+                        .unwrap(),
+                )
+                .unwrap();
+        }
+        assert_eq!(storage.cancel_pending_triggers(lembrete.id).unwrap(), 2);
+        assert!(storage
+            .triggers_for(lembrete.id)
+            .unwrap()
+            .iter()
+            .all(|item| item.status == mos_core::StackTriggerStatus::Cancelled));
+        // Idempotente: a segunda vez não tem o que cancelar.
+        assert_eq!(storage.cancel_pending_triggers(lembrete.id).unwrap(), 0);
+    }
+
+    // ------------------------------------------------------------ histórico
+
+    #[test]
+    fn the_history_reads_newest_first() {
+        let (storage, _guard) = storage();
+        let clock = clock();
+        let lembrete = storage.create_reminder(new_reminder(&clock, 1)).unwrap();
+
+        for (kind, quando) in [
+            (mos_core::ReminderEventKind::Created, clock.now()),
+            (
+                mos_core::ReminderEventKind::Triggered,
+                clock.now() + Duration::hours(1),
+            ),
+            (
+                mos_core::ReminderEventKind::Snoozed,
+                clock.now() + Duration::hours(2),
+            ),
+        ] {
+            storage
+                .record_event(mos_core::NewReminderEvent::new(lembrete.id, kind, quando))
+                .unwrap();
+        }
+
+        let historico = storage.events_for(lembrete.id, 10).unwrap();
+        assert_eq!(historico.len(), 3);
+        assert_eq!(historico[0].kind, mos_core::ReminderEventKind::Snoozed);
+        assert_eq!(historico[2].kind, mos_core::ReminderEventKind::Created);
+    }
+
+    // --------------------------------------------------------- configuração
+
+    #[test]
+    fn quiet_hours_start_on_and_survive_a_save() {
+        let (storage, _guard) = storage();
+        let padrao = storage.attention_settings().unwrap();
+        assert!(padrao.quiet.enabled, "o silencio vem ligado");
+        assert!(!padrao.quiet.allow_urgent, "e furar o silencio e opt-in");
+        assert!(padrao.os_channel_enabled, "o canal do sistema vem ligado");
+
+        let mudado = mos_core::AttentionSettings {
+            quiet: mos_core::QuietHours {
+                enabled: true,
+                start_minute: 23 * 60,
+                end_minute: 7 * 60,
+                allow_urgent: true,
+            },
+            os_channel_enabled: false,
+            local_offset_minutes: -180,
+        };
+        storage.save_attention_settings(mudado).unwrap();
+        assert_eq!(storage.attention_settings().unwrap(), mudado);
     }
 }

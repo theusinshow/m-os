@@ -8,7 +8,7 @@ import type { OpenAiUsageStatus } from "./types";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
   VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
-  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, AcademicDashboard, AcademicToday, Assignment, AssignmentStatus, Exam, ExamStatus, ReminderPriority, Semester, StaleView, SyncRound, SyncStatus, AparelhoNaMalha, StudySession, Subject, Task, TaskState, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace, UnivirtusStatus, SyncReport, ProviderSubjectFact, Decision, Faixa } from "./types";
+  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ReminderTrigger, ReminderEvent, Recurrence, AttentionRow, AttentionSettings, ParsedReminder, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, AcademicDashboard, AcademicToday, Assignment, AssignmentStatus, Exam, ExamStatus, ReminderPriority, Semester, StaleView, SyncRound, SyncStatus, AparelhoNaMalha, StudySession, Subject, ChecklistItem, Task, TaskDetail, TaskPriority, TaskState, UpdateTaskInput, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace, UnivirtusStatus, SyncReport, ProviderSubjectFact, Decision, Faixa } from "./types";
 
 /**
  * O `Update` que a ultima verificacao devolveu.
@@ -713,6 +713,117 @@ export const api = {
   archiveReminder(id: string) {
     return invoke<Reminder>("attention_archive", { id });
   },
+  /**
+   * Criar lembrete, com tudo que ele pode ser.
+   *
+   * Um metodo para os oito casos, e nao oito metodos: um lembrete simples, um
+   * persistente, um recorrente, um com pilha de alertas e um follow-up sao o
+   * MESMO gesto com campos diferentes.
+   *
+   * `at: null` e "algum dia" — o lembrete existe e nao interrompe.
+   */
+  novoLembrete(input: {
+    title: string;
+    body?: string;
+    at: Date | null;
+    target?: ReminderTarget;
+    priority?: ReminderPriority;
+    persistent?: boolean;
+    recurrence?: Recurrence | null;
+    waitingFor?: string;
+    leads?: number[];
+  }) {
+    return invoke<Reminder>("attention_new", {
+      input: {
+        title: input.title,
+        body: input.body ?? "",
+        at: input.at ? input.at.toISOString() : null,
+        targetType: input.target?.type,
+        targetId: input.target?.id,
+        priority: input.priority,
+        persistent: input.persistent ?? false,
+        recurrence: input.recurrence ?? null,
+        waitingFor: input.waitingFor,
+        leads: input.leads ?? [],
+      },
+    });
+  },
+  /**
+   * Editar titulo, nota ou prioridade. Campo ausente e "nao mexi".
+   *
+   * Campo a campo, e nao o lembrete inteiro: o sync resolve conflito POR CAMPO,
+   * e mandar o objeto todo faria a tela que so mexeu no titulo reescrever
+   * tambem a hora, com o valor que ela tinha lido antes.
+   */
+  editReminder(
+    id: string,
+    mudanca: { title?: string; body?: string; priority?: ReminderPriority },
+  ) {
+    return invoke<Reminder>("attention_edit", { input: { id, ...mudanca } });
+  },
+  /** Remarcar: muda a hora planejada. Nao conta fadiga — ver `snoozeReminder`. */
+  rescheduleReminder(id: string, at: Date) {
+    return invoke<Reminder>("attention_reschedule", { id, at: at.toISOString() });
+  },
+  /** O que esta sendo esquecido, com o motivo de cada um. */
+  needsAttention() {
+    return invoke<AttentionRow[]>("attention_needs");
+  },
+  reminderTriggers(id: string) {
+    return invoke<ReminderTrigger[]>("attention_triggers", { id });
+  },
+  addReminderTrigger(id: string, options: { at?: Date; leadMinutes?: number }) {
+    return invoke<Reminder>("attention_add_trigger", {
+      id,
+      at: options.at?.toISOString() ?? null,
+      leadMinutes: options.leadMinutes ?? null,
+    });
+  },
+  cancelReminderTrigger(reminder: string, trigger: string) {
+    return invoke<Reminder>("attention_cancel_trigger", { reminder, trigger });
+  },
+  reminderHistory(id: string, limit = 30) {
+    return invoke<ReminderEvent[]>("attention_history", { id, limit });
+  },
+  resolvedReminders(limit = 50) {
+    return invoke<Reminder[]>("attention_resolved", { limit });
+  },
+  attentionSettings() {
+    return invoke<AttentionSettings>("attention_settings");
+  },
+  saveAttentionSettings(settings: AttentionSettings) {
+    return invoke<AttentionSettings>("attention_save_settings", { settings });
+  },
+  /**
+   * Conta ao backend em que fuso esta janela esta.
+   *
+   * `getTimezoneOffset` devolve minutos ATRAS do UTC — 180 no Brasil —, e o
+   * dominio guarda o deslocamento em relacao ao UTC, que e -180. O sinal
+   * invertido aqui e o motivo de a conversao viver num lugar so.
+   */
+  reportOffset() {
+    return invoke<void>("attention_set_offset", {
+      minutes: -new Date().getTimezoneOffset(),
+    });
+  },
+  /**
+   * Le uma frase e devolve o lembrete que ela pede, SEM gravar.
+   *
+   * Deterministico: "amanha 9h" nao precisa de modelo, e mandar para um custaria
+   * latencia e a chance de a resposta mudar amanha.
+   */
+  parseReminder(text: string) {
+    return invoke<ParsedReminder>("attention_parse", {
+      text,
+      offsetMinutes: -new Date().getTimezoneOffset(),
+    });
+  },
+  showQuickReminder() {
+    return invoke<void>("show_quick_reminder");
+  },
+  hideQuickReminder() {
+    return invoke<void>("hide_quick_reminder");
+  },
   // ===========================================================================
   // Universal Drop Zone
   // ===========================================================================
@@ -879,11 +990,41 @@ export const api = {
   tasks(includeArchived = false) {
     return invoke<Task[]>("list_tasks", { includeArchived });
   },
-  createTask(title: string, description: string, projectId: string | null, sourceCaptureId: string | null = null) {
-    return invoke<Task>("create_task", { input: { title, description, projectId, sourceCaptureId } });
+  /** A criacao rapida: titulo e o que a pessoa quis dizer junto, nada mais. */
+  createTask(title: string, description: string, projectId: string | null, sourceCaptureId: string | null = null, extra: Partial<{ dueAt: string | null; priority: TaskPriority; estimateMinutes: number | null; parentTaskId: string | null; checklist: string[] }> = {}) {
+    return invoke<Task>("create_task", { input: { title, description, projectId, sourceCaptureId, ...extra } });
   },
-  updateTask(id: string, title: string, description: string, projectId: string | null) {
-    return invoke<Task>("update_task", { input: { id, title, description, projectId } });
+  /* A edicao e AUTORITATIVA campo por campo: `dueAt: null` significa TIRE o
+     prazo, e nao "nao mexi nisso". Quem so quer mudar um campo parte da Task
+     como ela esta — `edicaoDe()` em `App.tsx` faz isso. */
+  updateTask(input: UpdateTaskInput) {
+    return invoke<Task>("update_task", { input });
+  },
+  task(id: string) {
+    return invoke<Task>("get_task", { id });
+  },
+  taskDetail(id: string) {
+    return invoke<TaskDetail>("get_task_detail", { id });
+  },
+  /** Uma linha vira um passo; varias linhas coladas viram varios. */
+  addChecklistItem(taskId: string, text: string) {
+    return invoke<Task>("add_checklist_item", { taskId, text });
+  },
+  renameChecklistItem(id: string, text: string) {
+    return invoke<ChecklistItem>("rename_checklist_item", { id, text });
+  },
+  /** Devolve a TASK: o que a tela redesenha e a barra de progresso, que e dela. */
+  setChecklistItemDone(id: string, done: boolean) {
+    return invoke<Task>("set_checklist_item_done", { id, done });
+  },
+  deleteChecklistItem(id: string) {
+    return invoke<Task>("delete_checklist_item", { id });
+  },
+  reorderChecklist(taskId: string, ids: string[]) {
+    return invoke<ChecklistItem[]>("reorder_checklist", { taskId, ids });
+  },
+  setTaskReference(taskId: string, resourceId: string, linked: boolean) {
+    return invoke<TaskDetail>("set_task_reference", { taskId, resourceId, linked });
   },
   setTaskState(id: string, taskState: TaskState) {
     return invoke<Task>("set_task_state", { id, taskState });

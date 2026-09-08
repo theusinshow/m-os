@@ -795,13 +795,16 @@ pub fn completes_with_task(objective: &DailyObjective, task: TaskId) -> bool {
 /// aqui porque o M/OS nao os tem, e inventar um numero seria pior que a
 /// ausencia:
 ///
-/// - **Task nao tem prazo** (decisao D-1, ver `attention.rs`). O prazo de uma
-///   Task no M/OS e um Reminder apontado para ela, e e ele que conta aqui.
+/// - **Task PASSOU a ter prazo** em 2026-09-08 (ADR-066), e `due_today` continua
+///   contando LEMBRETES: sao duas perguntas diferentes — o que o M/OS vai me
+///   interromper para dizer, e o que vence hoje. A segunda chega por
+///   `suggested_tasks[].dueAt`, e nao somada na primeira.
 /// - **Nao existe entidade Event** (decisao D-4). Nao ha agenda futura, entao
 ///   nao ha "compromissos de hoje" alem dos lembretes. Reuniao no M/OS e
 ///   gravacao, ou seja, fato passado.
-/// - **Nao existe Waiting For** (registrado em `DECISIONS.md` e no §12 do
-///   `HERMES-ACTION-LAYER.md`). Nao ha o que contar.
+/// - **Waiting For passou a existir** na mesma migration, como campo da Task.
+///   Ele nao vira contador aqui ainda: um numero sem a lista ao lado nao ajuda
+///   ninguem a comecar o dia.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DailyContext {
@@ -866,6 +869,28 @@ pub struct TaskSuggestion {
     pub state: String,
     /// Nome do Project, ou vazio.
     pub project: String,
+    /// O progresso do checklist, quando ha um.
+    ///
+    /// Os dois numeros e nao a lista: o Start My Day mostra `3/5`, e mandar os
+    /// cinco textos por Task sugerida seria carregar a tela com o que ela nao
+    /// desenha. Quem quer os passos abre a Task.
+    #[serde(default)]
+    pub checklist_total: usize,
+    #[serde(default)]
+    pub checklist_done: usize,
+    /// Quando vence, em RFC 3339. Vazio e sem prazo.
+    ///
+    /// Ate 2026-09-08 este campo nao podia existir: a decisao D-1 mantinha
+    /// `Task.due_at` fora do M/OS, e o cabecalho de `DailyContext` registra
+    /// isso. A ADR-066 o trouxe.
+    #[serde(default)]
+    pub due_at: String,
+    /// Quanto tempo se estimou, em minutos. Zero e "nao estimei".
+    #[serde(default)]
+    pub estimate_minutes: i64,
+    /// A prioridade, para o dia comecar pelo que pesa.
+    #[serde(default)]
+    pub priority: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1025,6 +1050,18 @@ pub fn compose_context(input: ContextInput<'_>) -> DailyContext {
             title: task.title.clone(),
             state: task.state.as_str().to_owned(),
             project: project_name(task.project_id),
+            checklist_total: task.checklist_total,
+            checklist_done: task.checklist_done,
+            due_at: task
+                .due_at
+                .and_then(|instante| {
+                    instante
+                        .format(&time::format_description::well_known::Rfc3339)
+                        .ok()
+                })
+                .unwrap_or_default(),
+            estimate_minutes: task.estimate_minutes.unwrap_or_default(),
+            priority: task.priority.as_str().to_owned(),
         })
         .collect();
 
@@ -1625,6 +1662,15 @@ mod tests {
             source_capture_id: None,
             state,
             lifecycle_state: crate::LifecycleState::Active,
+            due_at: None,
+            priority: crate::Priority::Normal,
+            estimate_minutes: None,
+            parent_task_id: None,
+            blocked_by_task_id: None,
+            waiting_for: String::new(),
+            follow_up_at: None,
+            checklist_total: 0,
+            checklist_done: 0,
             created_at: updated,
             updated_at: updated,
             completed_at: None,
@@ -1685,6 +1731,13 @@ mod tests {
             next_due_at: Some(quando),
             snooze_count: 0,
             delivered_count: 0,
+            kind: crate::ReminderKind::Standard,
+            waiting_for: String::new(),
+            persistent: false,
+            escalation_step: 0,
+            last_triggered_at: None,
+            retry_at: None,
+            recurrence: None,
             created_at: agora,
             updated_at: agora,
             completed_at: None,

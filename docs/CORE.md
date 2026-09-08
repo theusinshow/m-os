@@ -219,6 +219,36 @@ Possíveis relações:
 - outras Tasks;
 - recursos relacionados.
 
+### 10.1 Os quatro conceitos dentro de uma Task
+
+Desde 2026-09-08 (ADR-066) a Task representa **trabalho**, e não só um título.
+Quatro coisas convivem dentro dela, e confundir duas quaisquer delas é como uma
+lista de tarefas vira burocracia:
+
+| | é | não é |
+|---|---|---|
+| **Task** | a unidade de trabalho: *"revisar o projeto estrutural"* | — |
+| **Checklist item** | um passo que se CONCLUI dentro dela: *"conferir níveis"* | um cartão do Kanban. Ele nunca vira um |
+| **Subtask** | trabalho que merece existir sozinho: estado, prazo e checklist próprios | um item de checklist com outro nome |
+| **Nota** | contexto que se LÊ: *"manter cobrimento de 5 cm"* | algo que se conclui |
+
+A fronteira entre passo e Subtask, escrita: **o que merece existir sozinho no
+quadro é Subtask; o que só faz sentido dentro do trabalho maior é item de
+checklist.**
+
+### 10.2 Prazo e lembrete são coisas diferentes
+
+Uma Task pode vencer às 17:00 e pedir aviso às 16:30. São duas informações, e
+elas moram em lugares diferentes:
+
+- **prazo** (`due_at`) responde *quando isto vence*. É da Task, e aparece no
+  Calendar;
+- **lembrete** responde *quando o M/OS me interrompe*. É do Attention System, e
+  aponta para a Task.
+
+Ter prazo não gera aviso nenhum sozinho. Ver a ADR-066 e o §35.3 do
+`ATTENTION-SYSTEM.md`.
+
 ---
 
 ## 11. Task e Capture são diferentes
@@ -550,6 +580,10 @@ Reminder:
 > Me lembrar amanhã de olhar essa tarefa.
 
 Essa separação permite que o sistema represente tanto trabalho quanto atenção temporal.
+
+Ela ficou **mais** nítida desde que a Task ganhou prazo (ADR-066), e não menos:
+o prazo é do trabalho, o lembrete é da atenção. Concluir o lembrete continua não
+concluindo a Task, e a superfície continua oferecendo as duas ações separadas.
 
 ---
 

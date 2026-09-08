@@ -1040,3 +1040,171 @@ async fn a_captura_sem_link_vira_nota() {
     assert_eq!(recurso["kind"], "note");
     assert_eq!(recurso["url"], "");
 }
+
+/// O checklist no bolso: criar, colar, marcar, apagar — e o progresso na Task.
+///
+/// O que este teste protege é a rota, e sobretudo o CONTRATO da resposta: cada
+/// escrita devolve a TASK, com `checklistDone`/`checklistTotal` atualizados. É
+/// disso que a linha de Fazer vive — sem esses dois números na resposta, marcar
+/// um passo exigiria uma segunda chamada para saber que o `2/5` virou `3/5`, e
+/// no 4G isso é o dobro da espera por um dígito.
+#[tokio::test(flavor = "multi_thread")]
+async fn o_checklist_do_bolso_marca_cola_e_conta() {
+    let hub = servir_hub().await;
+    let pasta = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    // A task nasce já com passos: é o caminho de "revisar o projeto: níveis,
+    // formas, armaduras" digitado de uma vez.
+    let criada: serde_json::Value = cliente
+        .post(format!("http://{web}/api/tasks"))
+        .json(&serde_json::json!({
+            "titulo": "Revisar projeto estrutural",
+            "checklist": ["Conferir níveis", "Conferir formas"],
+            "prioridade": "high",
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = criada["id"].as_str().unwrap().to_owned();
+    assert_eq!(criada["checklistTotal"], 2);
+    assert_eq!(criada["checklistDone"], 0);
+    assert_eq!(criada["priority"], "high");
+
+    // Colar três linhas de uma vez cria três itens — quem divide é o domínio.
+    let depois: serde_json::Value = cliente
+        .post(format!("http://{web}/api/tasks/{id}/checklist"))
+        .json(&serde_json::json!({
+            "texto": "- Conferir armaduras\n- Atualizar PDF\n- Enviar para o Victor"
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(depois["checklistTotal"], 5);
+
+    let detalhe: serde_json::Value = cliente
+        .get(format!("http://{web}/api/tasks/{id}/detalhe"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let itens = detalhe["checklist"].as_array().unwrap();
+    assert_eq!(itens.len(), 5);
+    assert_eq!(
+        itens[2]["label"], "Conferir armaduras",
+        "o hífen do texto colado não faz parte do passo"
+    );
+
+    // Marcar devolve a TASK com o progresso novo.
+    let item = itens[0]["id"].as_str().unwrap().to_owned();
+    let marcada: serde_json::Value = cliente
+        .patch(format!("http://{web}/api/checklist/{item}"))
+        .json(&serde_json::json!({ "feito": true }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(marcada["checklistDone"], 1);
+    assert_eq!(marcada["checklistTotal"], 5);
+
+    // Apagar tira do total, e não conta como concluído.
+    let ultimo = itens[4]["id"].as_str().unwrap().to_owned();
+    let apagada: serde_json::Value = cliente
+        .delete(format!("http://{web}/api/checklist/{ultimo}"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(apagada["checklistTotal"], 4);
+    assert_eq!(apagada["checklistDone"], 1);
+
+    // Concluir a Task PRESERVA o checklist. Reabrir devolve como estava.
+    let concluida: serde_json::Value = cliente
+        .post(format!("http://{web}/api/tasks/{id}/estado"))
+        .json(&serde_json::json!({ "estado": "done" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(concluida["checklistDone"], 1);
+    assert_eq!(concluida["checklistTotal"], 4);
+}
+
+/// O prazo entra e SAI pelo bolso.
+///
+/// A parte que importa é a segunda: `"prazo": null` tira o prazo, e omitir o
+/// campo deixa como está. Sem essa distinção não haveria como desmarcar uma
+/// data do celular — só como colocá-la.
+#[tokio::test(flavor = "multi_thread")]
+async fn o_prazo_entra_e_sai_pelo_bolso() {
+    let hub = servir_hub().await;
+    let pasta = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    let criada: serde_json::Value = cliente
+        .post(format!("http://{web}/api/tasks"))
+        .json(&serde_json::json!({ "titulo": "Mandar a fatura" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = criada["id"].as_str().unwrap().to_owned();
+    assert!(criada["dueAt"].is_null());
+
+    let com_prazo: serde_json::Value = cliente
+        .patch(format!("http://{web}/api/tasks/{id}"))
+        .json(&serde_json::json!({ "prazo": "2026-09-30T20:00:00Z" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(com_prazo["dueAt"].is_string(), "{com_prazo:?}");
+
+    // Omitir o campo NÃO apaga o prazo.
+    let so_titulo: serde_json::Value = cliente
+        .patch(format!("http://{web}/api/tasks/{id}"))
+        .json(&serde_json::json!({ "titulo": "Mandar a fatura de setembro" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        so_titulo["dueAt"].is_string(),
+        "mudar o título não pode apagar o prazo: {so_titulo:?}"
+    );
+
+    // `null` explícito apaga.
+    let sem_prazo: serde_json::Value = cliente
+        .patch(format!("http://{web}/api/tasks/{id}"))
+        .json(&serde_json::json!({ "prazo": serde_json::Value::Null }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(sem_prazo["dueAt"].is_null(), "{sem_prazo:?}");
+    assert_eq!(sem_prazo["title"], "Mandar a fatura de setembro");
+}

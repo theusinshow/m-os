@@ -143,7 +143,16 @@ async fn mover_num_aparelho_e_renomear_no_outro_convivem() {
         assert_eq!(outro.storage.tasks(false).unwrap().len(), 1);
 
         // Cada aparelho mexe num campo diferente, sem se falarem.
-        pc.storage.update_task(id, "Titulo novo", "", None).unwrap();
+        let atual = pc.storage.get_task(id).unwrap();
+        pc.storage
+            .update_task(
+                id,
+                mos_core::EditTask {
+                    title: "Titulo novo".into(),
+                    ..mos_core::EditTask::from_task(&atual)
+                },
+            )
+            .unwrap();
         outro
             .storage
             .set_task_state(id, mos_core::TaskState::Doing)
@@ -444,6 +453,183 @@ async fn workspace_atravessa_e_destrava_a_aresta_que_dependia_dele() {
             .unwrap();
         assert_eq!(projetos.len(), 1, "o vinculo com o Workspace nao apareceu");
         assert_eq!(projetos[0].id, projeto_id);
+    })
+    .await
+    .unwrap();
+}
+
+/// **O cenario que decidiu o desenho do checklist.**
+///
+/// O pedido descreve exatamente isto: *"desktop marca o item A; mobile
+/// acrescenta o item B; depois de sincronizar, A continua marcado e B continua
+/// existindo"*.
+///
+/// Ele so passa porque o item e uma ENTIDADE, e nao um campo da Task. Com um
+/// array numa coluna, os dois gestos seriam escritas concorrentes sobre o mesmo
+/// campo — o merge por campo escolheria uma, e a outra iria para
+/// `sync_conflicts` em vez de para a tela. Com uma linha por item, os dois
+/// gestos nem se encontram: sao operacoes sobre entidades diferentes.
+#[tokio::test(flavor = "multi_thread")]
+async fn marcar_num_aparelho_e_acrescentar_no_outro_nao_se_apagam() {
+    let endereco = servir().await;
+
+    tokio::task::spawn_blocking(move || {
+        let rede = HttpTransport::novo(format!("http://{endereco}"), TOKEN).unwrap();
+
+        let mut pc = Aparelho::novo("PC");
+        let mut celular = Aparelho::novo("Celular");
+
+        // A Task nasce no PC com dois passos, e chega inteira no celular.
+        let nova = NewTask::create("Ajustes reuniao", "", None)
+            .unwrap()
+            .with_checklist(&["Corrigir nivel".into(), "Atualizar corte".into()]);
+        let task = nova.id;
+        pc.storage.create_task(nova).unwrap();
+        pc.sincronizar(&rede);
+        celular.sincronizar(&rede);
+
+        let no_celular = celular.storage.task_detail(task).unwrap();
+        assert_eq!(
+            no_celular.checklist.len(),
+            2,
+            "os passos precisam atravessar junto com a Task"
+        );
+        assert_eq!(no_celular.checklist[0].label, "Corrigir nivel");
+        assert_eq!(no_celular.task.checklist_total, 2);
+
+        // Agora os dois mexem, cada um do seu lado, sem se falarem.
+        let item_a = pc.storage.task_detail(task).unwrap().checklist[0].id;
+        pc.storage.set_checklist_item_done(item_a, true).unwrap();
+        celular
+            .storage
+            .add_checklist_item(
+                mos_core::NewChecklistItem::create(task, "Enviar para o Victor").unwrap(),
+            )
+            .unwrap();
+
+        celular.sincronizar(&rede);
+        pc.sincronizar(&rede);
+        celular.sincronizar(&rede);
+
+        for (nome, aparelho) in [("PC", &pc), ("celular", &celular)] {
+            let detalhe = aparelho.storage.task_detail(task).unwrap();
+            let rotulos: Vec<&str> = detalhe
+                .checklist
+                .iter()
+                .map(|item| item.label.as_str())
+                .collect();
+            assert_eq!(
+                rotulos,
+                ["Corrigir nivel", "Atualizar corte", "Enviar para o Victor"],
+                "no {nome}: o item acrescentado do outro lado precisa existir"
+            );
+            assert!(
+                detalhe.checklist[0].completed(),
+                "no {nome}: o item marcado precisa continuar marcado"
+            );
+            assert_eq!(
+                (detalhe.task.checklist_done, detalhe.task.checklist_total),
+                (1, 3),
+                "no {nome}: o progresso conta os tres, com um feito"
+            );
+        }
+    })
+    .await
+    .unwrap();
+}
+
+/// Apagar um passo apaga nos dois — e a Task nao perde os outros.
+#[tokio::test(flavor = "multi_thread")]
+async fn apagar_um_passo_apaga_no_outro_aparelho() {
+    let endereco = servir().await;
+
+    tokio::task::spawn_blocking(move || {
+        let rede = HttpTransport::novo(format!("http://{endereco}"), TOKEN).unwrap();
+
+        let mut pc = Aparelho::novo("PC");
+        let mut celular = Aparelho::novo("Celular");
+
+        let nova = NewTask::create("Finalizar 167-25", "", None)
+            .unwrap()
+            .with_checklist(&["Compatibilizar".into(), "Atualizar desenho".into()]);
+        let task = nova.id;
+        pc.storage.create_task(nova).unwrap();
+        pc.sincronizar(&rede);
+        celular.sincronizar(&rede);
+
+        let alvo = celular.storage.task_detail(task).unwrap().checklist[1].id;
+        celular.storage.delete_checklist_item(alvo).unwrap();
+        celular.sincronizar(&rede);
+        pc.sincronizar(&rede);
+
+        let no_pc = pc.storage.task_detail(task).unwrap();
+        assert_eq!(no_pc.checklist.len(), 1);
+        assert_eq!(no_pc.checklist[0].label, "Compatibilizar");
+        assert_eq!(no_pc.task.checklist_total, 1);
+    })
+    .await
+    .unwrap();
+}
+
+/// Prazo num aparelho e prioridade no outro CONVIVEM.
+///
+/// E a regra do `SYNC.md` §4 aplicada aos campos que a 0039 acrescentou: eles
+/// viajam um a um, e nao como um bloco. Um blob faria o mais recente apagar o
+/// que o outro escreveu no campo vizinho.
+#[tokio::test(flavor = "multi_thread")]
+async fn prazo_num_aparelho_e_prioridade_no_outro_convivem() {
+    let endereco = servir().await;
+
+    tokio::task::spawn_blocking(move || {
+        let rede = HttpTransport::novo(format!("http://{endereco}"), TOKEN).unwrap();
+
+        let mut pc = Aparelho::novo("PC");
+        let mut celular = Aparelho::novo("Celular");
+
+        let nova = NewTask::create("Revisar projeto estrutural", "", None).unwrap();
+        let task = nova.id;
+        pc.storage.create_task(nova).unwrap();
+        pc.sincronizar(&rede);
+        celular.sincronizar(&rede);
+
+        let prazo = time::OffsetDateTime::from_unix_timestamp(1_790_000_000).unwrap();
+        let no_pc = pc.storage.get_task(task).unwrap();
+        pc.storage
+            .update_task(
+                task,
+                mos_core::EditTask {
+                    due_at: Some(prazo),
+                    ..mos_core::EditTask::from_task(&no_pc)
+                },
+            )
+            .unwrap();
+
+        let no_celular = celular.storage.get_task(task).unwrap();
+        celular
+            .storage
+            .update_task(
+                task,
+                mos_core::EditTask {
+                    priority: mos_core::Priority::Urgent,
+                    ..mos_core::EditTask::from_task(&no_celular)
+                },
+            )
+            .unwrap();
+
+        celular.sincronizar(&rede);
+        pc.sincronizar(&rede);
+        celular.sincronizar(&rede);
+        pc.sincronizar(&rede);
+
+        for (nome, aparelho) in [("PC", &pc), ("celular", &celular)] {
+            let task = aparelho.storage.get_task(task).unwrap();
+            assert_eq!(task.due_at, Some(prazo), "no {nome}: o prazo sobreviveu");
+            assert_eq!(
+                task.priority,
+                mos_core::Priority::Urgent,
+                "no {nome}: a prioridade sobreviveu"
+            );
+        }
     })
     .await
     .unwrap();

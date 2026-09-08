@@ -37,6 +37,7 @@ import { ReuniaoDetectada } from "./ReuniaoDetectada";
 import { FaixaDeUso, PainelDaFaixa } from "./Faixa";
 import { AttentionCenter } from "./AttentionCenter";
 import { ReminderComposer } from "./ReminderComposer";
+import { QuickReminder } from "./QuickReminder";
 import { BudgetRing, hoursLabel, TodayHours, useTrackedTime, WeekByProject, weekSummary } from "./TimeWidgets";
 import { TempoPage } from "./TempoPage";
 import { FinancePage } from "./FinancePage";
@@ -48,6 +49,9 @@ import { Leque } from "./Leque";
 import { LequeSeletor } from "./LequeSeletor";
 import { Ring, RingLabel } from "./Ring";
 import { monthActivity, MonthDensity, TaskProgressRing, WeekRings } from "./Widgets";
+import { Checklist, ProgressoDoChecklist } from "./Checklist";
+import { TaskDrawer } from "./TaskDrawer";
+import { doCampoLocal, estimativaCurta, prazoCurto, ROTULO_DE_PRIORIDADE, situacaoDoPrazo } from "./tasks";
 import { MosSymbol } from "./Symbol";
 import { AnimatePresence, LazyMotion, m } from "framer-motion";
 import { AnimatedList, AnimatedListItem } from "./motion/AnimatedList";
@@ -58,7 +62,7 @@ import {
   podeAvancar as podeAvancarNaTrilha, podeVoltar as podeVoltarNaTrilha,
   visitar as visitarNaTrilha, voltar as voltarNaTrilha, type Trilha,
 } from "./navegacao";
-import type { AcademicDashboard, AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, Capture, DailyContext, DailyToday, FunctionDefinition, HiddenWidget, Ingestion, ObjectiveLink, Week, WidgetPlacement, RadialPin, Page, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, Parada, ReminderTarget, SearchItem, StaleView, Task, TaskState, Workspace , DeliveryEvent, SyncStatus } from "./types";
+import type { AcademicDashboard, AppCapabilities, AppCatalogEntry, AppLaunchKind, AppStatus, Capture, DailyContext, DailyToday, FunctionDefinition, HiddenWidget, Ingestion, ObjectiveLink, Week, WidgetPlacement, RadialPin, Page, Project, RegisteredApp, Resource, ResourceKind, ResourceWorkspace, Parada, ReminderTarget, SearchItem, StaleView, ChecklistItem, Task, TaskPriority, TaskState, Workspace , DeliveryEvent, SyncStatus } from "./types";
 import { SCREEN_LABEL } from "./types";
 import "./App.css";
 
@@ -980,10 +984,31 @@ function ProjectForm({ project, cancel, saved }: { project?: Project; cancel: ()
   </form>;
 }
 
+/**
+ * A criação de uma Task.
+ *
+ * # O que ela mostra por padrão, e por quê
+ *
+ * Uma linha: *o que precisa ser feito?*. Mais nada.
+ *
+ * O resto — checklist, prazo, prioridade, Project, descrição — está a um clique
+ * em "detalhes", e não empilhado na tela. Uma Task nasce de um impulso; um
+ * formulário de seis campos transforma esse impulso numa tarefa administrativa,
+ * e o efeito prático é a pessoa parar de criar Tasks.
+ *
+ * O checklist entra AQUI e não só na gaveta porque a frase que origina uma Task
+ * com passos costuma vir inteira ("revisar o projeto: níveis, formas,
+ * armaduras"). Colar as linhas na criação evita abrir a Task só para digitar o
+ * que já estava na cabeça.
+ */
 function DirectTaskForm({ projectId = null, projects, cancel, saved }: { projectId?: string | null; projects: Project[]; cancel: () => void; saved: (task: Task) => void }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [selectedProject, setSelectedProject] = useState(projectId ?? "");
+  const [checklist, setChecklist] = useState("");
+  const [dueAt, setDueAt] = useState("");
+  const [priority, setPriority] = useState<TaskPriority>("normal");
+  const [detalhes, setDetalhes] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   async function submit(event: FormEvent) {
@@ -991,13 +1016,29 @@ function DirectTaskForm({ projectId = null, projects, cancel, saved }: { project
     if (saving) return;
     setSaving(true);
     setError("");
-    try { saved(await api.createTask(title, description, selectedProject || null)); }
+    try {
+      saved(await api.createTask(title, description, selectedProject || null, null, {
+        checklist: checklist.split("\n").map((linha) => linha.trim()).filter(Boolean),
+        dueAt: doCampoLocal(dueAt),
+        priority,
+      }));
+    }
     catch (nextError) { setError(appError(nextError).message); setSaving(false); }
   }
-  return <form className="stack-form compact-form" onSubmit={submit} aria-busy={saving}>
-    <label><span>TÍTULO</span><input value={title} onChange={(event) => setTitle(event.currentTarget.value)} autoFocus /></label>
-    <label><span>DESCRIÇÃO</span><textarea value={description} onChange={(event) => setDescription(event.currentTarget.value)} rows={2} /></label>
-    <label><span>PROJECT</span><select value={selectedProject} onChange={(event) => setSelectedProject(event.currentTarget.value)}><option value="">Sem Project</option>{projects.filter((project) => project.lifecycleState === "active").map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+  return <form className="stack-form compact-form task-create" onSubmit={submit} aria-busy={saving}>
+    <label><span>O QUE PRECISA SER FEITO?</span><input value={title} onChange={(event) => setTitle(event.currentTarget.value)} autoFocus /></label>
+    {/* Progressive disclosure: o gatilho diz o que está escondido, e não
+        "avançado". Um rótulo genérico obriga a abrir para descobrir. */}
+    <button type="button" className="task-mais" aria-expanded={detalhes} onClick={() => setDetalhes((aberto) => !aberto)}>
+      {detalhes ? "Só o título" : "Checklist, prazo, prioridade, Project"}
+    </button>
+    {detalhes ? <>
+      <label><span>CHECKLIST</span><textarea value={checklist} rows={3} placeholder={"Um passo por linha.\nCole uma lista inteira, se tiver."} onChange={(event) => setChecklist(event.currentTarget.value)} /></label>
+      <label><span>PRAZO</span><input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.currentTarget.value)} /></label>
+      <label><span>PRIORIDADE</span><select value={priority} onChange={(event) => setPriority(event.currentTarget.value as TaskPriority)}>{(Object.keys(ROTULO_DE_PRIORIDADE) as TaskPriority[]).map((nivel) => <option key={nivel} value={nivel}>{ROTULO_DE_PRIORIDADE[nivel]}</option>)}</select></label>
+      <label><span>PROJECT</span><select value={selectedProject} onChange={(event) => setSelectedProject(event.currentTarget.value)}><option value="">Sem Project</option>{projects.filter((project) => project.lifecycleState === "active").map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+      <label><span>NOTAS</span><textarea value={description} onChange={(event) => setDescription(event.currentTarget.value)} rows={2} /></label>
+    </> : null}
     {saving ? <StateMessage state="saving" label="Salvando Task..." /> : error ? <StateMessage state="error" label={error} /> : null}
     <div className="form-actions"><Button variant="ghost" onClick={cancel} disabled={saving}>Cancelar</Button><Button variant="primary" type="submit" disabled={!title.trim() || saving}>{saving ? "Salvando" : "Criar Task"}</Button></div>
   </form>;
@@ -2198,12 +2239,23 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, ingestions, cu
 
 function BoardPage({ tasks, projects, stale, refresh, openTask, intent }: { tasks: Task[]; projects: Project[]; stale: StaleView; refresh: () => Promise<void>; openTask: (task: Task) => void; intent?: FunctionIntent }) {
   const [creating, setCreating] = useState(false);
+  /* UM checklist aberto por vez no quadro.
+     Vários abertos ao mesmo tempo transformam a coluna numa lista de listas e
+     destroem a leitura em varredura que o Kanban existe para dar — que é o
+     motivo de o checklist nascer recolhido. Um por vez preserva as duas
+     coisas: dá para executar um passo sem abrir a gaveta, e o quadro continua
+     um quadro. */
+  const [checklistAberto, setChecklistAberto] = useState<string | null>(null);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [dragOverState, setDragOverState] = useState<TaskState | null>(null);
   const pointerDrag = useRef<{ taskId: string; x: number; y: number; active: boolean } | null>(null);
   const suppressClickTaskId = useRef<string | null>(null);
   const board = useRef<HTMLDivElement>(null);
-  const activeTasks = tasks.filter((task) => task.lifecycleState === "active");
+  /* Subtask NÃO é cartão solto no quadro. Ela aparece dentro da Task mãe, na
+     gaveta. Um "gerar PDF" no Backlog, longe do "finalizar 167-25" a que ele
+     pertence, é o que faz um quadro de trinta cartões parecer trabalho de
+     trinta frentes. */
+  const activeTasks = tasks.filter((task) => task.lifecycleState === "active" && !task.parentTaskId);
   /* Id da Task para dias parados. O quadro e onde se AGE: a marca fica ao lado
      do card que se arrasta, e nao numa lista a parte. */
   const diasParados = diasPorTask(stale.paradas);
@@ -2299,91 +2351,123 @@ function BoardPage({ tasks, projects, stale, refresh, openTask, intent }: { task
       const visible = column.slice(0, 20);
       return <section key={state} className="kanban-column" data-kanban-state={state} data-drop-target={dragOverState === state || undefined} onDragEnter={(event) => { event.preventDefault(); setDragOverState(state); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverState(state); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverState(null); }} onDrop={(event) => { event.preventDefault(); const task = draggedTask(event); finishDrag(); if (task) void move(task, state); }}>
         <header><h2>{stateLabels[state]}</h2><span>{column.length}</span></header>
-        <AnimatedList>{visible.map((task) => <AnimatedListItem key={task.id} itemKey={task.id}><DataRow primary={task.title} secondary={projects.find((project) => project.id === task.projectId)?.name} meta={rotuloDeDias(diasParados.get(task.id) ?? 0)} stale={diasParados.has(task.id)} completed={task.state === "done"} dragging={draggingTaskId === task.id} onClick={() => { if (suppressClickTaskId.current === task.id) { suppressClickTaskId.current = null; return; } openTask(task); }} onKeyDown={(event) => keyboardMove(event, task)} onPointerDown={(event) => { if (event.button !== 0) return; pointerDrag.current = { taskId: task.id, x: event.clientX, y: event.clientY, active: false }; }} draggable onDragStart={(event) => { pointerDrag.current = null; setDraggingTaskId(task.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={finishDrag} /></AnimatedListItem>)}{!column.length ? <p className="kanban-empty">Vazio</p> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</AnimatedList>
+        <AnimatedList>{visible.map((task) => <AnimatedListItem key={task.id} itemKey={task.id}><TaskCard
+          task={task}
+          projeto={projects.find((project) => project.id === task.projectId)?.name}
+          diasParados={diasParados.get(task.id) ?? 0}
+          arrastando={draggingTaskId === task.id}
+          expandido={checklistAberto === task.id}
+          alternarChecklist={() => setChecklistAberto((atual) => atual === task.id ? null : task.id)}
+          refresh={refresh}
+          abrir={() => { if (suppressClickTaskId.current === task.id) { suppressClickTaskId.current = null; return; } openTask(task); }}
+          onKeyDown={(event) => keyboardMove(event, task)}
+          onPointerDown={(event) => { if (event.button !== 0) return; pointerDrag.current = { taskId: task.id, x: event.clientX, y: event.clientY, active: false }; }}
+          onDragStart={(event) => { pointerDrag.current = null; setDraggingTaskId(task.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/task-id", task.id); event.dataTransfer.setData("text/plain", task.id); }}
+          onDragEnd={finishDrag}
+        /></AnimatedListItem>)}{!column.length ? <p className="kanban-empty">Vazio</p> : null}{column.length > visible.length ? <p className="more-count">+ {column.length - visible.length} mais</p> : null}</AnimatedList>
       </section>;
     })}</div> : null}
   </div>;
 }
 
+/**
+ * Um cartão do Kanban.
+ *
+ * # O que ele mostra, em ordem de importância
+ *
+ * Título. Depois, só o que existe: progresso do checklist, Project, prazo,
+ * estimativa, prioridade quando não é `normal`. Uma Task sem nada disso desenha
+ * exatamente o que desenhava antes — uma linha de texto —, e é assim que o
+ * quadro continua limpo quando a estrutura nova não está sendo usada.
+ *
+ * # Por que o checklist abre AQUI
+ *
+ * Marcar um passo é o gesto mais repetido de uma Task com checklist, e abrir
+ * uma gaveta lateral para dar um clique num checkbox é caro. Recolhido por
+ * padrão, um por vez, e a lingueta só existe quando há passos.
+ *
+ * # O conflito entre arrastar e clicar, e como ele se resolve
+ *
+ * O cartão inteiro é arrastável, e dentro dele há checkboxes. As duas coisas
+ * competem pelo mesmo gesto. A regra: o `<li>` de cada passo para a propagação
+ * do `dragstart` (`Checklist.tsx`), e a área expandida NÃO é arrastável. Assim
+ * o arrasto continua pegando o cartão pelo corpo, e um clique no checkbox nunca
+ * vira um arrasto de coluna.
+ */
+function TaskCard({ task, projeto, diasParados, arrastando, expandido, alternarChecklist, refresh, abrir, onKeyDown, onPointerDown, onDragStart, onDragEnd }: {
+  task: Task;
+  projeto?: string;
+  diasParados: number;
+  arrastando: boolean;
+  expandido: boolean;
+  alternarChecklist: () => void;
+  refresh: () => Promise<void>;
+  abrir: () => void;
+  onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
+  onPointerDown: React.PointerEventHandler<HTMLElement>;
+  onDragStart: React.DragEventHandler<HTMLElement>;
+  onDragEnd: React.DragEventHandler<HTMLElement>;
+}) {
+  const [itens, setItens] = useState<ChecklistItem[] | null>(null);
+  /* O checklist só é buscado quando a lingueta abre. Buscá-lo por cartão ao
+     desenhar o quadro seria uma chamada por Task — o N+1 que o card evita
+     carregando só os dois números do progresso. */
+  useEffect(() => {
+    if (!expandido) return;
+    void api.taskDetail(task.id).then((detalhe) => setItens(detalhe.checklist)).catch(() => setItens([]));
+  }, [expandido, task.id, task.checklistTotal, task.checklistDone]);
+
+  const situacao = situacaoDoPrazo(task);
+  const estimativa = estimativaCurta(task.estimateMinutes);
+  const parado = diasParados > 0;
+
+  return <article
+    className="task-card"
+    data-completed={task.state === "done" || undefined}
+    data-dragging={arrastando || undefined}
+    data-stale={parado || undefined}
+    data-prioridade={task.priority !== "normal" ? task.priority : undefined}
+    draggable
+    onDragStart={onDragStart}
+    onDragEnd={onDragEnd}
+    onPointerDown={onPointerDown}
+  >
+    <button type="button" className="task-card-corpo" onClick={abrir} onKeyDown={onKeyDown}>
+      <strong>{task.title}</strong>
+      {task.checklistTotal ? <ProgressoDoChecklist feitos={task.checklistDone} total={task.checklistTotal} /> : null}
+      {(projeto || task.dueAt || estimativa || parado || task.waitingFor) ? <span className="task-card-meta">
+        {projeto ? <span className="task-card-projeto">{projeto}</span> : null}
+        {task.dueAt ? <span className="task-card-prazo" data-situacao={situacao}>{prazoCurto(task.dueAt)}</span> : null}
+        {estimativa ? <span>{estimativa}</span> : null}
+        {task.waitingFor ? <span className="task-card-aguardando">aguardando {task.waitingFor}</span> : null}
+        {parado ? <span className="task-card-parado">{rotuloDeDias(diasParados)}</span> : null}
+      </span> : null}
+      {/* Sinalizar prioridade com PALAVRA e não só com cor: `high` e `urgent`
+          precisam ser distinguíveis por quem não separa os dois matizes, e o
+          sistema só tem duas cores com função declarada. */}
+      {task.priority !== "normal" ? <span className="task-card-prioridade">{ROTULO_DE_PRIORIDADE[task.priority]}</span> : null}
+    </button>
+
+    {task.checklistTotal ? <button
+      type="button"
+      className="task-card-lingueta"
+      aria-expanded={expandido}
+      aria-label={expandido ? "Recolher checklist" : "Expandir checklist"}
+      onClick={(event) => { event.stopPropagation(); alternarChecklist(); }}
+    >
+      <span aria-hidden="true">{expandido ? "▾" : "▸"}</span>
+      <span>Checklist</span>
+    </button> : null}
+
+    {expandido ? <div className="task-card-checklist" draggable={false} onDragStart={(event) => event.preventDefault()}>
+      {itens ? <Checklist taskId={task.id} itens={itens} compacto aoMudar={() => { void api.taskDetail(task.id).then((detalhe) => setItens(detalhe.checklist)); void refresh(); }} /> : <p className="kanban-empty">Carregando…</p>}
+    </div> : null}
+  </article>;
+}
+
 /** O que o compositor de lembrete precisa saber de quem o abriu. Vazio quando o
  *  lembrete nasce solto — do Attention Center ou do leque. */
 type ReminderRequest = { title?: string; target?: ReminderTarget; targetLabel?: string };
-
-function TaskDrawer({ task, projects, close, refresh, receipt, openCapture, remind }: { task: Task; projects: Project[]; close: () => void; refresh: () => Promise<void>; receipt: (action: UndoAction) => void; openCapture: (capture: Capture) => void; remind: () => void }) {
-  const [title, setTitle] = useState(task.title);
-  const [description, setDescription] = useState(task.description);
-  const [projectId, setProjectId] = useState(task.projectId ?? "");
-  const [state, setState] = useState(task.state);
-  const [source, setSource] = useState<Capture | null>(null);
-  const [error, setError] = useState("");
-  const [pending, setPending] = useState<"save" | "archive" | null>(null);
-  const drawer = useRef<HTMLElement>(null);
-  const titleInput = useRef<HTMLInputElement>(null);
-  const returnFocus = useRef<HTMLElement | null>(document.activeElement instanceof HTMLElement ? document.activeElement : null);
-  useEffect(() => {
-    titleInput.current?.focus();
-    if (task.sourceCaptureId) void api.getCapture(task.sourceCaptureId).then(setSource);
-    return () => {
-      const target = returnFocus.current;
-      if (target?.isConnected) requestAnimationFrame(() => target.focus());
-    };
-  }, [task.sourceCaptureId]);
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setPending("save");
-    setError("");
-    try { await api.updateTask(task.id, title, description, projectId || null); if (state !== task.state) await api.setTaskState(task.id, state); await refresh(); close(); }
-    catch (nextError) { setPending(null); setError(appError(nextError).message); }
-  }
-  async function archive() {
-    setPending("archive");
-    setError("");
-    try {
-      await api.setTaskArchived(task.id, true);
-      receipt({ message: "Task arquivada.", run: () => api.setTaskArchived(task.id, false) });
-      await refresh();
-      close();
-    } catch (nextError) {
-      setPending(null);
-      setError(appError(nextError).message);
-    }
-  }
-  return <LazyMotion features={loadMotionFeatures} strict>
-    <m.aside
-      ref={drawer}
-      className="task-drawer"
-      aria-label="Detalhe da Task"
-      aria-busy={pending !== null}
-      tabIndex={-1}
-      initial={{ opacity: 0, x: 24 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 24 }}
-      transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}
-      onKeyDown={(event) => { if (event.key === "Escape" && !pending) close(); }}
-    >
-      <header><span className="micro-label">DETALHE DA TASK</span><IconButton label="Fechar" icon="close" disabled={pending !== null} onClick={close} /></header>
-      <form className="stack-form" onSubmit={submit}>
-        <label><span>TÍTULO</span><input ref={titleInput} value={title} onChange={(event) => setTitle(event.currentTarget.value)} disabled={pending !== null} /></label>
-        <label><span>DESCRIÇÃO</span><textarea value={description} onChange={(event) => setDescription(event.currentTarget.value)} rows={3} disabled={pending !== null} /></label>
-        <label><span>PROJECT</span><select value={projectId} onChange={(event) => setProjectId(event.currentTarget.value)} disabled={pending !== null}><option value="">Sem Project</option>{projects.filter((project) => project.lifecycleState === "active").map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
-        <label><span>ESTADO</span><select value={state} onChange={(event) => setState(event.currentTarget.value as TaskState)} disabled={pending !== null}>{stateOrder.map((value) => <option key={value} value={value}>{stateLabels[value]}</option>)}</select></label>
-        {source ? <div className="provenance"><span className="micro-label">ORIGEM</span><button type="button" onClick={() => openCapture(source)}>{source.content}</button><small>{sourceLabel(source.source)} · {relativeTime(source.capturedAt)}</small></div> : null}
-        {pending === "save" ? <StateMessage state="saving" label="Salvando Task..." /> : pending === "archive" ? <StateMessage state="saving" label="Arquivando Task..." /> : error ? <StateMessage state="error" label={error} /> : null}
-        {/* LEMBRAR.
-            Ele fica com as outras acoes da Task, e nao escondido num menu: e a
-            unica forma de uma Task ganhar hora. As decisoes D-1 e D-4 deixaram
-            o M/OS sem prazo em Task de proposito (`ATTENTION-SYSTEM.md` §35.1),
-            e o Reminder e o que ocupa esse lugar sem virar prazo — ele traz a
-            Task de volta a atencao, e nao a marca de atrasada.
-
-            `secondary` e nao `primary`: salvar continua sendo o que esta folha
-            existe para fazer, e duas acoes acesas na mesma fileira dividem a
-            decisao em vez de guiar. */}
-        <div className="form-actions spread"><Button variant="danger" onClick={() => void archive()} disabled={pending !== null}>{pending === "archive" ? "Arquivando" : "Arquivar"}</Button><div className="button-line"><Button variant="secondary" onClick={remind} disabled={pending !== null}>Lembrar</Button><Button variant="primary" type="submit" disabled={!title.trim() || pending !== null}>{pending === "save" ? "Salvando" : "Salvar"}</Button></div></div>
-      </form>
-    </m.aside>
-  </LazyMotion>;
-}
 
 function CaptureViewer({ capture, close }: { capture: Capture; close: () => void }) {
   const dialog = useRef<HTMLElement>(null);
@@ -2719,6 +2803,14 @@ function DesktopApp() {
       setAttentionCount(event.payload);
     });
     void api.attentionCount().then(setAttentionCount).catch(() => undefined);
+    // O fuso vai junto com a montagem, e por isso ele vive AQUI.
+    //
+    // O agendador roda no backend, sem janela, e o `time` sem a feature
+    // `local-offset` nao sabe o fuso da maquina. Sem esta linha, "silencio das
+    // 00h as 08h" seria a meia-noite de UTC — nove da noite no Brasil, que e
+    // quando o silencio mais atrapalha. Mesma razao do `surfaceSetLocale` da
+    // Captura rapida.
+    void api.reportOffset().catch(() => undefined);
     return () => {
       void delivery.then((stop) => stop());
       void counter.then((stop) => stop());
@@ -3077,6 +3169,31 @@ function DesktopApp() {
     if (link.kind === "resource") { const resource = resources.find((candidate) => candidate.id === link.id); if (resource) openResource(resource); return; }
     if (link.kind === "meeting") { setFocusedMeetingId(link.id); setPage("reunioes"); }
   }
+  /* Abrir a entidade a que um lembrete se prende.
+   *
+   * O §44 do pedido e explicito: clicar numa notificacao sobre uma Task tem de
+   * abrir A TASK, e nao um Attention Center generico onde a pessoa procura de
+   * novo o que o sistema ja sabia. Reusa `abrirVinculoDoDia` porque as duas
+   * pontes fazem a mesma coisa — e uma segunda implementacao divergiria na
+   * primeira entidade nova.
+   *
+   * Devolve `false` quando o alvo nao tem tela propria ou ja sumiu; quem chamou
+   * decide o que fazer, e o que se faz e abrir o Attention Center. */
+  function abrirAlvoDoLembrete(alvo: { type: string; id: string } | null): boolean {
+    if (!alvo) return false;
+    const suportado = ["task", "project", "capture", "resource", "meeting"] as const;
+    const tipo = suportado.find((candidato) => candidato === alvo.type);
+    if (!tipo) return false;
+    const antes = { task: drawerTask?.id, project: selectedProjectId, page };
+    abrirVinculoDoDia({ kind: tipo, id: alvo.id });
+    // `abrirVinculoDoDia` nao faz nada quando o alvo sumiu, e "nada" aqui
+    // precisa virar o fallback do Attention Center em vez de um clique morto.
+    return (
+      tipo !== "task" ||
+      drawerTask?.id !== antes.task ||
+      tasks.some((candidato) => candidato.id === alvo.id)
+    );
+  }
   /* Concluir pelo widget da Home. A escrita e do backend, e a tela so releh o
      que ele devolveu — o progresso nunca e recalculado aqui. */
   function concluirObjetivoDoDia(id: string) {
@@ -3308,7 +3425,7 @@ function DesktopApp() {
       sessaoAntiga={fluxoDoDia.sessao}
       close={() => setFluxoDoDia(null)}
       concluido={(proximo) => { daily.setDia(proximo); void daily.recarregar(); }}
-    /> : null}{composer ? <ReminderComposer close={() => setComposer(null)} initialTitle={composer.title} target={composer.target} targetLabel={composer.targetLabel} created={() => { void api.attentionCount().then(setAttentionCount).catch(() => undefined); setAttentionOpen(true); }} /> : null}{attentionOpen ? <AttentionCenter compose={() => { setAttentionOpen(false); setComposer({}); }} close={() => { setAttentionOpen(false); void api.attentionCount().then(setAttentionCount).catch(() => undefined); }} /> : null}{delivered ? <AttentionToast event={delivered} close={() => setDelivered(null)} open={() => { setDelivered(null); setAttentionOpen(true); }} /> : null}{/* A Drop Zone vive no shell, ao lado das outras sobreposicoes: soltar algo
+    /> : null}{composer ? <ReminderComposer close={() => setComposer(null)} initialTitle={composer.title} target={composer.target} targetLabel={composer.targetLabel} created={() => { void api.attentionCount().then(setAttentionCount).catch(() => undefined); setAttentionOpen(true); }} /> : null}{attentionOpen ? <AttentionCenter compose={() => { setAttentionOpen(false); setComposer({}); }} openTarget={(alvo) => { if (abrirAlvoDoLembrete(alvo)) setAttentionOpen(false); }} close={() => { setAttentionOpen(false); void api.attentionCount().then(setAttentionCount).catch(() => undefined); }} /> : null}{delivered ? <AttentionToast event={delivered} close={() => setDelivered(null)} open={() => { const alvo = delivered.target ? { type: delivered.target.kind, id: delivered.target.id } : null; setDelivered(null); if (!abrirAlvoDoLembrete(alvo)) setAttentionOpen(true); }} /> : null}{/* A Drop Zone vive no shell, ao lado das outras sobreposicoes: soltar algo
     em QUALQUER lugar do M/OS tem que funcionar — inclusive sobre o rail —, e e
     o shell quem sabe onde a pessoa estava quando soltou. */}
 {<DropZone
@@ -3323,7 +3440,7 @@ function DesktopApp() {
       onRecibo={(message, run) => showReceipt({ message, run })}
       refresh={refresh}
       onOcupacao={setDropOcupado}
-    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} openDailySession={(sessionId) => { void api.dailySession(sessionId).then((carregada) => setFluxoDoDia({ tipo: "sessao", carregada })).catch(() => undefined); }} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} remind={() => setComposer({ title: drawerTask.title, target: { type: "task", id: drawerTask.id }, targetLabel: "TASK" })} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}<Argos pose={argosPose} presenca={argosPresenca} canto={argosCanto} onAbrir={() => setAttentionOpen(true)} onAbrirHermes={() => navigate("hermes")} /><LazyMotion features={loadMotionFeatures} strict><AnimatePresence>{undo ? <m.div className="receipt" role="status" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></m.div> : null}</AnimatePresence></LazyMotion></div>;
+    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} openDailySession={(sessionId) => { void api.dailySession(sessionId).then((carregada) => setFluxoDoDia({ tipo: "sessao", carregada })).catch(() => undefined); }} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} tasks={tasks} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} openTask={setDrawerTask} remind={() => setComposer({ title: drawerTask.title, target: { type: "task", id: drawerTask.id }, targetLabel: "TASK" })} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}<Argos pose={argosPose} presenca={argosPresenca} canto={argosCanto} onAbrir={() => setAttentionOpen(true)} onAbrirHermes={() => navigate("hermes")} /><LazyMotion features={loadMotionFeatures} strict><AnimatePresence>{undo ? <m.div className="receipt" role="status" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></m.div> : null}</AnimatePresence></LazyMotion></div>;
 }
 
 /**
@@ -3343,7 +3460,10 @@ function DesktopApp() {
  */
 function AttentionToast({ event, close, open }: { event: DeliveryEvent; close: () => void; open: () => void }) {
   useEffect(() => {
-    if (event.missed) return;
+    // O que se perdeu e o que insiste NAO some sozinho: sumir e a metade do
+    // ciclo que o Attention System existe para quebrar. O que venceu agora
+    // pode sumir — a intencao continua no Attention Center de todo jeito.
+    if (event.missed || event.persistent || event.reason === "retry") return;
     const timer = window.setTimeout(close, 12000);
     return () => window.clearTimeout(timer);
   }, [event, close]);
@@ -3351,6 +3471,13 @@ function AttentionToast({ event, close, open }: { event: DeliveryEvent; close: (
   const late = event.overdueSeconds > 60
     ? `atrasado ${Math.round(event.overdueSeconds / 60)} min`
     : "agora";
+  const selo = event.reason === "retry"
+    ? "AINDA PENDENTE"
+    : event.missed
+      ? "PERDIDO"
+      : event.kind === "follow_up"
+        ? "COBRANCA"
+        : "LEMBRETE";
 
   return (
     <LazyMotion features={loadMotionFeatures} strict>
@@ -3363,12 +3490,20 @@ function AttentionToast({ event, close, open }: { event: DeliveryEvent; close: (
         transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}
       >
         <div>
-          <span className="micro-label">{event.missed ? "PERDIDO" : "LEMBRETE"}</span>
+          <span className="micro-label">{selo}</span>
           <strong>{event.title}</strong>
-          {event.body ? <p>{event.body}</p> : null}
+          {event.kind === "follow_up" && event.waitingFor
+            ? <p>{event.waitingFor} respondeu?</p>
+            : event.body ? <p>{event.body}</p> : null}
           <span className="attention-when">{late}</span>
         </div>
         <div className="button-line">
+          {/* Concluir daqui, num clique. O §43 pede que a acao principal custe
+              um clique, e obrigar a abrir o painel para dizer "ja fiz" e
+              cobrar dois por um gesto que se faz dez vezes ao dia. */}
+          <Button onClick={() => { void api.completeReminder(event.reminderId).catch(() => undefined); close(); }} variant="primary">
+            {event.kind === "follow_up" ? "Respondeu" : "Concluir"}
+          </Button>
           <Button onClick={open} variant="secondary">Ver</Button>
           <Button onClick={close} variant="ghost">Dispensar</Button>
         </div>
@@ -3381,6 +3516,8 @@ export default function App() {
   switch (getCurrentWindow().label) {
     case "quick-capture":
       return <QuickCapture />;
+    case "quick-reminder":
+      return <QuickReminder />;
     case "reuniao-detectada":
       return <ReuniaoDetectada />;
     case "lembrete":

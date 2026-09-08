@@ -15,7 +15,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
 use mos_core::{CaptureSource, CoreError, CreateCaptureInput, CreateTaskInput, TaskState};
@@ -44,6 +44,17 @@ pub fn rotas() -> Router<Estado> {
         .route("/api/tasks/{id}", get(task).patch(editar_task))
         .route("/api/tasks/{id}/estado", post(mudar_estado))
         .route("/api/tasks/{id}/arquivar", post(arquivar_task))
+        // A folha inteira da Task: checklist, subtasks, referencias e lembretes.
+        // Rota separada de `/api/tasks/{id}` de proposito — a lista de Fazer
+        // pede so a Task, e mandar a folha inteira por cartao seria pagar 4G
+        // por dado que a tela nao desenha.
+        .route("/api/tasks/{id}/detalhe", get(detalhe_da_task))
+        .route("/api/tasks/{id}/checklist", post(criar_item))
+        .route("/api/tasks/{id}/checklist/ordem", post(reordenar_checklist))
+        .route(
+            "/api/checklist/{id}",
+            patch(editar_item).delete(apagar_item),
+        )
         .route("/api/projetos", get(projetos))
         .route("/api/lembretes", get(lembretes).post(criar_lembrete))
         .route("/api/lembretes/resolvidos", get(lembretes_resolvidos))
@@ -52,6 +63,9 @@ pub fn rotas() -> Router<Estado> {
         .route("/api/lembretes/{id}/cancelar", post(cancelar_lembrete))
         .route("/api/lembretes/{id}/adiar", post(adiar_lembrete))
         .route("/api/lembretes/{id}/arquivar", post(arquivar_lembrete))
+        .route("/api/lembretes/atencao", get(lembretes_em_atencao))
+        .route("/api/lembretes/{id}/alertas", get(alertas_do_lembrete))
+        .route("/api/lembretes/{id}/historico", get(historico_do_lembrete))
         .route("/api/estado", get(estado_do_aparelho))
         .route("/api/panorama", get(panorama))
         .route("/api/dia", get(dia))
@@ -356,6 +370,14 @@ pub struct NovaTask {
     pub descricao: String,
     #[serde(default)]
     pub project_id: Option<String>,
+    /// O que o bolso manda alem do titulo. Todos opcionais: capturar uma task
+    /// no onibus continua sendo uma linha de texto e um toque.
+    #[serde(default)]
+    pub prazo: Option<String>,
+    #[serde(default)]
+    pub prioridade: Option<String>,
+    #[serde(default)]
+    pub checklist: Vec<String>,
 }
 
 async fn criar_task(
@@ -368,6 +390,10 @@ async fn criar_task(
             description: pedido.descricao,
             project_id: pedido.project_id,
             source_capture_id: None,
+            due_at: pedido.prazo,
+            priority: pedido.prioridade,
+            checklist: pedido.checklist,
+            ..Default::default()
         })
     })
     .await?;
@@ -393,6 +419,108 @@ async fn mudar_estado(
     Ok(Json(serde_json::to_value(task).unwrap_or_default()))
 }
 
+/// A Task com tudo que a folha de detalhe mostra.
+async fn detalhe_da_task(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+) -> Resultado<Json<serde_json::Value>> {
+    let detalhe = estado.work.task_detail(&id).map_err(de_core)?;
+    Ok(Json(serde_json::to_value(detalhe).unwrap_or_default()))
+}
+
+#[derive(Deserialize)]
+struct NovoItem {
+    /// Uma linha, ou varias coladas de uma vez. Quem separa e o dominio
+    /// (`parse_checklist_lines`), e nao esta rota: a mesma colagem tem de virar
+    /// os mesmos itens no PC e no celular.
+    texto: String,
+}
+
+async fn criar_item(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+    Json(pedido): Json<NovoItem>,
+) -> Resultado<Json<serde_json::Value>> {
+    let task = escrever(&estado, move |estado| {
+        let itens = mos_core::parse_checklist_lines(&pedido.texto);
+        match itens.len() {
+            0 => estado.work.add_checklist_item(&id, &pedido.texto),
+            _ => {
+                estado.work.add_checklist_lines(&id, &pedido.texto)?;
+                estado.work.task(&id)
+            }
+        }
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(task).unwrap_or_default()))
+}
+
+#[derive(Deserialize)]
+struct EdicaoDeItem {
+    #[serde(default)]
+    texto: Option<String>,
+    #[serde(default)]
+    feito: Option<bool>,
+}
+
+async fn editar_item(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+    Json(pedido): Json<EdicaoDeItem>,
+) -> Resultado<Json<serde_json::Value>> {
+    if pedido.texto.is_none() && pedido.feito.is_none() {
+        return Err(Erro(
+            StatusCode::BAD_REQUEST,
+            String::from("nada para mudar"),
+        ));
+    }
+    let task = escrever(&estado, move |estado| {
+        if let Some(texto) = &pedido.texto {
+            estado.work.rename_checklist_item(&id, texto)?;
+        }
+        match pedido.feito {
+            Some(feito) => estado.work.set_checklist_item_done(&id, feito),
+            // Sem `feito` no pedido, a renomeacao ja aconteceu e o que falta e
+            // devolver a Task. Marcar como nao-feito aqui seria desmarcar um
+            // item so porque alguem corrigiu um typo.
+            None => estado
+                .work
+                .set_checklist_item_done(&id, matches!(pedido.feito, Some(true)))
+                .or_else(|_| estado.work.task(&id)),
+        }
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(task).unwrap_or_default()))
+}
+
+async fn apagar_item(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+) -> Resultado<Json<serde_json::Value>> {
+    let task = escrever(&estado, move |estado| {
+        estado.work.delete_checklist_item(&id)
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(task).unwrap_or_default()))
+}
+
+#[derive(Deserialize)]
+struct Ordem {
+    ids: Vec<String>,
+}
+
+async fn reordenar_checklist(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+    Json(pedido): Json<Ordem>,
+) -> Resultado<Json<serde_json::Value>> {
+    let itens = escrever(&estado, move |estado| {
+        estado.work.reorder_checklist(&id, &pedido.ids)
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(itens).unwrap_or_default()))
+}
+
 /// Uma Task so, pelo id.
 async fn task(
     State(estado): State<Estado>,
@@ -413,6 +541,19 @@ struct EdicaoDeTask {
     /// nao haveria como expressa-la.
     #[serde(default, deserialize_with = "opcao_dupla")]
     project_id: Option<Option<String>>,
+    /// Mesma dupla-opcao, e pelo mesmo motivo: `"prazo": null` TIRA o prazo, e
+    /// omitir o campo deixa como esta. Sem isso nao haveria como desmarcar uma
+    /// data do celular.
+    #[serde(default, deserialize_with = "opcao_dupla")]
+    prazo: Option<Option<String>>,
+    #[serde(default)]
+    prioridade: Option<String>,
+    #[serde(default, deserialize_with = "opcao_dupla_i64")]
+    estimativa_minutos: Option<Option<i64>>,
+    #[serde(default)]
+    aguardando: Option<String>,
+    #[serde(default, deserialize_with = "opcao_dupla")]
+    cobrar_em: Option<Option<String>>,
 }
 
 /// Distingue "campo ausente" de "campo presente com null".
@@ -421,6 +562,14 @@ where
     D: serde::Deserializer<'de>,
 {
     Option::<String>::deserialize(deserializer).map(Some)
+}
+
+/// A mesma distincao, para a estimativa em minutos.
+fn opcao_dupla_i64<'de, D>(deserializer: D) -> Result<Option<Option<i64>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<i64>::deserialize(deserializer).map(Some)
 }
 
 /// Editar uma Task.
@@ -441,22 +590,36 @@ async fn editar_task(
     Path(id): Path<String>,
     Json(pedido): Json<EdicaoDeTask>,
 ) -> Resultado<Json<serde_json::Value>> {
-    if pedido.titulo.is_none() && pedido.descricao.is_none() && pedido.project_id.is_none() {
+    if pedido.titulo.is_none()
+        && pedido.descricao.is_none()
+        && pedido.project_id.is_none()
+        && pedido.prazo.is_none()
+        && pedido.prioridade.is_none()
+        && pedido.estimativa_minutos.is_none()
+        && pedido.aguardando.is_none()
+        && pedido.cobrar_em.is_none()
+    {
         return Err(Erro(
             StatusCode::BAD_REQUEST,
             String::from("nada para mudar"),
         ));
     }
+    // A edicao do bolso e PARCIAL; a do dominio e AUTORITATIVA. A traducao entre
+    // as duas mora aqui, e `from_task` e o unico jeito de fazer isso sem que um
+    // campo esquecido seja apagado em silencio.
     let task = escrever(&estado, move |estado| {
         let atual = estado.work.task(&id)?;
+        let base = mos_core::UpdateTaskInput::from_task(&atual);
         estado.work.update_task(mos_core::UpdateTaskInput {
-            id,
-            title: pedido.titulo.unwrap_or(atual.title),
-            description: pedido.descricao.unwrap_or(atual.description),
-            project_id: match pedido.project_id {
-                Some(escolha) => escolha,
-                None => atual.project_id.map(|id| id.to_string()),
-            },
+            title: pedido.titulo.unwrap_or(base.title),
+            description: pedido.descricao.unwrap_or(base.description),
+            project_id: pedido.project_id.unwrap_or(base.project_id),
+            due_at: pedido.prazo.unwrap_or(base.due_at),
+            priority: pedido.prioridade.or(base.priority),
+            estimate_minutes: pedido.estimativa_minutos.unwrap_or(base.estimate_minutes),
+            waiting_for: pedido.aguardando.unwrap_or(base.waiting_for),
+            follow_up_at: pedido.cobrar_em.unwrap_or(base.follow_up_at),
+            ..base
         })
     })
     .await?;
@@ -656,19 +819,42 @@ fn titulo_curto(conteudo: &str) -> String {
 /// servidor guarda UTC e nunca adivinha. E a regra normativa da
 /// `CORE-FOUNDATION.md` §5, e o mesmo caminho que o `ReminderComposer` do
 /// desktop segue.
+// Sem `rename_all`: os campos deste corpo sao snake_case desde a primeira
+// versao, e a tela de bolso ja os manda assim. Trocar a grafia aqui seria
+// quebrar o cliente que existe para arrumar a estetica do que ele manda.
 #[derive(Deserialize)]
 pub struct NovoLembrete {
     pub titulo: String,
     #[serde(default)]
     pub nota: String,
     /// RFC 3339, ja no instante exato. Ver acima.
-    pub quando: String,
+    ///
+    /// Ausente significa **algum dia**: o lembrete existe e nao interrompe. Nao
+    /// e um lembrete pela metade — e a resposta honesta para o que se quer nao
+    /// esquecer sem se querer ser interrompido, e sem ela a unica forma de
+    /// guardar isso seria inventar uma hora.
+    #[serde(default)]
+    pub quando: Option<String>,
     /// A entidade a que ele se prende, quando se prende. Tipo e id andam
     /// juntos — um alvo pela metade e um alvo que nao abre nada ao ser tocado.
     #[serde(default)]
     pub alvo_tipo: Option<String>,
     #[serde(default)]
     pub alvo_id: Option<String>,
+    /// "Nao me deixa esquecer": volta a cobrar ate ser resolvido.
+    #[serde(default)]
+    pub persistente: bool,
+    /// De quem se esta esperando. Preenchido, o lembrete vira cobranca.
+    #[serde(default)]
+    pub aguardando: Option<String>,
+    /// A regra de repeticao, no formato do dominio.
+    #[serde(default)]
+    pub repeticao: Option<mos_core::Recurrence>,
+    /// Adiantamentos em minutos, para a pilha de alertas.
+    #[serde(default)]
+    pub adiantamentos: Vec<u32>,
+    #[serde(default)]
+    pub prioridade: Option<String>,
 }
 
 fn instante(valor: &str) -> Result<time::OffsetDateTime, Erro> {
@@ -708,24 +894,85 @@ async fn criar_lembrete(
     State(estado): State<Estado>,
     Json(pedido): Json<NovoLembrete>,
 ) -> Resultado<Json<serde_json::Value>> {
-    let quando = instante(&pedido.quando)?;
+    let quando = match pedido.quando.as_deref() {
+        Some(texto) => Some(instante(texto)?),
+        None => None,
+    };
     let alvo = alvo(pedido.alvo_tipo, pedido.alvo_id)?;
+    let prioridade = match pedido.prioridade.as_deref() {
+        Some(texto) => mos_core::Priority::parse(texto).map_err(de_core)?,
+        None => mos_core::Priority::Normal,
+    };
 
     let lembrete = escrever(&estado, move |estado| {
-        estado.attention.create_at(
-            &pedido.titulo,
-            &pedido.nota,
-            quando,
-            alvo,
+        estado.attention.create(mos_core::CreateReminder {
+            title: pedido.titulo,
+            body: pedido.nota,
+            at: quando,
+            target: alvo,
+            priority: prioridade,
             // `User` e nao `System`: quem tocou no botao foi a pessoa. A origem
             // alimenta o Attention Score, e um lembrete que a pessoa criou
             // contando como regra automatica falsearia a conta.
-            mos_core::ReminderSource::User,
-        )
+            source: mos_core::ReminderSource::User,
+            persistent: pedido.persistente,
+            recurrence: pedido.repeticao,
+            waiting_for: pedido.aguardando,
+            leads: pedido.adiantamentos,
+        })
     })
     .await?;
 
     Ok(Json(serde_json::to_value(lembrete).unwrap_or_default()))
+}
+
+/// O que esta sendo esquecido, com o motivo de cada um.
+///
+/// A regra e do dominio e chega pronta: a tela agrupa e desenha, ela nao decide.
+/// Uma segunda implementacao no bolso divergiria da do PC, e a mesma pessoa
+/// veria dois numeros diferentes para a mesma pergunta.
+async fn lembretes_em_atencao(State(estado): State<Estado>) -> Resultado<Json<serde_json::Value>> {
+    let itens = estado.attention.attention_list().map_err(de_core)?;
+    let linhas: Vec<serde_json::Value> = itens
+        .into_iter()
+        .map(|(lembrete, motivo)| {
+            serde_json::json!({
+                "reminder": lembrete,
+                "reasons": motivo
+                    .reasons
+                    .iter()
+                    .map(|razao| razao.as_str())
+                    .collect::<Vec<_>>(),
+                "weight": motivo.weight,
+            })
+        })
+        .collect();
+    Ok(Json(serde_json::Value::Array(linhas)))
+}
+
+/// Os alertas de um lembrete. E o "4 alertas" da tela, aberto.
+async fn alertas_do_lembrete(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+) -> Resultado<Json<serde_json::Value>> {
+    let id = mos_core::ReminderId::parse(&id).map_err(de_core)?;
+    let pilha = estado.attention.triggers(id).map_err(de_core)?;
+    Ok(Json(serde_json::to_value(pilha).unwrap_or_default()))
+}
+
+/// O historico de um lembrete.
+///
+/// **E local a este aparelho.** O log nao sincroniza (ver a migration 0040), o
+/// que significa que o historico visto aqui conta o que aconteceu NA VPS. O que
+/// a pessoa decidiu — adiar, concluir, remarcar — viaja nos campos do proprio
+/// lembrete e aparece igual nos dois lados.
+async fn historico_do_lembrete(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+) -> Resultado<Json<serde_json::Value>> {
+    let id = mos_core::ReminderId::parse(&id).map_err(de_core)?;
+    let eventos = estado.attention.history(id, 30).map_err(de_core)?;
+    Ok(Json(serde_json::to_value(eventos).unwrap_or_default()))
 }
 
 /// Concluir e cancelar, e mais nada.
@@ -748,18 +995,29 @@ async fn transitar(
     Ok(Json(serde_json::to_value(lembrete).unwrap_or_default()))
 }
 
+/// Concluir.
+///
+/// Passa pelo METODO do servico, e nao pela transicao crua: e ele que cancela a
+/// pilha de alertas pendente, registra o historico e — quando ha repeticao —
+/// marca a proxima ocorrencia. Chamar `transition` direto daqui faria o celular
+/// concluir "pela metade", e a diferenca so apareceria no dia em que um lembrete
+/// recorrente parasse de voltar.
 async fn concluir_lembrete(
     State(estado): State<Estado>,
     Path(id): Path<String>,
 ) -> Resultado<Json<serde_json::Value>> {
-    transitar(&estado, &id, mos_core::Transition::Complete).await
+    let id = mos_core::ReminderId::parse(&id).map_err(de_core)?;
+    let lembrete = escrever(&estado, move |estado| estado.attention.complete(id)).await?;
+    Ok(Json(serde_json::to_value(lembrete).unwrap_or_default()))
 }
 
 async fn cancelar_lembrete(
     State(estado): State<Estado>,
     Path(id): Path<String>,
 ) -> Resultado<Json<serde_json::Value>> {
-    transitar(&estado, &id, mos_core::Transition::Cancel).await
+    let id = mos_core::ReminderId::parse(&id).map_err(de_core)?;
+    let lembrete = escrever(&estado, move |estado| estado.attention.cancel(id)).await?;
+    Ok(Json(serde_json::to_value(lembrete).unwrap_or_default()))
 }
 
 /// O que se pode mudar num lembrete pela tela.

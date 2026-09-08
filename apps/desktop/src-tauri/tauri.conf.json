@@ -35,6 +35,19 @@
         "center": true
       },
       {
+        "label": "quick-reminder",
+        "title": "M/OS Quick Reminder",
+        "width": 640,
+        "height": 176,
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "center": true
+      },
+      {
         "label": "faixa-painel",
         "title": "M/OS",
         "width": 440,

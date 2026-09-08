@@ -333,6 +333,7 @@ async fn run_action<R: Runtime>(
                 description: String::new(),
                 project_id,
                 source_capture_id: Some(origem.id.to_string()),
+                ..Default::default()
             })?;
             let _ = app.emit("capture-changed", "processed");
             Ok(mos_core::ActionEffect::new(
@@ -349,14 +350,13 @@ async fn run_action<R: Runtime>(
             let alvo = resolve_task(&state, task)?;
             let anterior = alvo.project_id.map(|id| id.to_string());
             let destino = resolve_project(&state, project)?;
-            // Titulo e descricao vao como estao: `update_task` escreve os tres
-            // campos, e mandar vazio aqui apagaria a descricao da Task ao mover
-            // ela de Project.
+            // A Task inteira vai como esta, com o Project trocado: a escrita e
+            // AUTORITATIVA campo por campo, e desde a 0039 sao onze campos. Um
+            // `UpdateTaskInput` montado a mao aqui apagaria prazo, prioridade e
+            // waiting-for ao mover a Task de Project — em silencio.
             let atualizada = state.work.update_task(mos_core::UpdateTaskInput {
-                id: alvo.id.to_string(),
-                title: alvo.title.clone(),
-                description: alvo.description.clone(),
                 project_id: destino.clone(),
+                ..mos_core::UpdateTaskInput::from_task(&alvo)
             })?;
             let nome = destino
                 .as_deref()
@@ -377,6 +377,8 @@ async fn run_action<R: Runtime>(
             body,
             at,
             target,
+            persistent,
+            waiting_for,
             ..
         } => {
             let instant = mos_core::parse_moment(at)?;
@@ -388,24 +390,41 @@ async fn run_action<R: Runtime>(
             // tinha sido escrito por ninguem. E ele que faz o lembrete saber de
             // onde veio, e e por ele que o Attention Score e a auditoria
             // distinguem o que a pessoa agendou do que o agente propos.
-            let reminder = state.attention.create_at(
-                title,
-                body,
-                instant,
-                alvo.as_ref().map(|(target, _)| *target),
-                mos_core::ReminderSource::Hermes,
-            )?;
+            //
+            // Passa pelo `create` completo, e nao pelo `create_at`: e por ele
+            // que "nao me deixa esquecer" vira um lembrete que INSISTE, e que
+            // "cobrar o Victor" vira uma pergunta em vez de um "concluir".
+            let reminder = state.attention.create(mos_core::CreateReminder {
+                title: title.clone(),
+                body: body.clone(),
+                at: Some(instant),
+                target: alvo.as_ref().map(|(target, _)| *target),
+                priority: mos_core::Priority::Normal,
+                source: mos_core::ReminderSource::Hermes,
+                persistent: *persistent,
+                recurrence: None,
+                waiting_for: (!waiting_for.is_empty()).then(|| waiting_for.clone()),
+                leads: Vec::new(),
+            })?;
             // Sem isto o lembrete existe no banco e o agendador nao sabe: ele
             // so acordaria no proximo restart, e "me lembra em vinte minutos"
             // passaria em silencio.
             crate::attention::poke(app);
             let quando =
                 mos_core::spoken_moment(instant.to_offset(crate::surface::now_local(app).offset()));
+            // A confirmacao diz que ele vai INSISTIR quando for o caso. Sem
+            // isso, "nao me deixa esquecer" e "me lembra" produziriam a mesma
+            // frase — e a pessoa nao teria como saber qual dos dois ela ganhou.
+            let insistencia = if *persistent {
+                " Vou continuar cobrando ate voce resolver."
+            } else {
+                ""
+            };
             let mensagem = match &alvo {
                 Some((_, rotulo)) => {
-                    format!("Lembrete para {quando}, vinculado a \"{rotulo}\".")
+                    format!("Lembrete para {quando}, vinculado a \"{rotulo}\".{insistencia}")
                 }
-                None => format!("Lembrete para {quando}."),
+                None => format!("Lembrete para {quando}.{insistencia}"),
             };
             let mut effect = mos_core::ActionEffect::new(
                 mensagem,
@@ -420,6 +439,26 @@ async fn run_action<R: Runtime>(
             }
             Ok(effect)
         }
+        mos_core::ActionArgs::ReminderSnooze { reminder, at, .. } => {
+            let instant = mos_core::parse_moment(at)?;
+            let alvo = resolve_reminder(&state, reminder)?;
+            // `snooze` e nao `transition`: e o metodo do servico que registra o
+            // adiamento no historico. Adiar quinze vezes e um sinal, e o sinal
+            // so existe se cada adiamento for anotado.
+            let adiado = state.attention.snooze(alvo.id, instant)?;
+            crate::attention::poke(app);
+            let quando =
+                mos_core::spoken_moment(instant.to_offset(crate::surface::now_local(app).offset()));
+            Ok(mos_core::ActionEffect::new(
+                format!("\"{}\" volta {quando}.", adiado.title),
+                // Sem desfazer: o instante ANTERIOR ja nao esta em lugar nenhum
+                // depois do adiamento, e um "desfazer" que devolvesse o lembrete
+                // para uma hora inventada seria pior que nenhum. O caminho de
+                // volta e adiar de novo, ou remarcar.
+                None,
+            )
+            .touching("reminder", adiado.id.to_string(), adiado.title.clone()))
+        }
         mos_core::ActionArgs::ReminderResolve {
             reminder,
             state: desfecho,
@@ -430,7 +469,14 @@ async fn run_action<R: Runtime>(
             } else {
                 mos_core::Transition::Cancel
             };
-            let resolvido = state.attention.transition(alvo.id, transition)?;
+            // Pelos METODOS do servico: e neles que a pilha de alertas
+            // pendente e cancelada e que a proxima ocorrencia de uma serie
+            // nasce. `transition` sozinho faria o Hermes concluir pela metade.
+            let resolvido = if transition == mos_core::Transition::Complete {
+                state.attention.complete(alvo.id)?
+            } else {
+                state.attention.cancel(alvo.id)?
+            };
             crate::attention::poke(app);
             Ok(mos_core::ActionEffect::new(
                 format!(
@@ -454,24 +500,171 @@ async fn run_action<R: Runtime>(
             title,
             description,
             project,
+            checklist,
+            due,
+            priority,
         } => {
             let project_id = match project {
                 Some(name) => resolve_project(&state, name)?,
                 None => None,
             };
+            // A Task e os passos nascem na MESMA transacao (`insert_task`), e e
+            // por isso que o checklist vem no input em vez de virar N chamadas
+            // aqui: uma queda no meio deixaria a Task no quadro com metade da
+            // lista que a pessoa autorizou no cartao.
             let task = state.work.create_task(mos_core::CreateTaskInput {
                 title: title.clone(),
                 description: description.clone(),
                 project_id,
                 source_capture_id: None,
+                due_at: (!due.is_empty()).then(|| due.clone()),
+                priority: (!priority.is_empty()).then(|| priority.clone()),
+                checklist: checklist.clone(),
+                ..Default::default()
             })?;
+            let passos = if task.checklist_total > 0 {
+                format!(" ({} passos)", task.checklist_total)
+            } else {
+                String::new()
+            };
             Ok(mos_core::ActionEffect::new(
-                format!("Task criada: {}", task.title),
+                format!("Task criada: {}{passos}", task.title),
                 Some(mos_core::UndoStep::ArchiveTask {
                     id: task.id.to_string(),
                 }),
             )
             .touching("task", task.id.to_string(), task.title))
+        }
+        // Os passos entram na Task que JA EXISTE, e nunca numa nova. E o
+        // motivo de a acao existir: sem ela, "adiciona enviar para o Victor no
+        // checklist" so podia virar `mos.task.create`.
+        mos_core::ActionArgs::TaskAddChecklist { task, items } => {
+            let alvo = resolve_task(&state, task)?;
+            let antes: std::collections::HashSet<String> = state
+                .work
+                .task_detail(&alvo.id.to_string())?
+                .checklist
+                .iter()
+                .map(|passo| passo.id.to_string())
+                .collect();
+            for passo in items {
+                state.work.add_checklist_item(&alvo.id.to_string(), passo)?;
+            }
+            let depois = state.work.task_detail(&alvo.id.to_string())?;
+            // O que o Undo apaga sao os ids que NAO existiam antes. Guardar o
+            // retorno de cada criacao daria o mesmo resultado quando tudo da
+            // certo, e um id perdido quando uma delas falha no meio.
+            let criados: Vec<String> = depois
+                .checklist
+                .iter()
+                .map(|passo| passo.id.to_string())
+                .filter(|id| !antes.contains(id))
+                .collect();
+            Ok(mos_core::ActionEffect::new(
+                format!(
+                    "{} passo(s) em {}. Agora {}/{}.",
+                    criados.len(),
+                    alvo.title,
+                    depois.task.checklist_done,
+                    depois.task.checklist_total
+                ),
+                Some(mos_core::UndoStep::RemoveChecklistItems { ids: criados }),
+            )
+            .touching("task", alvo.id.to_string(), alvo.title))
+        }
+        mos_core::ActionArgs::TaskCheckItem { task, item, done } => {
+            let alvo = resolve_task(&state, task)?;
+            let checklist = state.work.task_detail(&alvo.id.to_string())?.checklist;
+            // O passo e casado pelo TEXTO dentro daquela Task: ninguem diz
+            // "marca o 018f2a3c". `resolve` e o mesmo casador das outras
+            // entidades — acerto forte e sozinho age, ambiguidade pergunta.
+            let achado = mos_core::resolve(
+                &checklist,
+                item,
+                |passo| passo.id.to_string(),
+                |passo| passo.label.clone(),
+            );
+            if let Some(erro) = mos_core::resolution_error(
+                &achado,
+                mos_core::EntityKind::Task,
+                item,
+                |passo: &mos_core::ChecklistItem| passo.label.clone(),
+            ) {
+                return Err(erro);
+            }
+            let passo = achado.one().expect("sem erro ha exatamente um").clone();
+            let antes = passo.completed();
+            let atual = state
+                .work
+                .set_checklist_item_done(&passo.id.to_string(), *done)?;
+            Ok(mos_core::ActionEffect::new(
+                format!(
+                    "{}: {} - {}/{}.",
+                    if *done { "Concluido" } else { "Reaberto" },
+                    passo.label,
+                    atual.checklist_done,
+                    atual.checklist_total
+                ),
+                Some(mos_core::UndoStep::RestoreChecklistItem {
+                    id: passo.id.to_string(),
+                    done: antes,
+                }),
+            )
+            .touching("task", alvo.id.to_string(), alvo.title))
+        }
+        mos_core::ActionArgs::TaskSetPlan {
+            task,
+            due,
+            clear_due,
+            priority,
+            estimate_minutes,
+            waiting_for,
+            follow_up,
+        } => {
+            let alvo = resolve_task(&state, task)?;
+            // A base e a Task INTEIRA como ela esta: a escrita e autoritativa
+            // campo por campo, e montar o input a mao apagaria em silencio tudo
+            // que a frase nao mencionou.
+            let base = mos_core::UpdateTaskInput::from_task(&alvo);
+            let anterior = base.clone();
+            let atualizada = state.work.update_task(mos_core::UpdateTaskInput {
+                due_at: if *clear_due {
+                    None
+                } else if due.is_empty() {
+                    base.due_at.clone()
+                } else {
+                    Some(due.clone())
+                },
+                priority: if priority.is_empty() {
+                    base.priority.clone()
+                } else {
+                    Some(priority.clone())
+                },
+                estimate_minutes: estimate_minutes.or(base.estimate_minutes),
+                waiting_for: if waiting_for.is_empty() {
+                    base.waiting_for.clone()
+                } else {
+                    waiting_for.clone()
+                },
+                follow_up_at: if follow_up.is_empty() {
+                    base.follow_up_at.clone()
+                } else {
+                    Some(follow_up.clone())
+                },
+                ..base
+            })?;
+            Ok(mos_core::ActionEffect::new(
+                format!("{} ajustada.", atualizada.title),
+                Some(mos_core::UndoStep::RestoreTaskPlan {
+                    id: alvo.id.to_string(),
+                    due_at: anterior.due_at,
+                    priority: anterior.priority.unwrap_or_default(),
+                    estimate_minutes: anterior.estimate_minutes,
+                    waiting_for: anterior.waiting_for,
+                    follow_up_at: anterior.follow_up_at,
+                }),
+            )
+            .touching("task", alvo.id.to_string(), alvo.title))
         }
         mos_core::ActionArgs::TaskSetState { task, state: next } => {
             // O estado anterior e lido ANTES da mudanca: depois nao ha de onde
@@ -938,10 +1131,34 @@ pub async fn action_undo<R: Runtime>(
         mos_core::UndoStep::RestoreTaskProject { id, project_id } => {
             let task = services.work.task(&id)?;
             services.work.update_task(mos_core::UpdateTaskInput {
-                id,
-                title: task.title,
-                description: task.description,
                 project_id,
+                ..mos_core::UpdateTaskInput::from_task(&task)
+            })?;
+        }
+        mos_core::UndoStep::RemoveChecklistItems { ids } => {
+            for id in ids {
+                services.work.delete_checklist_item(&id)?;
+            }
+        }
+        mos_core::UndoStep::RestoreChecklistItem { id, done } => {
+            services.work.set_checklist_item_done(&id, done)?;
+        }
+        mos_core::UndoStep::RestoreTaskPlan {
+            id,
+            due_at,
+            priority,
+            estimate_minutes,
+            waiting_for,
+            follow_up_at,
+        } => {
+            let task = services.work.task(&id)?;
+            services.work.update_task(mos_core::UpdateTaskInput {
+                due_at,
+                priority: Some(priority),
+                estimate_minutes,
+                waiting_for,
+                follow_up_at,
+                ..mos_core::UpdateTaskInput::from_task(&task)
             })?;
         }
         mos_core::UndoStep::CancelReminder { id } => {
@@ -1573,6 +1790,33 @@ pub fn candidates_for<R: Runtime>(app: &AppHandle<R>, text: &str) -> Vec<mos_cor
 
 /// Projeta um resultado de busca em candidato.
 ///
+/// O que o modelo precisa saber de uma Task numa linha so.
+///
+/// Estado, Project, progresso e prazo — e nada mais. O checklist INTEIRO nao
+/// desce aqui de proposito: doze candidatos com seis passos cada seriam setenta
+/// e duas linhas em toda mensagem, e o §17 do `HERMES-ACTION-LAYER.md` conta
+/// tokens. O `4/7` responde *"o que falta nessa task?"* com um numero, e quem
+/// precisa dos textos anexa a Task.
+fn detalhe_da_task(task: &mos_core::Task, project: Option<&mos_core::Project>) -> String {
+    let mut partes = vec![task.state.as_str().to_owned()];
+    if let Some(project) = project {
+        partes.push(project.name.clone());
+    }
+    if task.checklist_total > 0 {
+        partes.push(format!("{}/{}", task.checklist_done, task.checklist_total));
+    }
+    if let Some(prazo) = task.due_at {
+        partes.push(format!("vence {}", mos_core::spoken_moment(prazo)));
+    }
+    if task.priority != mos_core::Priority::Normal {
+        partes.push(task.priority.as_str().to_owned());
+    }
+    if !task.waiting_for.is_empty() {
+        partes.push(format!("aguardando {}", task.waiting_for));
+    }
+    partes.join(" · ")
+}
+
 /// `App` fica de fora: ele nao e uma entidade sobre a qual o catalogo de acoes
 /// saiba agir, e um candidato que nao pode virar acao so ocupa linha no prompt.
 fn candidate_of(item: &mos_core::SearchItem) -> Option<mos_core::Candidate> {
@@ -1581,10 +1825,7 @@ fn candidate_of(item: &mos_core::SearchItem) -> Option<mos_core::Candidate> {
             kind: mos_core::EntityKind::Task,
             id: task.id.to_string(),
             label: resumo(&task.title, 70),
-            detail: match project {
-                Some(project) => format!("{} · {}", task.state.as_str(), project.name),
-                None => task.state.as_str().to_owned(),
-            },
+            detail: detalhe_da_task(task, project.as_ref()),
         },
         // A Capture que ja virou Task aparece como a TASK: e nela que se age, e
         // oferecer as duas convidaria o modelo a criar uma segunda Task a

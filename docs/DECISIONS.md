@@ -68,6 +68,19 @@ Estados possíveis:
 | ADR-051 | O Hermes opera o M/OS, e a busca acontece antes do envio | Accepted |
 | ADR-052 | O M/OS vira multi-device, e o iOS entra pelo Tauri 2 | Accepted |
 | ADR-053 | A sincronizacao reconcilia por CAMPO, e conflito nunca some em silencio | Accepted |
+| ADR-054 | O dia é uma entidade, e ele não é uma lista de tarefas | Accepted |
+| ADR-055 | A semana é a segunda-feira, e a revisão não mostra placar | Accepted |
+| ADR-056 | Obsolescência é por coluna, e o Project vive pelas Tasks dele | Accepted |
+| ADR-057 | A migration responde pelo que ela deixou, e não pelo que encontrou | Accepted |
+| ADR-058 | A faculdade é um contexto sobre os primitivos, e a nota mora na avaliação | Accepted |
+| ADR-059 | O anel de consumo mede contra o próprio pico, e a faixa são duas janelas | Accepted |
+| ADR-060 | Esconder a faixa: a lingueta recolhe, o tray desliga | Accepted |
+| ADR-061 | A tira só recebe clique onde ela pinta | Accepted |
+| ADR-062 | A régua deixou de ser o pico: a cota tem denominador | Accepted |
+| ADR-063 | Um provedor entra na faixa por um comando, e a janela não cresce | Accepted |
+| ADR-064 | O anel abraça a marca, e a cor volta a significar | Accepted |
+| ADR-065 | OpenAI entra pela fatura oficial, e restante significa limite menos gasto | Accepted |
+| ADR-066 | A Task passa a representar trabalho: o passo é entidade, o prazo volta | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -3668,3 +3681,362 @@ dashboard, gráfico ou item de rail.
 
 A OpenAI publicar um endpoint oficial de créditos/saldo pré-pago, ou quando a
 quarta fonte exigir substituir a tira fixa por outra superfície.
+
+## ADR-066 — A Task passa a representar trabalho: o passo é entidade, o prazo volta, e a D-1 cai
+
+**Estado:** Accepted · 2026-09-08 · **Supersede a D-1** do `ATTENTION-SYSTEM.md` §35
+
+### Contexto
+
+A Task do M/OS era um título, uma descrição, um Project e uma coluna do quadro.
+Isso bastava enquanto uma Task significava *"fazer X"*. Não basta mais, e o
+proprietário nomeou exatamente onde quebra:
+
+> Uma Task precisa conseguir representar *"fazer X"* com vários passos menores —
+> corrigir nível, atualizar corte, revisar armadura, gerar PDF, enviar para o
+> Victor.
+
+Na prática, cada passo virava uma Task solta no quadro (e trinta cartões de
+trinta segundos escondiam as três frentes de trabalho reais), ou não era escrito
+em lugar nenhum.
+
+Duas decisões antigas estavam no caminho, e as duas foram tomadas com o
+argumento certo para a Task de então:
+
+- **D-1** (2026-08-18) recusou `Task.due_at`, com o custo escrito: sem prazo, o
+  M/OS não tem âncora de tempo futuro, e o Reminder ocupa esse lugar.
+- **§35.1** registrou a consequência: a interface **não oferece** o que depende
+  de prazo, e a ausência é honesta.
+
+O que mudou não foi a opinião sobre lembretes. Foi a Task: uma unidade de
+trabalho com passos, referências e alguém a quem ela está esperando é uma coisa
+que **vence**, e um lembrete não expressa vencimento — ele expressa interrupção.
+
+### Decisão
+
+**1. O item de checklist é ENTIDADE, e não campo da Task.** Tabela própria
+(`task_checklist_items`), id próprio, operação de sync própria.
+
+Esta é a decisão estruturante, e ela é de sincronização e não de esquema. Um
+array numa coluna viaja como CAMPO, e merge por campo não serve para conjunto —
+é a mesma razão pela qual as junções do Knowledge Graph viraram relação de
+primeira classe (`SYNC.md` §13). Com JSON, marcar o item A no PC enquanto o
+celular acrescenta o item B terminaria com um dos dois gestos apagado. Com uma
+linha por item, os dois gestos são operações sobre entidades **diferentes**: não
+há conflito a resolver.
+
+**2. `Task.due_at` entra, e a D-1 fica superada.** Prazo e lembrete passam a
+coexistir na mesma Task e significam coisas diferentes:
+
+| | responde | mora em |
+|---|---|---|
+| `due_at` | quando o trabalho **vence** | `tasks`, aparece no Calendar |
+| Reminder | quando o M/OS **interrompe** | `reminders`, aponta pelo par (target_type, target_id) da 0015 |
+
+Nenhum dos dois ganha uma segunda implementação. O Attention System continua
+sendo o único agendador; o Calendar ganha uma fonte (`CalendarKind::TaskDue`) e
+não um irmão — a mesma forma que o M/Academic já usou.
+
+**3. Subtask é uma Task com pai, e não um terceiro tipo.** `parent_task_id`
+numa coluna. Assim ela ganha estado, prazo, prioridade e checklist próprios sem
+nenhuma linha nova de código. O esquema aceita profundidade qualquer; a
+interface mostra **um nível**, e essa fronteira fica no front — o banco não
+precisa proibir o que a tela não oferece.
+
+**4. Waiting For é texto, e Bloqueada-por é uma coluna.** Não existe cadastro de
+pessoas no M/OS, e criar um para escrever "Victor" seria construir um CRM por
+engano. Dependência é uma coluna e não uma tabela de arestas, porque a ADR-012
+recusou grafo genérico e a pergunta real ("gerar o PDF depende de terminar a
+revisão") cabe numa. No dia em que uma Task tiver duas travas de verdade, o
+caminho é uma tabela — não uma segunda coluna.
+
+**5. A escrita da Task é autoritativa; a EMISSÃO é um diff.** `update_task`
+recebe os onze campos e grava os onze. Mas só o que **mudou** vira operação de
+sync.
+
+Isto foi descoberto por um teste, e não por análise: emitir os onze sempre faria
+mudar a prioridade no celular carregar junto o `dueAt: null` que ele leu antes —
+e, sendo a operação mais recente, apagaria o prazo que o PC acabou de pôr. Dois
+gestos em campos diferentes, e um vencendo o outro, que é exatamente o que o
+`SYNC.md` §4 promete que não acontece. Com quatro campos isso era teoria; com
+onze é o caminho normal de perder trabalho.
+
+**6. Nada de tags, e nada de recorrência.** As duas foram avaliadas e ficam
+fora. Tags competiriam com Project/Área sem responder nada que eles não
+respondam, e recorrência exige um gerador de ocorrências que ainda não tem caso
+concreto. As duas voltam por decisão própria, não por conveniência de uma fase.
+
+**7. Referência de Task é um Resource.** Junção `resource_tasks`, cópia
+estrutural de `resource_projects`. Não nasce sistema de anexo: é o mesmo
+Resource da Library, com o mesmo id.
+
+### Consequências
+
+- migration `0039_task_execution.sql`: sete colunas em `tasks`, mais
+  `task_checklist_items`, `task_checklist_search` e `resource_tasks`. Aditiva —
+  Task antiga continua válida, sem prazo, prioridade `normal` e sem checklist;
+- a cobertura do sync sobe para a **geração 3**, e o backfill roda de novo em
+  quem já tinha passado pela 2;
+- o Hermes ganha três ações (`mos.task.add_checklist`, `mos.task.check_item`,
+  `mos.task.set_plan`) e `mos.task.create` passa a aceitar `checklist`, `due` e
+  `priority`. Todas com preview que **lista os passos**, e não "5 itens": o
+  cartão existe para conferir antes de autorizar;
+- a busca acha a Task pelo texto de um passo, por um índice FTS próprio que
+  **promove** a Task — o mesmo desenho do segmento de transcrição promovendo a
+  Meeting (`MEETING-AGENT.md` §15);
+- o §35.1 do `ATTENTION-SYSTEM.md` volta a valer só pela metade: existe âncora
+  de tempo futuro (prazo), continua não existindo entidade `Event` (D-4). O que
+  a D-1 bloqueava — reminder relativo a prazo, escalonamento por prazo, digest
+  de prazos — deixa de estar bloqueado por falta de dado. Nenhum deles é
+  implementado aqui: eles precisam de decisão própria sobre quando interromper;
+- um defeito **anterior** apareceu no caminho e foi corrigido junto: a projeção
+  do sync materializava linhas sem tocar no índice FTS. Duas consequências,
+  ambas reais — a busca não achava o que veio do outro PC, e editar aqui uma
+  Task criada lá falhava acusando o banco de estar corrompido (o `'delete'` do
+  fts5 contra uma linha ausente devolve `SQLITE_CORRUPT`). A projeção passa a
+  manter o índice, e `repository::tirar_do_indice` só apaga o que existe.
+
+### O que esta ADR **não** decide
+
+- **auto-concluir a Task quando o checklist fecha.** A tela OFERECE ("Todos os
+  itens concluídos · [Concluir Task]") e nunca executa. Uma Task que se fecha
+  sozinha é o sistema afirmando algo que a pessoa não disse — a mesma inclinação
+  da ADR-035, que fez o desfazer arquivar em vez de apagar. Vira preferência no
+  dia em que alguém a pedir;
+- **quando o prazo interrompe.** Ter prazo não é ter aviso. Escalonamento,
+  digest e reminder relativo continuam fora até uma decisão sobre interrupção;
+- **hierarquia de mais de um nível na interface.**
+
+### Revisar quando
+
+Uma Task de verdade precisar de duas dependências ao mesmo tempo (aí a coluna
+vira tabela), quando aparecer o primeiro caso concreto de recorrência, ou quando
+a entidade `Event` (D-4) for decidida — que é o que falta para o Calendar
+deixar de ser retrospectivo.
+
+---
+
+## ADR-067 — O lembrete deixa de ser um despertador: ele persiste, repete, empilha e não some por ter sido ignorado
+
+**Estado:** Accepted · 2026-09-08 · **Supersede a D-2 parcialmente** e fecha P2 do `ATTENTION-SYSTEM.md` §34
+
+### Contexto
+
+O Attention System entregou o P0 e o P1: Reminder é entidade, Notification é
+entrega, o agendador é um timer só, o que vence com o app fechado volta como
+`missed`, e a promessa da §1.1 — *nenhum Reminder é perdido em silêncio* —
+estava sustentada pela persistência.
+
+O que **não** estava sustentado era a promessa seguinte, e o proprietário a
+escreveu como um ciclo:
+
+> 1. dispara uma notificação; 2. eu ignoro; 3. ela some; 4. eu esqueço.
+
+O passo 3 estava correto no banco e errado na experiência. O Reminder continuava
+lá — mas nada mais acontecia. Um lembrete importante ignorado às 20:30 e um
+lembrete trivial ignorado às 20:30 tinham exatamente o mesmo destino: virar mais
+uma linha numa lista que se abre quando alguém lembra de abrir. E "quando alguém
+lembra de abrir" é justamente o que um sistema de atenção existe para não
+depender.
+
+Faltavam, nomeadamente:
+
+- **insistência** — nada re-alertava, nunca;
+- **repetição** — só `Trigger::At` existia, e "todo dia às 8h" era inexprimível;
+- **empilhamento** — quatro avisos para uma entrega eram quatro Reminders
+  competindo pela mesma linha da tela;
+- **sem data** — "comprar cabo HDMI" só cabia inventando uma hora;
+- **cobrança de terceiro** — `tasks.waiting_for` nasceu na ADR-066 e não tinha
+  como virar aviso sem criar uma Task-cópia chamada "Cobrar Victor";
+- **silêncio** — não havia quiet hours, e um lembrete às 3h da manhã acordava;
+- **histórico** — "por que isso apareceu?" não tinha resposta.
+
+### Decisão
+
+**Uma migration (0040), sete capacidades, nenhum sistema paralelo.**
+
+O que **não** mudou, e a lista importa tanto quanto a de cima: continua havendo
+uma tabela `reminders` e uma `attention_notifications`; um agendador e um timer;
+um motor de sync; um Attention Center. Nada aqui é uma segunda implementação de
+algo que já existia.
+
+#### 1. Persistir é um campo, e insistir é uma política determinística
+
+`reminders.persistent` é a decisão da pessoa — *"não me deixa esquecer"*. Um
+lembrete persistente não se resolve por ter sido entregue: ele volta em **30 min,
+1 h, 2 h** e então **para de tocar e continua existindo**, em Needs Attention.
+
+Os intervalos crescem porque insistir no mesmo passo vira alarme, e alarme se
+desliga. E eles **acabam** porque o oposto do esquecimento não é a insistência
+infinita — é a coisa continuar visível onde a pessoa vai olhar.
+
+A escala de prioridade sozinha não promove ninguém a persistente: `Urgent` nunca
+é atribuída por regra automática (§6.1), e um sistema que decide sozinho insistir
+é um sistema que se aprende a silenciar. `High`/`Urgent` ganham **um** re-alerta,
+e não três.
+
+**A regra vive em `escalation_delay` e `retry_budget`, no domínio.** Ela é
+determinística e auditável de propósito (§30 do pedido): a pessoa consegue prever
+quando vai ser incomodada de novo, e é isso que permite confiar no sistema em vez
+de negociar com ele.
+
+#### 2. A insistência tem coluna própria, e ela não é `next_due_at`
+
+`retry_at` existe separado porque `next_due_at` carrega o instante **original** do
+vencimento, e é ele que sustenta o *"atrasado há 2 h"*. Empurrar aquela coluna a
+cada re-alerta apagaria o tamanho do atraso — a única informação que distingue
+esquecer por dez minutos de esquecer por três dias.
+
+#### 3. Dois agendadores, uma resposta: `alert_slot`
+
+O desktop escreve `retry_at`. A VPS que roda o `mos-web` **lê e não escreve** —
+essa fronteira é do `avisos.rs` e não foi tocada, porque dois agendadores
+disputando a mesma coluna produzem o lembrete que some do PC porque o celular
+achou que já tinha dado conta.
+
+`mos_core::alert_slot` é como o segundo chega ao mesmo degrau que o primeiro
+alcançaria, **derivando-o** do vencimento e do relógio. Os dois lados leem os
+mesmos intervalos da mesma função; é por isso que continuam iguais quando um
+deles mudar. Um teste no domínio prova que o degrau derivado é o degrau que o
+agendador de verdade atinge.
+
+#### 4. Repetição é regra local, não instante UTC
+
+`Recurrence` guarda **hora e minuto locais** mais o deslocamento em que a regra
+nasceu. "Todo dia às 08:00" quer dizer oito da manhã onde a pessoa está; guardar
+o instante UTC faria a repetição escorregar uma hora inteira em qualquer mudança
+de fuso — e escorregar em silêncio.
+
+Duas âncoras, e a diferença é de produto:
+
+- **fixa** — "toda segunda às 09:00" continua sendo toda segunda, mesmo que a da
+  semana passada só tenha sido resolvida na quarta;
+- **por conclusão** — *"limpar o computador a cada 30 dias depois que eu fizer"*.
+  Concluir no dia 8 marca o próximo para o dia 38.
+
+**Uma série é UMA linha que avança**, e não uma linha por ocorrência: um "todo dia
+às 8h" criado hoje geraria centenas de linhas em um ano, nenhuma delas consultada
+de novo. O que aconteceu fica em `reminder_events`, que é onde alguém procura.
+
+Dia 31 num mês de 30 cai no dia 30, e não pula o mês — pular seria a leitura
+literal e a resposta errada para quem paga conta.
+
+#### 5. A pilha é tabela, e o motivo é o mesmo do checklist
+
+`reminder_triggers` existe pela razão que a ADR-066 já usou: um array numa coluna
+sincroniza como **campo**, e merge por campo não serve para conjunto. Marcar um
+alerta como disparado no PC enquanto o celular acrescenta outro terminaria com um
+dos dois gestos apagado.
+
+O que ela compra: "Entregar atividade, sexta 23:59" com alerta um dia antes,
+quatro horas antes, uma hora antes e no prazo é **um** Reminder com quatro
+alertas. E enquanto houver alerta pela frente, o vencimento anterior era um
+**aviso antecipado** — o lembrete volta a esperar em vez de ficar marcado como
+vencido, que é o que impediria a lista de dizer a verdade.
+
+Nenhum adiantamento vem marcado por default. O §17 é explícito: o M/OS pode
+**sugerir** um alerta a mais para um prazo importante; criar vários sozinho é o
+começo de a pessoa desligar todos.
+
+#### 6. Cobrar terceiro é um campo, não uma entidade
+
+`reminders.kind = 'follow_up'` mais `waiting_for`. É o mesmo lembrete, com o
+mesmo ciclo de vida e o mesmo agendador; o que muda é a **pergunta** que a
+superfície faz — "o Victor respondeu?" em vez de "concluir". Criar uma entidade
+para isso seria criar a cópia chamada "Cobrar Victor" que o pedido recusa por
+escrito.
+
+#### 7. Sem data é um estado, e não um lembrete pela metade
+
+`Trigger::Someday`. Existe, aparece na lista, não gera despertar nenhum e não
+interrompe. Sem ele, a única forma de guardar "comprar cabo HDMI" seria inventar
+uma hora — e uma hora inventada é uma notificação que se aprende a ignorar.
+
+#### 8. O silêncio segura a NOTIFICAÇÃO, nunca a intenção
+
+`attention_settings` é linha única e **não sincroniza**: silenciar o celular à
+noite não pode silenciar o PC do escritório. Durante a janela, o Reminder
+continua vencido, continua contando o atraso e continua no Attention Center — o
+que espera é a entrega, remarcada para o fim do silêncio. É exatamente por
+Reminder e Notification serem coisas diferentes que dá para segurar uma sem mexer
+na outra.
+
+Furar o silêncio é **opt-in**, e só para `Urgent`. Um sistema que decide sozinho
+que algo merece acordar a pessoa perde o direito de ser levado a sério quando
+algo realmente merecer.
+
+#### 9. Needs Attention é determinístico e diz o porquê
+
+`needs_attention` é função pura sobre a lista de lembretes. Sete motivos com
+pesos pequenos e redondos; a soma ordena. Nenhuma regra depende de modelo, de
+histórico de uso ou de qualquer coisa que a pessoa não consiga prever.
+
+**A tela não recalcula.** Ela recebe a lista com os motivos e desenha. Uma segunda
+implementação da mesma regra divergiria da primeira, e aí o badge e a lista
+diriam números diferentes sobre a mesma pergunta.
+
+#### 10. O histórico é local, e isso é uma escolha
+
+`reminder_events` não sincroniza. O sync do M/OS é merge por campo sobre
+entidades; um log append-only é outra forma de dado, e fazê-lo viajar exigiria um
+segundo motor — que é exatamente o que o pedido proíbe.
+
+O que a pessoa **decidiu** já viaja: adiar mexe em `next_due_at` e `snooze_count`,
+concluir mexe em `status` e `completed_at`. O histórico é a memória local de
+**como** aquilo apareceu neste aparelho, na mesma família de
+`attention_notifications`.
+
+### Consequências
+
+**O que passou a funcionar:**
+
+- ignorar deixou de equivaler a resolver, e agora custa: o item volta, e depois
+  fica no topo de Needs Attention, do Começar o Dia e do Encerrar o Dia;
+- o canal do sistema operacional entrou (P1 fechou): o toast do Windows sai pelo
+  `tauri-plugin-notification`, com chave de dedupe própria, e **falhar nele não
+  encosta no lembrete**;
+- o clique numa notificação abre a **Task**, o Project ou a reunião — e o
+  Attention Center genérico virou o fallback, e não o destino;
+- `Ctrl+Shift+R` abre uma caixa de um campo: *"Enviar as bases para o Victor hoje
+  20:30 e não me deixa esquecer"* → Enter → existe, com hora e com insistência.
+  A leitura da frase é o `resolve_when` que a voz já usava, **determinístico**;
+- o Hermes ganhou `mos.reminder.snooze`, e o `create` ganhou `persistent` e
+  `waitingFor` — *"não me deixa esquecer"* virou uma capacidade nomeada, e o
+  cartão de confirmação a diz por extenso antes de alguém autorizar.
+
+**O que isto custa, e foi aceito:**
+
+- **três colunas a mais na linha mais lida do banco.** O agendador lê `reminders`
+  a cada acordada; a alternativa era uma tabela 1:1 e um JOIN em toda leitura;
+- **o deslocamento da repetição é fixo.** Sem tzdb, uma mudança de horário de
+  verão moveria a repetição em uma hora. O Brasil não tem HV desde 2019, então
+  hoje não custa nada; a saída, no dia em que doer, é trocar `offset_minutes` por
+  um identificador IANA — não é remendar o cálculo;
+- **o histórico não atravessa aparelhos.** Ver a §10 acima;
+- **a geração do backfill subiu para 4**, e quem já tinha passado passa de novo —
+  pelos campos novos que viajam e pela pilha.
+
+### O que esta ADR **não** decide
+
+- **botões de ação dentro do toast do Windows.** "Concluir" e "Adiar" a partir da
+  notificação exigiriam AUMID registrada e o caminho WinRT, que a §11.3 já
+  examinou. O clique abre o M/OS na coisa certa, e a ação é um clique lá.
+  Prometer botões que a plataforma não dá seria prometer o que não se cumpre;
+- **push iOS a partir do desktop.** O `mos-web` já empurra pela VPS, com a
+  fronteira de "lê e não escreve" intacta;
+- **deduplicação perfeita entre aparelhos.** Com o PC e o celular ligados, os
+  dois avisam. A memória do que já foi avisado é local a cada um por decisão
+  (§39): centralizá-la exigiria que a entrega virasse estado sincronizado, e aí
+  um aparelho offline calaria o outro. O que existe é a garantia que importa —
+  **nenhum aparelho continua cobrando algo já resolvido em outro**, porque o
+  estado da intenção viaja;
+- **Attention Score.** P3 continua P3;
+- **editor livre de recorrência na interface.** Cinco presets, e o resto pelo
+  Hermes, que fala a mesma linguagem do domínio.
+
+### Revisar quando
+
+O primeiro lembrete recorrente atravessar uma mudança de fuso de verdade (aí o
+`offset_minutes` vira IANA), quando a entidade `Event` (D-4) for decidida — que é
+o que destrava alerta relativo a compromisso —, ou quando o histórico precisar ser
+o mesmo nos dois aparelhos.

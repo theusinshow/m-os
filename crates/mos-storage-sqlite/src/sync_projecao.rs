@@ -70,6 +70,26 @@ struct Mapa {
     /// da mesma coisa, e nao para virar valor de coluna. Sem isto o `WHERE id =
     /// '<uuid>'` nao acharia linha nenhuma e a configuracao nunca chegaria.
     linha_unica: Option<&'static str>,
+    /// O indice FTS desta tabela, quando ela tem um: (tabela do indice,
+    /// colunas indexadas).
+    ///
+    /// # Por que a materializacao precisa mexer no indice
+    ///
+    /// Ate 2026-09-08 ela nao mexia, e o defeito era real e silencioso ate
+    /// virar barulhento no pior momento. Uma Task que CHEGAVA pelo sync entrava
+    /// na tabela `tasks` e nao no `task_search`. Isso ja significava que a busca
+    /// nao achava o que veio do outro PC — o dado estava la e a Search calava.
+    ///
+    /// Pior: `update_task` comeca tirando a Task do indice, e o comando
+    /// `'delete'` do fts5 contra uma linha que ele nao tem devolve
+    /// `SQLITE_CORRUPT`. Editar, aqui, uma Task criada no outro aparelho
+    /// falhava com "o banco local parece corrompido".
+    ///
+    /// `ensure_search_projection` conserta na ABERTURA seguinte, comparando
+    /// contagens. Isso e uma rede de seguranca, e nao um desenho: dentro da
+    /// mesma sessao, entre a rodada e o proximo boot, a divergencia estava de
+    /// pe.
+    indice: Option<(&'static str, &'static [&'static str])>,
     /// O campo emitido de onde sai o VALOR da chave.
     ///
     /// Existe para chave composta. O id da entidade dessas linhas e derivado
@@ -118,6 +138,7 @@ impl Mapa {
             carimbos: Carimbos::Ambos,
             linha_unica: None,
             chave_do_campo: None,
+            indice: None,
         }
     }
 }
@@ -147,9 +168,44 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("sourceCaptureId", "source_capture_id"),
                 ("workState", "work_state"),
                 ("lifecycleState", "lifecycle_state"),
+                // Os sete da 0039. Cada um e campo PROPRIO, e nao um bloco:
+                // mudar o prazo num aparelho e a prioridade no outro tem de
+                // conviver, e um blob so faria o mais recente apagar o outro.
+                ("dueAt", "due_at"),
+                ("priority", "priority"),
+                ("estimateMinutes", "estimate_minutes"),
+                ("parentTaskId", "parent_task_id"),
+                ("blockedByTaskId", "blocked_by_task_id"),
+                ("waitingFor", "waiting_for"),
+                ("followUpAt", "follow_up_at"),
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("title", "'(sem titulo)'"), ("description", "''")],
+            indice: Some(("task_search", &["title", "description"])),
+            ..Mapa::padrao()
+        }),
+        // O passo dentro da Task.
+        //
+        // Entidade propria, e nao campo da Task, e e a decisao inteira desta
+        // feature: com uma linha por item, marcar o item A no PC enquanto o
+        // celular acrescenta o item B sao operacoes sobre entidades DIFERENTES
+        // — nao ha conflito a resolver, e os dois gestos sobrevivem. Ver o
+        // cabecalho da migration 0039.
+        "task_checklist_item" => Some(Mapa {
+            tabela: "task_checklist_items",
+            colunas: &[
+                ("taskId", "task_id"),
+                ("label", "label"),
+                ("position", "position"),
+                ("completedAt", "completed_at"),
+                ("lifecycleState", "lifecycle_state"),
+                ("createdAt", "created_at"),
+            ],
+            // `task_id` e chave ESTRANGEIRA e `label` tem CHECK de nao-vazio: os
+            // dois provisorios existem para o item que chega antes da Task
+            // dele, e a retentativa dos pendentes corrige quando ela vier.
+            obrigatorias: &[("task_id", "''"), ("label", "'(sincronizando)'")],
+            indice: Some(("task_checklist_search", &["label"])),
             ..Mapa::padrao()
         }),
         "project" => Some(Mapa {
@@ -162,6 +218,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("name", "'(sem nome)'"), ("description", "''")],
+            indice: Some(("project_search", &["name", "description"])),
             ..Mapa::padrao()
         }),
         "workspace" => Some(Mapa {
@@ -174,6 +231,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
             ],
             // `name` tem `CHECK (length(trim(name)) > 0)`.
             obrigatorias: &[("name", "'(sincronizando)'"), ("description", "''")],
+            indice: Some(("workspace_search", &["name", "description"])),
             ..Mapa::padrao()
         }),
         "capture" => Some(Mapa {
@@ -193,6 +251,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("source_kind", "'home'"),
                 ("captured_at", "?2"),
             ],
+            indice: Some(("capture_search", &["content"])),
             ..Mapa::padrao()
         }),
         "resource" => Some(Mapa {
@@ -207,6 +266,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("kind", "'link'"), ("title", "'(sem titulo)'")],
+            indice: Some(("resource_search", &["title", "url", "note"])),
             ..Mapa::padrao()
         }),
         "reminder" => Some(Mapa {
@@ -226,6 +286,13 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("snoozeCount", "snooze_count"),
                 ("completedAt", "completed_at"),
                 ("lifecycleState", "lifecycle_state"),
+                // A migration 0040. So o que e DECISAO: a insistencia deste
+                // aparelho (`escalation_step`, `retry_at`, `last_triggered_at`)
+                // fica em casa, junto de `delivered_count`.
+                ("kind", "kind"),
+                ("waitingFor", "waiting_for"),
+                ("persistent", "persistent"),
+                ("recurrence", "recurrence"),
             ],
             obrigatorias: &[
                 ("title", "'(sincronizando)'"),
@@ -234,6 +301,32 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("priority", "'normal'"),
                 ("status", "'scheduled'"),
                 ("source", "'system'"),
+            ],
+            ..Mapa::padrao()
+        }),
+        // A pilha de alertas de UM lembrete. Viaja porque escolher quatro
+        // avisos para uma entrega e decisao da pessoa, e ela vale nos dois
+        // aparelhos — mesma razao que fez `task_checklist_items` viajar na 0039.
+        //
+        // O que NAO viaja continua sendo a ENTREGA: `attention_notifications` e
+        // local, porque "apareceu na tela deste PC" nao e um fato do outro.
+        "reminder_trigger" => Some(Mapa {
+            tabela: "reminder_triggers",
+            colunas: &[
+                ("reminderId", "reminder_id"),
+                ("scheduledAt", "scheduled_at"),
+                ("kind", "kind"),
+                ("leadMinutes", "lead_minutes"),
+                ("status", "status"),
+                ("firedAt", "fired_at"),
+                ("lifecycleState", "lifecycle_state"),
+                ("createdAt", "created_at"),
+            ],
+            obrigatorias: &[
+                ("reminder_id", "''"),
+                ("scheduled_at", "''"),
+                ("kind", "'extra'"),
+                ("status", "'pending'"),
             ],
             ..Mapa::padrao()
         }),
@@ -413,6 +506,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("kind", "'text'"),
                 ("payload", "'{}'"),
             ],
+            indice: Some(("message_search", &["search_text"])),
             ..Mapa::padrao()
         }),
         // Extensao 1:1 de `projects`: a chave e `project_id`, e nao existe
@@ -541,6 +635,10 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
 fn juncao_de(kind: &str) -> Option<(&'static str, &'static str, &'static str)> {
     match kind {
         "resourceProject" => Some(("resource_projects", "resource_id", "project_id")),
+        // A referencia de uma Task. Juncao, e nao campo, pela regra do §13 do
+        // `SYNC.md`: ligar um PDF a uma Task no celular nao pode apagar o link
+        // feito no PC, e um campo de lista faria exatamente isso.
+        "resourceTask" => Some(("resource_tasks", "resource_id", "task_id")),
         "resourceWorkspace" => Some(("resource_workspaces", "resource_id", "workspace_id")),
         "projectWorkspace" => Some(("project_workspaces", "project_id", "workspace_id")),
         "academic_subject_resource" => {
@@ -740,6 +838,17 @@ impl SqliteStorage {
             .map_err(map_sql_error)?
             .is_some();
 
+        // A linha SAI do indice antes de mudar, com os valores velhos. Depois
+        // do `UPDATE` ela volta com os novos. Fora desta ordem, o indice
+        // guardaria as palavras antigas para sempre.
+        if let (Some((fts, colunas)), false) = (mapa.indice, !ja_existe) {
+            if let Some(rowid) =
+                crate::repository::rowid_de(transacao, mapa.tabela, mapa.chave, &valor_da_chave)?
+            {
+                crate::repository::tirar_do_indice(transacao, fts, mapa.tabela, colunas, rowid)?;
+            }
+        }
+
         if !ja_existe {
             transacao
                 .execute(
@@ -790,6 +899,17 @@ impl SqliteStorage {
                     rusqlite::params_from_iter(valores.iter()),
                 )
                 .map_err(map_sql_error)?;
+        }
+
+        // E a linha volta para o indice, com o que ela tem agora. Sem isto a
+        // busca nao acha o que chegou do outro aparelho — o dado estaria no
+        // banco e a Search calaria sobre ele.
+        if let Some((fts, colunas)) = mapa.indice {
+            if let Some(rowid) =
+                crate::repository::rowid_de(transacao, mapa.tabela, mapa.chave, &valor_da_chave)?
+            {
+                crate::repository::por_no_indice(transacao, fts, mapa.tabela, colunas, rowid)?;
+            }
         }
         Ok(())
     }
@@ -1314,6 +1434,7 @@ pub(crate) fn tem_mapa_para_tabela(tabela: &str) -> bool {
 #[cfg(test)]
 const TIPOS_DE_VINCULO: &[&str] = &[
     "resourceProject",
+    "resourceTask",
     "resourceWorkspace",
     "projectWorkspace",
     "academic_subject_resource",
@@ -1325,6 +1446,8 @@ const TIPOS_DE_VINCULO: &[&str] = &[
 /// as tabelas.
 const TIPOS_CONHECIDOS: &[&str] = &[
     "task",
+    "task_checklist_item",
+    "reminder_trigger",
     "project",
     "workspace",
     "capture",

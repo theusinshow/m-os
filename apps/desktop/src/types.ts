@@ -129,17 +129,81 @@ export type IngestionStatus =
   | "erro"
   | "desfeito";
 
+/** A mesma escala do Reminder, e nao uma segunda. `normal` e visualmente neutro. */
+export type TaskPriority = "low" | "normal" | "high" | "urgent";
+
 export type Task = {
   id: string;
   title: string;
+  /** O contexto que se LE. Nao e o checklist, que e o trabalho que se CONCLUI. */
   description: string;
   projectId: string | null;
   sourceCaptureId: string | null;
   state: TaskState;
   lifecycleState: LifecycleState;
+  /** Quando o trabalho VENCE. Nao e o lembrete — ver a ADR-066. */
+  dueAt: string | null;
+  priority: TaskPriority;
+  estimateMinutes: number | null;
+  parentTaskId: string | null;
+  blockedByTaskId: string | null;
+  waitingFor: string;
+  followUpAt: string | null;
+  /* Os dois numeros do progresso vem DENTRO da Task, e nao numa segunda
+     chamada: o card do Kanban precisa deles e nao precisa do resto, e pedir o
+     checklist inteiro por cartao seria o N+1 que o desenho recusa. */
+  checklistTotal: number;
+  checklistDone: number;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+};
+
+/**
+ * O que uma edicao de Task grava.
+ *
+ * **Autoritativa campo por campo**: `dueAt: null` significa TIRE o prazo, e nao
+ * "nao mexi nisso". Foi essa leitura que tornou possivel desfazer um prazo — um
+ * `COALESCE` no banco daria a leitura oposta e nao haveria como voltar atras.
+ *
+ * Quem so quer mudar um campo parte de `edicaoDe(task)`, em `tasks.ts`.
+ */
+export type UpdateTaskInput = {
+  id: string;
+  title: string;
+  description: string;
+  projectId: string | null;
+  dueAt: string | null;
+  priority: TaskPriority;
+  estimateMinutes: number | null;
+  parentTaskId: string | null;
+  blockedByTaskId: string | null;
+  waitingFor: string;
+  followUpAt: string | null;
+};
+
+/** Um passo dentro de uma Task. */
+export type ChecklistItem = {
+  id: string;
+  taskId: string;
+  label: string;
+  position: number;
+  /** Data, e nao booleano: "feito as 14:32" responde a pergunta que vem depois. */
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** A Task com tudo que a gaveta mostra, numa ida so ao banco. */
+export type TaskDetail = {
+  task: Task;
+  checklist: ChecklistItem[];
+  subtasks: Task[];
+  blockedBy: Task | null;
+  /** Os mesmos Resources da Library. Referencia aqui nao e um segundo anexo. */
+  references: Resource[];
+  /** Do Attention System, e nao de um agendador proprio. */
+  reminders: Reminder[];
 };
 
 export type AppLaunchKind = "url" | "path";
@@ -591,8 +655,40 @@ export type ReminderStatus =
 export type ReminderPriority = "low" | "normal" | "high" | "urgent";
 
 export type ReminderTarget = {
-  type: "task" | "project" | "capture" | "resource" | "conversation" | "app";
+  type: "task" | "project" | "capture" | "resource" | "conversation" | "app" | "meeting";
   id: string;
+};
+
+/** Que pergunta a tela faz sobre este lembrete. */
+export type ReminderKind = "standard" | "follow_up";
+
+/* A regra de repeticao, como o dominio a guarda.
+
+   O horario e LOCAL (`hour`/`minute`) mais o deslocamento em que a regra
+   nasceu: "todo dia as 08:00" quer dizer oito da manha onde a pessoa esta, e
+   guardar so o instante UTC faria a repeticao escorregar uma hora inteira em
+   qualquer mudanca de fuso. Ver `crates/mos-core/src/recurrence.rs`. */
+export type MonthlyDay =
+  | { kind: "day"; day: number }
+  | { kind: "nth"; weekday: number; ordinal: number }
+  | { kind: "lastBusinessDay" };
+
+export type RecurrenceRule =
+  | { kind: "daily" }
+  | { kind: "weekdays" }
+  | { kind: "weekly"; days: number[] }
+  | { kind: "monthly"; day: MonthlyDay }
+  | { kind: "yearly"; month: number; day: number }
+  | { kind: "everyDays"; days: number }
+  | { kind: "everyWeeks"; weeks: number };
+
+export type Recurrence = {
+  rule: RecurrenceRule;
+  /** `fixed` repete pelo calendario; `completion` conta a partir de concluir. */
+  anchor: "fixed" | "completion";
+  hour: number;
+  minute: number;
+  offsetMinutes: number;
 };
 
 export type Reminder = {
@@ -600,7 +696,8 @@ export type Reminder = {
   title: string;
   body: string;
   target: ReminderTarget | null;
-  trigger: { kind: "at"; instant: string };
+  /** `someday` e lembrete sem data: existe, e nao interrompe. */
+  trigger: { kind: "at"; instant: string } | { kind: "someday" };
   priority: ReminderPriority;
   status: ReminderStatus;
   policy: { snoozeAllowed: boolean; privacy: "show_content" | "title_only" | "hidden" };
@@ -608,10 +705,90 @@ export type Reminder = {
   nextDueAt: string | null;
   snoozeCount: number;
   deliveredCount: number;
+  kind: ReminderKind;
+  waitingFor: string;
+  /** "Nao me deixa esquecer": volta a cobrar ate ser resolvido. */
+  persistent: boolean;
+  escalationStep: number;
+  lastTriggeredAt: string | null;
+  retryAt: string | null;
+  recurrence: Recurrence | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
   lifecycleState: "active" | "archived" | "trashed";
+};
+
+/** Um dos varios alertas de UM lembrete. Ver a migration 0040. */
+export type ReminderTrigger = {
+  id: string;
+  reminderId: string;
+  scheduledAt: string;
+  kind: "lead" | "at_due" | "extra";
+  leadMinutes: number | null;
+  status: "pending" | "fired" | "skipped" | "cancelled";
+  firedAt: string | null;
+  lifecycleState: "active" | "archived" | "trashed";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ReminderEventKind =
+  | "created"
+  | "triggered"
+  | "delivered"
+  | "acknowledged"
+  | "snoozed"
+  | "rescheduled"
+  | "completed"
+  | "cancelled"
+  | "missed"
+  | "escalated"
+  | "recurrence_generated"
+  | "edited";
+
+export type ReminderEvent = {
+  id: string;
+  reminderId: string;
+  kind: ReminderEventKind;
+  at: string;
+  detail: string | null;
+};
+
+/** Por que um lembrete esta em Needs Attention. Determinado no dominio. */
+export type AttentionReason =
+  | "missed"
+  | "overdue"
+  | "ignored"
+  | "snooze_fatigue"
+  | "persistent"
+  | "high_priority"
+  | "carried_over";
+
+export type AttentionRow = {
+  reminder: Reminder;
+  reasons: AttentionReason[];
+  weight: number;
+};
+
+/** O que e do APARELHO: silencio e canal do sistema. Nao sincroniza. */
+export type AttentionSettings = {
+  quiet: {
+    enabled: boolean;
+    startMinute: number;
+    endMinute: number;
+    allowUrgent: boolean;
+  };
+  osChannelEnabled: boolean;
+  localOffsetMinutes: number;
+};
+
+/** O que o parser deterministico tirou de uma frase, sem gravar nada. */
+export type ParsedReminder = {
+  title: string;
+  at: string | null;
+  whenText: string | null;
+  persistent: boolean;
 };
 
 /** O que o agendador manda quando algo precisa aparecer. */
@@ -622,6 +799,13 @@ export type DeliveryEvent = {
   missed: boolean;
   overdueSeconds: number;
   level: string;
+  /** `due_now`, `missed` ou `retry`. */
+  reason: string;
+  persistent: boolean;
+  kind: ReminderKind;
+  waitingFor: string;
+  /** Para onde o clique leva. `null` abre o proprio Attention Center. */
+  target: { kind: string; id: string } | null;
 };
 
 /* Onde um widget foi posto na Home de um Workspace.

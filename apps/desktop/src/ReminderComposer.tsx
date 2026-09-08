@@ -3,7 +3,8 @@ import { LazyMotion, m } from "framer-motion";
 import { api } from "./api";
 import { Button } from "./Button";
 import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
-import type { Reminder, ReminderTarget } from "./types";
+import { whenChoices } from "./lembretes";
+import type { Recurrence, RecurrenceRule, Reminder, ReminderTarget } from "./types";
 
 const loadMotionFeatures = () => import("./motionFeatures").then((module) => module.default);
 
@@ -37,55 +38,52 @@ const loadMotionFeatures = () => import("./motionFeatures").then((module) => mod
  * que se precisa lembrar é uma entidade do M/OS.
  */
 
-type Choice = { label: string; resolve: () => Date };
+/* As opcoes de "quando" e a limpeza do que ja passou moram em `lembretes.ts`.
+   Elas eram daqui, e sairam quando o Attention Center passou a precisar das
+   mesmas: duas listas de atalhos de tempo no mesmo app divergiriam, e "amanha
+   9h" acabaria significando duas horas diferentes em duas telas. */
 
-/** As opções rápidas. Relógio apenas — sugestão por agenda exigiria agenda. */
-const CHOICES: ReadonlyArray<Choice> = [
-  { label: "15 min", resolve: () => new Date(Date.now() + 15 * 60000) },
-  { label: "1 hora", resolve: () => new Date(Date.now() + 60 * 60000) },
-  { label: "3 horas", resolve: () => new Date(Date.now() + 3 * 60 * 60000) },
-  {
-    label: "Hoje 18h",
-    resolve: () => {
-      const when = new Date();
-      when.setHours(18, 0, 0, 0);
-      return when;
-    },
-  },
-  {
-    label: "Amanhã 9h",
-    resolve: () => {
-      const when = new Date();
-      when.setDate(when.getDate() + 1);
-      when.setHours(9, 0, 0, 0);
-      return when;
-    },
-  },
-  {
-    label: "Segunda 9h",
-    resolve: () => {
-      const when = new Date();
-      // 8 - dia da semana, com resto 7 quando hoje já é segunda: pedir "segunda"
-      // numa segunda quer dizer a próxima, e não daqui a instante nenhum.
-      const ahead = ((8 - when.getDay()) % 7) || 7;
-      when.setDate(when.getDate() + ahead);
-      when.setHours(9, 0, 0, 0);
-      return when;
-    },
-  },
+/** As repeticoes que a tela oferece. Seis, e nenhuma marcada por default.
+
+   Nao ha editor de regra livre aqui de proposito: um construtor de recorrencia
+   com ordinal, dia da semana e ancora e uma tela inteira, e quem cria um
+   lembrete quer ser lembrado — nao configurar. O que falta se escreve pelo
+   Hermes, que fala a mesma linguagem do dominio. */
+const REPETICOES: ReadonlyArray<{ label: string; rule: RecurrenceRule | null }> = [
+  { label: "Nao repete", rule: null },
+  { label: "Todo dia", rule: { kind: "daily" } },
+  { label: "Dias uteis", rule: { kind: "weekdays" } },
+  { label: "Toda semana", rule: { kind: "everyWeeks", weeks: 1 } },
+  { label: "Todo mes", rule: { kind: "everyDays", days: 30 } },
 ];
 
-/** Uma opção que já passou não é oferecida: "Hoje 18h" às 19h não quer dizer
- *  nada, e o backend a recusaria de todo jeito. */
-function available(): Choice[] {
-  const now = Date.now();
-  return CHOICES.filter((choice) => choice.resolve().getTime() > now);
-}
+/** Os adiantamentos oferecidos, em minutos. Espelham `LEAD_PRESETS` do dominio. */
+const ADIANTAMENTOS: ReadonlyArray<{ label: string; minutes: number }> = [
+  { label: "15 min antes", minutes: 15 },
+  { label: "1 hora antes", minutes: 60 },
+  { label: "2 horas antes", minutes: 120 },
+  { label: "1 dia antes", minutes: 24 * 60 },
+];
 
 /** `datetime-local` fala no fuso do usuário e não aceita sufixo de zona. */
 function toLocalInput(when: Date): string {
   const shifted = new Date(when.getTime() - when.getTimezoneOffset() * 60000);
   return shifted.toISOString().slice(0, 16);
+}
+
+/** A regra de repeticao, montada a partir do instante escolhido.
+
+   Hora e minuto LOCAIS mais o deslocamento em que a regra nasceu: "todo dia as
+   08:00" quer dizer oito da manha onde a pessoa esta. Ver
+   `crates/mos-core/src/recurrence.rs`. */
+function regraDe(rule: RecurrenceRule, quando: Date): Recurrence {
+  return {
+    rule,
+    anchor: "fixed",
+    hour: quando.getHours(),
+    minute: quando.getMinutes(),
+    offsetMinutes: -quando.getTimezoneOffset(),
+  };
 }
 
 function whenLabel(when: Date): string {
@@ -116,9 +114,18 @@ export function ReminderComposer({
 }) {
   const [title, setTitle] = useState(initialTitle);
   const [body, setBody] = useState("");
-  const [when, setWhen] = useState<Date>(() => available()[0]?.resolve() ?? new Date(Date.now() + 900000));
+  const [when, setWhen] = useState<Date>(() => whenChoices(new Date())[0]?.resolve() ?? new Date(Date.now() + 900000));
   const [custom, setCustom] = useState(false);
   const [details, setDetails] = useState(false);
+  /* "Nao me deixa esquecer". Desligado por default, e a decisao e da pessoa:
+     um sistema que decide sozinho insistir e um sistema que se aprende a
+     silenciar. */
+  const [persistente, setPersistente] = useState(false);
+  /* Sem data. Nao e lembrete pela metade — e a resposta honesta para o que se
+     quer nao esquecer sem se querer ser interrompido. */
+  const [semData, setSemData] = useState(false);
+  const [repeticao, setRepeticao] = useState<RecurrenceRule | null>(null);
+  const [adiantamentos, setAdiantamentos] = useState<number[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -142,7 +149,20 @@ export function ReminderComposer({
 
     setSaving(true);
     try {
-      created(await api.createReminder(title.trim(), body.trim(), when, target));
+      created(
+        await api.novoLembrete({
+          title: title.trim(),
+          body: body.trim(),
+          at: semData ? null : when,
+          target,
+          persistent: persistente,
+          // A regra nasce do instante que a pessoa escolheu: ela ja disse a
+          // hora ao escolher "amanha 9h", e perguntar de novo seria perguntar
+          // duas vezes a mesma coisa.
+          recurrence: repeticao && !semData ? regraDe(repeticao, when) : null,
+          leads: semData ? [] : adiantamentos,
+        }),
+      );
       close();
     } catch (nextError) {
       setError(String(nextError));
@@ -150,7 +170,7 @@ export function ReminderComposer({
     }
   }
 
-  const choices = available();
+  const choices = whenChoices(new Date());
 
   return (
     <LazyMotion features={loadMotionFeatures} strict>
@@ -219,6 +239,14 @@ export function ReminderComposer({
               >
                 Escolher
               </Button>
+              <Button
+                aria-pressed={semData}
+                onClick={() => setSemData((atual) => !atual)}
+                size="sm"
+                variant={semData ? "primary" : "ghost"}
+              >
+                Algum dia
+              </Button>
             </div>
 
             {custom ? (
@@ -238,22 +266,96 @@ export function ReminderComposer({
                 hora diferente da que a pessoa achou que escolheu é pior que um
                 lembrete que não dispara. */}
             <p className="composer-resolved" aria-live="polite">
-              {whenLabel(when)}
+              {semData ? "Sem data — nao vai interromper voce" : whenLabel(when)}
             </p>
           </fieldset>
 
+          {/* "Nao me deixa esquecer" fica no primeiro nivel, e nao atras do
+              "mais opcoes": e a escolha que muda o COMPORTAMENTO do lembrete, e
+              esconde-la faria a capacidade central do sistema depender de a
+              pessoa descobrir um link. */}
+          <label className="composer-switch">
+            <input
+              checked={persistente}
+              onChange={(event) => setPersistente(event.currentTarget.checked)}
+              type="checkbox"
+            />
+            <span>
+              Nao me deixe esquecer
+              <em>continua cobrando ate voce resolver</em>
+            </span>
+          </label>
+
           {details ? (
-            <label>
-              <span>NOTA</span>
-              <textarea
-                onChange={(event) => setBody(event.currentTarget.value)}
-                rows={3}
-                value={body}
-              />
-            </label>
+            <>
+              <label>
+                <span>NOTA</span>
+                <textarea
+                  onChange={(event) => setBody(event.currentTarget.value)}
+                  rows={3}
+                  value={body}
+                />
+              </label>
+
+              <fieldset className="composer-when">
+                <legend className="micro-label">REPETE</legend>
+                <div className="composer-choices">
+                  {REPETICOES.map((opcao) => {
+                    const ativa = JSON.stringify(repeticao) === JSON.stringify(opcao.rule);
+                    return (
+                      <Button
+                        aria-pressed={ativa}
+                        disabled={semData}
+                        key={opcao.label}
+                        onClick={() => setRepeticao(opcao.rule)}
+                        size="sm"
+                        variant={ativa ? "primary" : "ghost"}
+                      >
+                        {opcao.label}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              {/* Os alertas extras. Nenhum marcado por default: o §17 do pedido
+                  e explicito em que o M/OS pode SUGERIR um alerta a mais, e nao
+                  criar varios sozinho. */}
+              <fieldset className="composer-when">
+                <legend className="micro-label">AVISAR TAMBEM</legend>
+                <div className="composer-choices">
+                  {ADIANTAMENTOS.map((opcao) => {
+                    const ativa = adiantamentos.includes(opcao.minutes);
+                    return (
+                      <Button
+                        aria-pressed={ativa}
+                        disabled={semData}
+                        key={opcao.label}
+                        onClick={() =>
+                          setAdiantamentos((atuais) =>
+                            atuais.includes(opcao.minutes)
+                              ? atuais.filter((valor) => valor !== opcao.minutes)
+                              : [...atuais, opcao.minutes],
+                          )
+                        }
+                        size="sm"
+                        variant={ativa ? "primary" : "ghost"}
+                      >
+                        {opcao.label}
+                      </Button>
+                    );
+                  })}
+                </div>
+                {adiantamentos.length > 0 && !semData ? (
+                  <p className="composer-resolved">
+                    {adiantamentos.length + 1} alertas, um lembrete so.
+                  </p>
+                ) : null}
+              </fieldset>
+            </>
           ) : (
             <Button onClick={() => setDetails(true)} size="sm" variant="ghost">
-              Adicionar nota
+              Mais opcoes
             </Button>
           )}
 

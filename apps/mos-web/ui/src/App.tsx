@@ -12,6 +12,7 @@ import {
   type HorasDeProjeto,
   type ItemDaAgenda,
   type Panorama,
+  type DetalheDaTask,
   type EdicaoDeTask,
   type EstadoDaTask,
   type ODia,
@@ -79,6 +80,13 @@ export function App() {
   const [lembreteAberto, setLembreteAberto] = useState<string | null>(null);
   /** Qual task está aberta no detalhe. Nulo é "a lista". */
   const [taskAberta, setTaskAberta] = useState<string | null>(null);
+  /* A folha da task aberta, buscada à parte da lista.
+     A lista traz só `checklistTotal`/`checklistDone` de cada task — os dois
+     números que a linha desenha. O checklist inteiro custa uma chamada, e ela
+     só acontece quando alguém abre a task: no 4G da rua, mandar os passos de
+     quarenta tasks para desenhar dois dígitos em cada linha seria pagar a base
+     inteira por um número. */
+  const [detalheDaTask, setDetalheDaTask] = useState<DetalheDaTask | null>(null);
   const [projetos, setProjetos] = useState<Projeto[]>([]);
   const [oDia, setODia] = useState<ODia | null>(null);
   const [estado, setEstado] = useState<EstadoDoAparelho | null>(null);
@@ -308,12 +316,17 @@ export function App() {
   }
 
   /** A folha respondeu. Cria, avisa e volta para a lista de onde ela saiu. */
-  async function criarLembrete(quando: Date) {
+  async function criarLembrete(quando: Date | null, persistente: boolean) {
     if (!agendando) return;
     const pedido = agendando;
     setOcupado(true);
     try {
-      await api.criarLembrete(pedido.titulo, quando, "", pedido.alvo);
+      await api.novoLembrete({
+        titulo: pedido.titulo,
+        quando,
+        alvo: pedido.alvo,
+        persistente,
+      });
       setAgendando(null);
       // O texto só some quando o lembrete existe, pela mesma razão da captura.
       // Um lembrete preso a uma Task não veio do compositor, e apagá-lo ali
@@ -322,7 +335,13 @@ export function App() {
       // A confirmação repete a HORA, e não "criado". A única forma de descobrir
       // que se agendou para o dia errado é ler o dia — e depois que a folha
       // fecha não há mais onde ler.
-      contar(`Lembrete para ${porExtenso(quando)}.`);
+      // A confirmação repete a HORA, e não "criado" — ver acima. Sem hora, ela
+      // diz o que a ausência dela significa, que é a informação que falta.
+      contar(
+        quando
+          ? `Lembrete para ${porExtenso(quando)}.`
+          : "Guardado em Algum dia. Não vai te interromper.",
+      );
       await atualizar();
     } catch (causa) {
       reclamar(causa);
@@ -392,6 +411,25 @@ export function App() {
     setOcupado(false);
   }
 
+  /** Rebusca a folha da task aberta. */
+  const recarregarDetalhe = useCallback(async (id: string) => {
+    try {
+      setDetalheDaTask(await api.detalheDaTask(id));
+    } catch {
+      /* Silencioso de propósito: a lista já está na tela e continua correta. Um
+         alerta aqui transformaria uma falha de rede num susto sobre a task. */
+      setDetalheDaTask(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!taskAberta) {
+      setDetalheDaTask(null);
+      return;
+    }
+    void recarregarDetalhe(taskAberta);
+  }, [taskAberta, recarregarDetalhe]);
+
   async function salvarTask(id: string, mudanca: EdicaoDeTask) {
     setOcupado(true);
     try {
@@ -402,6 +440,47 @@ export function App() {
       reclamar(causa);
     }
     setOcupado(false);
+  }
+
+  /**
+   * Marcar um passo.
+   *
+   * A lista de tasks é atualizada com o que o servidor devolve — que é a TASK,
+   * com o progresso novo. Sem isso, a linha de Fazer continuaria mostrando
+   * `2/5` depois de marcar o terceiro, até a próxima varredura.
+   *
+   * O risco na tela é otimista e mora no componente do checklist; o que este
+   * método faz é reconciliar com a verdade quando ela chega.
+   */
+  async function marcarItem(id: string, feito: boolean) {
+    try {
+      const task = await api.marcarItem(id, feito);
+      setTasks((atuais) => atuais.map((t) => (t.id === task.id ? task : t)));
+      await recarregarDetalhe(task.id);
+    } catch (causa) {
+      reclamar(causa);
+      if (taskAberta) await recarregarDetalhe(taskAberta);
+    }
+  }
+
+  async function criarItem(taskId: string, texto: string) {
+    try {
+      const task = await api.criarItem(taskId, texto);
+      setTasks((atuais) => atuais.map((t) => (t.id === task.id ? task : t)));
+      await recarregarDetalhe(taskId);
+    } catch (causa) {
+      reclamar(causa);
+    }
+  }
+
+  async function apagarItem(id: string) {
+    try {
+      const task = await api.apagarItem(id);
+      setTasks((atuais) => atuais.map((t) => (t.id === task.id ? task : t)));
+      await recarregarDetalhe(task.id);
+    } catch (causa) {
+      reclamar(causa);
+    }
   }
 
   /**
@@ -593,6 +672,7 @@ export function App() {
         {pagina === "fazer" && tarefaAberta ? (
           <Task
             task={tarefaAberta}
+            detalhe={detalheDaTask?.task.id === tarefaAberta.id ? detalheDaTask : null}
             projeto={projetos.find((p) => p.id === tarefaAberta.projectId) ?? null}
             projetos={projetos}
             lembrete={
@@ -612,6 +692,9 @@ export function App() {
               })
             }
             aoVoltar={() => setTaskAberta(null)}
+            aoMarcarItem={(id, feito) => void marcarItem(id, feito)}
+            aoCriarItem={(texto) => void criarItem(tarefaAberta.id, texto)}
+            aoApagarItem={(id) => void apagarItem(id)}
           />
         ) : null}
         {pagina === "fazer" && !tarefaAberta ? (
@@ -767,7 +850,9 @@ export function App() {
           titulo={agendando.titulo}
           descricao={agendando.descricao}
           ocupado={ocupado}
-          aoEscolher={(escolhido: Date) => void criarLembrete(escolhido)}
+          aoEscolher={(escolhido: Date | null, persistente: boolean) =>
+            void criarLembrete(escolhido, persistente)
+          }
           aoFechar={() => setAgendando(null)}
         />
       ) : null}

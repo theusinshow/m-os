@@ -153,8 +153,15 @@ pub(crate) fn fold(character: char) -> char {
     }
 }
 
-/// Normaliza um texto inteiro. Atalho para quem so quer comparar.
-pub(crate) fn fold_text(text: &str) -> String {
+/// Normaliza um texto inteiro: minuscula, sem acento, um caractere por
+/// caractere.
+///
+/// Publica desde o Quick Reminder: comparar "Nao me deixa esquecer" com uma
+/// lista de marcas so funciona depois de dobrar acento e caixa, e o desktop
+/// precisava exatamente da mesma dobra que a voz ja usava. Duas normalizacoes
+/// diferentes no mesmo sistema fariam a mesma frase ser reconhecida por uma
+/// superficie e nao pela outra.
+pub fn fold_text(text: &str) -> String {
     text.chars().map(fold).collect()
 }
 

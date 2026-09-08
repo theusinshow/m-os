@@ -497,6 +497,465 @@ impl AttentionService {
         Ok(saved)
     }
 
+    // ------------------------------------------------------------- criacao
+
+    /// Tudo que se pode pedir ao criar um lembrete, num lugar so.
+    ///
+    /// Struct e nao oito parametros porque as tres superficies criam lembretes —
+    /// desktop, web e Hermes — e uma assinatura posicional de oito campos e uma
+    /// troca de dois booleanos esperando para acontecer.
+    pub fn create(&self, pedido: crate::CreateReminder) -> Result<crate::Reminder, CoreError> {
+        let now = self.clock.now();
+        let mut draft = match pedido.at {
+            Some(instant) => {
+                crate::NewReminder::at(&pedido.title, &pedido.body, instant, self.clock.as_ref())?
+            }
+            // Sem hora: "algum dia". Nao e um lembrete pela metade — e a
+            // resposta honesta para o que se quer nao esquecer sem se querer ser
+            // interrompido.
+            None => crate::NewReminder::someday(&pedido.title, &pedido.body, self.clock.as_ref())?,
+        };
+
+        draft = draft
+            .from_source(pedido.source)
+            .with_priority(pedido.priority);
+        if let Some(target) = pedido.target {
+            draft = draft.with_target(target);
+        }
+        if pedido.persistent {
+            draft = draft.persisting();
+        }
+        if let Some(who) = pedido
+            .waiting_for
+            .as_deref()
+            .filter(|w| !w.trim().is_empty())
+        {
+            draft = draft.following_up(who);
+        }
+        if let Some(recurrence) = pedido.recurrence {
+            draft = draft.repeating(recurrence)?;
+        }
+
+        let id = draft.id;
+        let criado = self.repository.create_reminder(draft)?;
+        self.log(id, crate::ReminderEventKind::Created, now, None);
+
+        // A pilha, se houver. Cada alerta e uma linha, e o lembrete continua um.
+        if !pedido.leads.is_empty() {
+            if let Some(prazo) = criado.next_due_at {
+                self.build_stack(&criado, prazo, &pedido.leads, now)?;
+                // O vencimento do lembrete passa a ser o PRIMEIRO alerta da
+                // pilha: o agendador continua olhando uma coluna so, e a pilha
+                // nao vaza para dentro dele.
+                return self.sync_next_from_stack(id, now);
+            }
+        }
+
+        Ok(criado)
+    }
+
+    /// Monta a pilha: um alerta no prazo mais um por adiantamento pedido.
+    fn build_stack(
+        &self,
+        reminder: &crate::Reminder,
+        prazo: time::OffsetDateTime,
+        leads: &[u32],
+        now: time::OffsetDateTime,
+    ) -> Result<(), CoreError> {
+        self.repository
+            .create_trigger(crate::NewReminderTrigger::at_due(reminder.id, prazo, now))?;
+        for minutos in leads {
+            if let Some(alerta) = crate::NewReminderTrigger::lead(reminder.id, prazo, *minutos, now)
+            {
+                self.repository.create_trigger(alerta)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Acrescenta um alerta a um lembrete que ja existe.
+    pub fn add_trigger(
+        &self,
+        id: crate::ReminderId,
+        instant: time::OffsetDateTime,
+        lead_minutes: Option<u32>,
+    ) -> Result<crate::Reminder, CoreError> {
+        let now = self.clock.now();
+        let reminder = self.repository.reminder(id)?;
+        let novo = match (lead_minutes, reminder.next_due_at) {
+            (Some(minutos), Some(prazo)) => {
+                crate::NewReminderTrigger::lead(id, prazo, minutos, now).ok_or_else(|| {
+                    CoreError::new(
+                        crate::ErrorCode::InvalidInput,
+                        "Esse adiantamento cairia no passado.",
+                        false,
+                    )
+                })?
+            }
+            _ => crate::NewReminderTrigger::extra(id, instant, now),
+        };
+        self.repository.create_trigger(novo)?;
+        self.sync_next_from_stack(id, now)
+    }
+
+    pub fn triggers(
+        &self,
+        id: crate::ReminderId,
+    ) -> Result<Vec<crate::ReminderTrigger>, CoreError> {
+        self.repository.triggers_for(id)
+    }
+
+    pub fn cancel_trigger(
+        &self,
+        reminder: crate::ReminderId,
+        trigger: crate::ReminderTriggerId,
+    ) -> Result<crate::Reminder, CoreError> {
+        self.repository
+            .set_trigger_status(trigger, crate::StackTriggerStatus::Cancelled, None)?;
+        self.sync_next_from_stack(reminder, self.clock.now())
+    }
+
+    /// Alinha `next_due_at` com o proximo alerta pendente da pilha.
+    ///
+    /// So faz sentido para lembrete que ESPERA. Um lembrete ja vencido tem o
+    /// proprio atraso a contar, e reescrever a coluna dele com o horario de um
+    /// alerta futuro apagaria o tamanho desse atraso.
+    fn sync_next_from_stack(
+        &self,
+        id: crate::ReminderId,
+        now: time::OffsetDateTime,
+    ) -> Result<crate::Reminder, CoreError> {
+        let reminder = self.repository.reminder(id)?;
+        let pilha = self.repository.triggers_for(id)?;
+        let Some(proximo) = crate::next_pending_trigger(&pilha) else {
+            return Ok(reminder);
+        };
+        if !reminder.status.is_waiting() {
+            return Ok(reminder);
+        }
+        if reminder.next_due_at == Some(proximo.scheduled_at) {
+            return Ok(reminder);
+        }
+        let mut novo = reminder;
+        novo.next_due_at = Some(proximo.scheduled_at);
+        novo.updated_at = now;
+        self.repository.save_reminder(&novo)
+    }
+
+    // ------------------------------------------------------------ historico
+
+    /// Registra um evento. **Nunca derruba a operacao que o gerou.**
+    ///
+    /// Um lembrete que falhasse ao ser concluido porque o historico nao coube no
+    /// disco seria o sistema perdendo o essencial para salvar o acessorio. O
+    /// erro vai para o log e a vida segue.
+    fn log(
+        &self,
+        id: crate::ReminderId,
+        kind: crate::ReminderEventKind,
+        at: time::OffsetDateTime,
+        detail: Option<String>,
+    ) {
+        let mut evento = crate::NewReminderEvent::new(id, kind, at);
+        evento.detail = detail;
+        if let Err(erro) = self.repository.record_event(evento) {
+            eprintln!("[attention] historico nao gravou: {}", erro.message);
+        }
+    }
+
+    pub fn history(
+        &self,
+        id: crate::ReminderId,
+        limit: usize,
+    ) -> Result<Vec<crate::ReminderEvent>, CoreError> {
+        self.repository.events_for(id, limit)
+    }
+
+    // ------------------------------------------------------------ decisoes
+
+    /// Adiar: empurra, conta fadiga e registra.
+    pub fn snooze(
+        &self,
+        id: crate::ReminderId,
+        until: time::OffsetDateTime,
+    ) -> Result<crate::Reminder, CoreError> {
+        let now = self.clock.now();
+        let atualizado = self.transition(id, crate::Transition::Snooze { until })?;
+        self.log(
+            id,
+            crate::ReminderEventKind::Snoozed,
+            now,
+            Some(format!("ate {until}")),
+        );
+        Ok(atualizado)
+    }
+
+    /// Remarcar: muda a hora PLANEJADA, e nao conta fadiga.
+    ///
+    /// A distincao e de produto e nao de banco: adiar quinze vezes e um sinal de
+    /// que a pessoa nao esta conseguindo decidir; corrigir a hora que se digitou
+    /// errado nao e. Colapsar as duas faria o sistema oferecer ajuda a quem nao
+    /// precisa e calar para quem precisa.
+    pub fn reschedule(
+        &self,
+        id: crate::ReminderId,
+        instant: time::OffsetDateTime,
+    ) -> Result<crate::Reminder, CoreError> {
+        let now = self.clock.now();
+        let atualizado = self.update(
+            id,
+            crate::EditReminder {
+                instant: Some(instant),
+                ..Default::default()
+            },
+        )?;
+        self.log(
+            id,
+            crate::ReminderEventKind::Rescheduled,
+            now,
+            Some(format!("para {instant}")),
+        );
+        Ok(atualizado)
+    }
+
+    /// Concluir. Cancela a pilha pendente e, se houver serie, ja marca a proxima.
+    pub fn complete(&self, id: crate::ReminderId) -> Result<crate::Reminder, CoreError> {
+        let now = self.clock.now();
+        let atualizado = self.transition(id, crate::Transition::Complete)?;
+        // A pilha pendente morre junto: quatro alertas para algo ja resolvido
+        // sao quatro interrupcoes que nao significam nada.
+        let _ = self.repository.cancel_pending_triggers(id);
+        self.log(id, crate::ReminderEventKind::Completed, now, None);
+        if atualizado.status == crate::ReminderStatus::Scheduled {
+            self.log(
+                id,
+                crate::ReminderEventKind::RecurrenceGenerated,
+                now,
+                atualizado.next_due_at.map(|proxima| proxima.to_string()),
+            );
+        }
+        Ok(atualizado)
+    }
+
+    pub fn cancel(&self, id: crate::ReminderId) -> Result<crate::Reminder, CoreError> {
+        let now = self.clock.now();
+        let atualizado = self.transition(id, crate::Transition::Cancel)?;
+        let _ = self.repository.cancel_pending_triggers(id);
+        self.log(id, crate::ReminderEventKind::Cancelled, now, None);
+        Ok(atualizado)
+    }
+
+    pub fn acknowledge(&self, id: crate::ReminderId) -> Result<crate::Reminder, CoreError> {
+        let now = self.clock.now();
+        let atualizado = self.transition(id, crate::Transition::Acknowledge)?;
+        self.log(id, crate::ReminderEventKind::Acknowledged, now, None);
+        Ok(atualizado)
+    }
+
+    // ------------------------------------------------------ needs attention
+
+    /// O que esta sendo esquecido, e por que. Ver [`crate::needs_attention`].
+    pub fn attention_list(
+        &self,
+    ) -> Result<Vec<(crate::Reminder, crate::AttentionItem)>, CoreError> {
+        let abertos = self.repository.open_reminders()?;
+        let now_local = self
+            .clock
+            .now()
+            .to_offset(self.repository.attention_settings()?.offset());
+        let itens = crate::needs_attention(&abertos, now_local);
+        Ok(itens
+            .into_iter()
+            .filter_map(|item| {
+                abertos
+                    .iter()
+                    .find(|reminder| reminder.id == item.reminder_id)
+                    .cloned()
+                    .map(|reminder| (reminder, item))
+            })
+            .collect())
+    }
+
+    // ------------------------------------------------------------ ajustes
+
+    pub fn settings(&self) -> Result<crate::AttentionSettings, CoreError> {
+        self.repository.attention_settings()
+    }
+
+    pub fn save_settings(
+        &self,
+        settings: crate::AttentionSettings,
+    ) -> Result<crate::AttentionSettings, CoreError> {
+        self.repository.save_attention_settings(settings)
+    }
+
+    // ------------------------------------------------------------- varredura
+
+    /// Uma passada completa do agendador.
+    ///
+    /// **A unica fonte de regras sobre o que vence agora** (§56 do pedido): o
+    /// que venceu, o que se perdeu, o que precisa insistir e o que a pilha
+    /// dispara sai tudo daqui. O adaptador de plataforma so ENTREGA o que esta
+    /// lista devolve — nao decide nada.
+    ///
+    /// Idempotente: rodar duas vezes seguidas nao produz nada na segunda, porque
+    /// a primeira tirou os lembretes do estado de espera e reprogramou os
+    /// re-alertas.
+    pub fn sweep(&self) -> Result<Vec<crate::DueDelivery>, CoreError> {
+        let now = self.clock.now();
+        let mut saida: Vec<crate::DueDelivery> = Vec::new();
+        let ajustes = self.repository.attention_settings()?;
+        let (silencio, offset) = (ajustes.quiet, ajustes.offset());
+
+        // 1. Os alertas de pilha que venceram. Antes da reconciliacao porque um
+        //    alerta disparado muda o `next_due_at` do lembrete dono.
+        for alerta in self.repository.triggers_due(now)? {
+            self.repository.set_trigger_status(
+                alerta.id,
+                crate::StackTriggerStatus::Fired,
+                Some(now),
+            )?;
+        }
+
+        // 2. O que venceu, e o que se perdeu.
+        for achado in crate::reconcile(&self.repository.waiting_reminders()?, now) {
+            let atual = self.repository.reminder(achado.id)?;
+            let transicao = match achado.reason {
+                crate::ReconcileReason::DueNow => crate::Transition::Ring,
+                crate::ReconcileReason::MissedWhileAway => crate::Transition::Miss,
+            };
+            let seguinte = crate::apply(&atual, transicao, now)?;
+            let gravado = self.repository.save_reminder(&seguinte)?;
+            self.log(
+                achado.id,
+                match achado.reason {
+                    crate::ReconcileReason::DueNow => crate::ReminderEventKind::Triggered,
+                    crate::ReconcileReason::MissedWhileAway => crate::ReminderEventKind::Missed,
+                },
+                now,
+                None,
+            );
+
+            // A pilha ainda tem alerta pela frente? Entao este vencimento era um
+            // AVISO ANTECIPADO, e nao o prazo: o lembrete volta a esperar.
+            let gravado = self.rearm_from_stack(gravado, now)?;
+            saida.push(crate::DueDelivery {
+                reminder: gravado,
+                reason: match achado.reason {
+                    crate::ReconcileReason::DueNow => crate::DueReason::DueNow,
+                    crate::ReconcileReason::MissedWhileAway => crate::DueReason::MissedWhileAway,
+                },
+            });
+        }
+
+        // 3. Quem ja pode insistir.
+        for lembrete in self.repository.reminders_to_retry(now)? {
+            let seguinte = crate::apply(&lembrete, crate::Transition::Escalate, now)?;
+            let gravado = self.repository.save_reminder(&seguinte)?;
+            self.log(
+                gravado.id,
+                crate::ReminderEventKind::Escalated,
+                now,
+                Some(format!("degrau {}", gravado.escalation_step)),
+            );
+            saida.push(crate::DueDelivery {
+                reminder: gravado,
+                reason: crate::DueReason::Retry,
+            });
+        }
+
+        // 4. O silencio. Segura a ENTREGA, nunca a intencao: o lembrete continua
+        //    vencido, continua contando o atraso e continua no Attention Center.
+        let mut entregaveis = Vec::new();
+        for pedido in saida {
+            match silencio.defer(now, offset, pedido.reminder.priority) {
+                None => entregaveis.push(pedido),
+                Some(quando) => {
+                    let adiado = crate::apply(
+                        &pedido.reminder,
+                        crate::Transition::Defer { until: quando },
+                        now,
+                    )?;
+                    self.repository.save_reminder(&adiado)?;
+                }
+            }
+        }
+
+        Ok(entregaveis)
+    }
+
+    /// Depois de um vencimento, devolve o lembrete a espera se a pilha ainda tem
+    /// alerta pela frente.
+    fn rearm_from_stack(
+        &self,
+        reminder: crate::Reminder,
+        now: time::OffsetDateTime,
+    ) -> Result<crate::Reminder, CoreError> {
+        let pilha = self.repository.triggers_for(reminder.id)?;
+        if pilha.is_empty() {
+            return Ok(reminder);
+        }
+        let Some(proximo) = crate::next_pending_trigger(&pilha) else {
+            // Era o ultimo alerta: agora o lembrete fica cobrando de verdade.
+            return Ok(reminder);
+        };
+        let mut novo = reminder;
+        novo.status = crate::ReminderStatus::Scheduled;
+        novo.next_due_at = Some(proximo.scheduled_at);
+        novo.retry_at = None;
+        novo.escalation_step = 0;
+        novo.updated_at = now;
+        self.repository.save_reminder(&novo)
+    }
+
+    /// Marca a entrega, CONTA no Reminder e registra no historico.
+    ///
+    /// Use uma vez por RODADA de entrega, e nao uma vez por canal — ver
+    /// [`Self::record_channel_delivery`].
+    pub fn record_delivered(
+        &self,
+        notification: &crate::Notification,
+    ) -> Result<crate::Notification, CoreError> {
+        let entregue = self.mark_delivered(notification)?;
+        self.log(
+            notification.reminder_id,
+            crate::ReminderEventKind::Delivered,
+            self.clock.now(),
+            Some(notification.channel.as_str().to_owned()),
+        );
+        Ok(entregue)
+    }
+
+    /// A MESMA cobranca saindo por um segundo canal.
+    ///
+    /// Marca a entrega e registra no historico, e **nao** conta no Reminder.
+    ///
+    /// # Por que a distincao existe
+    ///
+    /// `delivered_count` responde *"quantas vezes eu fui cobrado disto?"*, e a
+    /// resposta certa para um toque que saiu no app E no Windows ao mesmo tempo
+    /// e UMA. Contando por canal, o numero dobrava — e a regra de Needs
+    /// Attention que chama de `ignored` quem foi avisado duas vezes passou a
+    /// acusar de ignorado quem tinha sido avisado uma vez so. Apareceu na tela,
+    /// em 2026-09-08, no primeiro lembrete que tocou depois de o canal do
+    /// Windows entrar.
+    pub fn record_channel_delivery(
+        &self,
+        notification: &crate::Notification,
+    ) -> Result<crate::Notification, CoreError> {
+        let mut proximo = notification.clone();
+        proximo.status = crate::NotificationStatus::Delivered;
+        proximo.delivered_at = Some(self.clock.now());
+        let gravado = self.repository.save_notification(&proximo)?;
+        self.log(
+            notification.reminder_id,
+            crate::ReminderEventKind::Delivered,
+            self.clock.now(),
+            Some(notification.channel.as_str().to_owned()),
+        );
+        Ok(gravado)
+    }
+
     /// Registra falha de canal.
     ///
     /// NAO mexe no Reminder: falha de entrega nunca resolve uma intencao (§27).
@@ -637,7 +1096,7 @@ pub struct UpdateProjectInput {
     pub repository: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTaskInput {
     pub title: String,
@@ -645,9 +1104,61 @@ pub struct CreateTaskInput {
     pub description: String,
     pub project_id: Option<String>,
     pub source_capture_id: Option<String>,
+    /// Os campos da 0039. Todos `#[serde(default)]`: a criacao rapida continua
+    /// mandando titulo e mais nada, e o payload dela nao muda de forma.
+    #[serde(default)]
+    pub due_at: Option<String>,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub estimate_minutes: Option<i64>,
+    #[serde(default)]
+    pub parent_task_id: Option<String>,
+    /// Os passos com que a Task nasce, ja como linhas.
+    #[serde(default)]
+    pub checklist: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// A edicao de uma Task.
+///
+/// **Autoritativa, campo por campo** — `dueAt: null` significa *tire o prazo*,
+/// e nao *nao mexi nisso*. Quem tem edicao parcial (o bolso manda so o que
+/// mudou) le a Task e preenche o resto, que e o unico lugar onde essa regra
+/// pode morar sem virar um `COALESCE` no banco que torna impossivel voltar
+/// atras. E a mesma leitura que `WidgetPlacementInput` ja tinha.
+impl UpdateTaskInput {
+    /// A edicao que nao muda nada, a partir da Task como ela esta.
+    ///
+    /// Existe porque a escrita e autoritativa e a lista de campos cresceu de
+    /// quatro para onze. Quem so quer mover o Project — o Hermes, o Undo — nao
+    /// pode ser obrigado a repetir prazo, prioridade, estimativa, pai, bloqueio
+    /// e waiting-for; e o dia em que esquecesse um deles, o campo esquecido
+    /// seria APAGADO em silencio ao mover a Task de Project.
+    pub fn from_task(task: &Task) -> Self {
+        Self {
+            id: task.id.to_string(),
+            title: task.title.clone(),
+            description: task.description.clone(),
+            project_id: task.project_id.map(|id| id.to_string()),
+            due_at: task.due_at.and_then(format_instant),
+            priority: Some(task.priority.as_str().to_owned()),
+            estimate_minutes: task.estimate_minutes,
+            parent_task_id: task.parent_task_id.map(|id| id.to_string()),
+            blocked_by_task_id: task.blocked_by_task_id.map(|id| id.to_string()),
+            waiting_for: task.waiting_for.clone(),
+            follow_up_at: task.follow_up_at.and_then(format_instant),
+        }
+    }
+}
+
+/// Um instante em RFC 3339, para voltar pelo mesmo caminho por onde entrou.
+fn format_instant(instant: time::OffsetDateTime) -> Option<String> {
+    instant
+        .format(&time::format_description::well_known::Rfc3339)
+        .ok()
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTaskInput {
     pub id: String,
@@ -655,6 +1166,20 @@ pub struct UpdateTaskInput {
     #[serde(default)]
     pub description: String,
     pub project_id: Option<String>,
+    #[serde(default)]
+    pub due_at: Option<String>,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub estimate_minutes: Option<i64>,
+    #[serde(default)]
+    pub parent_task_id: Option<String>,
+    #[serde(default)]
+    pub blocked_by_task_id: Option<String>,
+    #[serde(default)]
+    pub waiting_for: String,
+    #[serde(default)]
+    pub follow_up_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -960,6 +1485,27 @@ impl AppService {
     }
 }
 
+/// Um instante que pode nao existir.
+///
+/// Vazio e `None` sao a MESMA coisa aqui, de proposito: um `<input type=
+/// "datetime-local">` limpo manda `""`, e tratar isso como data invalida faria
+/// apagar o prazo devolver erro em vez de apagar o prazo.
+fn parse_instant(value: Option<&str>) -> Result<Option<time::OffsetDateTime>, CoreError> {
+    match value.map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(texto) => crate::parse_moment(texto).map(Some),
+    }
+}
+
+/// Ausente e `normal`, que e o valor neutro. Assim nenhuma superficie precisa
+/// mandar prioridade para criar uma Task comum.
+fn parse_priority(value: Option<&str>) -> Result<crate::Priority, CoreError> {
+    match value.map(str::trim) {
+        None | Some("") => Ok(crate::Priority::Normal),
+        Some(texto) => crate::Priority::parse(texto),
+    }
+}
+
 #[derive(Clone)]
 pub struct WorkService {
     repository: Arc<dyn WorkRepository>,
@@ -1172,7 +1718,18 @@ impl WorkService {
             .as_deref()
             .map(ProjectId::parse)
             .transpose()?;
-        let task = NewTask::create(&input.title, &input.description, project_id)?;
+        let task = NewTask::create(&input.title, &input.description, project_id)?
+            .with_due_at(parse_instant(input.due_at.as_deref())?)
+            .with_priority(parse_priority(input.priority.as_deref())?)
+            .with_estimate(input.estimate_minutes)
+            .with_parent(
+                input
+                    .parent_task_id
+                    .as_deref()
+                    .map(TaskId::parse)
+                    .transpose()?,
+            )
+            .with_checklist(&input.checklist);
         match input.source_capture_id {
             Some(capture_id) => self
                 .repository
@@ -1203,17 +1760,33 @@ impl WorkService {
     }
 
     pub fn update_task(&self, input: UpdateTaskInput) -> Result<Task, CoreError> {
-        let project_id = input
-            .project_id
-            .as_deref()
-            .map(ProjectId::parse)
-            .transpose()?;
-        let validated = NewTask::create(&input.title, &input.description, project_id)?;
+        let id = TaskId::parse(&input.id)?;
         self.repository.update_task(
-            TaskId::parse(&input.id)?,
-            &validated.title,
-            &validated.description,
-            project_id,
+            id,
+            crate::EditTask {
+                title: input.title,
+                description: input.description,
+                project_id: input
+                    .project_id
+                    .as_deref()
+                    .map(ProjectId::parse)
+                    .transpose()?,
+                due_at: parse_instant(input.due_at.as_deref())?,
+                priority: parse_priority(input.priority.as_deref())?,
+                estimate_minutes: input.estimate_minutes,
+                parent_task_id: input
+                    .parent_task_id
+                    .as_deref()
+                    .map(TaskId::parse)
+                    .transpose()?,
+                blocked_by_task_id: input
+                    .blocked_by_task_id
+                    .as_deref()
+                    .map(TaskId::parse)
+                    .transpose()?,
+                waiting_for: input.waiting_for,
+                follow_up_at: parse_instant(input.follow_up_at.as_deref())?,
+            },
         )
     }
 
@@ -1221,8 +1794,89 @@ impl WorkService {
         self.repository.get_task(TaskId::parse(id)?)
     }
 
+    /// A Task com checklist, subtasks, referencias e lembretes.
+    pub fn task_detail(&self, id: &str) -> Result<crate::TaskDetail, CoreError> {
+        self.repository.task_detail(TaskId::parse(id)?)
+    }
+
     pub fn tasks(&self, include_archived: bool) -> Result<Vec<Task>, CoreError> {
         self.repository.tasks(include_archived)
+    }
+
+    // ------------------------------------------------------------- checklist
+
+    /// Acrescenta um passo. Devolve a TASK, porque quem escreveu precisa do
+    /// progresso novo — e nao do item que ele acabou de digitar.
+    pub fn add_checklist_item(&self, task_id: &str, label: &str) -> Result<Task, CoreError> {
+        self.repository
+            .add_checklist_item(crate::NewChecklistItem::create(
+                TaskId::parse(task_id)?,
+                label,
+            )?)
+    }
+
+    /// O caminho da colagem: texto solto vira N itens, numa transacao so.
+    ///
+    /// A regra de "o que e uma linha" vive em `parse_checklist_lines`, no
+    /// dominio, e nao em cada interface — senao o desktop e o bolso acabariam
+    /// discordando sobre se `- item` tem hifen no texto.
+    pub fn add_checklist_lines(&self, task_id: &str, text: &str) -> Result<Vec<Task>, CoreError> {
+        let itens = crate::parse_checklist_lines(text);
+        if itens.is_empty() {
+            return Err(CoreError::new(
+                crate::ErrorCode::InvalidInput,
+                "Nao ha nenhuma linha para virar item de checklist.",
+                false,
+            ));
+        }
+        let id = TaskId::parse(task_id)?;
+        self.repository.add_checklist_items(id, &itens)?;
+        Ok(vec![self.repository.get_task(id)?])
+    }
+
+    pub fn rename_checklist_item(
+        &self,
+        id: &str,
+        label: &str,
+    ) -> Result<crate::ChecklistItem, CoreError> {
+        self.repository
+            .rename_checklist_item(crate::ChecklistItemId::parse(id)?, label)
+    }
+
+    pub fn set_checklist_item_done(&self, id: &str, done: bool) -> Result<Task, CoreError> {
+        self.repository
+            .set_checklist_item_done(crate::ChecklistItemId::parse(id)?, done)
+    }
+
+    pub fn delete_checklist_item(&self, id: &str) -> Result<Task, CoreError> {
+        self.repository
+            .delete_checklist_item(crate::ChecklistItemId::parse(id)?)
+    }
+
+    pub fn reorder_checklist(
+        &self,
+        task_id: &str,
+        ids: &[String],
+    ) -> Result<Vec<crate::ChecklistItem>, CoreError> {
+        let ids = ids
+            .iter()
+            .map(|id| crate::ChecklistItemId::parse(id))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.repository
+            .reorder_checklist(TaskId::parse(task_id)?, &ids)
+    }
+
+    pub fn set_task_reference(
+        &self,
+        task_id: &str,
+        resource_id: &str,
+        linked: bool,
+    ) -> Result<(), CoreError> {
+        self.repository.set_task_reference(
+            TaskId::parse(task_id)?,
+            crate::ResourceId::parse(resource_id)?,
+            linked,
+        )
     }
 
     pub fn set_task_state(&self, id: &str, state: TaskState) -> Result<Task, CoreError> {

@@ -202,17 +202,70 @@ pub trait WorkRepository: Send + Sync {
         task: NewTask,
         reminder: Option<NewReminder>,
     ) -> Result<(Task, Option<Reminder>), CoreError>;
-    fn update_task(
-        &self,
-        id: TaskId,
-        title: &str,
-        description: &str,
-        project_id: Option<ProjectId>,
-    ) -> Result<Task, CoreError>;
+    fn update_task(&self, id: TaskId, edit: crate::EditTask) -> Result<Task, CoreError>;
     fn get_task(&self, id: TaskId) -> Result<Task, CoreError>;
     fn tasks(&self, include_archived: bool) -> Result<Vec<Task>, CoreError>;
+    /// A Task com checklist, subtasks, referencias e lembretes — numa ida so.
+    ///
+    /// Ela atravessa a fronteira de tres repositorios (`tasks`, `resources`,
+    /// `reminders`) e mesmo assim mora aqui, e nao numa composicao no servico:
+    /// no SQLite os tres sao a mesma conexao, e montar isto la em cima seriam
+    /// quatro consultas separadas para desenhar uma folha so.
+    fn task_detail(&self, id: TaskId) -> Result<crate::TaskDetail, CoreError>;
     fn set_task_state(&self, id: TaskId, state: TaskState) -> Result<Task, CoreError>;
     fn set_task_lifecycle(&self, id: TaskId, lifecycle: LifecycleState) -> Result<Task, CoreError>;
+
+    // ------------------------------------------------------------- checklist
+    //
+    // Uma operacao por GESTO, e nao um `set_checklist(items)`.
+    //
+    // Gravar a lista inteira faria de cada toque num checkbox uma escrita sobre
+    // todos os itens — e, no sync, uma operacao sobre cada um deles. Marcar um
+    // item no PC enquanto o celular acrescenta outro terminaria com um dos dois
+    // gestos apagado, que e exatamente o defeito que a tabela existe para
+    // impedir. Cada metodo abaixo toca UMA entidade.
+
+    fn add_checklist_item(&self, item: crate::NewChecklistItem) -> Result<Task, CoreError>;
+    /// Varios itens de uma vez, na MESMA transacao — o caminho da colagem.
+    ///
+    /// Nao e acucar: em N transacoes, uma queda no meio deixaria metade da
+    /// lista colada, e a pessoa nao teria como saber qual metade.
+    fn add_checklist_items(
+        &self,
+        task_id: TaskId,
+        labels: &[String],
+    ) -> Result<Vec<crate::ChecklistItem>, CoreError>;
+    fn rename_checklist_item(
+        &self,
+        id: crate::ChecklistItemId,
+        label: &str,
+    ) -> Result<crate::ChecklistItem, CoreError>;
+    /// Marca ou desmarca. Devolve a TASK, e nao o item: quem marcou precisa do
+    /// progresso novo para desenhar a barra, e pedi-lo de novo seria uma
+    /// segunda viagem para saber o que esta escrita ja sabia.
+    fn set_checklist_item_done(
+        &self,
+        id: crate::ChecklistItemId,
+        done: bool,
+    ) -> Result<Task, CoreError>;
+    fn delete_checklist_item(&self, id: crate::ChecklistItemId) -> Result<Task, CoreError>;
+    /// A ordem inteira de uma Task, na ordem em que os ids chegam.
+    ///
+    /// Aqui a escrita e sobre o conjunto de propria natureza — reordenar E
+    /// mexer em todos —, entao ela emite uma operacao de `position` por item.
+    fn reorder_checklist(
+        &self,
+        task_id: TaskId,
+        ids: &[crate::ChecklistItemId],
+    ) -> Result<Vec<crate::ChecklistItem>, CoreError>;
+    /// Liga ou desliga um Resource a uma Task. Vinculo do Knowledge Graph, e
+    /// nao anexo: e o mesmo Resource da Library, com o mesmo id.
+    fn set_task_reference(
+        &self,
+        task_id: TaskId,
+        resource_id: crate::ResourceId,
+        linked: bool,
+    ) -> Result<(), CoreError>;
     fn search_all(&self, request: SearchRequest) -> Result<Vec<SearchItem>, CoreError>;
     fn rebuild_all_search(&self) -> Result<usize, CoreError>;
 }
@@ -573,6 +626,76 @@ pub trait AttentionRepository: Send + Sync {
         &self,
         reminder: crate::ReminderId,
     ) -> Result<Vec<crate::Notification>, CoreError>;
+
+    // ------------------------------------------------------- re-alerta
+
+    /// Os que ja podem receber o re-alerta.
+    ///
+    /// Lista propria, e nao filtro sobre `open_reminders`, porque ela usa outro
+    /// indice (`reminders_retry`, parcial) e responde outra pergunta. Num banco
+    /// com centenas de lembretes abertos, os que estao insistindo agora sao
+    /// dois — e varrer os centos para achar os dois a cada acordada seria pagar
+    /// o preco de um laco onde cabe uma consulta.
+    fn reminders_to_retry(
+        &self,
+        now: time::OffsetDateTime,
+    ) -> Result<Vec<crate::Reminder>, CoreError>;
+
+    // ---------------------------------------------------- pilha de alertas
+
+    /// Cria um alerta de uma pilha.
+    fn create_trigger(
+        &self,
+        trigger: crate::NewReminderTrigger,
+    ) -> Result<crate::ReminderTrigger, CoreError>;
+
+    /// Os alertas de um lembrete, na ordem do relogio.
+    fn triggers_for(
+        &self,
+        reminder: crate::ReminderId,
+    ) -> Result<Vec<crate::ReminderTrigger>, CoreError>;
+
+    /// Muda o estado de um alerta: disparado, pulado, cancelado.
+    fn set_trigger_status(
+        &self,
+        id: crate::ReminderTriggerId,
+        status: crate::StackTriggerStatus,
+        at: Option<time::OffsetDateTime>,
+    ) -> Result<crate::ReminderTrigger, CoreError>;
+
+    /// Cancela TODOS os alertas pendentes de um lembrete, numa consulta.
+    ///
+    /// Existe como operacao propria porque ela acontece no momento em que a
+    /// pessoa conclui ou cancela — e um laco de N escritas ali seria N chances
+    /// de o processo morrer no meio, deixando metade da pilha viva.
+    fn cancel_pending_triggers(&self, reminder: crate::ReminderId) -> Result<usize, CoreError>;
+
+    /// Os lembretes com alerta pendente ja vencido.
+    fn triggers_due(
+        &self,
+        now: time::OffsetDateTime,
+    ) -> Result<Vec<crate::ReminderTrigger>, CoreError>;
+
+    // -------------------------------------------------------- historico
+
+    fn record_event(&self, event: crate::NewReminderEvent) -> Result<(), CoreError>;
+
+    /// O historico de um lembrete, do mais recente para tras.
+    fn events_for(
+        &self,
+        reminder: crate::ReminderId,
+        limit: usize,
+    ) -> Result<Vec<crate::ReminderEvent>, CoreError>;
+
+    // ------------------------------------------------------ configuracao
+
+    /// O que e deste APARELHO: silencio e canal do sistema. Nao sincroniza.
+    fn attention_settings(&self) -> Result<crate::AttentionSettings, CoreError>;
+
+    fn save_attention_settings(
+        &self,
+        settings: crate::AttentionSettings,
+    ) -> Result<crate::AttentionSettings, CoreError>;
 }
 /// Persistencia do Meeting Agent.
 ///

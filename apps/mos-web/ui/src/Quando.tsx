@@ -17,6 +17,17 @@ import { disponiveis, padrao, paraCampoLocal, porExtenso } from "./instantes";
  * lembrado dela, não configurar um lembrete: o título já existe — é a Task. O
  * `UX-PRINCIPLES.md` §88 mede a experiência por decisões desnecessárias, e todas
  * essas seriam.
+ *
+ * # As duas que ela passou a perguntar, e por quê
+ *
+ * **"Algum dia"** é um chip ao lado dos outros. Sem ele, a única forma de
+ * guardar "comprar cabo HDMI" seria inventar uma hora — e uma hora inventada é
+ * uma notificação que se aprende a ignorar.
+ *
+ * **"Não me deixe esquecer"** é um interruptor, e não um chip: ele não escolhe
+ * *quando*, escolhe *como*. Fica no primeiro nível porque é a escolha que muda o
+ * comportamento do lembrete, e escondê-la atrás de "mais opções" faria a
+ * capacidade central do sistema depender de alguém descobrir um link.
  */
 export function Quando({
   titulo,
@@ -30,11 +41,14 @@ export function Quando({
   /** A linha acima do título. "LEMBRAR DESTA TASK", por exemplo. */
   descricao: string;
   ocupado: boolean;
-  aoEscolher: (quando: Date) => void;
+  /** `null` em `quando` é "algum dia": existe, e não interrompe. */
+  aoEscolher: (quando: Date | null, persistente: boolean) => void;
   aoFechar: () => void;
 }) {
   const [quando, setQuando] = useState<Date>(() => padrao());
   const [aberto, setAberto] = useState(false);
+  const [semData, setSemData] = useState(false);
+  const [persistente, setPersistente] = useState(false);
   const folha = useRef<HTMLDivElement>(null);
   // A base do cálculo é congelada na abertura. Sem isto, cada `render` moveria
   // "15 min" um pouco para a frente, e o chip aceso pararia de bater com o
@@ -95,13 +109,27 @@ export function Quando({
             type="button"
             className="chip"
             aria-pressed={aberto}
-            onClick={() => setAberto(true)}
+            onClick={() => {
+              setSemData(false);
+              setAberto(true);
+            }}
           >
             Escolher
           </button>
+          <button
+            type="button"
+            className="chip"
+            aria-pressed={semData}
+            onClick={() => {
+              setAberto(false);
+              setSemData((atual) => !atual);
+            }}
+          >
+            Algum dia
+          </button>
         </div>
 
-        {aberto ? (
+        {aberto && !semData ? (
           <input
             aria-label="Data e hora"
             className="campo-hora"
@@ -117,8 +145,23 @@ export function Quando({
 
         {/* O instante resolvido, sempre visível. Ver `instantes.ts`. */}
         <p className="folha-instante" aria-live="polite">
-          {porExtenso(quando)}
+          {semData ? "Sem data — não vai interromper você" : porExtenso(quando)}
         </p>
+
+        {/* Interruptor de verdade, e não um chip que finge ser um: ligado ou
+            desligado precisa chegar ao leitor de tela como o que é, e
+            `aria-pressed` num botão diz outra coisa. */}
+        <label className="folha-interruptor">
+          <input
+            checked={persistente}
+            onChange={(evento) => setPersistente(evento.currentTarget.checked)}
+            type="checkbox"
+          />
+          <span>
+            Não me deixe esquecer
+            <small>continua cobrando até você resolver</small>
+          </span>
+        </label>
 
         <div className="folha-acoes">
           <button
@@ -134,7 +177,7 @@ export function Quando({
             type="button"
             className="botao"
             disabled={ocupado}
-            onClick={() => aoEscolher(quando)}
+            onClick={() => aoEscolher(semData ? null : quando, persistente)}
           >
             {ocupado ? "Criando" : "Criar lembrete"}
           </button>

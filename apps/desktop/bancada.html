@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>M/OS — bancada da Task</title>
+  </head>
+  <body>
+    <!-- A bancada existe SÓ em desenvolvimento: o `vite build` tem uma entrada
+         só (`index.html`), então nada disto vai para o binário.
+
+         Ela renderiza os componentes DE VERDADE com o CSS de verdade, e não uma
+         marcação escrita à mão — que é o que separa esta bancada da
+         `spikes/bancada-faixa.html`. O que ela não substitui é a foto da janela
+         real: só lá o WebView2 é o WebView2. -->
+    <div id="raiz"></div>
+    <script type="module" src="/src/bancada.tsx"></script>
+  </body>
+</html>

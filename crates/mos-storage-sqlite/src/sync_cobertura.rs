@@ -28,11 +28,13 @@
 #[allow(dead_code)]
 pub(crate) const SINCRONIZAVEIS: &[&str] = &[
     "tasks",
+    "task_checklist_items",
     "projects",
     "workspaces",
     "captures",
     "resources",
     "reminders",
+    "reminder_triggers",
     "academic_semesters",
     "academic_subjects",
     "academic_assignments",
@@ -53,6 +55,7 @@ pub(crate) const SINCRONIZAVEIS: &[&str] = &[
     "weekly_reviews",
     // Tabelas de juncao: viajam como `relation`, e nao como tipo proprio.
     "resource_projects",
+    "resource_tasks",
     "resource_workspaces",
     "project_workspaces",
 ];
@@ -97,6 +100,8 @@ pub(crate) const LOCAIS: &[(&str, &str)] = &[
     ("workspace_widget_layout", "idem"),
     ("workspace_hidden_widgets", "idem"),
     ("attention_notifications", "notificacao ja entregue nesta maquina"),
+    ("reminder_events", "o historico de COMO o lembrete apareceu AQUI; o que a pessoa decidiu ja viaja nos campos do proprio lembrete, e um log append-only exigiria um segundo motor de sync"),
+    ("attention_settings", "silencio e canal do sistema sao deste aparelho: silenciar o celular a noite nao pode silenciar o PC do escritorio"),
     // --- ainda nao decidido, e por isso listado ---
     ("academic_external_refs", "contabilidade do provedor NESTA maquina: `first_synced_at` e `last_synced_at` sao fatos locais, e as entidades que ela aponta ja viajam pelos ids proprios. Limite conhecido: se o Univirtus for conectado nos DOIS PCs, cada um importaria com ids proprios e criaria duplicata"),
     ("academic_material_urls", "cache datado de uma `temporary_url` do provedor: o endereco expira, e mandar um link vencido para o outro PC e pior que nao mandar"),
@@ -118,20 +123,22 @@ mod tests {
             || nome.ends_with("_content")
     }
 
-    /// A cobertura da geracao 2, copiada a mao.
+    /// A cobertura da geracao 4, copiada a mao.
     ///
     /// A duplicacao E o mecanismo, e nao descuido: mudar `SINCRONIZAVEIS` sem
     /// tocar aqui quebra este teste, e a mensagem manda subir `GERACAO_ATUAL`.
     /// Sem isso a cobertura cresce em silencio, quem ja passou pelo backfill
     /// nunca re-emite o que foi incluido, e o dado velho fica parado num PC so
     /// — que foi exatamente o que aconteceu entre a geracao 1 e a v0.3.4.
-    const COBERTURA_DA_GERACAO_2: &[&str] = &[
+    const COBERTURA_DA_GERACAO_4: &[&str] = &[
         "tasks",
+        "task_checklist_items",
         "projects",
         "workspaces",
         "captures",
         "resources",
         "reminders",
+        "reminder_triggers",
         "academic_semesters",
         "academic_subjects",
         "academic_assignments",
@@ -152,6 +159,7 @@ mod tests {
         "weekly_reviews",
         // Tabelas de juncao: viajam como `relation`, e nao como tipo proprio.
         "resource_projects",
+        "resource_tasks",
         "resource_workspaces",
         "project_workspaces",
     ];
@@ -159,12 +167,12 @@ mod tests {
     #[test]
     fn mudar_a_cobertura_obriga_a_subir_a_geracao() {
         assert_eq!(
-            SINCRONIZAVEIS, COBERTURA_DA_GERACAO_2,
+            SINCRONIZAVEIS, COBERTURA_DA_GERACAO_4,
             "A cobertura mudou. Suba `GERACAO_ATUAL` em `sync_backfill.rs` e              escreva aqui a lista nova, como `COBERTURA_DA_GERACAO_N` — sem              isso, quem ja passou pelo backfill nunca re-emite o que voce              acabou de incluir."
         );
         assert_eq!(
             crate::sync_backfill::GERACAO_ATUAL,
-            2,
+            4,
             "a geracao subiu; atualize a copia da cobertura neste teste"
         );
     }

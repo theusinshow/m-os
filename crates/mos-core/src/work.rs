@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::{Capture, CaptureId, CoreError, ErrorCode, LifecycleState, RegisteredApp};
+use crate::{Capture, CaptureId, CoreError, ErrorCode, LifecycleState, Priority, RegisteredApp};
 
 macro_rules! entity_id {
     ($name:ident, $label:literal) => {
@@ -56,6 +56,7 @@ macro_rules! entity_id {
 
 entity_id!(ProjectId, "Project");
 entity_id!(TaskId, "Task");
+entity_id!(ChecklistItemId, "Item de checklist");
 entity_id!(WorkspaceId, "Workspace");
 
 /// Estado de trabalho da Task.
@@ -192,11 +193,58 @@ impl NewProject {
 pub struct Task {
     pub id: TaskId,
     pub title: String,
+    /// O contexto da Task: o que ela precisa dizer e nao cabe no titulo.
+    ///
+    /// NAO e o checklist, e a distincao e do produto: a descricao e informacao
+    /// que se LE ("manter cobrimento de 5 cm, conforme a reuniao"); o item de
+    /// checklist e trabalho que se CONCLUI. Misturar os dois faz uma lista de
+    /// coisas que nunca terminam.
     pub description: String,
     pub project_id: Option<ProjectId>,
     pub source_capture_id: Option<CaptureId>,
     pub state: TaskState,
     pub lifecycle_state: LifecycleState,
+    /// Quando o trabalho VENCE.
+    ///
+    /// Nao e o lembrete, e a diferenca e a razao de a coluna existir (ADR-066):
+    /// o prazo descreve o compromisso, o lembrete descreve a interrupcao. Uma
+    /// Task pode vencer as 17:00 e pedir aviso as 16:30, e ate 2026-09-08 o
+    /// M/OS nao conseguia dizer isso — a decisao D-1 tinha recusado o campo.
+    ///
+    /// `None` e o estado normal: a maioria das Tasks nao vence dia nenhum.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub due_at: Option<OffsetDateTime>,
+    /// A mesma escala do Reminder, e nao uma segunda. `Normal` e neutro na tela.
+    pub priority: Priority,
+    /// Quanto tempo isto deve levar, em minutos. `None` e "nao estimei", que
+    /// nao e zero.
+    pub estimate_minutes: Option<i64>,
+    /// A Task de que esta e subtask. Subtask e Task de verdade, e nao um
+    /// terceiro tipo — ver a migration 0039.
+    pub parent_task_id: Option<TaskId>,
+    /// A Task que precisa terminar antes desta poder andar.
+    pub blocked_by_task_id: Option<TaskId>,
+    /// Quem esta segurando esta Task. Texto, e nao entidade: nao existe
+    /// cadastro de pessoas no M/OS, e criar um para escrever "Victor" seria
+    /// construir um CRM por engano.
+    pub waiting_for: String,
+    /// Quando cobrar quem esta segurando. Diferente do prazo: a Task nao esta
+    /// atrasada porque um terceiro nao respondeu.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub follow_up_at: Option<OffsetDateTime>,
+    /// Quantos itens de checklist esta Task tem, e quantos estao concluidos.
+    ///
+    /// DERIVADOS, e nao colunas: eles saem de um `GROUP BY` na mesma consulta
+    /// que traz a Task. Guarda-los seria um segundo lugar onde a verdade mora,
+    /// e o primeiro `UPDATE` esquecido faria o card mentir.
+    ///
+    /// Vem junto da Task porque o card do Kanban precisa deles e NAO precisa do
+    /// resto: pedir o checklist inteiro de cada card seria o N+1 que o desenho
+    /// recusa.
+    #[serde(default)]
+    pub checklist_total: usize,
+    #[serde(default)]
+    pub checklist_done: usize,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -205,16 +253,150 @@ pub struct Task {
     pub completed_at: Option<OffsetDateTime>,
 }
 
+impl Task {
+    /// O progresso do checklist, de 0.0 a 1.0. `None` quando nao ha checklist —
+    /// e ai a tela nao desenha barra nenhuma, em vez de desenhar uma vazia que
+    /// parece trabalho nao comecado.
+    pub fn checklist_progress(&self) -> Option<f64> {
+        (self.checklist_total > 0).then(|| self.checklist_done as f64 / self.checklist_total as f64)
+    }
+
+    /// Todos os itens concluidos, e a Task ainda aberta.
+    ///
+    /// A tela usa isto para OFERECER a conclusao, e nunca para executa-la: uma
+    /// Task que se fecha sozinha e o sistema afirmando algo que a pessoa nao
+    /// disse — a mesma inclinacao que a ADR-035 gravou ao fazer o desfazer
+    /// arquivar em vez de apagar.
+    pub fn checklist_is_complete(&self) -> bool {
+        self.checklist_total > 0
+            && self.checklist_done == self.checklist_total
+            && self.state != TaskState::Done
+    }
+}
+
+/// Um passo dentro de uma Task.
+///
+/// # Por que ele nao e uma Task
+///
+/// Uma Task tem estado, prazo, prioridade, projeto e lugar no quadro. Um passo
+/// tem texto, ordem e um risco de estar feito. Promover cada passo a Task
+/// encheria o Kanban de cartoes de trinta segundos — que e exatamente o que o
+/// M/OS nao quer ser.
+///
+/// A fronteira, escrita: **o que merece existir sozinho no quadro e Subtask; o
+/// que so faz sentido dentro do trabalho maior e item de checklist.**
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChecklistItem {
+    pub id: ChecklistItemId,
+    pub task_id: TaskId,
+    pub label: String,
+    pub position: i64,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub completed_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
+}
+
+impl ChecklistItem {
+    pub fn completed(&self) -> bool {
+        self.completed_at.is_some()
+    }
+}
+
+/// O maior checklist que uma Task aceita de uma vez.
+///
+/// Teto e nao promessa: ele existe para uma colagem acidental de um documento
+/// inteiro nao virar oitocentas linhas riscaveis. Vinte e cinco cobre qualquer
+/// checklist que uma pessoa de fato executa; passou disso, o que existe ali sao
+/// Subtasks ou outra Task.
+pub const MAX_CHECKLIST_PASTE: usize = 25;
+
+/// Texto colado vira uma lista de itens — sem IA, e sem adivinhacao.
+///
+/// # Por que determinismo, e nao modelo
+///
+/// A pessoa cola quatro linhas e quer quatro itens. Mandar isso para um modelo
+/// custaria rede, espera e a chance de ele reescrever as palavras dela. O que
+/// esta funcao faz cabe numa regra: uma linha e um item, e a decoracao de lista
+/// que a origem trouxe (`-`, `*`, `1.`, `[ ]`, `[x]`) nao faz parte do texto.
+///
+/// O `[x]` NAO marca o item como concluido. Ele so e removido do texto: quem
+/// cola uma lista esta descrevendo o trabalho, e presumir que metade dele ja
+/// esta feita e o tipo de esperteza que faz perder confianca no sistema.
+pub fn parse_checklist_lines(text: &str) -> Vec<String> {
+    text.lines()
+        .map(strip_list_marker)
+        .filter(|linha| !linha.is_empty())
+        .take(MAX_CHECKLIST_PASTE)
+        .collect()
+}
+
+/// Tira a decoracao de lista de UMA linha.
+fn strip_list_marker(linha: &str) -> String {
+    let mut resto = linha.trim();
+    // O marcador de item: hifen, asterisco, bolinha, ou "12." / "12)".
+    //
+    // O corte e por PRIMEIRO CARACTERE e nao por prefixo de dois: "- " ja veio
+    // aparado pelo `trim`, entao procurar o par nao acharia nada e a linha vazia
+    // de um bullet solto viraria um item chamado "-".
+    if resto
+        .chars()
+        .next()
+        .is_some_and(|inicial| matches!(inicial, '-' | '*' | '•' | '–'))
+    {
+        let sem_bullet = &resto[resto.chars().next().map_or(0, char::len_utf8)..];
+        // So e marcador se o que vem depois for espaco ou nada. Sem esta
+        // guarda, "-5cm de cobrimento" perderia o sinal de menos.
+        if sem_bullet.is_empty() || sem_bullet.starts_with(char::is_whitespace) {
+            resto = sem_bullet.trim_start();
+        }
+    } else if let Some(posicao) = resto.find(['.', ')']) {
+        let (numero, depois) = resto.split_at(posicao);
+        if !numero.is_empty()
+            && numero.len() <= 3
+            && numero.chars().all(|c| c.is_ascii_digit())
+            && depois[1..].starts_with(' ')
+        {
+            resto = depois[1..].trim_start();
+        }
+    }
+    // A caixa, quando a origem ja escrevia checklist.
+    for caixa in ["[ ]", "[x]", "[X]", "[]"] {
+        if let Some(sem_caixa) = resto.strip_prefix(caixa) {
+            resto = sem_caixa.trim_start();
+            break;
+        }
+    }
+    resto.trim().to_owned()
+}
+
 #[derive(Clone, Debug)]
 pub struct NewTask {
     pub id: TaskId,
     pub title: String,
     pub description: String,
     pub project_id: Option<ProjectId>,
+    pub due_at: Option<OffsetDateTime>,
+    pub priority: Priority,
+    pub estimate_minutes: Option<i64>,
+    pub parent_task_id: Option<TaskId>,
+    /// Os passos com que a Task nasce. Vazio e o caso comum — a criacao rapida
+    /// continua sendo um titulo e mais nada.
+    pub checklist: Vec<String>,
     pub created_at: OffsetDateTime,
 }
 
 impl NewTask {
+    /// A criacao minima: titulo, contexto e Project.
+    ///
+    /// Os campos novos da 0039 entram por `with_*` e nao por parametro, e isso
+    /// e deliberado: sete lugares do M/OS criam Task (voz, reuniao, faculdade,
+    /// Capture, quadro, bolso, Hermes), e nenhum deles precisa saber de prazo
+    /// para continuar funcionando. Um construtor de nove argumentos faria toda
+    /// chamada existente carregar seis `None`.
     pub fn create(
         title: &str,
         description: &str,
@@ -225,9 +407,181 @@ impl NewTask {
             title: required(title, "O titulo da Task nao pode estar vazio.")?,
             description: description.trim().to_owned(),
             project_id,
+            due_at: None,
+            priority: Priority::Normal,
+            estimate_minutes: None,
+            parent_task_id: None,
+            checklist: Vec::new(),
             created_at: OffsetDateTime::now_utc(),
         })
     }
+
+    pub fn with_due_at(mut self, due_at: Option<OffsetDateTime>) -> Self {
+        self.due_at = due_at;
+        self
+    }
+
+    pub fn with_priority(mut self, priority: Priority) -> Self {
+        self.priority = priority;
+        self
+    }
+
+    pub fn with_estimate(mut self, minutes: Option<i64>) -> Self {
+        self.estimate_minutes = minutes.filter(|valor| *valor > 0);
+        self
+    }
+
+    pub fn with_parent(mut self, parent: Option<TaskId>) -> Self {
+        self.parent_task_id = parent;
+        self
+    }
+
+    /// Os itens ja chegam limpos: vazio fora, decoracao de lista fora, teto
+    /// aplicado. Assim nenhum caminho de entrada precisa lembrar da regra.
+    pub fn with_checklist(mut self, itens: &[String]) -> Self {
+        self.checklist = itens
+            .iter()
+            .map(|item| strip_list_marker(item))
+            .filter(|item| !item.is_empty())
+            .take(MAX_CHECKLIST_PASTE)
+            .collect();
+        self
+    }
+}
+
+/// O que uma edicao de Task grava.
+///
+/// # Por que uma estrutura, e nao dez parametros
+///
+/// `update_task` tinha quatro parametros e ganharia mais seis. Trocar dois
+/// `Option<OffsetDateTime>` de lugar por engano — prazo no lugar do follow-up —
+/// compilaria sem uma reclamacao, e o defeito apareceria como uma Task que
+/// vence no dia em que alguem deveria ser cobrado. E a mesma razao de
+/// `calendar::ComposeInput` existir.
+///
+/// A escrita e **autoritativa**: o que chega aqui e o que fica gravado, campo
+/// por campo. Nao ha "nao mexi neste" — `due_at: None` significa *tire o
+/// prazo*, e e assim que se desfaz um prazo. Quem tem edicao parcial (o bolso
+/// manda so o que mudou) le a Task atual e preenche o resto, que e o unico
+/// lugar onde essa regra pode morar sem virar `COALESCE` no banco.
+#[derive(Clone, Debug)]
+pub struct EditTask {
+    pub title: String,
+    pub description: String,
+    pub project_id: Option<ProjectId>,
+    pub due_at: Option<OffsetDateTime>,
+    pub priority: Priority,
+    pub estimate_minutes: Option<i64>,
+    pub parent_task_id: Option<TaskId>,
+    pub blocked_by_task_id: Option<TaskId>,
+    pub waiting_for: String,
+    pub follow_up_at: Option<OffsetDateTime>,
+}
+
+impl EditTask {
+    /// A edicao que nao muda nada, a partir da Task como ela esta.
+    ///
+    /// E o ponto de partida de toda edicao parcial: leia a Task, mude o campo,
+    /// grave. Sem isto, cada superficie reescreveria a regra de "o que nao veio
+    /// continua como estava" — e uma delas erraria.
+    pub fn from_task(task: &Task) -> Self {
+        Self {
+            title: task.title.clone(),
+            description: task.description.clone(),
+            project_id: task.project_id,
+            due_at: task.due_at,
+            priority: task.priority,
+            estimate_minutes: task.estimate_minutes,
+            parent_task_id: task.parent_task_id,
+            blocked_by_task_id: task.blocked_by_task_id,
+            waiting_for: task.waiting_for.clone(),
+            follow_up_at: task.follow_up_at,
+        }
+    }
+
+    /// Valida o que o banco e o produto exigem, e devolve a edicao limpa.
+    ///
+    /// Duas regras que so podem morar aqui, porque as duas dependem de saber
+    /// QUAL Task esta sendo editada:
+    ///
+    /// - uma Task nao e pai de si mesma;
+    /// - uma Task nao se bloqueia sozinha.
+    ///
+    /// As duas produziriam um ciclo de tamanho um — e um ciclo de tamanho um e
+    /// uma Task que nunca pode andar, desenhada por um clique distraido.
+    pub fn validate(mut self, id: TaskId) -> Result<Self, CoreError> {
+        self.title = required(&self.title, "O titulo da Task nao pode estar vazio.")?;
+        self.description = self.description.trim().to_owned();
+        self.waiting_for = self.waiting_for.trim().to_owned();
+        self.estimate_minutes = self.estimate_minutes.filter(|valor| *valor > 0);
+        if self.parent_task_id == Some(id) {
+            return Err(CoreError::new(
+                ErrorCode::InvalidInput,
+                "Uma Task nao pode ser subtask dela mesma.",
+                false,
+            ));
+        }
+        if self.blocked_by_task_id == Some(id) {
+            return Err(CoreError::new(
+                ErrorCode::InvalidInput,
+                "Uma Task nao pode estar bloqueada por ela mesma.",
+                false,
+            ));
+        }
+        Ok(self)
+    }
+}
+
+/// O rascunho de um item de checklist.
+#[derive(Clone, Debug)]
+pub struct NewChecklistItem {
+    pub id: ChecklistItemId,
+    pub task_id: TaskId,
+    pub label: String,
+    pub created_at: OffsetDateTime,
+}
+
+impl NewChecklistItem {
+    pub fn create(task_id: TaskId, label: &str) -> Result<Self, CoreError> {
+        Ok(Self {
+            id: ChecklistItemId::new(),
+            task_id,
+            label: required(
+                &strip_list_marker(label),
+                "O item de checklist nao pode estar vazio.",
+            )?,
+            created_at: OffsetDateTime::now_utc(),
+        })
+    }
+}
+
+/// A Task com tudo que a folha de detalhe mostra, numa ida so ao banco.
+///
+/// # Por que uma estrutura, e nao cinco chamadas
+///
+/// Abrir a gaveta pedia Task, checklist, subtasks, referencias e lembretes. Em
+/// cinco chamadas isso sao cinco viagens e cinco estados de carregamento na
+/// tela — e a gaveta piscaria montada pela metade. Aqui e uma consulta so, e a
+/// folha aparece inteira ou nao aparece.
+///
+/// **O que NAO esta aqui e tao importante quanto o que esta.** O card do quadro
+/// nao usa isto: ele usa `Task`, que ja carrega os dois numeros do progresso.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskDetail {
+    pub task: Task,
+    pub checklist: Vec<ChecklistItem>,
+    /// As Tasks filhas, na ordem em que foram criadas.
+    pub subtasks: Vec<Task>,
+    /// A Task que bloqueia esta, ja resolvida — a gaveta mostra o TITULO dela,
+    /// e um id nao diz nada a ninguem.
+    pub blocked_by: Option<Task>,
+    /// Os Resources ligados a esta Task. Sao os mesmos Resources da Library:
+    /// referencia aqui nao e um segundo sistema de anexo.
+    pub references: Vec<crate::Resource>,
+    /// Os lembretes que apontam para esta Task. Vem do Attention System, e nao
+    /// de um agendador proprio.
+    pub reminders: Vec<crate::Reminder>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -537,6 +891,147 @@ mod tests {
         assert!(validate_section_id("Overview").is_err());
         assert!(validate_section_id("2overview").is_err());
         assert!(validate_section_id("").is_err());
+    }
+
+    // ------------------------------------------------------------- checklist
+
+    #[test]
+    fn colar_linhas_vira_uma_lista_de_itens() {
+        let itens = parse_checklist_lines(
+            "Corrigir armadura\nAtualizar corte\n\nRevisar niveis\nEnviar para Victor",
+        );
+        assert_eq!(
+            itens,
+            [
+                "Corrigir armadura",
+                "Atualizar corte",
+                "Revisar niveis",
+                "Enviar para Victor"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_decoracao_de_lista_nao_faz_parte_do_texto() {
+        let itens = parse_checklist_lines(
+            "- Conferir niveis\n* Conferir formas\n1. Conferir armaduras\n2) Atualizar PDF\n• Enviar",
+        );
+        assert_eq!(
+            itens,
+            [
+                "Conferir niveis",
+                "Conferir formas",
+                "Conferir armaduras",
+                "Atualizar PDF",
+                "Enviar"
+            ]
+        );
+    }
+
+    /// A caixa some do texto e NAO marca nada: quem cola uma lista esta
+    /// descrevendo o trabalho, e presumir que metade ja esta feita e a esperteza
+    /// que custa confianca.
+    #[test]
+    fn a_caixa_sai_do_texto_e_nao_conclui_o_item() {
+        let itens = parse_checklist_lines("[x] Corrigir nivel\n[ ] Gerar PDF\n- [x] Enviar");
+        assert_eq!(itens, ["Corrigir nivel", "Gerar PDF", "Enviar"]);
+    }
+
+    #[test]
+    fn a_colagem_tem_teto() {
+        let colado = (0..80)
+            .map(|indice| format!("item {indice}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(parse_checklist_lines(&colado).len(), MAX_CHECKLIST_PASTE);
+    }
+
+    #[test]
+    fn um_item_vazio_e_recusado() {
+        let task = TaskId::new();
+        assert!(NewChecklistItem::create(task, "   ").is_err());
+        assert!(NewChecklistItem::create(task, "- ").is_err());
+        assert_eq!(
+            NewChecklistItem::create(task, "  - Gerar PDF ")
+                .unwrap()
+                .label,
+            "Gerar PDF"
+        );
+    }
+
+    #[test]
+    fn a_task_nasce_sem_prazo_prioridade_neutra_e_sem_checklist() {
+        let task = NewTask::create("Revisar projeto", "", None).unwrap();
+        assert!(task.due_at.is_none());
+        assert_eq!(task.priority, Priority::Normal);
+        assert!(task.checklist.is_empty());
+        assert!(task.parent_task_id.is_none());
+    }
+
+    #[test]
+    fn estimativa_zero_ou_negativa_e_ausencia() {
+        assert_eq!(
+            NewTask::create("x", "", None)
+                .unwrap()
+                .with_estimate(Some(0))
+                .estimate_minutes,
+            None
+        );
+        assert_eq!(
+            NewTask::create("x", "", None)
+                .unwrap()
+                .with_estimate(Some(30))
+                .estimate_minutes,
+            Some(30)
+        );
+    }
+
+    #[test]
+    fn o_progresso_so_existe_quando_ha_checklist() {
+        let mut task = exemplo();
+        assert_eq!(task.checklist_progress(), None);
+        assert!(!task.checklist_is_complete());
+
+        task.checklist_total = 6;
+        task.checklist_done = 3;
+        assert_eq!(task.checklist_progress(), Some(0.5));
+        assert!(!task.checklist_is_complete());
+
+        task.checklist_done = 6;
+        assert!(
+            task.checklist_is_complete(),
+            "todos feitos, Task ainda aberta"
+        );
+
+        task.state = TaskState::Done;
+        assert!(
+            !task.checklist_is_complete(),
+            "Task ja concluida nao se oferece para concluir de novo"
+        );
+    }
+
+    fn exemplo() -> Task {
+        Task {
+            id: TaskId::new(),
+            title: "Revisar projeto estrutural".into(),
+            description: String::new(),
+            project_id: None,
+            source_capture_id: None,
+            state: TaskState::Backlog,
+            lifecycle_state: LifecycleState::Active,
+            due_at: None,
+            priority: Priority::Normal,
+            estimate_minutes: None,
+            parent_task_id: None,
+            blocked_by_task_id: None,
+            waiting_for: String::new(),
+            follow_up_at: None,
+            checklist_total: 0,
+            checklist_done: 0,
+            created_at: OffsetDateTime::now_utc(),
+            updated_at: OffsetDateTime::now_utc(),
+            completed_at: None,
+        }
     }
 
     #[test]
