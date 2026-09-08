@@ -3,6 +3,7 @@ import {
   getCurrentMonthForUser,
   getCurrentMonthParts,
   getMonthByParts,
+  getMonthIdsWithActivity,
   getMonthsForUser,
 } from "@/lib/months";
 import { formatMonthLabel } from "@/lib/formatters/date";
@@ -51,14 +52,50 @@ export async function getActiveMonthForUser(userId: string) {
   return getCurrentMonthForUser(userId);
 }
 
+type MonthParts = { month: number; year: number };
+
+function monthKey({ month, year }: MonthParts) {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
 /**
- * Builds the switcher list: every existing month plus the current calendar
- * month (so the user can always navigate back to "now"), newest first.
+ * O que o seletor de mês deve oferecer.
+ *
+ * Uma linha em `months` nasce por muito motivo que não é o dono ter usado o
+ * mês: uma série parcelada de 22 parcelas cria 22 delas de uma vez. O passado
+ * vazio não tem nada para mostrar — e era exatamente onde o app reabria,
+ * exibindo R$ 0,00 como se fosse a vida real. O futuro vazio fica: é onde o
+ * mês novo nasce.
+ */
+export function visibleSwitcherMonths(
+  items: MonthParts[],
+  keysWithActivity: Set<string>,
+  current: MonthParts,
+): MonthParts[] {
+  return items.filter((item) => {
+    const isPast = item.year < current.year || (item.year === current.year && item.month < current.month);
+    if (!isPast) return true;
+    return keysWithActivity.has(monthKey(item));
+  });
+}
+
+/**
+ * Builds the switcher list: every month that has something to show plus the
+ * current calendar month (so the user can always navigate back to "now"),
+ * newest first.
  */
 export async function getMonthSwitcherData(userId: string) {
   const rows = await getMonthsForUser(userId);
   const current = getCurrentMonthParts();
-  const items = rows.map((row) => ({ month: row.month, year: row.year }));
+  const activity = await getMonthIdsWithActivity(userId);
+  const keysWithActivity = new Set(
+    rows.filter((row) => activity.has(row.id)).map((row) => monthKey(row)),
+  );
+  const items = visibleSwitcherMonths(
+    rows.map((row) => ({ month: row.month, year: row.year })),
+    keysWithActivity,
+    current,
+  );
 
   if (!items.some((item) => item.month === current.month && item.year === current.year)) {
     items.push(current);

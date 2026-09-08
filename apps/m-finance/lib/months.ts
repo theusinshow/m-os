@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { months, users } from "@/db/schema";
+import { bills, creditCardInvoices, incomes, months, users } from "@/db/schema";
 
 export function getCurrentMonthParts(date = new Date()) {
   return {
@@ -174,4 +174,30 @@ export async function getNextMonthForUser(userId: string) {
     .limit(1);
 
   return month ?? null;
+}
+
+/**
+ * Os meses que têm alguma coisa dentro — conta, fatura ou receita.
+ *
+ * O seletor precisa distinguir "mês que existe" de "mês que aconteceu": uma
+ * série parcelada cria a linha de 22 meses de uma vez, e um passado vazio no
+ * seletor é só um lugar para o app se perder.
+ */
+export async function getMonthIdsWithActivity(userId: string) {
+  if (!db) {
+    return new Set<string>();
+  }
+
+  const [billMonths, invoiceMonths, incomeMonths] = await Promise.all([
+    db.selectDistinct({ monthId: bills.monthId }).from(bills).where(eq(bills.userId, userId)),
+    db
+      .selectDistinct({ monthId: creditCardInvoices.monthId })
+      .from(creditCardInvoices)
+      .where(eq(creditCardInvoices.userId, userId)),
+    db.selectDistinct({ monthId: incomes.monthId }).from(incomes).where(eq(incomes.userId, userId)),
+  ]);
+
+  return new Set(
+    [...billMonths, ...invoiceMonths, ...incomeMonths].map((row) => row.monthId),
+  );
 }
