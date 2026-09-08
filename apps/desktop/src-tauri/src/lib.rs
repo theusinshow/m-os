@@ -32,6 +32,7 @@ mod daily;
 mod diagnostico;
 mod finance;
 mod hermes;
+mod hermes_tunel;
 mod ingest;
 mod jarvis;
 mod meeting;
@@ -2328,6 +2329,8 @@ pub fn run() {
                     openai_usage::openai_usage_clear_key,
                     openai_usage::openai_usage_refresh,
                     hermes::hermes_status,
+                    hermes_tunel::hermes_tunnel_status,
+                    hermes_tunel::hermes_tunnel_open,
                     sync::sync_status,
                     sync::sync_set_endpoint,
                     sync::sync_set_token,

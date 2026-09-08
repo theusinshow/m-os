@@ -17,7 +17,7 @@ import { api, appError } from "./api";
 import { alinhamento, type Alinhamento } from "./malha";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { finance } from "./finance";
-import { hermes, type HermesStatus } from "./hermes";
+import { hermes, type HermesStatus, type TunelStatus } from "./hermes";
 import { Button } from "./Button";
 import { AtualizacaoPanel } from "./AtualizacaoPanel";
 import { MeetingSettings } from "./MeetingSettings";
@@ -206,6 +206,8 @@ function resumoDoSync(report: SyncReport): string {
 
 function HermesSettings() {
   const [status, setStatus] = useState<HermesStatus | null>(null);
+  const [tunel, setTunel] = useState<TunelStatus | null>(null);
+  const [abrindo, setAbrindo] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -216,6 +218,40 @@ function HermesSettings() {
     const subscription = hermes.onState(setStatus);
     return () => { void subscription.then((dispose) => dispose()); };
   }, []);
+
+  // O tunel e conferido ao abrir a tela e a cada quinze segundos: ele morre por
+  // fora do app — VPS que cai, notebook que dorme — e um botao que so soubesse
+  // do estado da montagem diria "aberto" sobre um tunel que ja nao existe.
+  useEffect(() => {
+    const olhar = () => void hermes.tunnelStatus().then(setTunel).catch(() => undefined);
+    olhar();
+    const relogio = window.setInterval(olhar, 15_000);
+    return () => window.clearInterval(relogio);
+  }, []);
+
+  /**
+   * Abre o tunel e tenta conectar em seguida.
+   *
+   * As duas coisas juntas porque quem toca aqui quer FALAR com o Hermes, e nao
+   * abrir um tunel — abrir e o meio. Parar no meio deixaria a pessoa com o
+   * tunel de pe e a tela ainda dizendo Desconectado.
+   */
+  async function abrirTunel() {
+    setAbrindo(true);
+    setMessageState("saving");
+    setMessage("Abrindo o tunel...");
+    try {
+      setTunel(await hermes.tunnelOpen());
+      setMessageState("saved");
+      setMessage("Tunel aberto. Conectando ao Hermes...");
+      await hermes.connect().catch(() => undefined);
+      setMessage("Tunel aberto.");
+    } catch (error) {
+      setMessageState("error");
+      setMessage(appError(error).message);
+    }
+    setAbrindo(false);
+  }
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -256,7 +292,22 @@ function HermesSettings() {
 
   const stateLabel = status?.state === "online" ? "Conectado" : status?.state === "connecting" ? "Conectando" : "Desconectado";
   return <Panel label="HERMES">
-    <p className="support-copy">O M/OS é mais uma superfície do Hermes que já roda na sua VPS — a mesma que você usa pelo WhatsApp, numa conversa separada. O acesso é pelo túnel SSH; o M/OS não abre porta nem inicia o túnel.</p>
+    <p className="support-copy">O M/OS é mais uma superfície do Hermes que já roda na sua VPS — a mesma que você usa pelo WhatsApp, numa conversa separada. O acesso é pelo túnel SSH: o M/OS não abre porta nenhuma, mas sabe abrir o túnel quando ele está fechado.</p>
+    {/* O botão só existe quando há o que fazer: com o túnel de pé ele seria um
+        alvo que não muda nada, e um botão assim ensina que os botões desta tela
+        não fazem diferença. Sem chave ele vira a frase que diz por quê — falhar
+        depois do toque seria pior que não oferecer. */}
+    {tunel && !tunel.aberto ? (
+      tunel.temChave ? (
+        <div className="button-line">
+          <Button variant="secondary" disabled={abrindo} onClick={() => void abrirTunel()}>
+            {abrindo ? "Abrindo…" : "Abrir túnel"}
+          </Button>
+        </div>
+      ) : (
+        <p className="support-copy">O túnel está fechado e não há chave SSH sem passphrase em <code>~/.ssh</code>. Sem ela o M/OS não tem como abri-lo.</p>
+      )
+    ) : null}
     <form className="stack-form" onSubmit={save}>
       <label><span>ENDEREÇO LOCAL</span><input className="mono-input" value={baseUrl} onChange={(event) => setBaseUrl(event.currentTarget.value)} placeholder="http://127.0.0.1:9119" /></label>
       <label><span>USUÁRIO</span><input value={username} onChange={(event) => setUsername(event.currentTarget.value)} autoComplete="off" /></label>
@@ -269,6 +320,10 @@ function HermesSettings() {
     <dl className="fact-grid">
       <div><dt>ESTADO</dt><dd>{stateLabel}</dd></div>
       <div><dt>CREDENCIAL</dt><dd>{status?.hasCredentials ? "Configurada" : <span className="fact-empty">Não configurada</span>}</dd></div>
+      {/* O túnel entra nos fatos, e não só no botão: Offline com o túnel aberto
+          e Offline com ele fechado são dois problemas diferentes, e a tela
+          dizia a mesma coisa nos dois casos. */}
+      <div><dt>TÚNEL</dt><dd>{tunel?.aberto ? "Aberto" : <span className="fact-empty">Fechado</span>}</dd></div>
     </dl>
     {status?.detail ? <p className="support-copy">{status.detail}</p> : null}
     {message ? <StateMessage state={messageState} label={message} /> : null}

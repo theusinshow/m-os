@@ -168,9 +168,26 @@ export type HermesOutcome =
  *  barramento dividiam a mesma resposta entre si. */
 export type TurnEvent = HermesOutcome & { conversationId?: string; messageId?: string };
 
+/** O que o M/OS sabe sobre o túnel SSH, sem tentar abri-lo. */
+export type TunelStatus = {
+  /** A porta local está atendendo. É o que decide se o botão aparece. */
+  aberto: boolean;
+  /** Há chave utilizável no `~/.ssh`. Dizer isso ANTES do toque é melhor que
+   *  falhar depois dele. */
+  temChave: boolean;
+};
+
 export const hermes = {
   status() {
     return invoke<HermesStatus>("hermes_status");
+  },
+  tunnelStatus() {
+    return invoke<TunelStatus>("hermes_tunnel_status");
+  },
+  /** Abre o túnel e espera ele atender. Rejeita com a frase que diz o que houve
+   *  — chave ausente, autenticação recusada, VPS fora. */
+  tunnelOpen() {
+    return invoke<TunelStatus>("hermes_tunnel_open");
   },
   /** Rejeita com `HermesFailure`, nunca com string solta: quem chama precisa
    *  saber SE pode tentar de novo antes de tentar. */
