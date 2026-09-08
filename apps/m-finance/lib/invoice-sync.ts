@@ -20,7 +20,7 @@ type MonthRecord = { id: string; month: number; year: number };
  * `nextInvoiceTotal`.
  */
 export async function syncInvoiceTotal(
-  tx: Tx,
+  tx: Queryable,
   userId: string,
   cardId: string,
   month: MonthRecord,

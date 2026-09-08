@@ -77,18 +77,19 @@ export async function addCardExpense(_prev: FormState, formData: FormData): Prom
   const remainder = payload.amountCents - baseAmount * installmentTotal;
   const installmentId = installmentTotal > 1 ? crypto.randomUUID() : null;
 
-  await db.transaction(async (tx) => {
-    // A soma anterior diz se o total da fatura nasceu das compras ou foi
-    // digitado; sem ela, classificar apagaria um total lançado a mão.
-    const previousSums = new Map<string, number>();
-    for (const targetMonth of targetMonths) {
-      previousSums.set(
-        targetMonth.id,
-        await sumCardExpenses(tx, appUser.id, cardId, targetMonth.id),
-      );
-    }
+  // A soma anterior diz se o total da fatura nasceu das compras ou foi
+  // digitado; sem ela, classificar apagaria um total lançado a mão.
+  const previousSums = new Map<string, number>();
+  for (const targetMonth of targetMonths) {
+    previousSums.set(
+      targetMonth.id,
+      await sumCardExpenses(db, appUser.id, cardId, targetMonth.id),
+    );
+  }
 
-    await tx.insert(creditCardExpenses).values(
+  const inserted = await db
+    .insert(creditCardExpenses)
+    .values(
       targetMonths.map((targetMonth, index) => ({
         userId: appUser.id,
         cardId,
@@ -100,25 +101,25 @@ export async function addCardExpense(_prev: FormState, formData: FormData): Prom
         installmentNumber: installmentId ? index + 1 : null,
         installmentTotal: installmentId ? installmentTotal : null,
       })),
-    );
+    )
+    .returning({ id: creditCardExpenses.id });
 
-    for (const targetMonth of targetMonths) {
-      await syncInvoiceTotal(
-        tx,
-        appUser.id,
-        cardId,
-        targetMonth,
-        card.dueDay,
-        previousSums.get(targetMonth.id) ?? 0,
-      );
-    }
-  });
+  for (const targetMonth of targetMonths) {
+    await syncInvoiceTotal(
+      db,
+      appUser.id,
+      cardId,
+      targetMonth,
+      card.dueDay,
+      previousSums.get(targetMonth.id) ?? 0,
+    );
+  }
 
   revalidateCardSurfaces(cardId);
   return successState(
     installmentTotal > 1
-      ? `Compra parcelada em ${installmentTotal} vezes.`
-      : "Compra lançada.",
+      ? `Compra parcelada em ${installmentTotal} vezes (${inserted.length} linhas).`
+      : `Compra lançada (${inserted.length} linha).`,
   );
 }
 
