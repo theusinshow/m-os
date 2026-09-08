@@ -23,11 +23,21 @@ const incomeTypeLabel = {
   freelance: "Freelance",
 };
 
-export function IncomeFormCard({ incomes }: { incomes: Income[] }) {
+export function IncomeFormCard({
+  incomes,
+  monthOptions,
+  activeMonthValue,
+}: {
+  incomes: Income[];
+  /** Mês atual e os seguintes, para lançar a receita no mês em que ela chega. */
+  monthOptions: { value: string; label: string }[];
+  activeMonthValue: string;
+}) {
   return (
     <div>
       <p className="mb-4 text-sm leading-5 text-text-muted">
-        Receita principal, extras e freelances previstos para o mês.
+        Receita principal, extras e freelances. Emitiu a nota hoje para receber mês que vem?
+        Lance no mês em que o dinheiro entra — a projeção lá embaixo passa a contar com ela.
       </p>
       <div className="grid gap-5 xl:grid-cols-[0.85fr_1fr]">
         <ValidatedForm action={createIncome} successMessage="Receita adicionada." resetOnSuccess className="space-y-4">
@@ -75,16 +85,38 @@ export function IncomeFormCard({ incomes }: { incomes: Income[] }) {
             </div>
           </div>
 
-          <div>
-            <label className="mb-2 block text-sm font-medium text-text-secondary" htmlFor="income-date">
-              Data prevista
-            </label>
-            <input
-              className="field-input"
-              id="income-date"
-              name="expectedDate"
-              type="date"
-            />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label
+                className="mb-2 block text-sm font-medium text-text-secondary"
+                htmlFor="income-target-month"
+              >
+                Entra no mês de
+              </label>
+              <ValidatedSelect
+                className="field-input"
+                defaultValue={activeMonthValue}
+                id="income-target-month"
+                name="targetMonth"
+              >
+                {monthOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </ValidatedSelect>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-text-secondary" htmlFor="income-date">
+                Data prevista
+              </label>
+              <input
+                className="field-input"
+                id="income-date"
+                name="expectedDate"
+                type="date"
+              />
+            </div>
           </div>
 
           <label className="flex items-center gap-2 text-sm text-text-secondary">

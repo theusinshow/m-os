@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { bills, creditCardInvoices, incomes, months, users } from "@/db/schema";
 
@@ -200,4 +200,62 @@ export async function getMonthIdsWithActivity(userId: string) {
   return new Set(
     [...billMonths, ...invoiceMonths, ...incomeMonths].map((row) => row.monthId),
   );
+}
+
+/**
+ * Receita, contas e faturas somadas por mês, para a projeção.
+ *
+ * Três agregações separadas em vez de um join: somar as três tabelas numa
+ * consulta só multiplica linha (um mês com 6 contas e 4 faturas viraria 24
+ * linhas) e infla os totais.
+ */
+export async function getMonthTotalsForUser(userId: string) {
+  if (!db) {
+    return [];
+  }
+
+  const [monthRows, incomeRows, billRows, invoiceRows] = await Promise.all([
+    db
+      .select({ id: months.id, month: months.month, year: months.year })
+      .from(months)
+      .where(eq(months.userId, userId)),
+    db
+      .select({
+        monthId: incomes.monthId,
+        total: sql<number>`coalesce(sum(${incomes.amountCents}), 0)::int`,
+      })
+      .from(incomes)
+      .where(eq(incomes.userId, userId))
+      .groupBy(incomes.monthId),
+    db
+      .select({
+        monthId: bills.monthId,
+        total: sql<number>`coalesce(sum(${bills.amountCents}), 0)::int`,
+      })
+      .from(bills)
+      .where(eq(bills.userId, userId))
+      .groupBy(bills.monthId),
+    db
+      .select({
+        monthId: creditCardInvoices.monthId,
+        total: sql<number>`coalesce(sum(${creditCardInvoices.amountCents}), 0)::int`,
+      })
+      .from(creditCardInvoices)
+      .where(eq(creditCardInvoices.userId, userId))
+      .groupBy(creditCardInvoices.monthId),
+  ]);
+
+  const byMonth = (rows: { monthId: string; total: number }[]) =>
+    new Map(rows.map((row) => [row.monthId, Number(row.total)]));
+  const incomeByMonth = byMonth(incomeRows);
+  const billByMonth = byMonth(billRows);
+  const invoiceByMonth = byMonth(invoiceRows);
+
+  return monthRows.map((row) => ({
+    month: row.month,
+    year: row.year,
+    incomeCents: incomeByMonth.get(row.id) ?? 0,
+    billsCents: billByMonth.get(row.id) ?? 0,
+    invoicesCents: invoiceByMonth.get(row.id) ?? 0,
+  }));
 }

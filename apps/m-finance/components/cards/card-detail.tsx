@@ -5,6 +5,8 @@ import {
 import { markInvoiceAsPending } from "@/app/actions/invoices";
 import { CardBrandMark } from "@/components/cards/card-brand-mark";
 import { CardExpenseForm } from "@/components/cards/card-expense-form";
+import { CardInstallmentsCard } from "@/components/cards/card-installments-card";
+import { InvoiceBreakdownCard } from "@/components/cards/invoice-breakdown-card";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { DashboardCard } from "@/components/dashboard/dashboard-card";
 import { FormSubmitButton } from "@/components/form-submit-button";
@@ -12,6 +14,8 @@ import { MarkPaidButton } from "@/components/payable/mark-paid-button";
 import { InlineEmpty } from "@/components/ui/inline-empty";
 import { StatusBadge } from "@/components/status-badge";
 import { ToastForm } from "@/components/toast-form";
+import { breakdownInvoice } from "@/lib/calculations/invoice-breakdown";
+import { summarizeCardInstallments } from "@/lib/calculations/card-installments";
 import { formatCurrency } from "@/lib/formatters/currency";
 import { formatShortDate } from "@/lib/formatters/date";
 
@@ -27,6 +31,8 @@ type Expense = {
 };
 type HistoryExpense = Expense & {
   monthLabel: string;
+  month: number;
+  year: number;
 };
 type Invoice = {
   id: string;
@@ -41,21 +47,26 @@ export function CardDetail({
   history,
   invoice,
   monthLabel,
+  activeMonth,
 }: {
   card: Card;
   expenses: Expense[];
   history: HistoryExpense[];
   invoice: Invoice;
   monthLabel: string;
+  activeMonth: { month: number; year: number };
 }) {
-  const itemsTotalCents = expenses.reduce((total, item) => total + item.amountCents, 0);
-  const hasItems = expenses.length > 0;
-  const displayTotalCents = hasItems ? itemsTotalCents : (invoice?.amountCents ?? 0);
-  const caption = hasItems
-    ? `Total derivado de ${expenses.length} compra${expenses.length === 1 ? "" : "s"}`
-    : invoice
-      ? "Total lançado manualmente"
-      : "Nenhuma compra lançada neste mês";
+  // O total é o da fatura — o que o cartão vai cobrar. As compras explicam
+  // parte dele; antes elas SUBSTITUÍAM o total, e uma compra de R$ 120 numa
+  // fatura de R$ 1.027 fazia os outros R$ 907 sumirem da tela.
+  const displayTotalCents = invoice?.amountCents ?? 0;
+  const breakdown = breakdownInvoice(displayTotalCents, expenses);
+  const installments = summarizeCardInstallments(history, activeMonth);
+  const caption = !invoice
+    ? "Nenhuma fatura lançada neste mês"
+    : expenses.length === 0
+      ? "Nada classificado ainda — tudo está em Outros"
+      : `${formatCurrency(breakdown.classifiedCents)} classificados em ${expenses.length} compra${expenses.length === 1 ? "" : "s"}`;
 
   return (
     <div className="space-y-6">
@@ -103,17 +114,21 @@ export function CardDetail({
         ) : null}
       </DashboardCard>
 
+      <InvoiceBreakdownCard breakdown={breakdown} />
+
+      <CardInstallmentsCard series={installments} />
+
       <DashboardCard
-        description="Compras parceladas são distribuídas a partir do mês selecionado."
-        title="Lançar compra"
+        description="Compras parceladas são distribuídas a partir do mês selecionado. O que você lançar aqui sai de Outros e vira uma linha própria."
+        title="Classificar uma compra"
       >
         <CardExpenseForm cardId={card.id} />
       </DashboardCard>
 
-      <DashboardCard title="Compras do mês">
+      <DashboardCard title="Compras classificadas do mês">
         {expenses.length === 0 ? (
           <InlineEmpty>
-            Nenhuma compra lançada. Adicione acima ou deixe só o total manual na tela de Cartões.
+            Nenhuma compra classificada. A fatura inteira está em Outros.
           </InlineEmpty>
         ) : (
           <div className="space-y-2">

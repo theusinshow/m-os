@@ -11,7 +11,7 @@ import {
 import { getCardById } from "@/lib/card-expenses";
 import { composeMonthDate } from "@/lib/due-date";
 import { formatCurrency } from "@/lib/formatters/currency";
-import { syncInvoiceTotal } from "@/lib/invoice-sync";
+import { sumCardExpenses, syncInvoiceTotal } from "@/lib/invoice-sync";
 import { ensureConsecutiveMonthsForUser, getCurrentMonthForUser } from "@/lib/months";
 import { createRecurringBillSeries, RECURRING_PREGENERATE_MONTHS } from "@/lib/recurrence";
 import { updateWhatsappPendingActionStatus } from "@/lib/whatsapp/audit";
@@ -107,6 +107,14 @@ export async function executeWhatsappPendingAction(action: PendingAction) {
   const installmentId = installmentTotal > 1 ? crypto.randomUUID() : null;
 
   await db.transaction(async (tx) => {
+    const previousSums = new Map<string, number>();
+    for (const targetMonth of targetMonths) {
+      previousSums.set(
+        targetMonth.id,
+        await sumCardExpenses(tx, action.userId, payload.cardId, targetMonth.id),
+      );
+    }
+
     await tx.insert(creditCardExpenses).values(
       targetMonths.map((targetMonth, index) => ({
         userId: action.userId,
@@ -123,7 +131,14 @@ export async function executeWhatsappPendingAction(action: PendingAction) {
     );
 
     for (const targetMonth of targetMonths) {
-      await syncInvoiceTotal(tx, action.userId, payload.cardId, targetMonth, card.dueDay);
+      await syncInvoiceTotal(
+        tx,
+        action.userId,
+        payload.cardId,
+        targetMonth,
+        card.dueDay,
+        previousSums.get(targetMonth.id) ?? 0,
+      );
     }
   });
 
@@ -492,6 +507,41 @@ async function executeEditLastAction(action: PendingAction) {
     .join("\n");
 }
 
+/**
+ * Os meses tocados por uma ação pendente e quanto o cartão soma em cada um
+ * AGORA — antes de editar ou remover as compras.
+ *
+ * `syncInvoiceTotal` precisa da soma anterior para saber se o total da fatura
+ * nasceu das compras ou foi digitado; lida depois da alteração, ela não
+ * distingue mais uma coisa da outra e um total digitado seria apagado.
+ */
+async function monthSumsBeforeChange(
+  userId: string,
+  cardId: string,
+  pendingActionId: string,
+) {
+  if (!db) return [] as { id: string; month: number; year: number; previousSum: number }[];
+
+  const rows = await db
+    .select({ id: months.id, month: months.month, year: months.year })
+    .from(creditCardExpenses)
+    .innerJoin(months, eq(creditCardExpenses.monthId, months.id))
+    .where(
+      and(
+        eq(creditCardExpenses.userId, userId),
+        eq(creditCardExpenses.whatsappPendingActionId, pendingActionId),
+      ),
+    )
+    .groupBy(months.id, months.month, months.year);
+
+  return Promise.all(
+    rows.map(async (row) => ({
+      ...row,
+      previousSum: await sumCardExpenses(db!, userId, cardId, row.id),
+    })),
+  );
+}
+
 async function applyEditToConfirmedAction(
   confirmed: { id: string; userId: string; actionType: string; payload: unknown },
   edit: { newAmountCents: number | null; newDescription: string | null },
@@ -505,6 +555,14 @@ async function applyEditToConfirmedAction(
   if (confirmed.actionType === "create_card_expense") {
     const parsed = cardExpensePayloadSchema.safeParse(confirmed.payload);
     if (!parsed.success) return { ok: false, message: "Payload inválido." };
+
+    // Lido ANTES de mexer nos valores: depois da edição não há como saber se o
+    // total da fatura acompanhava as compras ou tinha sido digitado.
+    const affectedBefore = await monthSumsBeforeChange(
+      confirmed.userId,
+      parsed.data.cardId,
+      confirmed.id,
+    );
 
     // Para parcelado, redistribui o novo valor entre as parcelas existentes.
     if (edit.newAmountCents) {
@@ -553,27 +611,16 @@ async function applyEditToConfirmedAction(
         // Re-sincroniza faturas.
         const card = await getCardById(confirmed.userId, parsed.data.cardId);
         if (card) {
-          const affectedMonths = await db
-            .select({ id: creditCardExpenses.monthId })
-            .from(creditCardExpenses)
-            .where(
-              and(
-                eq(creditCardExpenses.userId, confirmed.userId),
-                eq(creditCardExpenses.whatsappPendingActionId, confirmed.id),
-              ),
-            )
-            .groupBy(creditCardExpenses.monthId);
-
-          for (const m of affectedMonths) {
+          for (const affected of affectedBefore) {
             await db.transaction(async (tx) => {
-              const [monthRow] = await tx
-                .select()
-                .from(months)
-                .where(eq(months.id, m.id))
-                .limit(1);
-              if (monthRow) {
-                await syncInvoiceTotal(tx, confirmed.userId, parsed.data.cardId, monthRow, card.dueDay);
-              }
+              await syncInvoiceTotal(
+                tx,
+                confirmed.userId,
+                parsed.data.cardId,
+                affected,
+                card.dueDay,
+                affected.previousSum,
+              );
             });
           }
         }
@@ -596,27 +643,16 @@ async function applyEditToConfirmedAction(
     // Re-sincroniza fatura do mês afetado.
     const card = await getCardById(confirmed.userId, parsed.data.cardId);
     if (card) {
-      const affectedMonths = await db
-        .select({ id: creditCardExpenses.monthId })
-        .from(creditCardExpenses)
-        .where(
-          and(
-            eq(creditCardExpenses.userId, confirmed.userId),
-            eq(creditCardExpenses.whatsappPendingActionId, confirmed.id),
-          ),
-        )
-        .groupBy(creditCardExpenses.monthId);
-
-      for (const m of affectedMonths) {
+      for (const affected of affectedBefore) {
         await db.transaction(async (tx) => {
-          const [monthRow] = await tx
-            .select()
-            .from(months)
-            .where(eq(months.id, m.id))
-            .limit(1);
-          if (monthRow) {
-            await syncInvoiceTotal(tx, confirmed.userId, parsed.data.cardId, monthRow, card.dueDay);
-          }
+          await syncInvoiceTotal(
+            tx,
+            confirmed.userId,
+            parsed.data.cardId,
+            affected,
+            card.dueDay,
+            affected.previousSum,
+          );
         });
       }
     }
@@ -667,18 +703,11 @@ async function revertConfirmedAction(
     if (!card) return { ok: false, message: "Cartão não encontrado." };
 
     // Descobre os meses afetados antes de remover, para re-sincronizar faturas.
-    const affectedMonths = await db
-      .select({ id: creditCardExpenses.monthId })
-      .from(creditCardExpenses)
-      .where(
-        and(
-          eq(creditCardExpenses.userId, confirmed.userId),
-          eq(creditCardExpenses.whatsappPendingActionId, confirmed.id),
-        ),
-      )
-      .groupBy(creditCardExpenses.monthId);
-
-    const monthIds = affectedMonths.map((m) => m.id);
+    const affectedBefore = await monthSumsBeforeChange(
+      confirmed.userId,
+      parsed.data.cardId,
+      confirmed.id,
+    );
 
     await db
       .delete(creditCardExpenses)
@@ -690,16 +719,16 @@ async function revertConfirmedAction(
       );
 
     // Re-sincroniza as faturas dos meses afetados.
-    for (const monthId of monthIds) {
+    for (const affected of affectedBefore) {
       await db.transaction(async (tx) => {
-        const [monthRow] = await tx
-          .select()
-          .from(months)
-          .where(eq(months.id, monthId))
-          .limit(1);
-        if (monthRow) {
-          await syncInvoiceTotal(tx, confirmed.userId, parsed.data.cardId, monthRow, card.dueDay);
-        }
+        await syncInvoiceTotal(
+          tx,
+          confirmed.userId,
+          parsed.data.cardId,
+          affected,
+          card.dueDay,
+          affected.previousSum,
+        );
       });
     }
 

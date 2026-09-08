@@ -7,6 +7,7 @@ import { IncomeFormCard } from "@/components/dashboard/income-form-card";
 import { InvoiceSummaryCard } from "@/components/dashboard/invoice-summary-card";
 import { MonthGenerationReviewCard } from "@/components/dashboard/month-generation-review-card";
 import { CommitmentsCard } from "@/components/dashboard/commitments-card";
+import { ProjectionCard } from "@/components/dashboard/projection-card";
 import { PersonalBusinessCard } from "@/components/dashboard/personal-business-card";
 import { QuickActionButton } from "@/components/quick-action-button";
 import { StatusBadge } from "@/components/status-badge";
@@ -34,8 +35,11 @@ import {
   getRecurringBillsByMonth,
 } from "@/lib/bills";
 import { getInvoicesByMonth } from "@/lib/cards";
-import { getNextMonthForUser } from "@/lib/months";
+import { getMonthTotalsForUser, getNextMonthForUser } from "@/lib/months";
+import { getMonthPartsAtOffset } from "@/lib/months";
+import { monthValue } from "@/lib/active-month";
 import { summarizeInstallments } from "@/lib/calculations/commitments";
+import { buildMonthProjection } from "@/lib/calculations/projection";
 import { toMonthCategoryData } from "@/lib/calculations/charts/month-categories";
 import { pendingRecurrences } from "@/lib/recurrence";
 import { getSettingsForUser } from "@/lib/settings";
@@ -70,6 +74,24 @@ export default async function DashboardPage() {
   const installmentSeries = summarizeInstallments(
     appUser ? await getInstallmentBillsForUser(appUser.id) : [],
   );
+  // O seletor de mês da receita cobre o mês da tela e o ano seguinte: a nota
+  // emitida hoje pode cair em qualquer um deles.
+  const incomeMonthOptions = currentMonth
+    ? Array.from({ length: 13 }, (_, offset) => {
+        const parts = getMonthPartsAtOffset(currentMonth.month, currentMonth.year, offset);
+        return {
+          value: monthValue(parts.month, parts.year),
+          label: formatMonthLabel(new Date(parts.year, parts.month - 1, 1)),
+        };
+      })
+    : [];
+  const projection = currentMonth
+    ? buildMonthProjection(
+        appUser ? await getMonthTotalsForUser(appUser.id) : [],
+        { month: currentMonth.month, year: currentMonth.year },
+        6,
+      )
+    : [];
   const totalOutstandingCents = summary.totalPendingCents + summary.totalOverdueCents;
   const totalCommittedCents = summary.totalBillsCents + summary.totalInvoicesCents;
   const allSettled = totalCommittedCents > 0 && totalOutstandingCents === 0;
@@ -273,7 +295,13 @@ export default async function DashboardPage() {
             </span>
           </summary>
           <div className="mt-4">
-            <IncomeFormCard incomes={realIncomes} />
+            <IncomeFormCard
+              activeMonthValue={
+                currentMonth ? monthValue(currentMonth.month, currentMonth.year) : ""
+              }
+              incomes={realIncomes}
+              monthOptions={incomeMonthOptions}
+            />
           </div>
         </details>
       ) : null}
@@ -319,6 +347,8 @@ export default async function DashboardPage() {
           <CategoryBreakdownChart data={categoryData} />
         </DashboardCard>
       ) : null}
+
+      {projection.length > 1 ? <ProjectionCard rows={projection} /> : null}
 
       {installmentSeries.length > 0 ? <CommitmentsCard series={installmentSeries} /> : null}
 

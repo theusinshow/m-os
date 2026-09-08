@@ -5,9 +5,9 @@ import { revalidatePath } from "next/cache";
 import { incomes } from "@/db/schema";
 import { requireUser } from "@/lib/auth/guard";
 import { db } from "@/db/client";
-import { incomeSchema } from "@/lib/validators/income";
-import { getAppUserBySupabaseId } from "@/lib/months";
-import { getActiveMonthForUser } from "@/lib/active-month";
+import { createIncomeSchema, incomeSchema } from "@/lib/validators/income";
+import { ensureMonthForUser, getAppUserBySupabaseId } from "@/lib/months";
+import { getActiveMonthForUser, parseMonthValue } from "@/lib/active-month";
 import { parseCurrencyToCents } from "@/lib/money";
 import {
   errorState,
@@ -30,12 +30,13 @@ export async function createIncome(_prev: FormState, formData: FormData): Promis
     return errorState("Crie o mês atual antes de cadastrar receita.");
   }
 
-  const parsed = incomeSchema.safeParse({
+  const parsed = createIncomeSchema.safeParse({
     name: formData.get("name"),
     amountCents: parseCurrencyToCents(formData.get("amount")),
     incomeType: formData.get("incomeType"),
     expectedDate: String(formData.get("expectedDate") ?? "") || undefined,
     received: formData.get("received") === "on",
+    targetMonth: String(formData.get("targetMonth") ?? "") || undefined,
   });
 
   if (!parsed.success) {
@@ -47,9 +48,17 @@ export async function createIncome(_prev: FormState, formData: FormData): Promis
 
   const payload = parsed.data;
 
+  // A nota emitida hoje cai na conta de outubro. A receita é lançada no mês em
+  // que ela chega, não no mês em que foi digitada — é o que deixa a projeção
+  // dos meses seguintes responder alguma coisa.
+  const target = parseMonthValue(payload.targetMonth);
+  const targetMonth = target
+    ? await ensureMonthForUser(appUser.id, target.month, target.year)
+    : currentMonth;
+
   await db.insert(incomes).values({
     userId: appUser.id,
-    monthId: currentMonth.id,
+    monthId: targetMonth.id,
     name: payload.name,
     amountCents: payload.amountCents,
     incomeType: payload.incomeType,
@@ -58,6 +67,7 @@ export async function createIncome(_prev: FormState, formData: FormData): Promis
   });
 
   revalidatePath("/app/dashboard");
+  revalidatePath("/app/bills");
   return successState("Receita adicionada.");
 }
 

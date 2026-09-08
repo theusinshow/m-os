@@ -60,6 +60,7 @@ export default async function CardDetailPage({
           }))}
           invoice={await getInvoiceForCardMonth(appUser.id, cardId, month.id)}
           monthLabel={monthLabel}
+          activeMonth={{ month: month.month, year: month.year }}
         />
       )}
     </div>

@@ -9,7 +9,7 @@ import { ensureConsecutiveMonthsForUser, getAppUserBySupabaseId } from "@/lib/mo
 import { getActiveMonthForUser } from "@/lib/active-month";
 import { getCardById } from "@/lib/card-expenses";
 import { parseCurrencyToCents } from "@/lib/money";
-import { syncInvoiceTotal } from "@/lib/invoice-sync";
+import { sumCardExpenses, syncInvoiceTotal } from "@/lib/invoice-sync";
 import { cardExpenseSchema } from "@/lib/validators/card-expense";
 import {
   errorState,
@@ -78,6 +78,16 @@ export async function addCardExpense(_prev: FormState, formData: FormData): Prom
   const installmentId = installmentTotal > 1 ? crypto.randomUUID() : null;
 
   await db.transaction(async (tx) => {
+    // A soma anterior diz se o total da fatura nasceu das compras ou foi
+    // digitado; sem ela, classificar apagaria um total lançado a mão.
+    const previousSums = new Map<string, number>();
+    for (const targetMonth of targetMonths) {
+      previousSums.set(
+        targetMonth.id,
+        await sumCardExpenses(tx, appUser.id, cardId, targetMonth.id),
+      );
+    }
+
     await tx.insert(creditCardExpenses).values(
       targetMonths.map((targetMonth, index) => ({
         userId: appUser.id,
@@ -93,7 +103,14 @@ export async function addCardExpense(_prev: FormState, formData: FormData): Prom
     );
 
     for (const targetMonth of targetMonths) {
-      await syncInvoiceTotal(tx, appUser.id, cardId, targetMonth, card.dueDay);
+      await syncInvoiceTotal(
+        tx,
+        appUser.id,
+        cardId,
+        targetMonth,
+        card.dueDay,
+        previousSums.get(targetMonth.id) ?? 0,
+      );
     }
   });
 
@@ -129,13 +146,18 @@ export async function deleteCardExpense(formData: FormData) {
     .limit(1);
 
   await db.transaction(async (tx) => {
+    const previousSum =
+      card && expenseMonth
+        ? await sumCardExpenses(tx, appUser.id, cardId, expenseMonth.id)
+        : 0;
+
     await tx
       .delete(creditCardExpenses)
       .where(
         and(eq(creditCardExpenses.id, expenseId), eq(creditCardExpenses.userId, appUser.id)),
       );
     if (card && expenseMonth) {
-      await syncInvoiceTotal(tx, appUser.id, cardId, expenseMonth, card.dueDay);
+      await syncInvoiceTotal(tx, appUser.id, cardId, expenseMonth, card.dueDay, previousSum);
     }
   });
 
@@ -170,6 +192,14 @@ export async function deleteCardExpenseSeries(formData: FormData) {
     );
 
   await db.transaction(async (tx) => {
+    const previousSums = new Map<string, number>();
+    for (const affectedMonth of affectedMonths) {
+      previousSums.set(
+        affectedMonth.id,
+        await sumCardExpenses(tx, appUser.id, cardId, affectedMonth.id),
+      );
+    }
+
     await tx
       .delete(creditCardExpenses)
       .where(
@@ -181,7 +211,14 @@ export async function deleteCardExpenseSeries(formData: FormData) {
       );
 
     for (const affectedMonth of affectedMonths) {
-      await syncInvoiceTotal(tx, appUser.id, cardId, affectedMonth, card.dueDay);
+      await syncInvoiceTotal(
+        tx,
+        appUser.id,
+        cardId,
+        affectedMonth,
+        card.dueDay,
+        previousSums.get(affectedMonth.id) ?? 0,
+      );
     }
   });
 
