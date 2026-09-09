@@ -186,11 +186,31 @@ USUARIO="${MOS_USUARIO:-matheus}"
 # segredo E uma chave SSH, porque o hub só escutava em `127.0.0.1` e os PCs
 # chegavam por túnel. A troca é deliberada: o túnel era a peça que quebrava
 # calada, e um endereço só é o que faz os três aparelhos se conectarem igual.
+# A CASCA DA PWA TAMBÉM FICA FORA DO Basic Auth, e isso também é decisão.
+#
+# O iPhone busca o `apple-touch-icon` e o `manifest.webmanifest` ao "Adicionar à
+# Tela de Início", e essa busca não carrega a credencial do Basic Auth. Com 401
+# ali, o iOS não falha visivelmente: ele desenha um monograma com a primeira
+# letra do título — um "M" cinza no lugar da marca. Foi exatamente o que estava
+# na tela de início do dono até 09/09/2026, e o sintoma não aponta para a causa.
+#
+# O que isso expõe, dito com todas as letras: quem chegar na URL passa a ler o
+# nome "M/OS", a descrição do manifest e as cores. É a identidade do app, e não
+# dado de ninguém — as telas, a API e a inbox continuam atrás da senha, e
+# `/sync/*` continua protegido pelo segredo do hub.
+#
+# A lista é fechada de propósito. `path` casa o caminho INTEIRO, então
+# `/icone-*` não alcança `/api/...` nem nada além dos arquivos nomeados aqui.
 cat >/etc/caddy/Caddyfile <<CADDY
 $DOMINIO {
 	@sync path /sync/*
 	handle @sync {
 		reverse_proxy 127.0.0.1:9120
+	}
+
+	@casca path /icone.svg /icone-maskable.svg /icone-*.png /manifest.webmanifest /sw.js
+	handle @casca {
+		reverse_proxy 127.0.0.1:9130
 	}
 
 	handle {
@@ -250,6 +270,20 @@ printf 'chave push ... '
 # servidor leu para decidir se notifica.
 grep -q '^MOS_WEB_VAPID_PRIVADA=.\+' /etc/mos-web.env && echo OK ||
   echo "FALHOU — sem chave VAPID, o celular nao recebe nada"
+
+# O icone da tela de inicio, pela porta DE FORA e sem credencial: e assim que o
+# iPhone o busca. Um 401 aqui nao quebra nada visivelmente — ele so troca a
+# marca por um "M" cinza, e ninguem liga uma coisa na outra meses depois.
+printf 'icone PWA .... '
+CODIGO="$(curl -s -o /dev/null -w '%{http_code}' "https://$DOMINIO/icone-180.png" || true)"
+[ "$CODIGO" = "200" ] && echo OK ||
+  echo "FALHOU ($CODIGO) — o iPhone vai desenhar um M no lugar da marca"
+
+# E a metade que importa tanto quanto: o resto CONTINUA fechado.
+printf 'porta fechada  '
+CODIGO="$(curl -s -o /dev/null -w '%{http_code}' "https://$DOMINIO/" || true)"
+[ "$CODIGO" = "401" ] && echo OK ||
+  echo "FALHOU ($CODIGO) — a raiz devia pedir senha"
 
 dizer "Pronto"
 cat <<FIM

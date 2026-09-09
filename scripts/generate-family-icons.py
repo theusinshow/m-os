@@ -30,6 +30,26 @@ MARKS = ROOT / "packages/design-system/marks"
 FIELD = "#E7C24E"
 INK_DARK = "#0A0C0E"
 
+# O campo e a tinta de cada App irmao.
+#
+# Sodio sobre tinta e o padrao da folha, e e o que faz a familia parecer
+# familia. O m-finance e a excecao, e ela nasceu na tela de inicio do celular:
+# ali o M/OS e ele ficavam lado a lado como dois quadrados amarelos iguais, e
+# distinguir um do outro exigia ler o glifo minusculo. Invertido, a diferenca
+# chega antes da leitura.
+#
+# A cor nao e nova nem escolhida aqui: `#020A06` ja e o `background_color` e o
+# `theme_color` do manifest do proprio m-finance. O icone passa a dizer a mesma
+# coisa que o app diz ao abrir.
+CAMPOS = {
+    "m-finance": ("#020A06", FIELD),
+}
+
+
+def campo_de(app: str) -> tuple[str, str]:
+    """(campo, tinta) do App. O padrao da folha para quem nao tem excecao."""
+    return CAMPOS.get(app, (FIELD, INK_DARK))
+
 # A receita da folha, linha por linha: lado, raio (18%), fracao do glifo e a
 # variante de eixo. FILL vira 1 de 32 para baixo — abaixo disso o traco vazado
 # fecha e vira mancha. O peso sobe junto, pelo mesmo motivo.
@@ -74,7 +94,11 @@ def glyph_paths(glyph: str, variant: str) -> str:
 
 
 def compose(
-    glyph: str, size: int, ink: str = INK_DARK, maskable: bool = False
+    glyph: str,
+    size: int,
+    ink: str = INK_DARK,
+    maskable: bool = False,
+    field: str = FIELD,
 ) -> str:
     radius, ratio, variant = RECIPE[size]
     if maskable:
@@ -93,19 +117,25 @@ def compose(
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" '
         f'viewBox="0 0 {size} {size}">'
-        f'<rect width="{size}" height="{size}" rx="{radius}" fill="{FIELD}"/>'
+        f'<rect width="{size}" height="{size}" rx="{radius}" fill="{field}"/>'
         f'<svg x="{offset:g}" y="{offset:g}" width="{box:g}" height="{box:g}" '
         f'viewBox="0 -960 960 960"><g fill="{ink}">{glyph_paths(glyph, variant)}</g></svg>'
         "</svg>"
     )
 
 
-def render(glyph: str, size: int, destination: Path) -> None:
+def render(
+    glyph: str,
+    size: int,
+    destination: Path,
+    field: str = FIELD,
+    ink: str = INK_DARK,
+) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         "w", suffix=".svg", delete=False, encoding="utf-8"
     ) as handle:
-        handle.write(compose(glyph, size))
+        handle.write(compose(glyph, size, ink=ink, field=field))
         source = Path(handle.name)
     try:
         subprocess.run(
@@ -166,16 +196,19 @@ def main() -> None:
     # 500. Congelar a linha de 256 daria um traco vazado que fecha e vira
     # mancha justamente no tamanho em que o icone e visto.
     for app, glyph in (("m-finance", "money"), ("coded-atlas", "screenshot_monitor")):
+        field, ink = campo_de(app)
         icon = ROOT / f"apps/{app}/app/icon.svg"
         if icon.parent.is_dir():
-            icon.write_text(compose(glyph, 32) + "\n", encoding="utf-8")
-            print(f"{app}/app/icon.svg      32px  wght500fill1")
+            icon.write_text(
+                compose(glyph, 32, ink=ink, field=field) + "\n", encoding="utf-8"
+            )
+            print(f"{app}/app/icon.svg      32px  wght500fill1  campo {field}")
 
             # O icone de tela inicial do iOS sai como PNG estatico, e nao pelo
             # `ImageResponse`: o Satori nao desenha `path`, entao o `.tsx` so
             # conseguia aproximar a marca com borda de CSS. Um PNG gerado pela
             # mesma receita nao precisa aproximar nada.
-            render(glyph, 180, icon.parent / "apple-icon.png")
+            render(glyph, 180, icon.parent / "apple-icon.png", field=field, ink=ink)
             legacy = icon.parent / "apple-icon.tsx"
             if legacy.is_file():
                 legacy.unlink()
@@ -191,7 +224,8 @@ def main() -> None:
             target = public / name
             if target.is_file():
                 target.write_text(
-                    compose(glyph, 512, maskable=masked) + "\n", encoding="utf-8"
+                    compose(glyph, 512, ink=ink, maskable=masked, field=field) + "\n",
+                    encoding="utf-8",
                 )
                 print(f"{app}/public/{name:<13} 512px  {'maskable' if masked else 'wght300'}")
 
