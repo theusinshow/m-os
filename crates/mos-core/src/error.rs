@@ -30,6 +30,10 @@ pub enum ErrorCode {
     /// "o pai ainda nao veio" (tentar de novo amanha) e "ja existe uma linha
     /// equivalente aqui" (nunca vai dar certo) como a mesma coisa — e ficava
     /// retentando para sempre.
+    ///
+    /// So unicidade e chave primaria chegam aqui. Chave estrangeira NAO: ela e
+    /// exatamente o "o pai ainda nao veio", e mandar as duas para o mesmo lugar
+    /// inverteria a decisao no caso que mais importa.
     Conflict,
     Io,
 }

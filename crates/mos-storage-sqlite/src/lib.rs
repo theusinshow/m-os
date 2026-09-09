@@ -723,18 +723,31 @@ fn map_sql_error(error: rusqlite::Error) -> CoreError {
             false,
             "O banco local parece corrompido. Escritas foram bloqueadas.".to_owned(),
         ),
-        // Restricao violada: chave repetida, unicidade, estrangeira, CHECK.
+        // O destino ja esta ocupado: unicidade ou chave primaria.
         //
-        // Codigo proprio porque quem recebe precisa saber que NAO adianta
-        // tentar de novo — o banco esta funcionando, e foi ele que disse nao.
-        // Sem esta linha tudo isso caia no `_` como "falha no armazenamento
-        // local", indistinguivel de disco cheio ou arquivo sumido, e a
-        // varredura de reparo retentava para sempre o que nunca ia passar.
-        Error::SqliteFailure(details, _) if details.code == SqlErrorCode::ConstraintViolation => (
-            ErrorCode::Conflict,
-            false,
-            format!("O banco recusou por conflito: {error}"),
-        ),
+        // O codigo ESTENDIDO, e nao `ConstraintViolation` — que e largo demais.
+        // Chave estrangeira tambem e `ConstraintViolation`, e ela significa o
+        // OPOSTO: o pai ainda nao chegou, e vai chegar. Tratar as duas como a
+        // mesma coisa fazia a varredura de reparo abandonar justamente o caso
+        // que ela existe para resolver. Um teste pegou isso antes de a mudanca
+        // sair daqui.
+        //
+        // CHECK e NOT NULL ficam de fora tambem: eles nao dizem "ocupado", e
+        // errar para o lado de tentar de novo custa uma linha de log — errar
+        // para o outro custa uma entidade que nunca mais aparece.
+        Error::SqliteFailure(details, _)
+            if matches!(
+                details.extended_code,
+                rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE
+                    | rusqlite::ffi::SQLITE_CONSTRAINT_PRIMARYKEY
+            ) =>
+        {
+            (
+                ErrorCode::Conflict,
+                false,
+                format!("O lugar ja esta ocupado: {error}"),
+            )
+        }
         _ => (
             ErrorCode::StorageUnavailable,
             false,

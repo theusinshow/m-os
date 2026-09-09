@@ -2236,6 +2236,12 @@ pub fn run() {
                                     // imprimir um erro sobre algo que estava
                                     // certo — e um log que grita sem motivo e
                                     // um log que ninguem le.
+                                    if reparo.limpas > 0 {
+                                        eprintln!(
+                                            "[sync] reparo: {} bilhetes de trabalho ja feito soltos da fila",
+                                            reparo.limpas
+                                        );
+                                    }
                                     if !reparo.abandonadas.is_empty() {
                                         eprintln!(
                                             "[sync] reparo: {} duplicatas sairam da fila (o lugar ja estava ocupado): {:?}",

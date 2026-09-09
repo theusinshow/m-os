@@ -43,6 +43,12 @@ pub struct Reparo {
     /// separacao. Elas nao sao perda de dado: o lugar ja esta ocupado por uma
     /// linha equivalente, e e ela que a tela mostra.
     pub abandonadas: Vec<String>,
+    /// Entradas da fila que ja nao tinham trabalho: a entidade virou linha em
+    /// algum momento e ninguem apagou o bilhete.
+    ///
+    /// Nao e erro nem conquista — e faxina. Aparece no numero para o log poder
+    /// explicar uma fila que encolheu sem nada ter sido materializado.
+    pub limpas: usize,
 }
 
 impl SqliteStorage {
@@ -54,9 +60,12 @@ impl SqliteStorage {
     /// Isso se resolve sozinho quando a peca que falta chegar, entao a entidade
     /// FICA NA FILA e a proxima varredura tenta de novo.
     ///
-    /// **O banco recusou.** Chave repetida, unicidade, estrangeira, CHECK.
-    /// Nada que chegue depois muda isso — o destino esta ocupado, e continuara
-    /// ocupado. A entidade SAI DA FILA.
+    /// **O lugar esta ocupado.** Unicidade ou chave primaria: ja existe uma
+    /// linha equivalente ali. Nada que chegue depois muda isso, e a entidade
+    /// SAI DA FILA.
+    ///
+    /// Chave estrangeira nao entra aqui — ela e a primeira metade, e nao a
+    /// segunda. Ver `ErrorCode::Conflict`.
     ///
     /// Tratar as duas como a mesma coisa era um defeito real, e ele estava
     /// vivo: seis `message_part` de 04/09/2026 batiam em
@@ -70,11 +79,25 @@ impl SqliteStorage {
     /// a linha ocupante for apagada DE VERDADE, a abandonada nao volta sozinha
     /// — ela ja saiu da fila. O apagamento no M/OS e logico (`trashed` mantem a
     /// linha), entao isso hoje nao acontece por nenhum caminho da interface.
+    ///
+    /// # A faxina que vem antes
+    ///
+    /// A fila so era limpa quando a varredura PROCESSAVA a entidade. Uma que
+    /// virasse linha por outro caminho — a rodada seguinte de sync, por
+    /// exemplo — deixava o bilhete para tras: trabalho ja feito, guardado para
+    /// sempre. Havia um assim no banco do dono, de 05/09/2026.
+    ///
+    /// Entao a varredura comeca soltando da fila tudo que nao esta entre os
+    /// candidatos. Nao ha o que perder nisso: candidato E a definicao de
+    /// "existe na sombra e nao existe na tabela", que e a unica coisa que esta
+    /// funcao sabe fazer. O que nao e candidato ou ja tem linha, ou nao tem
+    /// sombra — e nos dois casos o bilhete nao aponta para trabalho nenhum.
     pub fn reparar_materializacao(&self) -> Result<Reparo, CoreError> {
         let mut reparo = Reparo::default();
 
         let candidatos = crate::sync_projecao::ProjecaoSqlite::entidades_sem_linha(self)?;
         reparo.examinadas = candidatos.len();
+        reparo.limpas = self.soltar_fila_sem_trabalho(&candidatos)?;
         if candidatos.is_empty() {
             return Ok(reparo);
         }
@@ -120,6 +143,48 @@ impl SqliteStorage {
 
         reparo.falharam = motivos;
         Ok(reparo)
+    }
+
+    /// Solta da fila tudo que nao esta entre os candidatos.
+    ///
+    /// Devolve quantos bilhetes foram soltos. Ver a nota de
+    /// [`Self::reparar_materializacao`] para o porque de isso ser seguro.
+    fn soltar_fila_sem_trabalho(
+        &self,
+        candidatos: &[(String, uuid::Uuid)],
+    ) -> Result<usize, CoreError> {
+        let conexao = self.escrita()?;
+        let na_fila: Vec<(String, String)> = {
+            let mut consulta = conexao
+                .prepare("SELECT entity_kind, entity_id FROM sync_pendentes")
+                .map_err(crate::map_sql_error)?;
+            let linhas = consulta
+                .query_map([], |linha| Ok((linha.get(0)?, linha.get(1)?)))
+                .map_err(crate::map_sql_error)?;
+            let mut achados = Vec::new();
+            for linha in linhas {
+                achados.push(linha.map_err(crate::map_sql_error)?);
+            }
+            achados
+        };
+
+        let mut soltos = 0;
+        for (kind, id) in na_fila {
+            let ainda_tem_trabalho = candidatos
+                .iter()
+                .any(|(candidato, alvo)| candidato == &kind && alvo.to_string() == id);
+            if ainda_tem_trabalho {
+                continue;
+            }
+            conexao
+                .execute(
+                    "DELETE FROM sync_pendentes WHERE entity_kind = ?1 AND entity_id = ?2",
+                    rusqlite::params![kind, id],
+                )
+                .map_err(crate::map_sql_error)?;
+            soltos += 1;
+        }
+        Ok(soltos)
     }
 
     /// Tira da fila o que acabou de virar linha.
@@ -330,39 +395,115 @@ mod tests {
     /// CONTINUA na fila, porque a peca que falta ainda pode aparecer.
     #[test]
     fn o_que_depende_de_algo_que_nao_chegou_continua_na_fila() {
+        use mos_core::NewTask;
+
         let (storage, _guarda) = storage();
 
-        // Uma Task cujo Project nunca chegou: a chave estrangeira recusa, e a
-        // recusa e do tipo que o tempo resolve.
-        let id = uuid::Uuid::now_v7();
+        // Uma Task que perde a linha mas mantem a sombra: candidata legitima.
+        // A materializacao dela falha porque o Project que ela cita nunca
+        // chegou — e essa e a falha que o tempo resolve.
+        let tarefa = NewTask::create("Revisar a prancha", "", None).unwrap();
+        let id = tarefa.id;
+        storage.create_task(tarefa).unwrap();
+
         {
             let conexao = storage.escrita().unwrap();
+            let estado: String = conexao
+                .query_row(
+                    "SELECT estado FROM sync_state WHERE entity_kind = 'task' AND entity_id = ?1",
+                    rusqlite::params![id.to_string()],
+                    |linha| linha.get(0),
+                )
+                .unwrap();
+            let mut json: serde_json::Value = serde_json::from_str(&estado).unwrap();
+            let carimbo = json["campos"]["title"]["at"].clone();
+            // Um Project que nao existe: a chave estrangeira recusa, e a peca
+            // que falta pode chegar na proxima rodada.
+            json["campos"]["projectId"] = serde_json::json!({
+                "valor": uuid::Uuid::now_v7().to_string(),
+                "at": carimbo,
+            });
             conexao
                 .execute(
-                    "INSERT INTO sync_pendentes \
-                     (entity_kind, entity_id, tentativas, ultimo_erro, atualizado_em) \
-                     VALUES ('project', ?1, 1, 'materializacao adiada', '2026-09-04T00:00:00Z')",
+                    "UPDATE sync_state SET estado = ?1 \
+                     WHERE entity_kind = 'task' AND entity_id = ?2",
+                    rusqlite::params![json.to_string(), id.to_string()],
+                )
+                .unwrap();
+            conexao
+                .execute(
+                    "DELETE FROM tasks WHERE id = ?1",
                     rusqlite::params![id.to_string()],
                 )
                 .unwrap();
         }
 
-        // Sem sombra, a entidade nem e candidata — e a varredura nao inventa
-        // trabalho. O que importa aqui e que ela tambem nao APAGA a fila por
-        // conta propria.
         let reparo = storage.reparar_materializacao().unwrap();
-        assert!(reparo.abandonadas.is_empty());
 
-        let continua: i64 = storage
+        assert_eq!(reparo.reparadas, 0);
+        assert!(
+            reparo.abandonadas.is_empty(),
+            "falta de dependencia nao e recusa do banco: {:?}",
+            reparo.abandonadas
+        );
+        assert_eq!(reparo.falharam.len(), 1, "{reparo:?}");
+    }
+
+    /// **A faxina.** Um bilhete na fila para algo que ja virou linha.
+    ///
+    /// Acontecia de verdade: a entidade materializava por outro caminho — a
+    /// rodada seguinte de sync —, e a fila so era limpa quando a varredura
+    /// PROCESSAVA aquela entidade. Como ela ja tinha linha, nunca virava
+    /// candidata, e o bilhete ficava para sempre. Havia um assim no banco do
+    /// dono, de 05/09/2026.
+    #[test]
+    fn bilhete_de_trabalho_ja_feito_e_solto_da_fila() {
+        let (storage, _guarda) = storage();
+
+        let projeto = NewProject::create("Quiosque", "", "").unwrap();
+        let id = projeto.id;
+        storage.create_project(projeto).unwrap();
+
+        // A linha existe e a sombra tambem: nao ha nada a materializar. Mesmo
+        // assim, um bilhete ficou para tras.
+        storage
+            .escrita()
+            .unwrap()
+            .execute(
+                "INSERT INTO sync_pendentes \
+                 (entity_kind, entity_id, tentativas, ultimo_erro, atualizado_em) \
+                 VALUES ('project', ?1, 1, 'materializacao adiada', '2026-09-05T00:00:00Z')",
+                rusqlite::params![id.to_string()],
+            )
+            .unwrap();
+
+        let reparo = storage.reparar_materializacao().unwrap();
+
+        assert_eq!(reparo.limpas, 1, "{reparo:?}");
+        assert_eq!(reparo.reparadas, 0);
+        assert!(reparo.falharam.is_empty());
+
+        let sobrou: i64 = storage
+            .connection
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM sync_pendentes", [], |linha| {
+                linha.get(0)
+            })
+            .unwrap();
+        assert_eq!(sobrou, 0);
+
+        // E o Project continua inteiro: faxina nao encosta em dado.
+        let vivo: i64 = storage
             .connection
             .lock()
             .unwrap()
             .query_row(
-                "SELECT COUNT(*) FROM sync_pendentes WHERE entity_id = ?1",
+                "SELECT COUNT(*) FROM projects WHERE id = ?1",
                 rusqlite::params![id.to_string()],
                 |linha| linha.get(0),
             )
             .unwrap();
-        assert_eq!(continua, 1);
+        assert_eq!(vivo, 1);
     }
 }

@@ -1309,6 +1309,8 @@ export const api = {
       falharam: string[];
       /** O banco recusou. Saíram da fila — nada que chegue depois muda isso. */
       abandonadas: string[];
+      /** Bilhetes de trabalho já feito, soltos da fila. Faxina, não conserto. */
+      limpas: number;
     }>("sync_reparar");
   },
   /** Vazio desliga a sincronização sem apagar o segredo nem a fila. */
