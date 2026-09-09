@@ -1302,7 +1302,14 @@ export const api = {
   },
   /** Materializa o que chegou e não virou linha. Devolve o que reparou. */
   syncReparar() {
-    return invoke<{ examinadas: number; reparadas: number; falharam: string[] }>("sync_reparar");
+    return invoke<{
+      examinadas: number;
+      reparadas: number;
+      /** Dependem de algo que não chegou. Continuam na fila. */
+      falharam: string[];
+      /** O banco recusou. Saíram da fila — nada que chegue depois muda isso. */
+      abandonadas: string[];
+    }>("sync_reparar");
   },
   /** Vazio desliga a sincronização sem apagar o segredo nem a fila. */
   syncSetEndpoint(url: string) {

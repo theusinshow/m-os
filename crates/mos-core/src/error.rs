@@ -18,6 +18,19 @@ pub enum ErrorCode {
     /// "reconecte o Univirtus" de "algo deu errado". Tratar 401 como erro
     /// generico faria o sync parecer bug e esconderia a unica acao que resolve.
     ProviderUnauthorized,
+    /// O lugar de destino ja esta ocupado.
+    ///
+    /// Codigo proprio, e nao `DataIntegrity`, porque a diferenca decide se vale
+    /// TENTAR DE NOVO. Integridade quebrada e um defeito a investigar; um
+    /// destino ocupado e um fato que nao muda com o tempo — nada que chegue
+    /// depois libera a vaga.
+    ///
+    /// Quem mais usa isso e a varredura de reparo do sync: ela existe para
+    /// materializar o que chegou fora de ordem, e sem este codigo ela tratava
+    /// "o pai ainda nao veio" (tentar de novo amanha) e "ja existe uma linha
+    /// equivalente aqui" (nunca vai dar certo) como a mesma coisa — e ficava
+    /// retentando para sempre.
+    Conflict,
     Io,
 }
 

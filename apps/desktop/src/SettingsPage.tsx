@@ -496,14 +496,26 @@ function SyncSettings() {
     try {
       const reparo = await api.syncReparar();
       await refresh();
+      /* Só o que CONTINUA pendente é erro.
+         O que o banco recusou saiu da fila e não vai voltar — o lugar já estava
+         ocupado por uma linha equivalente, e é ela que a tela mostra. Pintar
+         isso de vermelho seria alarmar sobre algo que acabou de ser resolvido. */
       setMessageState(reparo.falharam.length > 0 ? "error" : "saved");
-      setMessage(
-        reparo.reparadas > 0
-          ? `${reparo.reparadas} de ${reparo.examinadas} voltaram a aparecer.`
-          : reparo.falharam.length > 0
-            ? `${reparo.falharam.length} dependem de algo que não chegou.`
-            : "Nada estava faltando neste aparelho.",
-      );
+      const partes: string[] = [];
+      if (reparo.reparadas > 0) {
+        partes.push(`${reparo.reparadas} de ${reparo.examinadas} voltaram a aparecer.`);
+      }
+      if (reparo.abandonadas.length > 0) {
+        partes.push(
+          reparo.abandonadas.length === 1
+            ? "1 duplicata saiu da fila; o conteúdo dela já estava aqui."
+            : `${reparo.abandonadas.length} duplicatas saíram da fila; o conteúdo delas já estava aqui.`,
+        );
+      }
+      if (reparo.falharam.length > 0) {
+        partes.push(`${reparo.falharam.length} dependem de algo que não chegou.`);
+      }
+      setMessage(partes.length > 0 ? partes.join(" ") : "Nada estava faltando neste aparelho.");
     } catch (error) { setMessageState("error"); setMessage(appError(error).message); }
   }
 

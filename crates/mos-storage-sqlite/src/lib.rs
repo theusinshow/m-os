@@ -723,6 +723,18 @@ fn map_sql_error(error: rusqlite::Error) -> CoreError {
             false,
             "O banco local parece corrompido. Escritas foram bloqueadas.".to_owned(),
         ),
+        // Restricao violada: chave repetida, unicidade, estrangeira, CHECK.
+        //
+        // Codigo proprio porque quem recebe precisa saber que NAO adianta
+        // tentar de novo — o banco esta funcionando, e foi ele que disse nao.
+        // Sem esta linha tudo isso caia no `_` como "falha no armazenamento
+        // local", indistinguivel de disco cheio ou arquivo sumido, e a
+        // varredura de reparo retentava para sempre o que nunca ia passar.
+        Error::SqliteFailure(details, _) if details.code == SqlErrorCode::ConstraintViolation => (
+            ErrorCode::Conflict,
+            false,
+            format!("O banco recusou por conflito: {error}"),
+        ),
         _ => (
             ErrorCode::StorageUnavailable,
             false,

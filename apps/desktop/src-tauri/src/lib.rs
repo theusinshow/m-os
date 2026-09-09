@@ -2221,16 +2221,36 @@ pub fn run() {
                             //
                             // Falhar aqui tambem nao impede o M/OS de abrir.
                             match storage.reparar_materializacao() {
-                                Ok(reparo) if reparo.reparadas > 0 => eprintln!(
-                                    "[sync] reparo: {} de {} entidades voltaram a aparecer",
-                                    reparo.reparadas, reparo.examinadas
-                                ),
-                                Ok(reparo) if !reparo.falharam.is_empty() => eprintln!(
-                                    "[sync] reparo: {} dependem de algo que nao chegou: {:?}",
-                                    reparo.falharam.len(),
-                                    reparo.falharam
-                                ),
-                                Ok(_) => {}
+                                Ok(reparo) => {
+                                    if reparo.reparadas > 0 {
+                                        eprintln!(
+                                            "[sync] reparo: {} de {} entidades voltaram a aparecer",
+                                            reparo.reparadas, reparo.examinadas
+                                        );
+                                    }
+                                    // Duas linhas, e nao uma, porque sao dois
+                                    // fatos diferentes. O abandono e resolucao:
+                                    // aquele trabalho nunca poderia terminar, e
+                                    // agora parou de ser tentado. Misturar com
+                                    // "falta alguem" fazia toda abertura
+                                    // imprimir um erro sobre algo que estava
+                                    // certo — e um log que grita sem motivo e
+                                    // um log que ninguem le.
+                                    if !reparo.abandonadas.is_empty() {
+                                        eprintln!(
+                                            "[sync] reparo: {} duplicatas sairam da fila (o lugar ja estava ocupado): {:?}",
+                                            reparo.abandonadas.len(),
+                                            reparo.abandonadas
+                                        );
+                                    }
+                                    if !reparo.falharam.is_empty() {
+                                        eprintln!(
+                                            "[sync] reparo: {} dependem de algo que nao chegou: {:?}",
+                                            reparo.falharam.len(),
+                                            reparo.falharam
+                                        );
+                                    }
+                                }
                                 Err(causa) => eprintln!("[sync] reparo nao rodou: {causa}"),
                             }
                         }

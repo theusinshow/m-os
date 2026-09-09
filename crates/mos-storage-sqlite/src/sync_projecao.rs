@@ -1225,25 +1225,29 @@ impl<'a> ProjecaoSqlite<'a> {
         storage: &SqliteStorage,
         kind: &str,
         id: uuid::Uuid,
-    ) -> Result<(), String> {
+    ) -> Result<(), CoreError> {
         ProjecaoSqlite::nova(storage).materializar_um(kind, id)
     }
 
     /// Materializa uma entidade a partir do estado ja guardado.
-    fn materializar_um(&self, kind: &str, id: uuid::Uuid) -> Result<(), String> {
-        let conexao = self
-            .storage
-            .connection
-            .lock()
-            .map_err(|_| String::from("Banco local ocupado."))?;
-        let estado = SqliteStorage::estado_guardado(&conexao, kind, id)
-            .map_err(|causa| causa.message.clone())?;
-        let transacao = conexao
-            .unchecked_transaction()
-            .map_err(|causa| causa.to_string())?;
-        SqliteStorage::materializar(&transacao, kind, id, &estado)
-            .map_err(|causa| causa.message.clone())?;
-        transacao.commit().map_err(|causa| causa.to_string())
+    ///
+    /// Devolve `CoreError` e nao `String` porque quem chama precisa do CODIGO,
+    /// e nao so da frase: o reparo distingue "falta alguem" (tenta de novo) de
+    /// "o banco recusou" (nunca vai passar), e essa distincao mora em
+    /// `ErrorCode::Conflict`. Achatando para texto, as duas viravam a mesma
+    /// coisa — e a segunda ficava na fila para sempre.
+    fn materializar_um(&self, kind: &str, id: uuid::Uuid) -> Result<(), CoreError> {
+        let conexao = self.storage.connection.lock().map_err(|_| {
+            CoreError::new(
+                mos_core::ErrorCode::StorageBusy,
+                "Banco local ocupado.",
+                true,
+            )
+        })?;
+        let estado = SqliteStorage::estado_guardado(&conexao, kind, id)?;
+        let transacao = conexao.unchecked_transaction().map_err(map_sql_error)?;
+        SqliteStorage::materializar(&transacao, kind, id, &estado)?;
+        transacao.commit().map_err(map_sql_error)
     }
 }
 
