@@ -706,7 +706,9 @@ mod tests {
         );
         assert!(reparo.falharam.is_empty(), "falhou: {:?}", reparo.falharam);
 
-        let dono_do_lugar = storage.messages(conversa.id).unwrap()[0].parts[0].id.as_uuid();
+        let dono_do_lugar = storage.messages(conversa.id).unwrap()[0].parts[0]
+            .id
+            .as_uuid();
         assert_eq!(
             dono_do_lugar, nova,
             "a parte velha continuou segurando a vaga"
