@@ -505,6 +505,16 @@ function SyncSettings() {
       if (reparo.reparadas > 0) {
         partes.push(`${reparo.reparadas} de ${reparo.examinadas} voltaram a aparecer.`);
       }
+      /* "Trecho de conversa", e não "duplicata": eram a parte antiga e a que a
+         substituiu, e quem estava na tela era a ANTIGA. Dizer que "o conteúdo
+         já estava aqui" era falso, e escondia justamente o que foi corrigido. */
+      if (reparo.desocupadas > 0) {
+        partes.push(
+          reparo.desocupadas === 1
+            ? "1 trecho de conversa estava congelado numa versão antiga e foi atualizado."
+            : `${reparo.desocupadas} trechos de conversa estavam congelados numa versão antiga e foram atualizados.`,
+        );
+      }
       if (reparo.abandonadas.length > 0) {
         partes.push(
           reparo.abandonadas.length === 1

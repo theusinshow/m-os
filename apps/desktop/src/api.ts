@@ -1311,6 +1311,9 @@ export const api = {
       abandonadas: string[];
       /** Bilhetes de trabalho já feito, soltos da fila. Faxina, não conserto. */
       limpas: number;
+      /** Partes de mensagem substituídas que ainda seguravam a vaga da
+          substituta — e por isso mantinham o texto antigo na tela. */
+      desocupadas: number;
     }>("sync_reparar");
   },
   /** Vazio desliga a sincronização sem apagar o segredo nem a fila. */

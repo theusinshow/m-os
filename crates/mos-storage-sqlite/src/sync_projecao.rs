@@ -100,6 +100,21 @@ struct Mapa {
     /// Com isto a chave real viaja como campo, e a projecao a usa para achar e
     /// gravar a linha.
     chave_do_campo: Option<&'static str>,
+    /// O que um `Delete` faz com a linha desta tabela.
+    apagamento: Apagamento,
+}
+
+/// O que sobra de uma entidade apagada.
+#[derive(Clone, Copy, PartialEq)]
+enum Apagamento {
+    /// `lifecycle_state = 'trashed'`. O padrao, e a regra do M/OS: apagar e
+    /// mudar de estado, para o Undo ter o que restaurar e para um aparelho
+    /// offline distinguir "apagado" de "nunca chegou".
+    Ciclo,
+    /// `DELETE` de verdade. Para a tabela SEM `lifecycle_state`, cuja linha nao
+    /// e arquivada nem restaurada — ela e substituida. Hoje so
+    /// `message_parts`.
+    Linha,
 }
 
 /// As colunas de carimbo que uma tabela sincronizavel tem.
@@ -139,6 +154,7 @@ impl Mapa {
             linha_unica: None,
             chave_do_campo: None,
             indice: None,
+            apagamento: Apagamento::Ciclo,
         }
     }
 }
@@ -507,6 +523,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("payload", "'{}'"),
             ],
             indice: Some(("message_search", &["search_text"])),
+            apagamento: Apagamento::Linha,
             ..Mapa::padrao()
         }),
         // Extensao 1:1 de `projects`: a chave e `project_id`, e nao existe
@@ -730,17 +747,36 @@ impl SqliteStorage {
         // Sao dois motivos independentes, e os dois ja eram regra do M/OS antes
         // da sincronizacao: um dispositivo offline precisa distinguir "apagado"
         // de "nunca chegou", e todo Undo daqui e restauracao de estado.
+        //
+        // A excecao e a linha que nao tem ciclo de vida. `message_parts` nao tem
+        // `lifecycle_state` nem `updated_at` — e nao por esquecimento: uma parte
+        // de mensagem nao e arquivada nem restaurada, ela e substituida quando a
+        // resposta fecha. Quem guarda o que foi dito e a mensagem. Marcar
+        // `trashed` ali e SQL contra coluna inexistente, e era o que impedia o
+        // apagamento de atravessar.
         if estado.deleted_at.is_some() {
-            transacao
-                .execute(
-                    &format!(
-                        "UPDATE {} SET lifecycle_state = 'trashed', updated_at = ?1 \
-                         WHERE {} = ?2",
-                        mapa.tabela, mapa.chave
-                    ),
-                    params![momento, id.to_string()],
-                )
-                .map_err(map_sql_error)?;
+            match mapa.apagamento {
+                Apagamento::Ciclo => {
+                    transacao
+                        .execute(
+                            &format!(
+                                "UPDATE {} SET lifecycle_state = 'trashed', updated_at = ?1 \
+                                 WHERE {} = ?2",
+                                mapa.tabela, mapa.chave
+                            ),
+                            params![momento, id.to_string()],
+                        )
+                        .map_err(map_sql_error)?;
+                }
+                Apagamento::Linha => {
+                    transacao
+                        .execute(
+                            &format!("DELETE FROM {} WHERE {} = ?1", mapa.tabela, mapa.chave),
+                            params![id.to_string()],
+                        )
+                        .map_err(map_sql_error)?;
+                }
+            }
             return Ok(());
         }
 
@@ -865,24 +901,48 @@ impl SqliteStorage {
 
         // E agora o `UPDATE`, que e o caminho da linha que JA existia — criada
         // aqui, ou criada por uma operacao anterior deste mesmo lote.
+        //
+        // UM comando com todas as colunas, e nao um comando por coluna.
+        //
+        // Era um por coluna, e isso quebrava de verdade: um CHECK que relaciona
+        // DUAS colunas ve a linha no meio do caminho. O mapa do Reminder lista
+        // `status` cinco colunas antes de `completedAt`, entao existia um
+        // instante com `status = 'completed'` e `completed_at IS NULL` — que e
+        // exatamente o que a `reminders_completed_stamp` proibe. E o CHECK do
+        // SQLite vale no COMANDO, e nao no commit: nao ha como adia-lo.
+        //
+        // O custo nao era um erro na tela. A entidade voltava para
+        // `sync_pendentes` e era retentada em toda rodada, para sempre, com a
+        // sombra dizendo "concluido" e a tabela dizendo "pendente" — a
+        // divergencia que a sincronizacao existe para nao ter. Medido na VPS em
+        // 09/09/2026.
+        //
+        // O `INSERT` acima ja levava tudo de uma vez, e por uma razao vizinha:
+        // linha meio montada e linha que a tabela pode recusar.
+        //
+        // Os parametros sao montados junto com o SQL, e nao fixos em tres.
+        //
+        // Com `?2` e `?3` sempre ligados, uma tabela sem `updated_at` ou de
+        // linha unica recebia mais valores do que o comando referencia, e o
+        // `UPDATE` falhava — silenciosamente, porque a projecao manda a
+        // entidade para a fila de pendentes e tenta de novo. O sintoma era
+        // uma configuracao que emitia, viajava e nunca aparecia.
+        let mut valores: Vec<rusqlite::types::Value> = Vec::new();
+        let mut atribuicoes: Vec<String> = Vec::new();
         for (campo, coluna) in mapa.colunas {
             let Some(resolvido) = estado.campos.get(*campo) else {
                 continue;
             };
-            // Os parametros sao montados junto com o SQL, e nao fixos em tres.
-            //
-            // Com `?2` e `?3` sempre ligados, uma tabela sem `updated_at` ou de
-            // linha unica recebia mais valores do que o comando referencia, e o
-            // `UPDATE` falhava — silenciosamente, porque a projecao manda a
-            // entidade para a fila de pendentes e tenta de novo. O sintoma era
-            // uma configuracao que emitia, viajava e nunca aparecia.
-            let mut valores: Vec<rusqlite::types::Value> = vec![valor_sql(&resolvido.valor)];
-            let toque = if mapa.carimbos.tem_atualizacao() {
+            valores.push(valor_sql(&resolvido.valor));
+            atribuicoes.push(format!("{coluna} = ?{}", valores.len()));
+        }
+        // Nenhuma coluna chegou: nao ha `SET` para escrever, e um `UPDATE` sem
+        // ele e erro de sintaxe. O `INSERT` acima ja fez o que havia a fazer.
+        if !atribuicoes.is_empty() {
+            if mapa.carimbos.tem_atualizacao() {
                 valores.push(rusqlite::types::Value::Text(momento.clone()));
-                format!(", updated_at = ?{}", valores.len())
-            } else {
-                String::new()
-            };
+                atribuicoes.push(format!("updated_at = ?{}", valores.len()));
+            }
             let alvo = match mapa.linha_unica {
                 Some(literal) => literal.to_owned(),
                 None => {
@@ -893,8 +953,10 @@ impl SqliteStorage {
             transacao
                 .execute(
                     &format!(
-                        "UPDATE {} SET {coluna} = ?1{toque} WHERE {} = {alvo}",
-                        mapa.tabela, mapa.chave
+                        "UPDATE {} SET {} WHERE {} = {alvo}",
+                        mapa.tabela,
+                        atribuicoes.join(", "),
+                        mapa.chave
                     ),
                     rusqlite::params_from_iter(valores.iter()),
                 )
@@ -2013,5 +2075,121 @@ mod tests {
         );
         assert_eq!(horas[0].duration_seconds, 3_600);
         assert_eq!(horas[0].description, "desenho da prancha");
+    }
+
+    /// Concluir num aparelho tem que virar linha concluida no outro.
+    ///
+    /// O caminho da linha que JA EXISTE grava uma coluna por `UPDATE`, e o mapa
+    /// do Reminder lista `status` cinco colunas antes de `completedAt`. Entre um
+    /// comando e o outro a linha fica `status = 'completed'` com
+    /// `completed_at IS NULL` — exatamente o que a `reminders_completed_stamp`
+    /// da migration 0015 proibe. O CHECK do SQLite vale no comando, e nao no
+    /// commit, entao ele estoura ali.
+    ///
+    /// O custo real, medido na VPS em 09/09/2026: a entidade voltava para
+    /// `sync_pendentes` e era retentada em TODA rodada, para sempre, enquanto o
+    /// lembrete continuava aparecendo como pendente numa tela que ja o tinha
+    /// concluido na outra.
+    #[test]
+    fn o_lembrete_concluido_no_outro_pc_vira_linha_concluida_aqui() {
+        use mos_core::AttentionRepository;
+
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        let relogio = mos_core::SystemClock;
+        let agora = time::OffsetDateTime::now_utc();
+        let novo = mos_core::NewReminder::at(
+            "Prova Presencial",
+            "Prova",
+            agora + time::Duration::hours(2),
+            &relogio,
+        )
+        .unwrap();
+        let id = novo.id;
+        AttentionRepository::create_reminder(&origem, novo).unwrap();
+
+        // O destino ja tem a linha, agendada. E o estado que torna o proximo
+        // passo um `UPDATE`, e nao um `INSERT`.
+        receber(&destino, &ops_da_fila(&origem, "reminder"));
+        assert_eq!(
+            AttentionRepository::reminder(&destino, id).unwrap().status,
+            mos_core::ReminderStatus::Scheduled
+        );
+
+        let mut lembrete = AttentionRepository::reminder(&origem, id).unwrap();
+        lembrete.status = mos_core::ReminderStatus::Completed;
+        lembrete.completed_at = Some(agora);
+        lembrete.next_due_at = None;
+        AttentionRepository::save_reminder(&origem, &lembrete).unwrap();
+
+        receber(&destino, &ops_da_fila(&origem, "reminder"));
+
+        let no_destino = AttentionRepository::reminder(&destino, id).unwrap();
+        assert_eq!(
+            no_destino.status,
+            mos_core::ReminderStatus::Completed,
+            "a conclusao chegou na sombra e nunca virou linha"
+        );
+        assert!(
+            no_destino.completed_at.is_some(),
+            "concluido sem carimbo e o estado que a propria tabela proibe"
+        );
+    }
+
+    /// Fechar uma mensagem troca as partes dela — e a troca tem que viajar.
+    ///
+    /// `finish_message` apaga as partes antigas e insere novas, com ids novos.
+    /// Localmente isso e correto. Na sombra nao era: so as novas eram emitidas,
+    /// e as antigas continuavam vivas, sem `deletedAt`, ocupando o
+    /// `UNIQUE (message_id, seq)` que a 0010 exige. As novas nunca viravam
+    /// linha em aparelho nenhum.
+    ///
+    /// Medido na VPS em 09/09/2026: 53 sombras de `message_part` para 47 linhas
+    /// possiveis, e as 6 sobrando retentadas em toda rodada com
+    /// `UNIQUE constraint failed: message_parts.message_id, message_parts.seq`.
+    #[test]
+    fn as_partes_trocadas_ao_fechar_a_mensagem_nao_disputam_o_lugar() {
+        let (origem, _guarda_origem) = storage_que_emite();
+        let (destino, _guarda_destino) = storage_que_emite();
+
+        let conversa = origem
+            .create_conversation(mos_core::NewConversation::create())
+            .unwrap();
+        let mensagem = origem
+            .append_message(mos_core::NewMessage::user(conversa.id, "e a laje?").unwrap())
+            .unwrap();
+
+        // Fechar troca as partes: as de agora saem, as novas entram no MESMO
+        // `(message_id, seq)` com ids diferentes.
+        origem
+            .finish_message(
+                mensagem.id,
+                mos_core::MessageStatus::Complete,
+                vec![mos_core::PartBody::Text {
+                    text: "a laje ficou 12 mil".to_owned(),
+                }],
+            )
+            .unwrap();
+
+        for kind in ["conversation", "message", "message_part"] {
+            receber(&destino, &ops_da_fila(&origem, kind));
+        }
+
+        let mensagens = destino.messages(conversa.id).unwrap();
+        assert_eq!(mensagens.len(), 1, "a mensagem nao atravessou");
+        let textos: Vec<&str> = mensagens[0]
+            .parts
+            .iter()
+            .filter_map(|parte| match &parte.body {
+                mos_core::PartBody::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            textos,
+            vec!["a laje ficou 12 mil"],
+            "a parte que substituiu a antiga nao chegou a virar linha"
+        );
     }
 }

@@ -550,12 +550,47 @@ impl ConversationRepository for SqliteStorage {
                 params![message_id, status.as_str()],
             )
             .map_err(map_sql_error)?;
+        // As partes que SAEM precisam sair da sombra tambem.
+        //
+        // `insert_parts` cria ids novos para o mesmo `(message_id, seq)`. Sem o
+        // `Delete`, as antigas continuavam vivas no estado de sincronizacao — e
+        // como a 0010 exige `UNIQUE (message_id, seq)`, a velha segurava o lugar
+        // e a nova NUNCA virava linha, em nenhum aparelho. Ela voltava para
+        // `sync_pendentes` e era retentada em toda rodada, para sempre.
+        //
+        // Aqui o `Delete` e o certo, e nao mudanca de campo: a parte antiga nao
+        // foi arquivada, ela deixou de existir. Quem guarda o que foi dito e a
+        // mensagem, e ela continua inteira.
+        let saindo: Vec<String> = {
+            let mut consulta = transaction
+                .prepare("SELECT id FROM message_parts WHERE message_id = ?1")
+                .map_err(map_sql_error)?;
+            let linhas = consulta
+                .query_map([&message_id], |linha| linha.get::<_, String>(0))
+                .map_err(map_sql_error)?;
+            linhas
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(map_sql_error)?
+        };
         transaction
             .execute(
                 "DELETE FROM message_parts WHERE message_id = ?1",
                 [&message_id],
             )
             .map_err(map_sql_error)?;
+        for antiga in &saindo {
+            // Uma parte gravada antes de este aparelho entrar na malha nao tem
+            // sombra, e um id que nao e UUID nao vira entidade. Nos dois casos
+            // nao ha o que apagar la fora.
+            let Ok(id) = uuid::Uuid::parse_str(antiga) else {
+                continue;
+            };
+            self.emitir(
+                &transaction,
+                mos_sync::EntityRef::new("message_part", id),
+                mos_sync::OpBody::Delete,
+            )?;
+        }
         insert_parts(self, &transaction, &message_id, &parts)?;
         touch(&transaction, &conversation_id, OffsetDateTime::now_utc())?;
 
