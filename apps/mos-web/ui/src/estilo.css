@@ -167,7 +167,15 @@ body {
 .app {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* `100dvh`, e NAO `height: 100%`.
+     `100%` depende da corrente html > body > #raiz, e no standalone do iOS essa
+     corrente resolve contra uma altura MENOR que o vidro. O resultado media 56px
+     de `--canvas` abaixo da barra — num aparelho cujo inset e 34px. Foi o numero
+     que resolveu a investigacao: se a faixa fosse o padding do `.app`, ela
+     mediria exatamente o inset. Nao media, entao nao era padding — era altura.
+     `dvh` e o viewport que o navegador esta REALMENTE mostrando, e nao herda
+     nada de ninguem. Medido em print do iPhone, 10/09/2026. */
+  height: 100dvh;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) 0
     env(safe-area-inset-left);
 }
