@@ -34,3 +34,8 @@ spikes/meeting-audio/meeting-spike/
 spikes/**/*.pcm
 spikes/**/report.json
 .vercel
+
+# Cache do Python. Nasce quando um script de `scripts/` e importado como modulo
+# em vez de executado — foi assim que dois .pyc entraram num commit em 10/09/2026.
+__pycache__/
+*.pyc
