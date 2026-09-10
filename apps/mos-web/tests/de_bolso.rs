@@ -1208,3 +1208,157 @@ async fn o_prazo_entra_e_sai_pelo_bolso() {
     assert!(sem_prazo["dueAt"].is_null(), "{sem_prazo:?}");
     assert_eq!(sem_prazo["title"], "Mandar a fatura de setembro");
 }
+
+/// A biblioteca do bolso e a mesma do PC.
+///
+/// O caso e literal: voce ve uma biblioteca de CSS no celular, cola o endereco,
+/// e ela esta na estante do desktop quando voce senta. O `Resource` ja existia e
+/// ja sincronizava — faltava a rota que ESCREVE direto (sem passar pela inbox) e
+/// a que LE a estante.
+#[tokio::test(flavor = "multi_thread")]
+async fn o_link_colado_no_bolso_esta_na_biblioteca_do_pc() {
+    use mos_core::ResourceRepository;
+
+    let hub = servir_hub().await;
+    let pasta_web = tempfile::tempdir().unwrap();
+    let pasta_pc = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta_web.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    let criado: serde_json::Value = cliente
+        .post(format!("http://{web}/api/biblioteca"))
+        .json(&serde_json::json!({
+            "url": "https://open-props.style",
+            "titulo": "Open Props",
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(criado["url"], "https://open-props.style");
+    assert_eq!(criado["title"], "Open Props");
+    // Com endereco, o tipo e `site` — a mesma regra que a referencia da inbox
+    // ja segue. Duas portas para a mesma coisa nao podem discordar sobre o que
+    // ela e.
+    assert_eq!(criado["kind"], "site");
+    let id = criado["id"].as_str().unwrap().to_owned();
+
+    // A estante do proprio bolso, que e o que a tela desenha.
+    let estante: serde_json::Value = cliente
+        .get(format!("http://{web}/api/biblioteca"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        estante[0]["id"],
+        id.as_str(),
+        "nao apareceu na propria estante"
+    );
+
+    // E o PC, que e a promessa inteira.
+    //
+    // Espera por CONDICAO, como os outros testes daqui: a escrita do bolso
+    // dispara a rodada em segundo plano, entao um numero fixo de milissegundos
+    // faria este teste passar na minha maquina e falhar na do CI.
+    //
+    // E dentro de `spawn_blocking` porque `sincronizar` usa o transporte
+    // BLOQUEANTE: soltar o runtime dele de dentro de um contexto async estoura
+    // com "Cannot drop a runtime in a context where blocking is not allowed".
+    let caminho_pc = pasta_pc.path().to_path_buf();
+    let pc = tokio::task::spawn_blocking(move || {
+        let pc = outro_aparelho(&caminho_pc);
+        for _ in 0..50 {
+            sincronizar(&pc, hub);
+            if !pc.resources(false).unwrap().is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        pc
+    })
+    .await
+    .unwrap();
+
+    let no_pc = pc.resources(false).unwrap();
+    assert_eq!(no_pc.len(), 1, "o link nao chegou no PC");
+    assert_eq!(no_pc[0].url, "https://open-props.style");
+    assert_eq!(no_pc[0].title, "Open Props");
+}
+
+/// Sem titulo, o link entra assim mesmo — com a URL no lugar do titulo.
+///
+/// Digitar titulo no teclado do celular e exatamente o atrito que faz a pessoa
+/// nao guardar o link. Um titulo vazio e uma escolha valida.
+///
+/// Quem decide o que acontece com o vazio e o `mos-core`, e nao esta rota:
+/// `NewResource::create` troca titulo vazio pela URL, e recusa o vazio so
+/// quando NAO ha URL para servir de fallback. Este teste existe para fixar esse
+/// contrato do lado do bolso — a tela encurta para o dominio ao desenhar, e e
+/// so ali que a diferenca aparece.
+#[tokio::test(flavor = "multi_thread")]
+async fn o_link_sem_titulo_entra_do_mesmo_jeito() {
+    let hub = servir_hub().await;
+    let pasta = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta.path(), hub).await;
+
+    let resposta = reqwest::Client::new()
+        .post(format!("http://{web}/api/biblioteca"))
+        .json(&serde_json::json!({ "url": "https://utopia.fyi" }))
+        .send()
+        .await
+        .unwrap();
+    assert!(resposta.status().is_success(), "recusou link sem titulo");
+    let criado: serde_json::Value = resposta.json().await.unwrap();
+    assert_eq!(criado["url"], "https://utopia.fyi");
+    assert_eq!(
+        criado["title"], "https://utopia.fyi",
+        "titulo vazio deveria cair na URL, e nao ficar vazio"
+    );
+}
+
+/// Arquivar tira da estante e NAO apaga: o mesmo contrato das tasks e dos
+/// lembretes. Um link guardado tem valor de arquivo mesmo depois de lido.
+#[tokio::test(flavor = "multi_thread")]
+async fn arquivar_na_biblioteca_tira_da_estante_sem_apagar() {
+    let hub = servir_hub().await;
+    let pasta = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    let criado: serde_json::Value = cliente
+        .post(format!("http://{web}/api/biblioteca"))
+        .json(&serde_json::json!({ "url": "https://radix-ui.com/colors" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = criado["id"].as_str().unwrap().to_owned();
+
+    let resposta = cliente
+        .post(format!("http://{web}/api/biblioteca/{id}/arquivar"))
+        .send()
+        .await
+        .unwrap();
+    assert!(resposta.status().is_success(), "arquivar falhou");
+
+    let estante: serde_json::Value = cliente
+        .get(format!("http://{web}/api/biblioteca"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        estante.as_array().map(Vec::len),
+        Some(0),
+        "continuou na estante"
+    );
+}

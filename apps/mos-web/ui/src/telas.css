@@ -814,6 +814,10 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+  /* Ela nasceu servindo so a `<button>`. A Biblioteca a usa em `<a>`, que vem
+     sublinhado por padrao — e um sublinhado por linha, numa lista inteira,
+     desenha uma cerca onde a `.item` ja separa com hairline. */
+  text-decoration: none;
 }
 
 .rodape-sync {
@@ -917,6 +921,70 @@
    lista virou linhas separadas por hairline. */
 .item {
   position: relative;
+}
+
+/* ---------------------------------------------------------- biblioteca */
+
+/* A estante do bolso. O campo fica no TOPO, e nao no compositor de baixo: o
+   compositor serve as tres paginas que escrevem texto (capturar, fazer,
+   lembretes), e um quarto modo nele obrigaria a decidir o que aquele campo faz
+   antes de digitar. Aqui a pagina inteira tem uma intencao so. */
+.biblioteca {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+}
+
+/* Sem isto o botao vira item de grid esticado na largura toda, e o "← Mais"
+   aparece no MEIO da tela — que e onde ninguem procura por voltar. */
+.biblioteca .voltar {
+  justify-self: start;
+}
+
+.guardar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2);
+}
+
+.guardar input {
+  min-height: var(--toque);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  /* 16px e o piso: abaixo disso o Safari do iPhone DA ZOOM ao focar o campo, e
+     a pagina fica deslocada depois de colar. */
+  font: 400 16px/1 var(--font-product);
+}
+
+.guardar input:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+
+/* Arquivar mora na propria linha, e nao atras de um gesto escondido: um deslize
+   para o lado e invisivel para quem nao sabe que ele existe, e esta e uma acao
+   que se usa uma vez por link. */
+.arquivar {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  background: none;
+  color: var(--text-system);
+  font: 500 10px/1 var(--font-system);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+/* O nome nao passa por baixo do botao de arquivar. */
+.biblioteca .item-corpo {
+  padding-right: 72px;
 }
 
 /* ------------------------------------------------------------ movimento */

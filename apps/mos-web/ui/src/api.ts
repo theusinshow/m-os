@@ -83,6 +83,23 @@ export type ODia = {
 };
 
 /** Um projeto, só com o que a tela do bolso precisa saber dele. */
+/**
+ * O que se consulta, e nao o que se faz — um `Resource` do M/OS.
+ *
+ * `title` NUNCA vem vazio: o `mos-core` troca titulo em branco pela propria
+ * URL, e so recusa o vazio quando nao ha URL para servir de fallback. Entao a
+ * tela nao testa "tem titulo?", e sim "o titulo E a url?" — e nesse caso mostra
+ * o dominio, que e mais curto e diz a mesma coisa.
+ */
+export type Referencia = {
+  id: string;
+  kind: "site" | "library" | "image" | "note" | "file";
+  title: string;
+  url: string;
+  note: string;
+  createdAt: string;
+};
+
 export type Projeto = {
   id: string;
   name: string;
@@ -441,7 +458,7 @@ export const api = {
   },
   /** A Capture vira referência — o que se consulta, e não o que se faz. */
   capturaParaReferencia(id: string) {
-    return pedir<{ id: string; kind: string; title: string; url: string }>(
+    return pedir<Referencia>(
       `/api/capturas/${id}/referencia`,
       { method: "POST", body: JSON.stringify({}) },
     );
@@ -490,6 +507,22 @@ export const api = {
       }),
     });
   },
+  /** A estante: o que voce guardou para consultar. Mais novo primeiro. */
+  biblioteca() {
+    return pedir<Referencia[]>("/api/biblioteca");
+  },
+  /** Cola o endereco e pronto. Titulo vazio e valido — o servidor cai na URL. */
+  guardarNaBiblioteca(url: string, titulo = "", nota = "") {
+    return pedir<Referencia>("/api/biblioteca", {
+      method: "POST",
+      body: JSON.stringify({ url, titulo, nota }),
+    });
+  },
+  /** Tira da estante sem apagar. */
+  arquivarDaBiblioteca(id: string) {
+    return pedir<Referencia>(`/api/biblioteca/${id}/arquivar`, { method: "POST" });
+  },
+
   /** O que esta sendo esquecido, com o motivo de cada um. */
   lembretesEmAtencao() {
     return pedir<LinhaDeAtencao[]>("/api/lembretes/atencao");

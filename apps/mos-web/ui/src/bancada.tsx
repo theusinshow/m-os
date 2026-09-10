@@ -431,6 +431,7 @@ const TELAS: { titulo: string; pagina: Pagina; compoe?: boolean; corpo: ReactNod
         aoAbrirLembretes={NADA}
         aoAbrirHoras={NADA}
         aoAbrirAcademico={NADA}
+        aoAbrirBiblioteca={NADA}
       />
     ),
   },

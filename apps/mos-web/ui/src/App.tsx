@@ -36,6 +36,7 @@ import { Lembretes, type VistaDosLembretes } from "./paginas/Lembretes";
 import { Mais } from "./paginas/Mais";
 import { Agenda, type VistaDaAgenda } from "./paginas/Agenda";
 import { gravarFiltro, lerFiltro, type Filtro } from "./paginas/categorias";
+import { Biblioteca } from "./paginas/Biblioteca";
 import { Horas } from "./paginas/Horas";
 import { periodo, type Janela } from "./paginas/janelas";
 import { Academico } from "./paginas/Academico";
@@ -772,6 +773,7 @@ export function App() {
         {pagina === "academico" ? (
           <Academico compromissos={academico} carregando={carregando} />
         ) : null}
+        {pagina === "biblioteca" ? <Biblioteca aoVoltar={() => setPagina("mais")} /> : null}
         {pagina === "mais" ? (
           <Mais
             estado={estado}
@@ -783,6 +785,7 @@ export function App() {
             aoAbrirLembretes={() => setPagina("lembretes")}
             aoAbrirHoras={() => setPagina("horas")}
             aoAbrirAcademico={() => setPagina("academico")}
+            aoAbrirBiblioteca={() => setPagina("biblioteca")}
           />
         ) : null}
       </main>

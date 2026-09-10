@@ -55,6 +55,14 @@ pub fn rotas() -> Router<Estado> {
             "/api/checklist/{id}",
             patch(editar_item).delete(apagar_item),
         )
+        .route(
+            "/api/biblioteca",
+            get(biblioteca).post(guardar_na_biblioteca),
+        )
+        .route(
+            "/api/biblioteca/{id}/arquivar",
+            post(arquivar_da_biblioteca),
+        )
         .route("/api/projetos", get(projetos))
         .route("/api/lembretes", get(lembretes).post(criar_lembrete))
         .route("/api/lembretes/resolvidos", get(lembretes_resolvidos))
@@ -748,6 +756,87 @@ async fn capturar_para_referencia(
                 note: pedido.nota.clone(),
                 source_capture_id: Some(id.clone()),
             })
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(recurso).unwrap_or_default()))
+}
+
+// ------------------------------------------------------------- biblioteca
+
+/// A estante: os Resources ativos, mais novo primeiro.
+///
+/// # Por que uma rota nova, se a referencia ja existia
+///
+/// `POST /api/capturas/{id}/referencia` sabe TRANSFORMAR uma captura em
+/// Resource, e nada sabia LER a estante. No bolso isso queria dizer que o link
+/// entrava e sumia: ele sincronizava, aparecia no PC, e no celular nao havia
+/// tela nenhuma que o mostrasse de volta.
+async fn biblioteca(State(estado): State<Estado>) -> Resultado<Json<serde_json::Value>> {
+    // `false`: arquivado sai da estante. Ele continua no banco e continua
+    // sincronizando — o desktop e quem tem tela para revirar arquivo.
+    let recursos = estado.memoria.resources(false).map_err(de_core)?;
+    Ok(Json(serde_json::to_value(recursos).unwrap_or_default()))
+}
+
+#[derive(Deserialize)]
+struct GuardarNaBiblioteca {
+    /// O endereco, colado. E o unico campo obrigatorio.
+    url: String,
+    /// Vazio e uma escolha valida: digitar titulo no teclado do celular e
+    /// justamente o atrito que faz a pessoa nao guardar o link. A tela mostra o
+    /// dominio quando ele falta, e o desktop renomeia com teclado de verdade.
+    #[serde(default)]
+    titulo: String,
+    #[serde(default)]
+    nota: String,
+}
+
+/// Colar um endereco e ve-lo na estante, sem passar pela inbox.
+///
+/// O caminho pela captura continua existindo e serve a outra intencao — "tirar
+/// da cabeca agora, decidir depois". Este serve a intencao oposta, que ja vem
+/// decidida: isto e uma referencia, guarde.
+///
+/// O `kind` sai da MESMA regra da referencia da inbox: com endereco e `site`,
+/// sem endereco e `note`. Duas portas para a mesma coisa nao podem discordar
+/// sobre o que ela e.
+async fn guardar_na_biblioteca(
+    State(estado): State<Estado>,
+    Json(pedido): Json<GuardarNaBiblioteca>,
+) -> Resultado<Json<serde_json::Value>> {
+    let url = pedido.url.trim().to_owned();
+    let recurso = escrever(&estado, move |estado| {
+        estado
+            .memoria
+            .create_resource(mos_core::CreateResourceInput {
+                kind: if url.is_empty() {
+                    mos_core::ResourceKind::Note
+                } else {
+                    mos_core::ResourceKind::Site
+                },
+                title: pedido.titulo.trim().to_owned(),
+                url: url.clone(),
+                note: pedido.nota.trim().to_owned(),
+                source_capture_id: None,
+            })
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(recurso).unwrap_or_default()))
+}
+
+/// Arquivar tira da estante e NAO apaga.
+///
+/// O mesmo contrato das tasks e dos lembretes, e pela mesma razao: um link
+/// guardado tem valor de arquivo mesmo depois de lido. Apagar de verdade e
+/// decisao de desktop, onde da para ver o que se esta perdendo.
+async fn arquivar_da_biblioteca(
+    State(estado): State<Estado>,
+    Path(id): Path<String>,
+) -> Resultado<Json<serde_json::Value>> {
+    let recurso = escrever(&estado, move |estado| {
+        estado
+            .memoria
+            .set_resource_lifecycle(&id, mos_core::LifecycleState::Archived)
     })
     .await?;
     Ok(Json(serde_json::to_value(recurso).unwrap_or_default()))

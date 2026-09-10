@@ -8,7 +8,8 @@ export type Pagina =
   | "mais"
   | "horas"
   | "academico"
-  | "lembretes";
+  | "lembretes"
+  | "biblioteca";
 
 /**
  * Os cinco lugares da barra de baixo.
