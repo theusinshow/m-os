@@ -148,13 +148,28 @@ body {
 }
 
 /* A área segura do iPhone. Sem isto, a barra inferior come o último item da
-   lista e o botão de capturar fica atrás do gesto de home. */
+   lista e o botão de capturar fica atrás do gesto de home.
+
+   EMBAIXO NÃO, e a exceção é o ponto: quem reserva o espaço do indicador de
+   home é a `.barra`, que já tem o inset no próprio `padding-bottom`. Reservar
+   aqui TAMBÉM contava o mesmo espaço duas vezes — a barra subia 34px e o fundo
+   do body aparecia embaixo dela como uma faixa. No Safari isso não se via,
+   porque lá o inset é 0 (a barra do navegador ocupa a região); só aparecia
+   depois de "Adicionar à Tela de Início", que é onde ninguém está olhando o
+   CSS. Conferido em bancada com o inset concreto, 10/09/2026.
+
+   A diferença entre as duas não é de gosto: a barra é opaca, então o fundo dela
+   é o que deve encostar na borda da tela. Um contêiner que recua deixa a cor do
+   body à mostra.
+
+   O `.recado` já dizia isso e ninguém leu: ele é fixo em `72px + inset`, que é
+   a barra COLADA embaixo. Com o recuo aqui ele caía 27px dentro da barra. */
 .app {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0
+    env(safe-area-inset-left);
 }
 
 /* ---------------------------------------------------------------- topo */
