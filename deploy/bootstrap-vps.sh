@@ -118,7 +118,6 @@ MOS_WEB_INVITE=$CONVITE
 MOS_WEB_VAPID_PRIVADA=$VAPID
 MOS_WEB_VAPID_CONTATO=$CONTATO
 MOS_WEB_ORIGEM=https://$DOMINIO
-MOS_WEB_PORTA_EXTERNA=1
 ENV
 chmod 600 /etc/mos-web.env && chown root:root /etc/mos-web.env
 
@@ -158,21 +157,31 @@ else
   echo "caddy já estava instalado"
 fi
 
-# --- A porta, e por que ela está AQUI e não no binário ------------------------
+# --- A porta é a passkey, e ela mora no BINÁRIO -------------------------------
 #
-# O `auth.rs` do `mos-web` tem passkey escrito — e não montado em rota nenhuma.
-# Enquanto isso for verdade, o binário não autentica ninguém, e publicá-lo sem
-# nada na frente entregaria o M/OS inteiro a quem achasse a URL.
+# **Correção de 10/09/2026.** Este comentário dizia que o `auth.rs` tinha passkey
+# "escrito e não montado em rota nenhuma", e que por isso quem autenticava era o
+# proxy. Fazia meses que não era verdade, e o texto sobreviveu ao código:
+# `api.rs::servidor` faz `merge` da cerimônia e aplica `porta::guarda` como
+# camada; `porta.rs` protege todo `/api/*` fora de `/api/porta/`, de modo que
+# uma rota nova nasce protegida por omissão.
 #
-# Então quem autentica hoje é o proxy: Basic Auth sobre TLS, com senha sorteada
-# de 18 bytes. Não é a porta definitiva — passkey é —, mas é uma porta de
-# verdade, e uma porta de verdade hoje vale mais que a porta certa na semana que
-# vem com a casa aberta no meio.
+# A consequência de acreditar no comentário: o M/OS de bolso ficou com DUAS
+# portas em série — a senha do Caddy e a passkey — e a de fora, sendo a que se
+# digita, virou a que incomoda. Trocá-la por uma fácil seria enfraquecer a única
+# das duas que a maioria dos ataques encontra primeiro.
 #
-# É por isso que o `/etc/mos-web.env` declara `MOS_WEB_PORTA_EXTERNA=1`: o
-# binário recusa subir publicado sem que alguém afirme que há porta na frente.
-HASH="$(caddy hash-password --plaintext "$SENHA")"
-USUARIO="${MOS_USUARIO:-matheus}"
+# Então a senha sai da frente. O que autentica é a passkey:
+#
+#   registrar  exige o CONVITE (`MOS_WEB_INVITE`), comparado em tempo constante
+#   entrar     exige a chave privada, que não sai do Secure Enclave do aparelho
+#
+# O que fica público é a CASCA: o HTML, o JS e o CSS que precisam carregar para
+# a tela de entrar existir. Nenhum dado atravessa — ele está atrás do guardião.
+#
+# `/etc/mos-proxy.env` continua sendo gerado, e não é sobra: é a porta de
+# emergência. Se a passkey falhar num aparelho novo, `deploy/voltar-senha.py`
+# repõe o Basic Auth em um comando, com o hash saindo dali.
 
 # O hub fica FORA do Basic Auth, e isso não é descuido.
 #
@@ -186,21 +195,19 @@ USUARIO="${MOS_USUARIO:-matheus}"
 # segredo E uma chave SSH, porque o hub só escutava em `127.0.0.1` e os PCs
 # chegavam por túnel. A troca é deliberada: o túnel era a peça que quebrava
 # calada, e um endereço só é o que faz os três aparelhos se conectarem igual.
-# A CASCA DA PWA TAMBÉM FICA FORA DO Basic Auth, e isso também é decisão.
+# O Caddy não autentica mais nada, e por isso o arquivo ficou curto.
 #
-# O iPhone busca o `apple-touch-icon` e o `manifest.webmanifest` ao "Adicionar à
-# Tela de Início", e essa busca não carrega a credencial do Basic Auth. Com 401
-# ali, o iOS não falha visivelmente: ele desenha um monograma com a primeira
-# letra do título — um "M" cinza no lugar da marca. Foi exatamente o que estava
-# na tela de início do dono até 09/09/2026, e o sintoma não aponta para a causa.
+# Ele faz uma coisa só: termina o TLS e reparte por porta — `/sync/*` vai para o
+# hub, o resto vai para o `mos-web`. Quem decide quem entra é o `mos-web`, com a
+# passkey.
 #
-# O que isso expõe, dito com todas as letras: quem chegar na URL passa a ler o
-# nome "M/OS", a descrição do manifest e as cores. É a identidade do app, e não
-# dado de ninguém — as telas, a API e a inbox continuam atrás da senha, e
-# `/sync/*` continua protegido pelo segredo do hub.
-#
-# A lista é fechada de propósito. `path` casa o caminho INTEIRO, então
-# `/icone-*` não alcança `/api/...` nem nada além dos arquivos nomeados aqui.
+# Um efeito colateral que vale registrar, porque custou uma investigação: o
+# iPhone busca o `apple-touch-icon` e o `manifest.webmanifest` ao "Adicionar à
+# Tela de Início", e essa busca NÃO carrega credencial de Basic Auth. Enquanto
+# havia senha aqui, ele levava 401 nos dois e não falhava visivelmente — desenhava
+# um monograma com a primeira letra do título, um "M" cinza no lugar da marca. O
+# sintoma não apontava para a causa em lugar nenhum. Sem Basic Auth o problema
+# deixa de existir, e não por acaso: ele era filho da porta estar no lugar errado.
 cat >/etc/caddy/Caddyfile <<CADDY
 $DOMINIO {
 	@sync path /sync/*
@@ -208,15 +215,7 @@ $DOMINIO {
 		reverse_proxy 127.0.0.1:9120
 	}
 
-	@casca path /icone.svg /icone-maskable.svg /icone-*.png /manifest.webmanifest /sw.js
-	handle @casca {
-		reverse_proxy 127.0.0.1:9130
-	}
-
 	handle {
-		basic_auth {
-			$USUARIO $HASH
-		}
 		reverse_proxy 127.0.0.1:9130
 	}
 }
@@ -279,11 +278,21 @@ CODIGO="$(curl -s -o /dev/null -w '%{http_code}' "https://$DOMINIO/icone-180.png
 [ "$CODIGO" = "200" ] && echo OK ||
   echo "FALHOU ($CODIGO) — o iPhone vai desenhar um M no lugar da marca"
 
-# E a metade que importa tanto quanto: o resto CONTINUA fechado.
-printf 'porta fechada  '
+# A casca CARREGA — é ela que desenha a tela de entrar.
+printf 'casca ........ '
 CODIGO="$(curl -s -o /dev/null -w '%{http_code}' "https://$DOMINIO/" || true)"
+[ "$CODIGO" = "200" ] && echo OK ||
+  echo "FALHOU ($CODIGO) — sem a casca nao ha nem tela de entrar"
+
+# E a metade que importa tanto quanto: o DADO continua fechado.
+#
+# Esta linha é a que prova que o guardião está de pé. Sem ela, um `mos-web`
+# subindo sem sessão nenhuma — feature ausente, `MOS_WEB_INVITE` vazio — passaria
+# por esta conferência com todos os OK e a API inteira aberta.
+printf 'dado fechado . '
+CODIGO="$(curl -s -o /dev/null -w '%{http_code}' "https://$DOMINIO/api/tasks" || true)"
 [ "$CODIGO" = "401" ] && echo OK ||
-  echo "FALHOU ($CODIGO) — a raiz devia pedir senha"
+  echo "FALHOU ($CODIGO) — /api/tasks devia exigir sessao. NAO deixe assim."
 
 dizer "Pronto"
 cat <<FIM
@@ -296,19 +305,25 @@ cat <<FIM
       journalctl -u caddy -n 30 --no-pager
 
   ------------------------------------------------------------------
-  A senha da porta (o navegador vai pedir na primeira vez):
+  O CONVITE. É ele que registra um aparelho novo — depois disso, quem
+  abre a porta é o Face ID, e não uma senha digitada:
 
-      usuário: ${MOS_USUARIO:-matheus}
-      senha:   $SENHA
+      $CONVITE
 
   ------------------------------------------------------------------
   O segredo do hub, para o M/OS do PC (Settings -> SINCRONIZAÇÃO):
 
       $TOKEN
 
-  O convite, para registrar o aparelho na primeira entrada:
+  ------------------------------------------------------------------
+  A porta de emergência, se a passkey falhar num aparelho novo:
 
-      $CONVITE
+      sudo python3 deploy/voltar-senha.py
+
+  Ela repõe o Basic Auth no Caddy com esta senha, já sorteada:
+
+      usuário: ${MOS_USUARIO:-matheus}
+      senha:   $SENHA
   ------------------------------------------------------------------
 
   Estão em /etc/mos-web.env e /etc/mos-proxy.env, modo 600. Não precisam ser
