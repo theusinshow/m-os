@@ -8,7 +8,7 @@ import type { OpenAiUsageStatus } from "./types";
 import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
   MeetingTick, TranscriberStatus, TranscriptSegment,
   VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
-  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ReminderTrigger, ReminderEvent, Recurrence, AttentionRow, AttentionSettings, ParsedReminder, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, AcademicDashboard, AcademicToday, Assignment, AssignmentStatus, Exam, ExamStatus, ReminderPriority, Semester, StaleView, SyncRound, SyncStatus, AparelhoNaMalha, StudySession, Subject, ChecklistItem, Task, TaskDetail, TaskPriority, TaskState, UpdateTaskInput, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace, UnivirtusStatus, SyncReport, ProviderSubjectFact, Decision, Faixa } from "./types";
+  WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ReminderTrigger, ReminderEvent, Recurrence, AttentionRow, AttentionSettings, ParsedReminder, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, AcademicDashboard, AcademicToday, Assignment, AssignmentStatus, Exam, ExamStatus, ReminderPriority, Semester, StaleView, SyncRound, SyncStatus, AparelhoNaMalha, StudySession, Subject, ChecklistItem, Task, TaskDetail, TaskPriority, TaskState, UpdateTaskInput, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace, UnivirtusStatus, SyncReport, ProviderSubjectFact, Decision, Faixa, AcaoDeResgate, ObjectiveResolution, Panorama, PlanoDeResgate, PropostaDeEncerramento, SaudeDoSync } from "./types";
 
 /**
  * O `Update` que a ultima verificacao devolveu.
@@ -1345,6 +1345,70 @@ export const api = {
   /** O resumo do dia foi lido. */
   syncDismissSummary() {
     return invoke<void>("sync_dispensar_resumo");
+  },
+  /** O Sync Health inteiro: estado, registro, fila, conflitos, aparelhos. */
+  syncHealth() {
+    return invoke<SaudeDoSync>("sync_health");
+  },
+  /** Os conflitos foram vistos. Eles nao somem — deixam de pedir atencao. */
+  syncReconhecerConflitos() {
+    return invoke<number>("sync_reconhecer_conflitos");
+  },
+  /** A rede voltou: tenta agora, sem esperar a escada do backoff. */
+  syncAcordar() {
+    return invoke<void>("sync_acordar");
+  },
+
+  // -------------------------------------------------------------- piloto
+  /** A Home inteira, numa leitura. */
+  pilotoPanorama() {
+    return invoke<Panorama>("piloto_panorama");
+  },
+  pilotoPropostaDeEncerramento() {
+    return invoke<PropostaDeEncerramento>("piloto_proposta_de_encerramento");
+  },
+  /** "Montar meu dia": grava a proposta automatica como veio. */
+  pilotoIniciarDia() {
+    return invoke<DailyToday>("piloto_iniciar_dia");
+  },
+  /** "Encerrar dia": move o que foi pedido para amanha e fecha a sessao. */
+  pilotoEncerrarDia(pedido: { mover: string[]; resolutions: ObjectiveResolution[]; mood?: string; summary?: string }) {
+    return invoke<DailyToday>("piloto_encerrar_dia", { pedido });
+  },
+  /** O plano guiado do Rescue Mode. Nulo quando nao houve ausencia. */
+  pilotoResgate() {
+    return invoke<PlanoDeResgate | null>("piloto_resgate");
+  },
+  pilotoResgateAplicar(acoes: AcaoDeResgate[]) {
+    return invoke<{ aplicadas: number; falharam: string[] }>("piloto_resgate_aplicar", { pedido: { acoes } });
+  },
+  pilotoResgateConcluir() {
+    return invoke<void>("piloto_resgate_concluir");
+  },
+  /** "Comecar": registra o instante e poe em doing. Uma ativa por vez. */
+  taskStart(id: string) {
+    return invoke<Task>("task_start", { id });
+  },
+  /** "Continuar depois": limpa o instante, mantem o estado. */
+  taskStop(id: string) {
+    return invoke<Task>("task_stop", { id });
+  },
+  /** Planeja para um dia (`AAAA-MM-DD`, vazio tira). `adiando` conta adiamento. */
+  taskPlan(id: string, day: string, adiando: boolean) {
+    return invoke<Task>("task_plan", { id, day, adiando });
+  },
+  autopilotStatus() {
+    return invoke<{ ligado: boolean }>("autopilot_status");
+  },
+  autopilotSet(ligado: boolean) {
+    return invoke<{ ligado: boolean }>("autopilot_set", { ligado });
+  },
+  /** `minutos` segue `OpcaoDeAdiar`: -1 hoje a noite, -2 amanha. */
+  autopilotAdiar(chave: string, minutos: number) {
+    return invoke<void>("autopilot_adiar", { chave, minutos });
+  },
+  autopilotResolver(chave: string) {
+    return invoke<void>("autopilot_resolver", { chave });
   },
   createBackup(path: string) {
     return invoke<BackupReceipt>("create_backup", { path });

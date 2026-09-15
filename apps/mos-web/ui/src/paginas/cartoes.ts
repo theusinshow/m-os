@@ -63,15 +63,27 @@ export function cartoesDaHome(
   cartoes.push({
     chave: "sync",
     rotulo: "SYNC",
-    numero: semHub ? "SEM HUB" : pendentes > 0 ? String(pendentes) : "EM DIA",
+    numero: semHub
+      ? "SEM HUB"
+      : estado?.saude?.kind === "erro"
+        ? "ERRO"
+        : estado?.saude?.kind === "offline"
+          ? "OFFLINE"
+          : pendentes > 0
+            ? String(pendentes)
+            : "EM DIA",
     legenda: semHub
       ? "este aparelho não alcança o hub"
-      : pendentes > 0
-        ? "esperando para subir"
-        : "tudo já atravessou",
+      : estado?.saude?.kind === "erro"
+        ? "salvo aqui — precisa de você para voltar"
+        : estado?.saude?.kind === "offline"
+          ? "salvo aqui — sobe sozinho quando voltar"
+          : pendentes > 0
+            ? "esperando para subir"
+            : "tudo já atravessou",
     destino: "mais",
-    urgente: semHub || undefined,
-    palavra: pendentes === 0 || semHub || undefined,
+    urgente: semHub || estado?.saude?.kind === "erro" || undefined,
+    palavra: pendentes === 0 || semHub || estado?.saude?.kind === "erro" || estado?.saude?.kind === "offline" || undefined,
   });
 
   // O DIA vem antes de tudo o que se conta, e nao no fim: ele e o unico cartao

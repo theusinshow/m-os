@@ -25,7 +25,6 @@ pub fn calendar_window<R: Runtime>(
     since: String,
     until: String,
 ) -> Result<Vec<CalendarItem>, CoreError> {
-    let state = app.state::<AppState>();
     let from = mos_core::parse_moment(&since)?;
     let to = mos_core::parse_moment(&until)?;
     if to < from {
@@ -35,6 +34,17 @@ pub fn calendar_window<R: Runtime>(
             false,
         ));
     }
+    janela(&app, from, to)
+}
+
+/// A mesma composicao, para quem chama de dentro do processo — o piloto le a
+/// agenda de hoje e amanha por aqui, e nao por uma segunda leitura das fontes.
+pub fn janela<R: Runtime>(
+    app: &AppHandle<R>,
+    from: time::OffsetDateTime,
+    to: time::OffsetDateTime,
+) -> Result<Vec<CalendarItem>, CoreError> {
+    let state = app.state::<AppState>();
 
     // Cada leitura numa variavel propria: passar as chamadas direto como
     // referencia deixaria os temporarios morrerem antes de `compose` usa-los.
@@ -58,7 +68,7 @@ pub fn calendar_window<R: Runtime>(
     let academico = mos_core::AcademicService::new(state.storage.clone()).compromissos_entre(
         from,
         to,
-        crate::surface::now_local(&app),
+        crate::surface::now_local(app),
     )?;
 
     // Os lembretes abertos entram no calendario — a mesma fonte, a mesma regra

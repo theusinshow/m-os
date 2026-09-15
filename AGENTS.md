@@ -31,7 +31,9 @@ Três regras duras:
    serviços de domínio, não.
 
 Leia `docs/PLATFORMS.md` antes de decidir onde uma feature mora, e
-`docs/SYNC.md` antes de mexer em qualquer coisa que atravesse dispositivos.
+`docs/SYNC.md` antes de mexer em qualquer coisa que atravesse dispositivos, e
+`docs/PILOTO.md` antes de mexer no que a Home decide, no que avisa, ou em como o
+dia começa e termina.
 
 ## Priority
 

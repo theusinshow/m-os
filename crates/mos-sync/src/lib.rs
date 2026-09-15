@@ -30,6 +30,7 @@ mod merge;
 mod op;
 mod ports;
 mod relacao;
+mod saude;
 
 pub use clock::{Hlc, HlcClock};
 pub use device::{Device, DeviceId, Platform};
@@ -43,6 +44,10 @@ pub use ports::{
     ClockRepository, ConflictRepository, DeviceRepository, OutboxRepository, Resultado, SyncError,
 };
 pub use relacao::{Relacao, RelationKind};
+pub use saude::{
+    atraso, classificar, estado as estado_de_saude, EstadoDeSaude, RegistroDeSaude, Sinais,
+    TipoDeFalha, ESCADA_DO_BACKOFF,
+};
 
 /// A versao do formato que viaja entre dispositivos.
 ///

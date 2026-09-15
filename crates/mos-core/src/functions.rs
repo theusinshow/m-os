@@ -73,6 +73,16 @@ pub fn function_registry() -> Vec<FunctionDefinition> {
             FunctionRisk::Low,
             FunctionConfirmation::None,
         ),
+        // "O que faco agora?" nao abre fluxo: a resposta ja esta na Home, no
+        // painel do piloto, com a razao ao lado. O comando so leva ate la.
+        function(
+            "piloto.what_now",
+            "O que faço agora?",
+            "Mostra a Task recomendada para agora, com a razao, e o que precisa de atencao.",
+            FunctionCategory::Daily,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
         function(
             "daily.view_today",
             "Ver a sessao do dia",
@@ -181,6 +191,22 @@ pub fn function_registry() -> Vec<FunctionDefinition> {
             "task.set_state",
             "Mover Task",
             "Altera uma Task entre Backlog, Doing e Done.",
+            FunctionCategory::Work,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "task.start",
+            "Começar Task",
+            "Registra o inicio do trabalho numa Task e a poe em Doing. Uma ativa por vez.",
+            FunctionCategory::Work,
+            FunctionRisk::Low,
+            FunctionConfirmation::None,
+        ),
+        function(
+            "task.plan",
+            "Planejar Task",
+            "Marca o dia em que voce pretende trabalhar numa Task. Nao muda o prazo.",
             FunctionCategory::Work,
             FunctionRisk::Low,
             FunctionConfirmation::None,

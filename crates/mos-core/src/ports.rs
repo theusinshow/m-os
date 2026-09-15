@@ -214,6 +214,26 @@ pub trait WorkRepository: Send + Sync {
     fn task_detail(&self, id: TaskId) -> Result<crate::TaskDetail, CoreError>;
     fn set_task_state(&self, id: TaskId, state: TaskState) -> Result<Task, CoreError>;
     fn set_task_lifecycle(&self, id: TaskId, lifecycle: LifecycleState) -> Result<Task, CoreError>;
+    /// Planeja a Task para um dia (ou tira do planejamento com `None`).
+    ///
+    /// `adiando` conta como adiamento: e o sinal de evitamento que o Attention
+    /// Engine le. Mover de hoje para amanha no End My Day e adiar; planejar
+    /// pela primeira vez nao e. **Nunca toca `due_at`.**
+    fn plan_task(
+        &self,
+        id: TaskId,
+        scheduled_for: Option<crate::Day>,
+        adiando: bool,
+    ) -> Result<Task, CoreError>;
+    /// Marca o inicio (ou o fim, com `None`) do trabalho nesta Task.
+    ///
+    /// Comecar tambem move para `doing` quando a Task ainda nao estava la; parar
+    /// nao move de volta, porque "parei por hoje" nao desfaz "estou nisto".
+    fn set_task_started(
+        &self,
+        id: TaskId,
+        started_at: Option<time::OffsetDateTime>,
+    ) -> Result<Task, CoreError>;
 
     // ------------------------------------------------------------- checklist
     //

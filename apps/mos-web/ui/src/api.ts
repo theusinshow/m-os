@@ -82,6 +82,28 @@ export type ODia = {
   sequencia: number;
 };
 
+/** O que o `/api/piloto` devolve. Um recorte do `Panorama` do `mos_core`;
+ *  o resto do struct viaja e o bolso ignora — estreitar aqui faria a tela
+ *  quebrar quando o desktop ganhasse um campo. */
+export type Piloto = {
+  day: string;
+  saudacao: string;
+  estadoDoDia: { kind: "not_started" | "stale_open" | "active" | "ended" };
+  hoje: { concluidas: number; restantes: number; progresso: number };
+  agora: {
+    agora: { taskId: string; titulo: string; projeto: string; estimativa: string; comecada: boolean; razoes: string[] } | null;
+    vazio: string | null;
+  };
+  proximos: { hora: string; titulo: string; at: string }[];
+  atencao: { tipo: string; severidade: string; titulo: string; descricao: string; alvo: { kind: string; id: string }; razoes: string[] }[];
+  proposta: {
+    principal: { draft: { title: string } } | null;
+    secundarios: { draft: { title: string } }[];
+    agenda: { hora: string; titulo: string; at: string }[];
+  } | null;
+  resgate: { dias: number } | null;
+};
+
 /** Um projeto, só com o que a tela do bolso precisa saber dele. */
 /**
  * O que se consulta, e nao o que se faz — um `Resource` do M/OS.
@@ -286,9 +308,22 @@ export type CompromissoDaLista = {
   urgencia: string;
 };
 
+/** O estado da última rodada de sync, como o `mos-sync` o classifica. */
+export type SaudeDoSync =
+  | { kind: "desligado" }
+  | { kind: "sincronizando"; pendentes: number }
+  | { kind: "em_dia" }
+  | { kind: "pendente"; pendentes: number }
+  | { kind: "offline"; pendentes: number; proximaTentativaEm: string | null }
+  | { kind: "erro"; pendentes: number; tipo: string; mensagem: string };
+
 export type EstadoDoAparelho = {
   pendentes: number;
   sincroniza: boolean;
+  /** Servidor antigo não manda: por isso opcional. */
+  saude?: SaudeDoSync | null;
+  ultimoOkEm?: string | null;
+  proximaTentativaEm?: string | null;
   /** A chave pública VAPID, ou `null` quando este servidor não notifica. */
   chavePush: string | null;
   /** Quantos aparelhos já assinaram. É a prova de que "ativar" funcionou. */
@@ -586,6 +621,24 @@ export const api = {
   },
   estado() {
     return pedir<EstadoDoAparelho>("/api/estado");
+  },
+  /** O piloto: o que faço agora, o dia, a atenção. O MESMO motor do desktop. */
+  piloto() {
+    return pedir<Piloto>(`/api/piloto?agora=${encodeURIComponent(comOffsetLocal(new Date()))}`);
+  },
+  /** "Montar meu dia": a proposta automática, gravada como veio. */
+  iniciarDia() {
+    return pedir<unknown>(`/api/piloto/iniciar-dia?agora=${encodeURIComponent(comOffsetLocal(new Date()))}`, { method: "POST" });
+  },
+  comecarTask(id: string) {
+    return pedir<Task>(`/api/tasks/${id}/comecar`, { method: "POST" });
+  },
+  pararTask(id: string) {
+    return pedir<Task>(`/api/tasks/${id}/parar`, { method: "POST" });
+  },
+  /** `dia` em AAAA-MM-DD, vazio tira do planejamento. */
+  planejarTask(id: string, dia: string, adiando = false) {
+    return pedir<Task>(`/api/tasks/${id}/planejar`, { method: "POST", body: JSON.stringify({ dia, adiando }) });
   },
   assinarPush(assinatura: AssinaturaPush) {
     // O servidor espera os três campos rasos; o navegador entrega as chaves

@@ -232,6 +232,16 @@ pub struct Task {
     /// atrasada porque um terceiro nao respondeu.
     #[serde(with = "time::serde::rfc3339::option")]
     pub follow_up_at: Option<OffsetDateTime>,
+    /// O dia em que a pessoa planejou trabalhar nisto. NAO e o prazo: mover
+    /// para amanha muda isto e nunca `due_at`. Ver a migration 0041.
+    #[serde(default)]
+    pub scheduled_for: Option<crate::Day>,
+    /// Quando a pessoa clicou "Comecar". `None` e "nao comecou" ou "parou".
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    pub started_at: Option<OffsetDateTime>,
+    /// Quantas vezes o planejamento foi empurrado. Sinal de evitamento.
+    #[serde(default)]
+    pub postponed_count: u32,
     /// Quantos itens de checklist esta Task tem, e quantos estao concluidos.
     ///
     /// DERIVADOS, e nao colunas: eles saem de um `GROUP BY` na mesma consulta
@@ -1026,6 +1036,9 @@ mod tests {
             blocked_by_task_id: None,
             waiting_for: String::new(),
             follow_up_at: None,
+            scheduled_for: None,
+            started_at: None,
+            postponed_count: 0,
             checklist_total: 0,
             checklist_done: 0,
             created_at: OffsetDateTime::now_utc(),

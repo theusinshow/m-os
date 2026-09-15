@@ -683,6 +683,40 @@ async fn run_action<R: Runtime>(
             )
             .touching("task", updated.id.to_string(), updated.title))
         }
+        mos_core::ActionArgs::TaskStart { task } => {
+            let target = resolve_task(&state, task)?;
+            let updated = crate::piloto::task_start(app.clone(), target.id.to_string())?;
+            Ok(mos_core::ActionEffect::new(
+                format!("Começada: {}", updated.title),
+                Some(mos_core::UndoStep::RestoreTaskState {
+                    id: updated.id.to_string(),
+                    state: target.state.as_str().to_owned(),
+                }),
+            )
+            .touching("task", updated.id.to_string(), updated.title))
+        }
+        mos_core::ActionArgs::TaskPlan { task, day } => {
+            let target = resolve_task(&state, task)?;
+            let dia = if day.is_empty() {
+                None
+            } else {
+                Some(mos_core::Day::parse(day)?)
+            };
+            // Adiar conta como adiamento so quando ja havia um dia planejado
+            // que ficou para tras — planejar pela primeira vez nao e evitar.
+            let adiando = target.scheduled_for.is_some() && dia.is_some();
+            let updated = state.work.plan_task(&target.id.to_string(), dia, adiando)?;
+            let _ = app.emit("data-changed", "task");
+            Ok(mos_core::ActionEffect::new(
+                if day.is_empty() {
+                    format!("{} saiu do planejamento.", updated.title)
+                } else {
+                    format!("{} planejada para {day}.", updated.title)
+                },
+                None,
+            )
+            .touching("task", updated.id.to_string(), updated.title))
+        }
         mos_core::ActionArgs::ProjectCreate { name, description } => {
             let project = state.work.create_project(mos_core::CreateProjectInput {
                 name: name.clone(),

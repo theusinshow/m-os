@@ -212,8 +212,27 @@ acrescentar um aviso em cada um seriam 25 chances de esquecer um — e o esqueci
 não daria erro, daria uma entidade que só sai deste aparelho no próximo quarto
 de hora.
 
-Ainda **não** existem: sinal de push do hub para o desktop, e reconexão de rede
-como gatilho. Os dois estão cobertos, com atraso, pela rede de segurança.
+Desde 2026-09-15 a rede de segurança deixou de ser a única resposta a uma
+falha. **A espera é decisão da saúde, e não do laço** (`mos-sync::saude`):
+
+| a última rodada | o laço espera |
+| --- | --- |
+| terminou inteira | 15 min (rede de segurança) |
+| falhou por algo passageiro (offline, timeout, hub 5xx, banco ocupado) | 10 s → 30 s → 2 min → 5 min → 15 min, uma por falha seguida |
+| falhou por algo permanente (credencial, contrato, resposta ilegível) | 15 min, e o Sync Health diz o que a pessoa precisa fazer |
+
+Um pedido explícito — mutação, primeiro plano, botão, ou a webview vendo o
+evento `online` (`sync_acordar`) — acorda antes de qualquer espera. É isso que
+faz a rede que voltou sincronizar em segundos, e não em quinze minutos.
+
+O `retriavel` que o transporte sempre carregou passou a ser lido: ele viaja na
+`Rodada` (`erro_retriavel`) e é classificado em `TipoDeFalha`. O bolso segue a
+mesma escada (`apps/mos-web/src/sync.rs::pode_tentar`): uma escrita durante o
+backoff entra na fila e espera a próxima tentativa, em vez de bater no hub
+caído de novo.
+
+Ainda **não** existe sinal de push do hub para o desktop; a reconexão está
+coberta pela escada e pelo evento `online`.
 
 **Nunca polling agressivo** (§51). No iPhone isso é bateria; em qualquer lugar é
 requisição sem motivo. O sistema é orientado a evento.
@@ -249,6 +268,22 @@ Eventos a registrar (§39), sem dado pessoal: `sync_started`, `sync_completed`,
 Estados que a interface precisa saber representar (§40): sincronizado,
 sincronizando, offline, alterações pendentes, erro. Não precisa estar sempre à
 vista — precisa ser descobrível quando algo está errado.
+
+**A saúde é persistida** (`sync_saude`, migration 0041): quando a última rodada
+terminou inteira, quando terminou, o último erro e o tipo dele, quantas falhas
+seguidas, e quando a próxima tentativa é devida. Reabrir o app não esquece que a
+rodada de ontem parou por credencial. A rodada que termina inteira também
+carimba `devices.last_sync_at` — a coluna existia desde a 0027 e ninguém a
+escrevia.
+
+O selo no cabeçalho (`SyncChip`) é a resposta calma — `✓ Sincronizado agora`,
+`↻ Sincronizando 3 alterações...`, `⚠ Não sincronizado há 2h`, `✕ Erro de
+sincronização`; desligado sai mudo. Ao clicar abre o **Sync Health**: estado,
+última rodada boa, fila, operações em retry, conflitos abertos (com "marcar como
+vistos"), os aparelhos conhecidos com o último sync de cada um, o último erro
+cru, e os botões Tentar agora, Reparar e Diagnóstico. A frase de cada estado é
+função pura em `apps/desktop/src/piloto.ts`, e diz sempre as três coisas do
+§50: o que aconteceu, se os dados estão seguros, se vai tentar sozinho.
 
 **São seis, e não cinco.** Falta **desligado**: sem endereço ou sem segredo, e é
 o estado em que a feature nasce em toda máquina nova. Ele é o único que **não

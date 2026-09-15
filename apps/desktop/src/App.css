@@ -12792,3 +12792,441 @@ button.daily-objective-title:focus-visible {
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
+
+
+/* ------------------------------------------------------------- O piloto
+
+   O painel operacional da Home, o selo do sync no cabecalho, a Task ativa, o
+   Sync Health, o Rescue Mode, o encerramento e o aviso do Autopilot.
+
+   Regras herdadas: cor nunca fala sozinha (a severidade vem em palavra), nada
+   pisca, o sodio e reservado ao que carrega dado (ADR-034), e a moldura da Home
+   e a unica que usa `--radius-widget`. Os cartoes do piloto sao superficies
+   elevadas com o raio padrao — sao paineis de leitura, nao widgets. */
+
+.piloto {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.piloto-cabecalho {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.piloto-saudacao {
+  margin: 0;
+  font: var(--text-title);
+  letter-spacing: -0.01em;
+}
+
+.piloto-cartao {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.piloto-titulo {
+  margin: 0;
+  font: var(--text-body);
+  font-weight: 500;
+}
+
+.piloto-mudo {
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.piloto-vazio {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-body);
+}
+
+.piloto-linhas {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font: var(--text-body);
+}
+
+.piloto-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.piloto-link {
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+
+.piloto-link:hover { text-decoration-color: currentColor; }
+
+/* O dia por comecar e o resgate: a borda esquerda em sodio porque carregam a
+   decisao que abre o dia — e o unico lugar do painel em que a cor de destaque
+   entra. */
+.piloto-dia,
+.piloto-resgate {
+  border-left: 3px solid var(--signal-ink);
+}
+
+.piloto-grade {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--space-3);
+}
+
+.piloto-coluna {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.piloto-agora-corpo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.piloto-agora-titulo {
+  padding: 0;
+  color: inherit;
+  font: var(--text-title);
+  letter-spacing: -0.01em;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.piloto-agora-titulo:hover { color: var(--signal-ink); }
+
+.piloto-agora-corpo[data-comecada] .piloto-agora-titulo::before {
+  content: "● ";
+  color: var(--signal-ink);
+  font-size: 0.6em;
+  vertical-align: middle;
+}
+
+.piloto-porque {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.piloto-razoes {
+  margin: 0;
+  padding: var(--space-2) 0 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font: var(--text-small);
+}
+
+.piloto-seguintes summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.piloto-seguintes summary::-webkit-details-marker { display: none; }
+
+.piloto-seguintes ul {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font: var(--text-small);
+}
+
+.piloto-placar {
+  display: flex;
+  gap: var(--space-3);
+  margin: 0;
+  font: var(--text-body);
+}
+
+.piloto-placar span { color: var(--text-secondary); }
+
+.piloto-barra {
+  height: 4px;
+  overflow: hidden;
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.piloto-barra > span {
+  display: block;
+  height: 100%;
+  background: var(--signal-ink);
+  transition: width var(--dur-enter) var(--ease-enter);
+}
+
+.piloto-agenda {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font: var(--text-body);
+}
+
+.piloto-agenda li {
+  display: flex;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.piloto-agenda li > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.piloto-hora {
+  flex: none;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.piloto-itens {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.piloto-itens li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+
+.piloto-itens li:first-child { border-top: 0; }
+
+.piloto-marca {
+  flex: none;
+  width: 3px;
+  height: 1.6em;
+  border-radius: 2px;
+  background: var(--border-strong);
+}
+
+.piloto-itens li[data-severidade="urgente"] .piloto-marca { background: var(--danger); }
+.piloto-itens li[data-severidade="alta"] .piloto-marca { background: var(--signal-ink); }
+.piloto-itens li[data-severidade="media"] .piloto-marca { background: var(--text-system); }
+
+.piloto-item-texto {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.piloto-item-titulo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font: var(--text-body);
+}
+
+.piloto-selo {
+  flex: none;
+  padding: 0 var(--space-1);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+/* ---- o selo do sync e a Task ativa, no cabecalho ---- */
+
+.sync-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  color: var(--text-secondary);
+  font: var(--text-small);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.sync-chip:hover { border-color: var(--border); }
+.sync-chip[data-tom="aviso"] { color: var(--signal-ink); }
+.sync-chip[data-tom="erro"] { color: var(--danger); }
+.sync-chip[data-tom="girando"] .sync-chip-icone {
+  display: inline-block;
+  animation: pilotoGirar 1.2s linear infinite;
+}
+
+@keyframes pilotoGirar { to { transform: rotate(360deg); } }
+
+.task-ativa {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 24rem;
+  padding: 2px var(--space-2);
+  font: var(--text-small);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.task-ativa .piloto-link {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.task-ativa-ponto { color: var(--signal-ink); font-size: 9px; }
+
+.task-ativa-botao {
+  padding: 0 var(--space-1);
+  color: var(--text-secondary);
+  font: var(--text-small);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.task-ativa-botao:hover { color: var(--text); }
+
+/* ---- Sync Health ---- */
+
+.sync-health-estado {
+  margin: 0;
+  font: var(--text-body);
+  font-weight: 500;
+}
+
+.sync-health-estado[data-tom="erro"] { color: var(--danger); }
+.sync-health-estado[data-tom="aviso"] { color: var(--signal-ink); }
+.sync-health-erro { margin: 0; }
+.sync-health-cru {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* ---- Rescue Mode ---- */
+
+.rescue-itens {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.rescue-itens li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.rescue-itens li[data-ignorado] { opacity: 0.55; }
+
+.rescue-opcoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.rescue-opcao {
+  padding: 2px var(--space-2);
+  color: var(--text-secondary);
+  font: var(--text-small);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.rescue-opcao[aria-pressed="true"] {
+  color: var(--text);
+  border-color: var(--signal-ink);
+}
+
+/* ---- Encerrar dia ---- */
+
+.encerrar-placar { font: var(--text-body); }
+
+.encerrar-mover {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.encerrar-mover label {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--space-2);
+  align-items: center;
+  cursor: pointer;
+}
+
+.encerrar-mover label .piloto-mudo { grid-column: 2; }
+
+/* ---- Autopilot ---- */
+
+.autopilot-toast strong { font: var(--text-body); font-weight: 500; }
+
+.autopilot-adiar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+@media (max-width: 900px) {
+  .piloto-grade { grid-template-columns: minmax(0, 1fr); }
+  .task-ativa { max-width: 12rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-chip[data-tom="girando"] .sync-chip-icone { animation: none; }
+  .piloto-barra > span { transition: none; }
+}

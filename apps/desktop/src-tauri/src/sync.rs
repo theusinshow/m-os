@@ -275,7 +275,22 @@ async fn rodar(app: &tauri::AppHandle) -> Result<Option<SyncRound>, String> {
     runtime.rodando.store(false, Ordering::Relaxed);
 
     let rodada =
-        resultado.map_err(|erro| format!("A rodada de sincronizacao nao terminou: {erro}"))??;
+        match resultado.map_err(|erro| format!("A rodada de sincronizacao nao terminou: {erro}")) {
+            Ok(Ok(rodada)) => rodada,
+            Ok(Err(erro)) | Err(erro) => {
+                // Falha ANTES da rodada (transporte nao nasceu, banco nao abriu):
+                // entra na saude como qualquer outra, senao a escada nunca sobe.
+                registrar_saude(app, Some((&erro, true)));
+                return Err(erro);
+            }
+        };
+    registrar_saude(
+        app,
+        rodada
+            .erro
+            .as_deref()
+            .map(|mensagem| (mensagem, rodada.erro_retriavel)),
+    );
 
     let agora = time::OffsetDateTime::now_utc();
     let em = agora
@@ -314,6 +329,107 @@ async fn rodar(app: &tauri::AppHandle) -> Result<Option<SyncRound>, String> {
         received_by_kind: rodada.recebidas_por_tipo,
         error: rodada.erro,
     }))
+}
+
+/// Grava como a rodada terminou. Falha em silencio no log: a saude e
+/// diagnostico, e um erro ao gravar diagnostico nao pode roubar o lugar do
+/// resultado da rodada.
+fn registrar_saude(app: &tauri::AppHandle, erro: Option<(&str, bool)>) {
+    let state = app.state::<crate::AppState>();
+    if let Err(causa) = state
+        .storage
+        .registrar_rodada_de_sync(erro, time::OffsetDateTime::now_utc())
+    {
+        eprintln!("[sync] saude nao gravada: {}", causa.message);
+    }
+    if let Some((mensagem, retriavel)) = erro {
+        let tipo = mos_sync::classificar(mensagem, retriavel);
+        eprintln!(
+            "[sync] rodada parou ({}, retriavel={retriavel})",
+            tipo.as_str()
+        );
+    }
+}
+
+/// O Sync Health: tudo que a tela de diagnostico mostra, numa leitura.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaudeDoSync {
+    pub estado: mos_sync::EstadoDeSaude,
+    pub registro: mos_sync::RegistroDeSaude,
+    /// Ligado E configurado (endereco e segredo).
+    pub ligado: bool,
+    pub rodando: bool,
+    pub pendentes: usize,
+    /// Operacoes da fila que ja falharam ao menos uma vez.
+    pub em_retry: usize,
+    pub conflitos_abertos: usize,
+    /// Os aparelhos que ESTE banco conhece, com o `last_sync_at` local.
+    pub dispositivos: Vec<mos_sync::Device>,
+    pub device_id: String,
+    pub app_version: String,
+}
+
+/// A saude, para quem esta dentro do processo. `None` quando a feature esta
+/// desligada — o piloto le isso como "nao ha o que avisar".
+pub fn saude<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Option<SaudeDoSync> {
+    use mos_sync::{DeviceRepository, OutboxRepository};
+    let state = app.try_state::<crate::AppState>()?;
+    let endpoint = crate::load_settings(&state.settings_path).sync_endpoint;
+    let ligado = !endpoint.is_empty() && token_guardado().is_some() && state.storage.sync_ligado();
+    let rodando = app
+        .try_state::<SyncRuntime>()
+        .map(|rt| rt.rodando.load(Ordering::Relaxed))
+        .unwrap_or(false);
+    let registro = state.storage.saude_do_sync().unwrap_or_default();
+    let pendentes = state.storage.quantidade_pendente().unwrap_or(0);
+    let estado = mos_sync::estado_de_saude(mos_sync::Sinais {
+        ligado,
+        rodando,
+        pendentes,
+        registro: &registro,
+    });
+    let dispositivos = state.storage.listar().unwrap_or_default();
+    let device_id = dispositivos
+        .iter()
+        .find(|d| d.is_this_device)
+        .map(|d| d.id.to_string())
+        .unwrap_or_default();
+    Some(SaudeDoSync {
+        estado,
+        registro,
+        ligado,
+        rodando,
+        pendentes,
+        em_retry: state.storage.quantidade_em_retry().unwrap_or(0),
+        conflitos_abertos: state.storage.conflitos_abertos().unwrap_or(0),
+        dispositivos,
+        device_id,
+        app_version: env!("CARGO_PKG_VERSION").to_owned(),
+    })
+}
+
+#[tauri::command]
+pub fn sync_health(app: tauri::AppHandle) -> Result<SaudeDoSync, String> {
+    saude(&app).ok_or_else(|| "O M/OS ainda esta abrindo.".to_owned())
+}
+
+/// A tela viu os conflitos. Eles nao somem — deixam de pedir atencao.
+#[tauri::command]
+pub fn sync_reconhecer_conflitos(app: tauri::AppHandle) -> Result<usize, String> {
+    let state = app.state::<crate::AppState>();
+    let quantos = state
+        .storage
+        .reconhecer_conflitos(time::OffsetDateTime::now_utc())
+        .map_err(|e| e.message)?;
+    let _ = app.emit("sync-changed", ());
+    Ok(quantos)
+}
+
+/// A rede voltou (a webview viu `online`): tenta agora, sem esperar a escada.
+#[tauri::command]
+pub fn sync_acordar(app: tauri::AppHandle) {
+    acordar(&app);
 }
 
 /// Uma rodada, agora, pedida pelo botao.
@@ -356,8 +472,23 @@ pub fn iniciar_daemon(app: tauri::AppHandle) {
                 let _ = app.emit("sync-changed", ());
             }
 
+            // Quanto esperar e decisao da SAUDE, e nao deste laco: depois de
+            // uma falha passageira a escada (10s, 30s, 2min, 5min, 15min)
+            // manda; depois de uma permanente, a rede de seguranca; em dia, a
+            // rede de seguranca tambem. Um pedido explicito (mutacao, primeiro
+            // plano, rede voltou, botao) acorda antes de qualquer um.
+            let espera = {
+                let state = app.state::<crate::AppState>();
+                let registro = state.storage.saude_do_sync().unwrap_or_default();
+                let espera = registro.espera();
+                if espera.is_zero() {
+                    REDE_DE_SEGURANCA
+                } else {
+                    espera.min(REDE_DE_SEGURANCA)
+                }
+            };
             let runtime = app.state::<SyncRuntime>();
-            let _ = tokio::time::timeout(REDE_DE_SEGURANCA, runtime.acordar.notified()).await;
+            let _ = tokio::time::timeout(espera, runtime.acordar.notified()).await;
         }
     });
 }

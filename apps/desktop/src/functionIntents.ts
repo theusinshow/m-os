@@ -20,6 +20,7 @@ export type FunctionIntentTarget =
   | "daily_view"
   | "daily_add_objective"
   | "daily_end"
+  | "piloto_now"
   | "updates_check"
   | "function_registry";
 
@@ -54,6 +55,10 @@ const lowRiskTargets: Readonly<Record<string, FunctionIntentTarget>> = {
   "daily.set_objective_status": "daily_view",
   "daily.set_main": "daily_view",
   "daily.end_day": "daily_end",
+  /* "O que faco agora?" leva a Home, onde a resposta ja esta. */
+  "piloto.what_now": "piloto_now",
+  "task.start": "piloto_now",
+  "task.plan": "tasks_move",
   "system.update_check": "updates_check",
 };
 

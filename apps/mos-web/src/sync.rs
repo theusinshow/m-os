@@ -40,6 +40,11 @@ const LIMITE: usize = 100;
 /// consequencia. Fazer o contrario ligaria "tirar da cabeca" a ter sinal.
 pub fn agora(storage: Arc<SqliteStorage>, hub: Arc<Hub>) {
     tokio::task::spawn_blocking(move || {
+        // Uma escrita durante a escada do backoff nao bate na parede de novo:
+        // ela ja esta na fila, e a proxima tentativa a leva junto.
+        if !pode_tentar(&storage) {
+            return;
+        }
         // Sem avisador: esta rodada nasce de uma escrita FEITA NESTE APARELHO, e
         // notificar o celular sobre o que a pessoa acabou de digitar nele seria
         // o app avisando o dono do que o dono fez.
@@ -66,6 +71,9 @@ pub fn iniciar(
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(INTERVALO).await;
+            if !pode_tentar(&storage) {
+                continue;
+            }
             let storage = Arc::clone(&storage);
             let hub = Arc::clone(&hub);
             let avisador = avisador.clone();
@@ -81,6 +89,29 @@ pub fn iniciar(
     });
 }
 
+/// Se a escada do backoff ja liberou a proxima tentativa.
+///
+/// A regra de quanto esperar e do `mos-sync` (`saude.rs`), a mesma do desktop:
+/// falha passageira espera 10s, 30s, 2min, 5min, 15min; permanente espera os
+/// 15 e aparece na tela. Sem isto o bolso batia no hub caido a cada minuto.
+fn pode_tentar(storage: &SqliteStorage) -> bool {
+    let registro = storage.saude_do_sync().unwrap_or_default();
+    match registro.proxima_tentativa_em.as_deref() {
+        None => true,
+        Some(texto) => {
+            time::OffsetDateTime::parse(texto, &time::format_description::well_known::Rfc3339)
+                .map(|proxima| time::OffsetDateTime::now_utc() >= proxima)
+                .unwrap_or(true)
+        }
+    }
+}
+
+fn registrar(storage: &SqliteStorage, erro: Option<(&str, bool)>) {
+    if let Err(causa) = storage.registrar_rodada_de_sync(erro, time::OffsetDateTime::now_utc()) {
+        eprintln!("[web] saude nao gravada: {}", causa.message);
+    }
+}
+
 fn rodar(
     storage: &SqliteStorage,
     hub: &Hub,
@@ -91,6 +122,7 @@ fn rodar(
         Ok(transporte) => transporte,
         Err(causa) => {
             eprintln!("[web] transporte: {}", causa.mensagem);
+            registrar(storage, Some((&causa.mensagem, causa.retriavel)));
             return;
         }
     };
@@ -135,6 +167,13 @@ fn rodar(
         // nao ha a quem responder. O que a tela mostra e a fila — se ela nao
         // baixa, algo esta errado, e o log diz o que.
         Ok(rodada) => {
+            registrar(
+                storage,
+                rodada
+                    .erro
+                    .as_deref()
+                    .map(|mensagem| (mensagem, rodada.erro_retriavel)),
+            );
             if let Some(erro) = rodada.erro {
                 eprintln!("[web] rodada parou: {erro}");
             } else if rodada.enviadas > 0 || rodada.recebidas > 0 {
@@ -158,6 +197,9 @@ fn rodar(
                 }
             }
         }
-        Err(causa) => eprintln!("[web] sync: {}", causa.message),
+        Err(causa) => {
+            registrar(storage, Some((&causa.message, true)));
+            eprintln!("[web] sync: {}", causa.message)
+        }
     }
 }

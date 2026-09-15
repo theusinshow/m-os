@@ -31,6 +31,10 @@ pub enum ActionKind {
     CaptureToTask,
     TaskCreate,
     TaskSetState,
+    /// "Comecar" e "joga isso para amanha": o planejamento, e nao o estado.
+    /// Planejar muda o dia em que a pessoa pretende trabalhar; o prazo fica.
+    TaskStart,
+    TaskPlan,
     TaskSetProject,
     /// As tres da execucao dentro da Task.
     ///
@@ -93,6 +97,8 @@ impl ActionKind {
             Self::CaptureToTask => "mos.capture.to_task",
             Self::TaskCreate => "mos.task.create",
             Self::TaskSetState => "mos.task.set_state",
+            Self::TaskStart => "mos.task.start",
+            Self::TaskPlan => "mos.task.plan",
             Self::TaskSetProject => "mos.task.set_project",
             Self::TaskAddChecklist => "mos.task.add_checklist",
             Self::TaskCheckItem => "mos.task.check_item",
@@ -120,6 +126,8 @@ impl ActionKind {
             "mos.capture.to_task" => Some(Self::CaptureToTask),
             "mos.task.create" => Some(Self::TaskCreate),
             "mos.task.set_state" => Some(Self::TaskSetState),
+            "mos.task.start" => Some(Self::TaskStart),
+            "mos.task.plan" => Some(Self::TaskPlan),
             "mos.task.set_project" => Some(Self::TaskSetProject),
             "mos.task.add_checklist" => Some(Self::TaskAddChecklist),
             "mos.task.check_item" => Some(Self::TaskCheckItem),
@@ -150,6 +158,8 @@ impl ActionKind {
             Self::CaptureToTask => "task.create_from_capture",
             Self::TaskCreate => "task.create",
             Self::TaskSetState => "task.set_state",
+            Self::TaskStart => "task.start",
+            Self::TaskPlan => "task.plan",
             Self::TaskSetProject => "task.set_project",
             Self::TaskAddChecklist => "task.add_checklist",
             Self::TaskCheckItem => "task.check_item",
@@ -171,12 +181,14 @@ impl ActionKind {
         }
     }
 
-    pub fn all() -> [ActionKind; 22] {
+    pub fn all() -> [ActionKind; 24] {
         [
             Self::CaptureCreate,
             Self::CaptureToTask,
             Self::TaskCreate,
             Self::TaskSetState,
+            Self::TaskStart,
+            Self::TaskPlan,
             Self::TaskSetProject,
             Self::TaskAddChecklist,
             Self::TaskCheckItem,
@@ -213,6 +225,10 @@ impl ActionKind {
                 "{ title, description?, project?, checklist?: [\"...\"], due?: AAAA-MM-DDTHH:MM, priority?: low|normal|high|urgent }"
             }
             Self::TaskSetState => "{ task, state: inbox|backlog|planned|doing|review|done }",
+            Self::TaskStart => "{ task }",
+            // `day` vazio tira do planejamento. `amanha` e `hoje` sao aceitos
+            // porque e assim que se fala; o resto e AAAA-MM-DD.
+            Self::TaskPlan => "{ task, day: AAAA-MM-DD|hoje|amanha|\"\" }",
             Self::TaskSetProject => "{ task, project }",
             Self::TaskAddChecklist => "{ task, items: [\"...\"] }",
             // `item` e o TEXTO do passo, e nao o id: ninguem diz "marca o
@@ -316,6 +332,15 @@ pub enum ActionArgs {
         /// Id ou titulo da Task, como o usuario fala. Resolvido na execucao.
         task: String,
         state: String,
+    },
+    TaskStart {
+        task: String,
+    },
+    TaskPlan {
+        task: String,
+        /// `AAAA-MM-DD`, ou vazio para tirar do planejamento. `hoje` e
+        /// `amanha` ja vem resolvidos aqui — o cartao mostra a data.
+        day: String,
     },
     TaskSetProject {
         task: String,
@@ -463,6 +488,8 @@ impl ActionArgs {
             Self::CaptureToTask { .. } => ActionKind::CaptureToTask,
             Self::TaskCreate { .. } => ActionKind::TaskCreate,
             Self::TaskSetState { .. } => ActionKind::TaskSetState,
+            Self::TaskStart { .. } => ActionKind::TaskStart,
+            Self::TaskPlan { .. } => ActionKind::TaskPlan,
             Self::TaskSetProject { .. } => ActionKind::TaskSetProject,
             Self::TaskAddChecklist { .. } => ActionKind::TaskAddChecklist,
             Self::TaskCheckItem { .. } => ActionKind::TaskCheckItem,
@@ -702,6 +729,32 @@ pub fn parse_action_at(raw: &str, now_local: OffsetDateTime) -> Result<ActionArg
             ActionArgs::TaskSetState {
                 task: required(&args, "task", kind)?,
                 state,
+            }
+        }
+        ActionKind::TaskStart => ActionArgs::TaskStart {
+            task: required(&args, "task", kind)?,
+        },
+        ActionKind::TaskPlan => {
+            let dito = text(&args, "day");
+            let hoje = crate::Day::from_local(now_local);
+            let day = match dito.trim().to_ascii_lowercase().as_str() {
+                "" | "nenhum" | "tirar" => String::new(),
+                "hoje" => hoje.as_str().to_owned(),
+                "amanha" | "amanhã" => crate::dia_seguinte(&hoje).as_str().to_owned(),
+                _ => {
+                    crate::Day::parse(dito.trim()).map_err(|_| {
+                        CoreError::new(
+                            ErrorCode::InvalidInput,
+                            format!("`{dito}` nao e um dia. Use AAAA-MM-DD, `hoje` ou `amanha`."),
+                            false,
+                        )
+                    })?;
+                    dito.trim().to_owned()
+                }
+            };
+            ActionArgs::TaskPlan {
+                task: required(&args, "task", kind)?,
+                day,
             }
         }
         ActionKind::ProjectCreate => ActionArgs::ProjectCreate {
@@ -1323,6 +1376,21 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
         ActionArgs::TaskSetState { task, state } => {
             ("MOVER TASK", vec![line("Task", task), line("Para", state)])
         }
+        ActionArgs::TaskStart { task } => ("COMEÇAR TASK", vec![line("Task", task)]),
+        ActionArgs::TaskPlan { task, day } => (
+            "PLANEJAR TASK",
+            vec![
+                line("Task", task),
+                line(
+                    "Para",
+                    if day.is_empty() {
+                        "sem dia (backlog)"
+                    } else {
+                        day
+                    },
+                ),
+            ],
+        ),
         ActionArgs::TaskAddChecklist { task, items } => {
             let mut lines = vec![line("Task", task)];
             for (numero, passo) in items.iter().enumerate() {

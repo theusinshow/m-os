@@ -149,6 +149,11 @@ export type Task = {
   blockedByTaskId: string | null;
   waitingFor: string;
   followUpAt: string | null;
+  /** O dia planejado (`AAAA-MM-DD`). Nao e o prazo. */
+  scheduledFor: string | null;
+  /** Quando a pessoa clicou Comecar. Nulo: nao comecou, ou parou. */
+  startedAt: string | null;
+  postponedCount: number;
   /* Os dois numeros do progresso vem DENTRO da Task, e nao numa segunda
      chamada: o card do Kanban precisa deles e nao precisa do resto, e pedir o
      checklist inteiro por cartao seria o N+1 que o desenho recusa. */
@@ -1787,4 +1792,218 @@ export type Faixa = {
    * conferida.
    */
   demonstracao: boolean;
+};
+
+// ------------------------------------------------------------------ piloto
+//
+// O que `mos_core::piloto` devolve. Um espelho dos structs do Rust: a Home
+// inteira sai de um `Panorama`, e nenhum numero aqui e recalculado na tela.
+
+export type SeveridadeDeAtencao = "baixa" | "media" | "alta" | "urgente";
+export type TipoDeAtencao =
+  | "overdue" | "upcoming_deadline" | "stale_waiting_for" | "unprocessed_capture"
+  | "unsynced_changes" | "academic_deadline" | "unfinished_day" | "day_not_started"
+  | "stale_task" | "scheduling_conflict" | "reminder_due";
+
+export type Alvo = { kind: string; id: string };
+
+export type AcaoRecomendada =
+  | { acao: "comecar_task"; id: string }
+  | { acao: "abrir_task"; id: string }
+  | { acao: "reagendar_task"; id: string; para: string }
+  | { acao: "cobrar"; id: string; quem: string }
+  | { acao: "processar_inbox" }
+  | { acao: "abrir_sync" }
+  | { acao: "abrir_academico"; tipo: string; id: string }
+  | { acao: "encerrar_dia" }
+  | { acao: "iniciar_dia" }
+  | { acao: "abrir_lembrete"; id: string }
+  | { acao: "nenhuma" };
+
+export type ItemDeAtencao = {
+  tipo: TipoDeAtencao;
+  severidade: SeveridadeDeAtencao;
+  titulo: string;
+  descricao: string;
+  alvo: Alvo;
+  razoes: string[];
+  desde: string | null;
+  acao: AcaoRecomendada;
+  peso: number;
+};
+
+export type Candidata = {
+  taskId: string;
+  titulo: string;
+  projeto: string;
+  estimativa: string;
+  estimateMinutes: number | null;
+  prioridade: string;
+  comecada: boolean;
+  pontos: number;
+  razoes: string[];
+};
+
+export type Recomendacao = {
+  agora: Candidata | null;
+  seguintes: Candidata[];
+  minutosLivres: number | null;
+  vazio: string | null;
+};
+
+export type LinhaDaAgenda = { hora: string; titulo: string; tipo: string; at: string };
+
+export type ObjetivoProposto = {
+  draft: ObjectiveDraft;
+  razoes: string[];
+  estimativa: string;
+  projeto: string;
+};
+
+export type PropostaDoDia = {
+  day: string;
+  saudacao: string;
+  contagens: { compromissos: number; tarefasImportantes: number; vencidas: number; lembretes: number; entregasAcademicas: number; capturesNaInbox: number };
+  principal: ObjetivoProposto | null;
+  secundarios: ObjetivoProposto[];
+  agenda: LinhaDaAgenda[];
+  input: StartDayInput;
+  nota: string;
+};
+
+export type Movimento = { taskId: string; titulo: string; para: string; razao: string };
+
+export type PropostaDeEncerramento = {
+  day: string;
+  concluidas: number;
+  abertas: number;
+  vencidas: number;
+  resolutions: ObjectiveResolution[];
+  mover: Movimento[];
+  sugestao: string;
+};
+
+export type Ausencia = {
+  dias: number;
+  desde: string | null;
+  tarefasAtrasadas: number;
+  captures: number;
+  waitingFor: number;
+  deadlinesProximos: number;
+  lembretesVencidos: number;
+};
+
+export type AcaoDeResgate =
+  | { acao: "planejar"; taskId: string; para: string }
+  | { acao: "backlog"; taskId: string }
+  | { acao: "arquivar"; taskId: string }
+  | { acao: "concluir"; taskId: string }
+  | { acao: "cobrar"; taskId: string }
+  | { acao: "processar"; captureId: string }
+  | { acao: "arquivar_capture"; captureId: string }
+  | { acao: "concluir_lembrete"; reminderId: string }
+  | { acao: "adiar_lembrete"; reminderId: string; para: string }
+  | { acao: "abrir_academico"; tipo: string; id: string };
+
+export type ItemDeResgate = {
+  titulo: string;
+  descricao: string;
+  razoes: string[];
+  sugerida: AcaoDeResgate;
+  alternativas: AcaoDeResgate[];
+};
+
+export type PassoDeResgate = "urgente" | "atrasadas" | "captures" | "waiting_for";
+
+export type PlanoDeResgate = {
+  passos: { passo: PassoDeResgate; titulo: string; itens: ItemDeResgate[]; restantes: number }[];
+  fecho: string;
+  importantesHoje: number;
+};
+
+export type SyncNoRetrato =
+  | { kind: "desligado" }
+  | { kind: "em_dia" }
+  | { kind: "pendente"; pendentes: number }
+  | { kind: "offline"; pendentes: number; desde: string | null }
+  | { kind: "erro"; pendentes: number; mensagem: string };
+
+export type EstadoDoDiaPiloto =
+  | { kind: "not_started" }
+  | { kind: "stale_open"; day: string; pendentes: number }
+  | { kind: "active"; startedAt: string; feitos: number; total: number }
+  | { kind: "ended"; endedAt: string; feitos: number; total: number };
+
+export type TaskAtiva = { taskId: string; titulo: string; startedAt: string; minutos: number };
+
+export type Panorama = {
+  day: string;
+  saudacao: string;
+  estadoDoDia: EstadoDoDiaPiloto;
+  hoje: { concluidas: number; restantes: number; progresso: number };
+  agora: Recomendacao;
+  taskAtiva: TaskAtiva | null;
+  proximos: LinhaDaAgenda[];
+  atencao: ItemDeAtencao[];
+  resumoDeAtencao: { urgentes: number; altos: number; total: number };
+  proposta: PropostaDoDia | null;
+  resgate: Ausencia | null;
+  sync: SyncNoRetrato;
+  vazio: string | null;
+};
+
+// -------------------------------------------------------------- sync health
+
+export type TipoDeFalhaDeSync = "offline" | "timeout" | "hub" | "credencial" | "contrato" | "local" | "desconhecida";
+
+export type EstadoDeSaude =
+  | { kind: "desligado" }
+  | { kind: "sincronizando"; pendentes: number }
+  | { kind: "em_dia" }
+  | { kind: "pendente"; pendentes: number }
+  | { kind: "offline"; pendentes: number; proximaTentativaEm: string | null }
+  | { kind: "erro"; pendentes: number; tipo: TipoDeFalhaDeSync; mensagem: string };
+
+export type RegistroDeSaude = {
+  ultimoOkEm: string | null;
+  ultimaRodadaEm: string | null;
+  ultimoErro: string | null;
+  tipoDoErro: TipoDeFalhaDeSync | null;
+  falhasSeguidas: number;
+  proximaTentativaEm: string | null;
+};
+
+export type DispositivoConhecido = {
+  id: string;
+  name: string;
+  platform: string;
+  appVersion: string;
+  lastSyncAt: string;
+  isThisDevice: boolean;
+};
+
+export type SaudeDoSync = {
+  estado: EstadoDeSaude;
+  registro: RegistroDeSaude;
+  ligado: boolean;
+  rodando: boolean;
+  pendentes: number;
+  emRetry: number;
+  conflitosAbertos: number;
+  dispositivos: DispositivoConhecido[];
+  deviceId: string;
+  appVersion: string;
+};
+
+export type OpcaoDeAdiar = { rotulo: string; minutos: number | null };
+
+/** O que chega pelo evento `autopilot-aviso`. */
+export type AvisoDoAutopilot = {
+  chave: string;
+  tipo: string;
+  titulo: string;
+  corpo: string;
+  alvo: Alvo;
+  adiar: OpcaoDeAdiar[];
+  acaoPrincipal: string;
 };

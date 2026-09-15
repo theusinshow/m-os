@@ -1362,3 +1362,101 @@ async fn arquivar_na_biblioteca_tira_da_estante_sem_apagar() {
         "continuou na estante"
     );
 }
+
+/// O piloto do bolso recomenda a Task vencida que veio do PC, "Comecar" no
+/// bolso marca o inicio, e o inicio chega no PC.
+///
+/// E o mesmo motor do desktop respondendo pela mesma rota: se o celular
+/// dissesse "faca X" e o PC "faca Y", um dos dois estaria errado.
+#[tokio::test(flavor = "multi_thread")]
+async fn o_piloto_do_bolso_recomenda_e_comecar_chega_no_pc() {
+    let hub = servir_hub().await;
+    let pasta_web = tempfile::tempdir().unwrap();
+    let pasta_pc = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta_web.path(), hub).await;
+
+    let caminho_pc = pasta_pc.path().to_path_buf();
+    let id = tokio::task::spawn_blocking(move || {
+        let pc = outro_aparelho(&caminho_pc);
+        let nova = mos_core::NewTask::create("Enviar arquivos", "", None)
+            .unwrap()
+            .with_due_at(Some(
+                time::OffsetDateTime::now_utc() - time::Duration::days(1),
+            ))
+            .with_priority(mos_core::Priority::High);
+        let task = pc.create_task(nova).unwrap();
+        assert_eq!(sincronizar(&pc, hub).enviadas, 1);
+        task.id.to_string()
+    })
+    .await
+    .unwrap();
+
+    let cliente = reqwest::Client::new();
+    let mut panorama = serde_json::Value::Null;
+    for _ in 0..50 {
+        let p: serde_json::Value = cliente
+            .get(format!("http://{web}/api/piloto"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if p["agora"]["agora"]["taskId"] == serde_json::json!(id) {
+            panorama = p;
+            break;
+        }
+        let _ = cliente
+            .post(format!("http://{web}/api/capturar"))
+            .json(&serde_json::json!({ "texto": "ping" }))
+            .send()
+            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert_eq!(panorama["agora"]["agora"]["titulo"], "Enviar arquivos");
+    assert_eq!(panorama["atencao"][0]["tipo"], "overdue");
+    assert_eq!(panorama["estadoDoDia"]["kind"], "not_started");
+
+    let comecada: serde_json::Value = cliente
+        .post(format!("http://{web}/api/tasks/{id}/comecar"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(comecada["state"], "doing");
+    assert!(comecada["startedAt"].is_string());
+
+    let caminho_pc = pasta_pc.path().to_path_buf();
+    let id_pc = id.clone();
+    tokio::task::spawn_blocking(move || {
+        let pc = outro_aparelho(&caminho_pc);
+        let mut chegou = false;
+        for _ in 0..50 {
+            sincronizar(&pc, hub);
+            let task = pc
+                .get_task(mos_core::TaskId::parse(&id_pc).unwrap())
+                .unwrap();
+            if task.started_at.is_some() {
+                assert_eq!(task.state, mos_core::TaskState::Doing);
+                chegou = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert!(chegou, "o inicio marcado no bolso nao chegou no PC");
+    })
+    .await
+    .unwrap();
+
+    let estado: serde_json::Value = cliente
+        .get(format!("http://{web}/api/estado"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(estado["saude"]["kind"], "em_dia", "{estado}");
+}

@@ -14,6 +14,9 @@ param(
   [Parameter(Mandatory = $true)][string]$Titulo,
   [Parameter(Mandatory = $true)][string]$Saida,
   [string]$Processo = "",
+  # O PID exato, quando ha mais de um processo com o mesmo nome (o instalado e o
+  # de desenvolvimento rodando juntos). Vence sobre -Processo.
+  [int]$ProcessoId = 0,
   [uint32]$Flags = 2,
   # Altura temporaria, para caber a pagina inteira numa foto so. A janela volta
   # ao tamanho e a posicao de antes; ela nunca aparece grande na tela, porque e
@@ -136,7 +139,9 @@ public class JanelaCap {
 "@ -ReferencedAssemblies System.Drawing
 
 $pid2 = 0
-if ($Processo) {
+if ($ProcessoId -gt 0) {
+  $pid2 = $ProcessoId
+} elseif ($Processo) {
   $p = Get-Process -Name $Processo -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $p) { Write-Error "processo '$Processo' nao esta rodando"; exit 1 }
   $pid2 = $p.Id

@@ -12,6 +12,7 @@ import {
   type HorasDeProjeto,
   type ItemDaAgenda,
   type Panorama,
+  type Piloto as PanoramaDoPiloto,
   type DetalheDaTask,
   type EdicaoDeTask,
   type EstadoDaTask,
@@ -27,6 +28,7 @@ import { Barra } from "./componentes/Barra";
 import { Marca } from "./componentes/Marca";
 import type { Pagina } from "./navegacao";
 import { Home } from "./paginas/Home";
+import { Piloto } from "./paginas/Piloto";
 import { gravarArranjo, lerArranjo, type Arranjo } from "./paginas/arranjo";
 import { Capturar } from "./paginas/Capturar";
 import { Fazer } from "./paginas/Fazer";
@@ -92,6 +94,7 @@ export function App() {
   const [oDia, setODia] = useState<ODia | null>(null);
   const [estado, setEstado] = useState<EstadoDoAparelho | null>(null);
   const [panorama, setPanorama] = useState<Panorama | null>(null);
+  const [piloto, setPiloto] = useState<PanoramaDoPiloto | null>(null);
   const [agenda, setAgenda] = useState<ItemDaAgenda[]>([]);
   const [vistaDaAgenda, setVistaDaAgenda] = useState<VistaDaAgenda>("lista");
   /** O que a agenda mostra. Deste aparelho, como o arranjo da Home. */
@@ -152,6 +155,7 @@ export function App() {
       proximosResolvidos,
       proximosProjetos,
       proximoDia,
+      proximoPiloto,
     ] = await Promise.all([
       api.inbox().catch(() => [] as Capture[]),
       api.tasks().catch(() => [] as ItemDeTask[]),
@@ -178,6 +182,8 @@ export function App() {
       // Nulo quando o servidor e antigo demais para ter a rota. A Home continua
       // inteira sem os tres cartoes do dia.
       api.dia().catch(() => null),
+      // Nulo quando o servidor ainda não tem o piloto; a Home segue inteira.
+      api.piloto().catch(() => null),
     ]);
     if (proximoEstado) setEstado(proximoEstado);
     setCapturas(proximaInbox);
@@ -189,6 +195,7 @@ export function App() {
     setResolvidos(proximosResolvidos);
     setProjetos(proximosProjetos);
     setODia(proximoDia);
+    setPiloto(proximoPiloto);
     setCarregando(false);
     // A situação das notificações é recalculada junto: ela muda por fora do app
     // — instalar na tela de início, mexer em Ajustes —, e uma tela que só olha
@@ -654,6 +661,8 @@ export function App() {
           sem transição nenhuma, como um corte. */}
       <main className="conteudo" key={pagina}>
         {pagina === "home" ? (
+          <>
+          {arrumando ? null : <Piloto panorama={piloto} aoAbrirTask={(id) => { setTaskAberta(id); setPagina("fazer"); }} aoAtualizar={atualizar} />}
           <Home
             estado={estado}
             dados={dados}
@@ -668,6 +677,7 @@ export function App() {
             }}
             aoIr={setPagina}
           />
+          </>
         ) : null}
         {pagina === "capturar" ? <Capturar capturas={capturas} /> : null}
         {pagina === "fazer" && tarefaAberta ? (

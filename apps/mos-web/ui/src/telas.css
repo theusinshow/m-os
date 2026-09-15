@@ -1687,3 +1687,118 @@
 .folha-interruptor small {
   opacity: 0.62;
 }
+
+/* ---------------------------------------------------------------- piloto
+
+   O que faco agora, o dia por comecar, o que precisa de atencao. Abre a Home
+   antes dos cartoes. Mesma superficie dos cartoes; nao e cartao porque tem
+   botao dentro, e cartao e um alvo de toque inteiro. */
+
+.piloto {
+  display: grid;
+  gap: var(--space-3);
+  position: relative;
+}
+
+.piloto-cartao {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 14px;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-cartao);
+  box-shadow: var(--elev-1);
+}
+
+.piloto-dia {
+  border-left: 3px solid var(--signal);
+}
+
+.piloto-rotulo {
+  font: 500 11px/1 var(--font-system);
+  letter-spacing: 0.08em;
+  color: var(--text-system);
+}
+
+.piloto-frase {
+  margin: 0;
+  font: 500 16px/1.4 var(--font-product);
+}
+
+.piloto-titulo {
+  padding: 0;
+  color: inherit;
+  font: 600 22px/1.15 var(--font-product);
+  letter-spacing: -0.02em;
+  text-align: left;
+  background: none;
+  border: 0;
+}
+
+.piloto-ponto { color: var(--signal); font-size: 12px; vertical-align: middle; }
+
+.piloto-mudo {
+  margin: 0;
+  color: var(--text-secondary);
+  font: 400 13px/1.5 var(--font-product);
+}
+
+.piloto-lista {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-1);
+  font: 400 15px/1.4 var(--font-product);
+}
+
+.piloto-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.piloto-porque {
+  margin-left: auto;
+  padding: 0;
+  color: var(--text-system);
+  font: 400 13px/1 var(--font-product);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.piloto-itens {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+}
+
+.piloto-itens li {
+  border-top: 1px solid var(--border);
+}
+
+.piloto-itens li:first-child { border-top: 0; }
+
+.piloto-item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: var(--toque);
+  padding: var(--space-2) 0 var(--space-2) var(--space-3);
+  color: inherit;
+  font: 400 15px/1.35 var(--font-product);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-left: 3px solid var(--border-strong);
+}
+
+.piloto-item:disabled { opacity: 1; }
+.piloto-itens li[data-severidade="urgente"] .piloto-item { border-left-color: #d95546; }
+.piloto-itens li[data-severidade="alta"] .piloto-item { border-left-color: var(--signal); }

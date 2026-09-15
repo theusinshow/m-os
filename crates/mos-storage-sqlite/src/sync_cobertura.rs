@@ -72,6 +72,8 @@ pub(crate) const LOCAIS: &[(&str, &str)] = &[
     ("sync_clock", "o relogio logico e o cursor DESTE dispositivo"),
     ("sync_conflicts", "o que este aparelho viu conflitar, para esta tela"),
     ("sync_pendentes", "o que ESTA maquina ainda nao materializou; replicada, faria um PC tentar consertar o que o outro nem tem"),
+    ("sync_saude", "como foi a ultima rodada DESTE aparelho; o outro tem a dele"),
+    ("autopilot_avisos", "o que este aparelho ja avisou; o iPhone tocar nao significa que o PC tocou"),
     ("devices", "quem e cada instalacao; `is_this_device` nao faz sentido replicado"),
     // --- telemetria: descreve o que aconteceu NESTA maquina ---
     ("usage_requisicao", "consumo de API desta maquina; misturado, o relatorio somaria as duas como uma"),

@@ -29,6 +29,7 @@ import type {
   ObjectiveDraft,
   ObjectiveLink,
   ObjectiveStatus,
+  PropostaDoDia,
 } from "./types";
 
 const loadMotionFeatures = () => import("./motionFeatures").then((module) => module.default);
@@ -267,17 +268,26 @@ function DailyContextSummary({ contexto }: { contexto: DailyContext | null }) {
 export function StartMyDayFlow({
   close,
   concluido,
+  proposta = null,
 }: {
   close: () => void;
   concluido: (dia: DailyToday) => void;
+  /** A proposta automatica do piloto. Preenche as vagas; a pessoa edita. */
+  proposta?: PropostaDoDia | null;
 }) {
   const [etapa, setEtapa] = useState<"hoje" | "objetivos">("hoje");
   const [contexto, setContexto] = useState<DailyContext | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
-  const [principal, setPrincipal] = useState<ObjectiveDraft | null>(null);
-  const [secundarios, setSecundarios] = useState<(ObjectiveDraft | null)[]>([null, null, null]);
+  /* As vagas nascem PREENCHIDAS pela proposta. Comecar o dia sem organizar
+     nada e o caminho normal; organizar continua possivel, e nao e pre-requisito. */
+  const [principal, setPrincipal] = useState<ObjectiveDraft | null>(() => proposta?.input.main ?? null);
+  const [secundarios, setSecundarios] = useState<(ObjectiveDraft | null)[]>(() => {
+    const vagas: (ObjectiveDraft | null)[] = [null, null, null];
+    (proposta?.input.secondaries ?? []).slice(0, 3).forEach((draft, at) => { vagas[at] = draft; });
+    return vagas;
+  });
   const painel = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -352,6 +362,7 @@ export function StartMyDayFlow({
       const dia = await api.dailyStart({
         main: principal && rascunhoValido(principal) ? principal : null,
         secondaries: escolhidos,
+        note: proposta?.nota,
       });
       concluido(dia);
       close();

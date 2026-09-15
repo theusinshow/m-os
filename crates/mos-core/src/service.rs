@@ -1883,6 +1883,28 @@ impl WorkService {
         self.repository.set_task_state(TaskId::parse(id)?, state)
     }
 
+    /// Planeja para um dia. `adiando` marca o gesto como adiamento.
+    pub fn plan_task(
+        &self,
+        id: &str,
+        scheduled_for: Option<crate::Day>,
+        adiando: bool,
+    ) -> Result<Task, CoreError> {
+        self.repository
+            .plan_task(TaskId::parse(id)?, scheduled_for, adiando)
+    }
+
+    /// "Comecar": registra o instante e poe em `doing`.
+    pub fn start_task(&self, id: &str, now: time::OffsetDateTime) -> Result<Task, CoreError> {
+        self.repository
+            .set_task_started(TaskId::parse(id)?, Some(now))
+    }
+
+    /// "Continuar depois": limpa o instante sem mexer no estado.
+    pub fn stop_task(&self, id: &str) -> Result<Task, CoreError> {
+        self.repository.set_task_started(TaskId::parse(id)?, None)
+    }
+
     pub fn set_task_archived(&self, id: &str, archived: bool) -> Result<Task, CoreError> {
         self.repository.set_task_lifecycle(
             TaskId::parse(id)?,

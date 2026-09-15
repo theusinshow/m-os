@@ -40,6 +40,7 @@ mod microfone;
 mod monitor;
 mod openai_usage;
 mod pdf;
+mod piloto;
 mod stale;
 mod surface;
 mod sync;
@@ -2296,6 +2297,10 @@ pub fn run() {
             });
 
             app.manage(sync::SyncRuntime::default());
+            app.manage(piloto::PilotoRuntime::default());
+            // A presenca de hoje entra AGORA, e a anterior fica guardada: e a
+            // referencia do Rescue Mode ate a proxima abertura.
+            piloto::registrar_presenca(app.handle());
             // O sync automatico. Ele espera a tela dizer que abriu antes da
             // primeira rodada — ver `sync::iniciar_daemon`.
             sync::iniciar_daemon(app.handle().clone());
@@ -2307,6 +2312,7 @@ pub fn run() {
             {
                 let handle = app.handle().clone();
                 app.listen_any("data-changed", move |_| {
+                    piloto::acordar(&handle);
                     let handle = handle.clone();
                     tauri::async_runtime::spawn(async move {
                         tokio::time::sleep(sync::DEBOUNCE_DA_MUTACAO).await;
@@ -2500,6 +2506,7 @@ pub fn run() {
             tauri::async_runtime::spawn(meeting::run_levels(app.handle().clone()));
             tauri::async_runtime::spawn(usage::run(app.handle().clone()));
             tauri::async_runtime::spawn(openai_usage::run(app.handle().clone()));
+            tauri::async_runtime::spawn(piloto::run(app.handle().clone()));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -2544,6 +2551,23 @@ pub fn run() {
                     hermes_tunel::hermes_tunnel_status,
                     hermes_tunel::hermes_tunnel_open,
                     sync::sync_status,
+                    sync::sync_health,
+                    sync::sync_reconhecer_conflitos,
+                    sync::sync_acordar,
+                    piloto::piloto_panorama,
+                    piloto::piloto_proposta_de_encerramento,
+                    piloto::piloto_resgate,
+                    piloto::piloto_resgate_aplicar,
+                    piloto::piloto_resgate_concluir,
+                    piloto::piloto_iniciar_dia,
+                    piloto::piloto_encerrar_dia,
+                    piloto::task_start,
+                    piloto::task_stop,
+                    piloto::task_plan,
+                    piloto::autopilot_status,
+                    piloto::autopilot_set,
+                    piloto::autopilot_adiar,
+                    piloto::autopilot_resolver,
                     sync::sync_set_endpoint,
                     sync::sync_set_token,
                     sync::sync_clear_token,

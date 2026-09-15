@@ -82,6 +82,8 @@ pub fn rotas() -> Router<Estado> {
         .route("/api/academico", get(academico))
         .route("/api/push/assinar", post(assinar_push))
         .route("/api/push/testar", post(testar_push))
+        // O piloto: o mesmo motor do desktop, nas mesmas rotas para o bolso.
+        .merge(crate::piloto::rotas())
 }
 
 /// As rotas mais a pagina.
@@ -269,7 +271,7 @@ async fn pagina(uri: axum::http::Uri) -> Response {
 
 // ------------------------------------------------------------------ erros
 
-struct Erro(StatusCode, String);
+pub struct Erro(pub StatusCode, pub String);
 
 impl IntoResponse for Erro {
     fn into_response(self) -> Response {
@@ -281,7 +283,7 @@ impl IntoResponse for Erro {
 ///
 /// Adivinhar pelo texto seria decidir por acaso — e o `mos-core` ja responde a
 /// pergunta com `ErrorCode`, que existe justamente para nao ser interpretado.
-fn de_core(causa: CoreError) -> Erro {
+pub fn de_core(causa: CoreError) -> Erro {
     use mos_core::ErrorCode;
     let status = match causa.code {
         ErrorCode::InvalidInput => StatusCode::BAD_REQUEST,
@@ -292,7 +294,7 @@ fn de_core(causa: CoreError) -> Erro {
     Erro(status, causa.message)
 }
 
-type Resultado<T> = Result<T, Erro>;
+pub type Resultado<T> = Result<T, Erro>;
 
 /// Dispara o sync sem fazer a resposta esperar por ele.
 fn empurrar(estado: &Estado) {
@@ -321,7 +323,7 @@ fn empurrar(estado: &Estado) {
 /// encontro travava o servidor para sempre. A ordem foi consertada no crate
 /// (`SqliteStorage::portao`), que e onde os cadeados moram; um remendo aqui em
 /// cima so faria parecer que o crate ainda nao resolve isso.
-async fn escrever<T, F>(estado: &Estado, tarefa: F) -> Resultado<T>
+pub async fn escrever<T, F>(estado: &Estado, tarefa: F) -> Resultado<T>
 where
     F: FnOnce(&Estado) -> Result<T, CoreError> + Send + 'static,
     T: Send + 'static,
@@ -1308,13 +1310,30 @@ struct EstadoDoAparelho {
     /// Quantos aparelhos ja assinaram. Serve para voce saber que ativou — sem
     /// isso, "ativar" e um botao que muda de cor e nao prova nada.
     aparelhos_avisados: usize,
+    /// Como a ultima rodada terminou. `None` sem hub.
+    saude: Option<mos_sync::EstadoDeSaude>,
+    ultimo_ok_em: Option<String>,
+    proxima_tentativa_em: Option<String>,
 }
 
 async fn estado_do_aparelho(State(estado): State<Estado>) -> Json<EstadoDoAparelho> {
     use mos_sync::OutboxRepository;
+    let registro = estado.storage.saude_do_sync().unwrap_or_default();
+    let pendentes = estado.storage.quantidade_pendente().unwrap_or(0);
+    let saude = estado.hub.as_ref().map(|_| {
+        mos_sync::estado_de_saude(mos_sync::Sinais {
+            ligado: true,
+            rodando: false,
+            pendentes,
+            registro: &registro,
+        })
+    });
     Json(EstadoDoAparelho {
-        pendentes: estado.storage.quantidade_pendente().unwrap_or(0),
+        pendentes,
         sincroniza: estado.hub.is_some(),
+        saude,
+        ultimo_ok_em: registro.ultimo_ok_em.clone(),
+        proxima_tentativa_em: registro.proxima_tentativa_em.clone(),
         chave_push: estado.push.as_ref().map(|push| push.chave_publica.clone()),
         aparelhos_avisados: estado
             .push
@@ -1621,26 +1640,33 @@ async fn agenda(
             "O fim da janela vem antes do inicio.".to_owned(),
         ));
     }
+    Ok(Json(compor_agenda(&estado, de, ate, ate).map_err(de_core)?))
+}
 
+/// A mesma composicao, para quem chama de dentro do processo — o piloto le a
+/// agenda de hoje e amanha por aqui, e nao por uma segunda leitura das fontes.
+pub fn compor_agenda(
+    estado: &Estado,
+    de: time::OffsetDateTime,
+    ate: time::OffsetDateTime,
+    now_local: time::OffsetDateTime,
+) -> Result<Vec<mos_core::CalendarItem>, CoreError> {
     // Cada leitura numa variavel propria: passadas direto como referencia, os
     // temporarios morreriam antes de `compose` usa-los.
-    let projetos = estado.work.projects(true).map_err(de_core)?;
-    let horas = estado.tracking.entries(None).map_err(de_core)?;
-    let tasks = estado.work.tasks(true).map_err(de_core)?;
-    let capturas = estado.captures.between(de, ate).map_err(de_core)?;
-    let arredondamento = estado.tracking.settings().map_err(de_core)?.rounding;
-    let sessoes = estado.daily.sessions(365).map_err(de_core)?;
+    let projetos = estado.work.projects(true)?;
+    let horas = estado.tracking.entries(None)?;
+    let tasks = estado.work.tasks(true)?;
+    let capturas = estado.captures.between(de, ate)?;
+    let arredondamento = estado.tracking.settings()?.rounding;
+    let sessoes = estado.daily.sessions(365)?;
     let ids: Vec<_> = sessoes.iter().map(|sessao| sessao.id).collect();
-    let objetivos = estado.daily.objectives_of(&ids).map_err(de_core)?;
-    let academico = estado
-        .academic
-        .compromissos_entre(de, ate, ate)
-        .map_err(de_core)?;
+    let objetivos = estado.daily.objectives_of(&ids)?;
+    let academico = estado.academic.compromissos_entre(de, ate, now_local)?;
 
     // Os lembretes ABERTOS. Os resolvidos ficam de fora: o calendario mostra o
     // que vai acontecer e o que aconteceu, e um lembrete cancelado nao e nenhum
     // dos dois.
-    let lembretes = estado.attention.open().map_err(de_core)?;
+    let lembretes = estado.attention.open()?;
     // Nacionais, calculados a partir da janela. Estadual e municipal ficam para
     // quando existir uma fonte — ver `feriados.rs`.
     let feriados = mos_core::nacionais_entre(de.date(), ate.date());
@@ -1653,7 +1679,7 @@ async fn agenda(
             .unwrap_or_else(|| "Project removido".to_owned())
     };
 
-    Ok(Json(mos_core::compose(mos_core::ComposeInput {
+    Ok(mos_core::compose(mos_core::ComposeInput {
         since: de,
         until: ate,
         rounding: arredondamento,
@@ -1670,7 +1696,7 @@ async fn agenda(
         reminders: &lembretes,
         holidays: &feriados,
         project_name: &nome_do_projeto,
-    })))
+    }))
 }
 
 // ------------------------------------------------------------------ horas

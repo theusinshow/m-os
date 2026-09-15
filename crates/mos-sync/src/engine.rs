@@ -84,6 +84,12 @@ pub struct Rodada {
     /// Preenchido quando a rodada parou por erro. O que ja foi feito ate ali
     /// permanece feito — sincronizacao parcial e melhor que nenhuma.
     pub erro: Option<String>,
+    /// Se o `erro` e do tipo que passa numa nova tentativa sem ninguem mexer.
+    ///
+    /// Viajava desde o transporte em `SyncError::retriavel` e morria aqui. E o
+    /// que separa "sem rede, volto em dez segundos" de "segredo errado, avise".
+    #[serde(default)]
+    pub erro_retriavel: bool,
 }
 
 /// A ponte entre operacao e dominio.
@@ -141,12 +147,16 @@ pub fn sincronizar(
                     for op in &pendentes {
                         let _ = deposito.outbox.falhou(op.id, &causa.mensagem);
                     }
+                    rodada.erro_retriavel = causa.retriavel;
                     rodada.erro = Some(causa.mensagem);
                 }
             }
         }
         Ok(_) => {}
-        Err(causa) => rodada.erro = Some(causa.mensagem),
+        Err(causa) => {
+            rodada.erro_retriavel = causa.retriavel;
+            rodada.erro = Some(causa.mensagem);
+        }
     }
 
     // ---- puxa -------------------------------------------------------------
@@ -184,6 +194,7 @@ pub fn sincronizar(
                             .registrar(&kind, id, &resultado.conflitos);
                     }
                     if let Err(causa) = projecao.guardar(&ops[0], &resultado.estado) {
+                        rodada.erro_retriavel = causa.retriavel;
                         rodada.erro = Some(causa.mensagem);
                         break;
                     }
@@ -194,7 +205,10 @@ pub fn sincronizar(
                 }
                 let _ = deposito.relogio.guardar(relogio.ultimo());
             }
-            Err(causa) => rodada.erro = Some(causa.mensagem),
+            Err(causa) => {
+                rodada.erro_retriavel = causa.retriavel;
+                rodada.erro = Some(causa.mensagem);
+            }
         }
     }
 

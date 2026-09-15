@@ -1136,7 +1136,7 @@ pub fn compose_context(input: ContextInput<'_>) -> DailyContext {
 // ---------------------------------------------------------------- entradas
 
 /// O que o Start My Day recebe.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartDayInput {
     /// Vazio significa dia sem principal — legitimo, e o `UX` nao obriga.
@@ -1150,7 +1150,7 @@ pub struct StartDayInput {
 }
 
 /// Um objetivo como a interface (ou o Hermes) o descreve, antes de existir.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ObjectiveDraft {
     pub title: String,
@@ -1213,7 +1213,7 @@ impl ObjectiveDraft {
 }
 
 /// O que o End My Day recebe.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EndDayInput {
     /// O destino de cada objetivo que ainda estava pendente.
@@ -1230,7 +1230,7 @@ pub struct EndDayInput {
     pub summary: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ObjectiveResolution {
     pub objective_id: String,
@@ -1669,6 +1669,9 @@ mod tests {
             blocked_by_task_id: None,
             waiting_for: String::new(),
             follow_up_at: None,
+            scheduled_for: None,
+            started_at: None,
+            postponed_count: 0,
             checklist_total: 0,
             checklist_done: 0,
             created_at: updated,

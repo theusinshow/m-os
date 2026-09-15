@@ -4040,3 +4040,94 @@ O primeiro lembrete recorrente atravessar uma mudança de fuso de verdade (aí o
 `offset_minutes` vira IANA), quando a entidade `Event` (D-4) for decidida — que é
 o que destrava alerta relativo a compromisso —, ou quando o histórico precisar ser
 o mesmo nos dois aparelhos.
+
+## ADR-068 — A espera do sync é decisão da saúde, e a saúde sobrevive ao fechar do app
+
+**Estado:** Accepted · 2026-09-15
+
+### Contexto
+
+O transporte sempre soube distinguir falha passageira de permanente
+(`SyncError::retriavel`), e o motor sempre descartou a distinção: cada operação
+era marcada `failed` e reenviada na próxima rodada, e a próxima rodada vinha num
+intervalo fixo — quinze minutos no desktop, um minuto no bolso. O resultado era
+o pior dos dois mundos: a rede que voltava esperava quinze minutos, e a
+credencial errada batia no hub a cada minuto para sempre. Nada ficava gravado
+entre execuções: reabrir o app fingia que nunca tinha tentado.
+
+### Decisão
+
+`mos-sync` ganha `saude.rs`: classificação da falha em `TipoDeFalha`, escada de
+backoff (10 s, 30 s, 2 min, 5 min, 15 min), `RegistroDeSaude` com falhas
+seguidas e próxima tentativa, e `EstadoDeSaude` com os seis estados na ordem em
+que a tela deve perguntar. A `Rodada` passa a carregar `erro_retriavel`. A
+tabela `sync_saude` (local) persiste o registro; a rodada boa carimba
+`devices.last_sync_at`. O laço do desktop e o do bolso esperam o que a saúde
+manda; um pedido explícito — mutação, primeiro plano, botão, `online` da
+webview — acorda antes.
+
+### Consequências
+
+Offline passa a ser estado próprio, e não erro: a frase diz que os dados estão
+salvos e que vai tentar sozinho. Erro permanente aparece no Sync Health com o
+que a pessoa precisa fazer. O botão manual continua existindo como recuperação,
+nunca como fluxo.
+
+## ADR-069 — O piloto: um retrato, seis motores, e a Home passa a responder "o que faço agora?"
+
+**Estado:** Accepted · 2026-09-15
+
+### Contexto
+
+O M/OS era um sistema que a pessoa mantinha: entrava para descobrir o que
+fazer, montava o dia à mão, lembrava de sincronizar. "O que precisa de atenção"
+tinha quatro respostas que não se comparavam — lembretes, Tasks paradas,
+Academic e carry-over —, e nenhuma tela as punha na mesma lista. Não havia
+"o que fazer agora", proposta automática do dia, resgate depois de dias fora,
+nem notificação para Task, Academic ou dia.
+
+### Decisão
+
+`mos-core::piloto`: Attention Engine, Next Action, Daily Planner, Rescue,
+Notification Engine e Autopilot, todos puros, lendo o mesmo `Retrato`,
+determinísticos e explicáveis (razões em texto). O desktop e o bolso montam o
+retrato e chamam o mesmo código; a Home inteira sai de `piloto_panorama`. O
+Autopilot automatiza o que não destrói (propor, avisar com política anti-spam)
+e sugere o resto (mover, arquivar, reagendar), sempre com um clique. Sem
+aprendizado; a porta fica aberta pelo `Habitos`.
+
+### Consequências
+
+O painel do piloto é fixo na Home, pela mesma exceção da faixa de sync,
+estendida: é a resposta às seis perguntas do §71 do pedido, e um widget que se
+esconde deixaria a Home sem ela. O widget do dia só entra quando há sessão. As
+ações do Hermes ganham `mos.task.start` e `mos.task.plan`, e o preâmbulo ganha
+o bloco do piloto, para pergunta ser respondida sem ação.
+
+## ADR-070 — A Task sabe QUANDO a pessoa pretende fazê-la, separado de quando ela vence
+
+**Estado:** Accepted · 2026-09-15 · complementa a ADR-066
+
+### Contexto
+
+A ADR-066 trouxe `due_at` — quando o trabalho vence. Faltava o outro lado:
+quando a pessoa planeja trabalhar nele. Sem isso, pôr uma Task "para hoje"
+exigia inventar um prazo, e o End My Day não tinha como mover o que sobrou para
+amanhã sem mentir sobre o compromisso. O Academic já fazia a distinção
+(`planned_at` vs `at`); a Task não.
+
+### Decisão
+
+Migration 0041: `tasks.scheduled_for` (data civil, como `daily_sessions.day`),
+`tasks.started_at` e `tasks.postponed_count`. Campos próprios no sync — planejar
+no celular e pôr prazo no PC convivem. Mover para amanhã muda `scheduled_for` e
+conta adiamento; **`due_at` nunca é tocado por planejamento**. Começar põe em
+`doing`; parar não move de volta; concluir limpa o início.
+
+### Consequências
+
+O "Hoje" da Home, o aviso de "planejada e não começada", o indicador global de
+Task ativa e o sinal de evitamento do Attention Engine passam a ter chão. A
+`EditTask` não carrega os três campos: eles mudam por gestos próprios
+(`plan_task`, `set_task_started`), para uma edição de título nunca levar junto
+um planejamento lido antes.

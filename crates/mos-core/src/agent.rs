@@ -942,6 +942,9 @@ pub struct PreambleInput<'a> {
     /// O dia e os objetivos dele: `(titulo, peso, concluido)`. Vazio quando nao
     /// ha sessao aberta — e ai o bloco nao desce.
     pub today: (String, Vec<(String, String, bool)>),
+    /// O que o piloto ve: a Task recomendada para agora e o que precisa de
+    /// atencao, ja em texto. Vazio quando nao ha nada — e ai nao desce.
+    pub attention: String,
 }
 
 /// Monta o prefixo do prompt, na ordem em que ele deve ser lido.
@@ -960,6 +963,7 @@ pub fn preamble(input: PreambleInput<'_>) -> String {
         // nao acao. Ele reenquadra o que "meus objetivos" significa antes de o
         // modelo ler o que da para fazer com eles.
         today_block(&input.today.0, &input.today.1),
+        input.attention.clone(),
         crate::action_contract(input.finance_enabled),
     ];
     if input.hops_left > 0 {
@@ -1364,6 +1368,7 @@ mod tests {
             finance_enabled: false,
             hops_left: MAX_QUERY_HOPS,
             today: (String::new(), Vec::new()),
+            attention: String::new(),
         });
 
         let identidade = texto.find("[Quem você é]").expect("identidade");
@@ -1416,6 +1421,7 @@ mod tests {
             finance_enabled: false,
             hops_left: MAX_QUERY_HOPS,
             today: (String::new(), Vec::new()),
+            attention: String::new(),
         });
 
         // A Task chega ao modelo com id, e o lembrete e uma acao que existe.
@@ -1473,6 +1479,7 @@ mod tests {
             finance_enabled: false,
             hops_left: 1,
             today: (String::new(), Vec::new()),
+            attention: String::new(),
         });
         let sem_salto = preamble(PreambleInput {
             now_local: datetime!(2026-08-20 14:32:00 -03:00),
@@ -1481,6 +1488,7 @@ mod tests {
             finance_enabled: false,
             hops_left: 0,
             today: (String::new(), Vec::new()),
+            attention: String::new(),
         });
         assert!(com_salto.contains("mos-query"));
         assert!(!sem_salto.contains("mos-query"));
@@ -1538,6 +1546,7 @@ mod tests {
                 "2026-08-21".into(),
                 vec![("Planta de formas".into(), "principal".into(), false)],
             ),
+            attention: String::new(),
         });
         let dia = prompt.find("Os objetivos de hoje").expect("o bloco desce");
         let acoes = prompt.find("Ações disponíveis").expect("o catalogo desce");

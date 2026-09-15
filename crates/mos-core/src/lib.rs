@@ -20,6 +20,7 @@ mod ingestion;
 mod meeting;
 mod meeting_analysis;
 mod monitoring;
+mod piloto;
 mod ports;
 mod recurrence;
 mod resource;
@@ -126,6 +127,29 @@ pub use monitoring::{
     decidir_oferta, diff_transitions, open_periods, uncovered, ActivityEvent, ActivityEventId,
     ActivityKind, ContextoDaOferta, DecisaoDeOferta, MicrofoneAberto, MonitoredApp,
     MonitoringSettings, NewActivityEvent, Period,
+};
+pub use piloto::{
+    atencao::{
+        compor_atencao, resumir as resumir_atencao, AcaoRecomendada, ItemDeAtencao,
+        ResumoDeAtencao, Severidade, TipoDeAtencao,
+    },
+    autopilot::{inicio_habitual, panorama, EstadoDoDia, Panorama, TaskAtiva},
+    avisos::{
+        candidatos as candidatos_a_aviso, decidir as decidir_avisos, instante_de_adiar,
+        AvisoEntregue, Candidato as CandidatoAAviso, Decisao as DecisaoDeAviso, OpcaoDeAdiar,
+        Politica as PoliticaDeAvisos, TipoDeAviso, Veredito as VereditoDeAviso,
+    },
+    dia_seguinte, dias_entre, e_compromisso, estimativa_curta,
+    planejador::{
+        propor_dia, propor_encerramento, LinhaDaAgenda, Movimento, PropostaDeEncerramento,
+        PropostaDoDia,
+    },
+    proximo::{recomendar as recomendar_proxima, Candidata, Recomendacao},
+    resgate::{
+        detectar as detectar_ausencia, plano as plano_de_resgate, AcaoDeResgate, Ausencia,
+        ItemDeResgate, Passo as PassoDoResgate, PassoDeResgate, PlanoDeResgate,
+    },
+    Alvo, Habitos, Retrato, SyncNoRetrato,
 };
 pub use ports::{
     AcademicRepository, AppRepository, AttentionRepository, BackupInspection, BackupReceipt,

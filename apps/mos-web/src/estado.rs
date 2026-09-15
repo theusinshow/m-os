@@ -60,6 +60,8 @@ pub struct Estado {
     /// Onde o hub esta, e com que segredo falar com ele. Vazio desliga o sync —
     /// e o `mos-web` continua funcionando, so que sozinho.
     pub hub: Option<Arc<Hub>>,
+    /// A presenca anterior a esta visita, para o Rescue Mode.
+    pub presenca: Arc<crate::piloto::Presenca>,
     /// As sessoes da porta. Vazio quando nao ha porta — e ai `conferir_a_porta`,
     /// no `main.rs`, ja recusou subir publicado.
     pub sessoes: Option<Arc<Sessoes>>,
@@ -210,6 +212,7 @@ impl Estado {
             )),
             storage,
             hub: hub.map(Arc::new),
+            presenca: Arc::new(crate::piloto::Presenca::default()),
             sessoes,
             #[cfg(feature = "passkey")]
             webauthn,

@@ -9,6 +9,12 @@ import { DotField } from "./DotField";
 /* O arranjo da Home mora fora daqui para poder ser testado: sem DOM no runner
    (ver `vitest.config.ts`), o que da para verificar tem de ser funcao pura. */
 import { FaixaSync } from "./FaixaSync";
+import { HomePiloto, TaskAtivaChip, type AcoesDoPiloto } from "./HomePiloto";
+import { SyncChip, SyncHealth } from "./SyncHealth";
+import { RescueMode } from "./RescueMode";
+import { EncerrarDia } from "./EncerrarDia";
+import { AutopilotToast, useAutopilotAvisos } from "./AutopilotToast";
+import type { AvisoDoAutopilot, Panorama, SaudeDoSync } from "./types";
 import { arrangeHome, fillBand, HOME_SECTIONS, HOME_SIZES, HOME_WIDGETS, moveInArrangement, placementsFor, touchedSections, type ArrangedWidget, type HomeWidgetRole, type HomeWidgetSpan, type PlacedWidget } from "./homeLayout";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
 import { hermes, type HermesConnectionState } from "./hermes";
@@ -80,6 +86,7 @@ type UndoAction = { message: string; run: () => Promise<unknown> };
  * trinta e duas, e acrescentar dez trocaria a legibilidade do que sobrou por
  * nada — a Home nao usa nenhuma delas, ela so repassa para o widget.
  */
+type PilotoProps = { panorama: Panorama | null; acoes: AcoesDoPiloto; resgateDispensado: boolean; dispensarResgate: () => void; diaDispensado: boolean; dispensarDia: () => void };
 type DailyProps = {
   dia: DailyToday | null;
   contexto: DailyContext | null;
@@ -472,7 +479,7 @@ function moveListFocus(event: KeyboardEvent<HTMLButtonElement>) {
   return nextIndex;
 }
 
-function HomePage({ syncStatus, refreshSync, recent, inbox, projects, tasks, stale, academic, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, setHiddenWidgets, widgetPlacements, setWidgetPlacements, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, openFinancePage, openCalendarPage, openMeetingsPage, openAcademicPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent, daily }: { syncStatus: SyncStatus | null; refreshSync: () => void; recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; stale: StaleView; academic: AcademicDashboard | null; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; setHiddenWidgets: (next: HiddenWidget[]) => void; widgetPlacements: WidgetPlacement[]; setWidgetPlacements: (next: WidgetPlacement[]) => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; openFinancePage: () => void; openCalendarPage: () => void; openMeetingsPage: () => void; openAcademicPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent; daily: DailyProps }) {
+function HomePage({ syncStatus, refreshSync, recent, inbox, projects, tasks, stale, academic, workspaces, apps, resources, resourceWorkspaces, status, hiddenWidgets, setHiddenWidgets, widgetPlacements, setWidgetPlacements, refresh, openCapture, openProject, openWorkspace, openTask, openApp, openResource, openInbox, openTasksPage, openTempoPage, openProjectsPage, openLibraryPage, openAppsPage, openFinancePage, openCalendarPage, openMeetingsPage, openAcademicPage, currentWorkspaceId, setCurrentWorkspaceId, currentWorkspace, intent, daily, piloto }: { syncStatus: SyncStatus | null; refreshSync: () => void; recent: Capture[]; inbox: Capture[]; projects: Project[]; tasks: Task[]; stale: StaleView; academic: AcademicDashboard | null; workspaces: Workspace[]; apps: RegisteredApp[]; resources: Resource[]; resourceWorkspaces: ResourceWorkspace[]; status: AppStatus | null; hiddenWidgets: HiddenWidget[]; setHiddenWidgets: (next: HiddenWidget[]) => void; widgetPlacements: WidgetPlacement[]; setWidgetPlacements: (next: WidgetPlacement[]) => void; refresh: () => Promise<void>; openCapture: (capture: Capture) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openTask: (task: Task) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openInbox: () => void; openTasksPage: () => void; openTempoPage: () => void; openProjectsPage: () => void; openAppsPage: () => void; openLibraryPage: () => void; openFinancePage: () => void; openCalendarPage: () => void; openMeetingsPage: () => void; openAcademicPage: () => void; currentWorkspaceId: string; setCurrentWorkspaceId: (id: string) => void; currentWorkspace: Workspace | null; intent?: FunctionIntent; daily: DailyProps; piloto: PilotoProps }) {
   const activeWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "active");
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
   const [workspaceApps, setWorkspaceApps] = useState<RegisteredApp[]>([]);
@@ -727,6 +734,10 @@ function HomePage({ syncStatus, refreshSync, recent, inbox, projects, tasks, sta
         noticia ou quando algo esta errado, e some quando e lida ou quando a
         causa some. A defesa inteira, e o que foi recusado (o widget
         arrumavel, que se esconde), estao no `syncFaixa.ts`. */}
+    {/* O painel operacional: o que faco agora, o que tenho hoje, o proximo
+        compromisso, o que precisa de atencao. Fixo pelo mesmo motivo da faixa,
+        estendido — ver o cabecalho do `HomePiloto.tsx`. */}
+    <HomePiloto panorama={piloto.panorama} acoes={piloto.acoes} resgateDispensado={piloto.resgateDispensado} dispensarResgate={piloto.dispensarResgate} diaDispensado={piloto.diaDispensado} dispensarDia={piloto.dispensarDia} />
     <FaixaSync status={syncStatus} onChanged={refreshSync} />
     <CaptureComposer onSaved={(capture) => { markSaved(capture); void refresh(); }} focusKey={intent?.target === "home_capture" ? intent.key : undefined} />
     <section className="home-context" aria-labelledby="home-context-heading">
@@ -754,7 +765,9 @@ function HomePage({ syncStatus, refreshSync, recent, inbox, projects, tasks, sta
     <HomeBoard
       arrangement={arrangement}
       arranging={arranging}
-      hiddenIds={hiddenIds}
+      /* Com o dia por comecar, o cartao do piloto ja responde; o widget do dia
+         so entra quando ha sessao, com os objetivos. */
+      hiddenIds={piloto.panorama && (piloto.panorama.estadoDoDia.kind === "not_started" || piloto.panorama.estadoDoDia.kind === "stale_open") && !arranging ? new Set([...hiddenIds, "daily_session"]) : hiddenIds}
       onMove={moveWidget}
       onResize={resizeWidget}
       onHide={setWidgetHidden}
@@ -2934,6 +2947,39 @@ function DesktopApp() {
     return () => { void parar.then((dispose) => dispose()); };
   }, [refreshSync]);
 
+  /* O piloto: o panorama da Home e a saude do sync, sem polling. Releem quando
+     o backend avisa (`data-changed`, `sync-changed`) e, na Home, uma vez por
+     minuto — o relogio anda, e "reuniao em 15 min" e "18 min na Task" mudam
+     sem ninguem escrever nada. Um IPC por minuto numa tela aberta nao e
+     polling pesado. */
+  const [panorama, setPanorama] = useState<Panorama | null>(null);
+  const [saude, setSaude] = useState<SaudeDoSync | null>(null);
+  const refreshPiloto = useCallback(() => {
+    void api.pilotoPanorama().then(setPanorama).catch(() => undefined);
+    void api.syncHealth().then(setSaude).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (bootState !== "ready") return;
+    refreshPiloto();
+    const eventos = [listen("data-changed", refreshPiloto), listen("sync-changed", refreshPiloto)];
+    const relogio = window.setInterval(() => { if (document.visibilityState === "visible") refreshPiloto(); }, 60_000);
+    // A rede voltou: o daemon tenta agora, sem esperar a escada do backoff.
+    const online = () => { void api.syncAcordar().catch(() => undefined); };
+    window.addEventListener("online", online);
+    return () => {
+      eventos.forEach((evento) => void evento.then((dispose) => dispose()));
+      window.clearInterval(relogio);
+      window.removeEventListener("online", online);
+    };
+  }, [bootState, refreshPiloto]);
+  const [syncHealthOpen, setSyncHealthOpen] = useState(false);
+  const [resgateOpen, setResgateOpen] = useState(false);
+  const [encerrarOpen, setEncerrarOpen] = useState(false);
+  /* "Agora nao" vale pelo dia, e nao para sempre: amanha a pergunta volta. */
+  const [diaDispensadoEm, setDiaDispensadoEm] = useState<string>(() => { try { return localStorage.getItem("m-os-dia-dispensado") ?? ""; } catch { return ""; } });
+  const [resgateDispensadoEm, setResgateDispensadoEm] = useState<string>(() => { try { return localStorage.getItem("m-os-resgate-dispensado") ?? ""; } catch { return ""; } });
+  const autopilot = useAutopilotAvisos();
+
   /* Libera a primeira rodada automatica.
      O daemon espera este sinal para nao segurar o banco durante a rajada de IPC
      do boot — ver `iniciar_daemon` no `sync.rs`. Ele tem teto de 30s, entao um
@@ -3199,6 +3245,26 @@ function DesktopApp() {
   function concluirObjetivoDoDia(id: string) {
     void api.dailySetObjectiveStatus(id, "completed").then(daily.setDia).catch(() => void daily.recarregar());
   }
+  const pilotoAcoes: AcoesDoPiloto = {
+    abrirTask: (id) => { const t = tasks.find((c) => c.id === id); if (t) setDrawerTask(t); else void api.task(id).then(setDrawerTask).catch(() => undefined); },
+    abrirInbox: () => navigate("inbox"),
+    abrirSync: () => setSyncHealthOpen(true),
+    abrirAcademico: () => navigate("academic"),
+    abrirLembrete: () => setAttentionOpen(true),
+    montarDia: () => { void api.pilotoIniciarDia().then((dia) => { daily.setDia(dia); void daily.recarregar(); refreshPiloto(); }).catch(() => undefined); },
+    iniciarDiaManual: () => setFluxoDoDia({ tipo: "iniciar" }),
+    encerrarDia: () => setEncerrarOpen(true),
+    abrirResgate: () => setResgateOpen(true),
+    atualizar: () => { refreshPiloto(); void refresh(); void daily.recarregar(); },
+  };
+  const pilotoProps: PilotoProps = {
+    panorama,
+    acoes: pilotoAcoes,
+    resgateDispensado: resgateDispensadoEm === (panorama?.day ?? ""),
+    dispensarResgate: () => { const dia = panorama?.day ?? ""; setResgateDispensadoEm(dia); try { localStorage.setItem("m-os-resgate-dispensado", dia); } catch { /* sem armazenamento */ } },
+    diaDispensado: diaDispensadoEm === (panorama?.day ?? ""),
+    dispensarDia: () => { const dia = panorama?.day ?? ""; setDiaDispensadoEm(dia); try { localStorage.setItem("m-os-dia-dispensado", dia); } catch { /* sem armazenamento */ } },
+  };
   const dailyProps: DailyProps = {
     dia: daily.dia,
     contexto: daily.contexto,
@@ -3250,6 +3316,7 @@ function DesktopApp() {
        `daily_add_objective` abre a SESSAO, e nao um formulario avulso: o botao
        de acrescentar vive la, ao lado do que ja existe — e escolher o proximo
        objetivo sem ver os outros e escolher no escuro. */
+    if (target === "piloto_now") { navigate("home"); refreshPiloto(); return; }
     if (target === "daily_start") { setFluxoDoDia({ tipo: "iniciar" }); return; }
     if (target === "daily_view" || target === "daily_add_objective") { setFluxoDoDia({ tipo: "sessao" }); return; }
     if (target === "daily_end") { if (daily.dia) setFluxoDoDia({ tipo: "encerrar", dia: daily.dia, sessao: null }); return; }
@@ -3326,7 +3393,7 @@ function DesktopApp() {
   }, [page]);
   const pageContent = useMemo(() => {
     if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} openTask={(id) => { const task = tasks.find((candidate) => candidate.id === id); if (task) setDrawerTask(task); }} />;
-    if (page === "home") return <HomePage syncStatus={syncStatus} refreshSync={refreshSync} recent={recent} inbox={inbox} projects={projects} tasks={tasks} stale={stale} academic={academic} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} setHiddenWidgets={setHiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} openFinancePage={() => setPage("finance")} openCalendarPage={() => setPage("calendario")} openMeetingsPage={() => setPage("reunioes")} openAcademicPage={() => setPage("academic")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} daily={dailyProps} />;
+    if (page === "home") return <HomePage syncStatus={syncStatus} refreshSync={refreshSync} recent={recent} inbox={inbox} projects={projects} tasks={tasks} stale={stale} academic={academic} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} setHiddenWidgets={setHiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} openFinancePage={() => setPage("finance")} openCalendarPage={() => setPage("calendario")} openMeetingsPage={() => setPage("reunioes")} openAcademicPage={() => setPage("academic")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} daily={dailyProps} piloto={pilotoProps} />;
     if (page === "tempo") return <TempoPage projects={projects} openProject={openProject} receipt={showReceipt} />;
     if (page === "finance") return <FinancePage />;
     if (page === "academic") return <AcademicPage refresh={refresh} />;
@@ -3348,7 +3415,7 @@ function DesktopApp() {
   // se salvavam por acidente, porque suas acoes chamam refresh() e o refresh
   // troca a identidade de workspaces/apps/resources, forcando o recalculo.
   // Contexto nao chama refresh, entao travava sozinho e para sempre.
-  }, [page, recent, projects, workspaces, apps, resources, trashedResources, tasks, refresh, inbox, selectedProjectId, selectedWorkspaceId, selectedAppId, selectedResourceId, resourceOpenKey, theme, status, archived, trashed, functionIntent, currentWorkspaceId, currentWorkspace, hiddenWidgets, resourceWorkspaces, ingestions, focusedMeetingId, dailyProps]);
+  }, [page, recent, projects, workspaces, apps, resources, trashedResources, tasks, refresh, inbox, selectedProjectId, selectedWorkspaceId, selectedAppId, selectedResourceId, resourceOpenKey, theme, status, archived, trashed, functionIntent, currentWorkspaceId, currentWorkspace, hiddenWidgets, resourceWorkspaces, ingestions, focusedMeetingId, dailyProps, pilotoProps]);
   const content = bootState === "ready"
     ? pageContent
     : bootState === "error"
@@ -3401,12 +3468,12 @@ function DesktopApp() {
     porque este horario existe: sem ele, "em dia" nao seria visivel em lugar
     nenhum, e a unica forma de saber se o sync ainda funciona seria abrir o
     Settings. Discreto de proposito — se chamasse atencao, seria a faixa fixa
-    que o desenho recusou. */}{syncStatus?.endpoint && syncStatus.hasToken && syncStatus.lastSyncAt ? <span className="page-meta" title="Última sincronização">SYNC {relativeTime(syncStatus.lastSyncAt)}</span> : null}</div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main>{/* O leque vive na coluna principal, e nao sobre o rail: ele e o gesto que
+    que o desenho recusou. */}<TaskAtivaChip ativa={panorama?.taskAtiva ?? null} abrir={(id) => { const t = tasks.find((c) => c.id === id); if (t) setDrawerTask(t); }} atualizar={() => { refreshPiloto(); void refresh(); }} /><SyncChip saude={saude} abrir={() => setSyncHealthOpen(true)} /></div></header><main className="content" ref={contentRef} data-busy={busy || undefined}><div className="page-surface" key={bootState === "ready" ? page : bootState}>{content}</div></main>{/* O leque vive na coluna principal, e nao sobre o rail: ele e o gesto que
     o rail perdeu quando voltou a oito, e competir com a navegacao ao lado
     seria desfazer a troca. Ver ADR-045. */}
 <Leque pins={radialPins} workspaceId={currentWorkspaceId || null} apps={apps} onNavegar={navigate} onAbrirApp={openRegisteredApp} onAcao={(target) => { if (target === "attention_create") setComposer({}); else void api.showQuickCapture(); }} onFixar={(slot) => setSlotEmEscolha(slot)} /></div>{/* Os tres estados do ciclo do dia, um por vez. A `AnimatePresence` de saida
     fica dentro de cada fluxo — eles ja se desmontam com a propria animacao. */}
-{fluxoDoDia?.tipo === "iniciar" ? <StartMyDayFlow close={() => setFluxoDoDia(null)} concluido={(proximo) => { daily.setDia(proximo); void daily.recarregar(); }} /> : null}{fluxoDoDia?.tipo === "sessao" && (fluxoDoDia.carregada ?? daily.dia) ? <DailySessionView
+{fluxoDoDia?.tipo === "iniciar" ? <StartMyDayFlow proposta={panorama?.proposta ?? null} close={() => setFluxoDoDia(null)} concluido={(proximo) => { daily.setDia(proximo); void daily.recarregar(); refreshPiloto(); }} /> : null}{fluxoDoDia?.tipo === "sessao" && (fluxoDoDia.carregada ?? daily.dia) ? <DailySessionView
       /* A sessao CARREGADA vem da busca ou do historico e pode ser de outro
          dia; sem ela, o que abre e o dia de hoje. As duas passam pelo mesmo
          componente porque sao a mesma tela — o que muda e a data. */
@@ -3425,7 +3492,15 @@ function DesktopApp() {
       sessaoAntiga={fluxoDoDia.sessao}
       close={() => setFluxoDoDia(null)}
       concluido={(proximo) => { daily.setDia(proximo); void daily.recarregar(); }}
-    /> : null}{composer ? <ReminderComposer close={() => setComposer(null)} initialTitle={composer.title} target={composer.target} targetLabel={composer.targetLabel} created={() => { void api.attentionCount().then(setAttentionCount).catch(() => undefined); setAttentionOpen(true); }} /> : null}{attentionOpen ? <AttentionCenter compose={() => { setAttentionOpen(false); setComposer({}); }} openTarget={(alvo) => { if (abrirAlvoDoLembrete(alvo)) setAttentionOpen(false); }} close={() => { setAttentionOpen(false); void api.attentionCount().then(setAttentionCount).catch(() => undefined); }} /> : null}{delivered ? <AttentionToast event={delivered} close={() => setDelivered(null)} open={() => { const alvo = delivered.target ? { type: delivered.target.kind, id: delivered.target.id } : null; setDelivered(null); if (!abrirAlvoDoLembrete(alvo)) setAttentionOpen(true); }} /> : null}{/* A Drop Zone vive no shell, ao lado das outras sobreposicoes: soltar algo
+    /> : null}{syncHealthOpen ? <SyncHealth close={() => { setSyncHealthOpen(false); refreshPiloto(); }} abrirAjustes={() => { setSyncHealthOpen(false); navigate("settings"); }} /> : null}{resgateOpen ? <RescueMode close={() => setResgateOpen(false)} concluido={() => { refreshPiloto(); void refresh(); void daily.recarregar(); }} abrirInbox={() => { setResgateOpen(false); navigate("inbox"); }} /> : null}{encerrarOpen ? <EncerrarDia close={() => setEncerrarOpen(false)} concluido={(proximo) => { daily.setDia(proximo); void daily.recarregar(); refreshPiloto(); void refresh(); }} detalhar={() => { setEncerrarOpen(false); if (daily.dia) setFluxoDoDia({ tipo: "encerrar", dia: daily.dia, sessao: daily.dia.status === "not_started" ? (daily.dia.stale?.id ?? null) : null }); }} /> : null}{autopilot.aviso ? <AutopilotToast aviso={autopilot.aviso} fechar={autopilot.fechar} agir={(aviso: AvisoDoAutopilot) => {
+      if (aviso.alvo.kind === "task") pilotoAcoes.abrirTask(aviso.alvo.id);
+      else if (aviso.tipo === "day_not_started") pilotoAcoes.montarDia();
+      else if (aviso.tipo === "unfinished_day") setEncerrarOpen(true);
+      else if (aviso.tipo === "sync") setSyncHealthOpen(true);
+      else if (aviso.tipo === "academic") navigate("academic");
+      else if (aviso.alvo.kind === "reminder") setAttentionOpen(true);
+      else navigate("home");
+    }} /> : null}{composer ? <ReminderComposer close={() => setComposer(null)} initialTitle={composer.title} target={composer.target} targetLabel={composer.targetLabel} created={() => { void api.attentionCount().then(setAttentionCount).catch(() => undefined); setAttentionOpen(true); }} /> : null}{attentionOpen ? <AttentionCenter compose={() => { setAttentionOpen(false); setComposer({}); }} openTarget={(alvo) => { if (abrirAlvoDoLembrete(alvo)) setAttentionOpen(false); }} close={() => { setAttentionOpen(false); void api.attentionCount().then(setAttentionCount).catch(() => undefined); }} /> : null}{delivered ? <AttentionToast event={delivered} close={() => setDelivered(null)} open={() => { const alvo = delivered.target ? { type: delivered.target.kind, id: delivered.target.id } : null; setDelivered(null); if (!abrirAlvoDoLembrete(alvo)) setAttentionOpen(true); }} /> : null}{/* A Drop Zone vive no shell, ao lado das outras sobreposicoes: soltar algo
     em QUALQUER lugar do M/OS tem que funcionar — inclusive sobre o rail —, e e
     o shell quem sabe onde a pessoa estava quando soltou. */}
 {<DropZone

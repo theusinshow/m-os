@@ -454,6 +454,24 @@ function OpenAiUsageSettings() {
  * ADIANTA a proxima rodada para quem esta de saida e nao quer esperar o
  * proximo gatilho.
  */
+/**
+ * O interruptor do Autopilot. Ligado por default: a feature nasce ligada em
+ * toda maquina, e desliga-la e uma decisao — nao uma configuracao a descobrir.
+ */
+function AutopilotSettings() {
+  const [ligado, setLigado] = useState<boolean | null>(null);
+  useEffect(() => { void api.autopilotStatus().then((s) => setLigado(s.ligado)).catch(() => setLigado(null)); }, []);
+  return <Panel label="AUTOPILOT">
+    <p className="support-copy">O Autopilot observa o M/OS e traz o que precisa de você: o dia por começar, a Task planejada e não começada, a entrega de amanhã, o follow-up de hoje, o sync parado. Avisa com moderação — nunca a mesma coisa duas vezes, nunca de madrugada, no máximo quatro por hora.</p>
+    <dl className="fact-grid">
+      <div><dt>AUTOPILOT</dt><dd>{ligado === null ? "—" : ligado ? "ON" : "OFF"}</dd></div>
+    </dl>
+    <div className="button-line">
+      <Button variant={ligado ? "ghost" : "primary"} disabled={ligado === null} onClick={() => void api.autopilotSet(!ligado).then((s) => setLigado(s.ligado)).catch(() => undefined)}>{ligado ? "Desligar avisos" : "Ligar avisos"}</Button>
+    </div>
+  </Panel>;
+}
+
 function SyncSettings() {
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [malha, setMalha] = useState<AparelhoNaMalha[]>([]);
@@ -932,7 +950,7 @@ export function SettingsPage({ theme, setTheme, status, capturesArchived, captur
      da ordem envelheceria em silencio — foi o que aconteceu com o
      `arrange_widgets`, que existiu em Rust e em TypeScript ao mesmo tempo. */
   const conteudo: Record<string, ReactNode> = {
-    sync: <><SyncSettings /></>,
+    sync: <><SyncSettings /><AutopilotSettings /></>,
     conexoes: <><HermesSettings /><OpenAiUsageSettings /><UnivirtusSettings /><FinanceActionSettings /></>,
     aparencia: <><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" aria-label="Tema claro" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form>{/* A voz mora no mesmo Panel porque ela e a mesma captura por outra
      porta — separa-la num painel proprio a transformaria numa feature

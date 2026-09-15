@@ -194,6 +194,11 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("blockedByTaskId", "blocked_by_task_id"),
                 ("waitingFor", "waiting_for"),
                 ("followUpAt", "follow_up_at"),
+                // Os tres da 0041: planejado, comecado, adiado. Campos
+                // proprios pelo mesmo motivo dos sete acima.
+                ("scheduledFor", "scheduled_for"),
+                ("startedAt", "started_at"),
+                ("postponedCount", "postponed_count"),
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("title", "'(sem titulo)'"), ("description", "''")],
@@ -1436,6 +1441,7 @@ impl SqliteStorage {
                 // feito. Continuar depois de um erro seria bater na mesma
                 // parede com a mesma pedra.
                 rodada.erro = passada.erro;
+                rodada.erro_retriavel = passada.erro_retriavel;
                 break;
             }
             if passada.pendentes == 0 && !passada.tem_mais {

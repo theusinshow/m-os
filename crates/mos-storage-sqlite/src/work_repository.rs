@@ -2,10 +2,10 @@ use std::collections::{HashMap, HashSet};
 
 use mos_core::{
     validate_widget_id, AppId, AttentionRepository, Capture, CaptureId, CaptureRepository,
-    ChecklistItem, ChecklistItemId, CoreError, EditTask, ErrorCode, HiddenWidget, LifecycleState,
-    NewChecklistItem, NewProject, NewReminder, NewTask, NewWorkspace, Priority, Project, ProjectId,
-    RegisteredApp, Reminder, Resource, ResourceId, SearchItem, SearchRequest, Task, TaskDetail,
-    TaskId, TaskState, WorkRepository, Workspace, WorkspaceId,
+    ChecklistItem, ChecklistItemId, CoreError, Day, EditTask, ErrorCode, HiddenWidget,
+    LifecycleState, NewChecklistItem, NewProject, NewReminder, NewTask, NewWorkspace, Priority,
+    Project, ProjectId, RegisteredApp, Reminder, Resource, ResourceId, SearchItem, SearchRequest,
+    Task, TaskDetail, TaskId, TaskState, WorkRepository, Workspace, WorkspaceId,
 };
 use rusqlite::{params, OptionalExtension, Row, Transaction};
 use time::OffsetDateTime;
@@ -25,7 +25,7 @@ pub(crate) const PROJECT_COLUMNS: &str =
     "id, name, description, lifecycle_state, created_at, updated_at, repository";
 pub(crate) const WORKSPACE_COLUMNS: &str =
     "id, name, description, lifecycle_state, created_at, updated_at";
-pub(crate) const TASK_COLUMNS: &str = "id, title, description, project_id, source_capture_id, work_state, lifecycle_state, due_at, priority, estimate_minutes, parent_task_id, blocked_by_task_id, waiting_for, follow_up_at, created_at, updated_at, completed_at";
+pub(crate) const TASK_COLUMNS: &str = "id, title, description, project_id, source_capture_id, work_state, lifecycle_state, due_at, priority, estimate_minutes, parent_task_id, blocked_by_task_id, waiting_for, follow_up_at, scheduled_for, started_at, postponed_count, created_at, updated_at, completed_at";
 
 pub(crate) const CHECKLIST_COLUMNS: &str =
     "id, task_id, label, position, completed_at, created_at, updated_at";
@@ -150,6 +150,9 @@ struct RawTask {
     blocked_by_task_id: Option<String>,
     waiting_for: String,
     follow_up_at: Option<String>,
+    scheduled_for: Option<String>,
+    started_at: Option<String>,
+    postponed_count: i64,
     created_at: String,
     updated_at: String,
     completed_at: Option<String>,
@@ -174,11 +177,14 @@ impl RawTask {
             blocked_by_task_id: row.get(11)?,
             waiting_for: row.get(12)?,
             follow_up_at: row.get(13)?,
-            created_at: row.get(14)?,
-            updated_at: row.get(15)?,
-            completed_at: row.get(16)?,
-            checklist_total: row.get(17)?,
-            checklist_done: row.get(18)?,
+            scheduled_for: row.get(14)?,
+            started_at: row.get(15)?,
+            postponed_count: row.get(16)?,
+            created_at: row.get(17)?,
+            updated_at: row.get(18)?,
+            completed_at: row.get(19)?,
+            checklist_total: row.get(20)?,
+            checklist_done: row.get(21)?,
         })
     }
 
@@ -214,6 +220,9 @@ impl RawTask {
                 .transpose()?,
             waiting_for: self.waiting_for,
             follow_up_at: self.follow_up_at.as_deref().map(parse_time).transpose()?,
+            scheduled_for: self.scheduled_for.as_deref().map(Day::parse).transpose()?,
+            started_at: self.started_at.as_deref().map(parse_time).transpose()?,
+            postponed_count: self.postponed_count.max(0) as u32,
             checklist_total: self.checklist_total.max(0) as usize,
             checklist_done: self.checklist_done.max(0) as usize,
             created_at: parse_time(&self.created_at)?,
@@ -1525,7 +1534,9 @@ impl WorkRepository for SqliteStorage {
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let changed = transaction
             .execute(
-                "UPDATE tasks SET work_state = ?1, updated_at = ?2, completed_at = ?3 WHERE id = ?4",
+                "UPDATE tasks SET work_state = ?1, updated_at = ?2, completed_at = ?3,
+                        started_at = CASE WHEN ?1 = 'done' THEN NULL ELSE started_at END
+                 WHERE id = ?4",
                 params![state.as_str(), now, completed_at, id.to_string()],
             )
             .map_err(map_sql_error)?;
@@ -1533,12 +1544,14 @@ impl WorkRepository for SqliteStorage {
         // Mover no Kanban e o gesto mais repetido do M/OS, e o que mais vai
         // acontecer nos dois dispositivos ao mesmo tempo. Campo proprio: mover
         // no celular e renomear no PC precisam conviver.
-        self.emitir_update(
-            &transaction,
-            "task",
-            id.as_uuid(),
-            &[("workState", serde_json::json!(state.as_str()))],
-        )?;
+        let mut campos: Vec<(&str, serde_json::Value)> =
+            vec![("workState", serde_json::json!(state.as_str()))];
+        // Concluir encerra o "comecada": o indicador global nao pode continuar
+        // contando minutos de uma Task que ja acabou — em nenhum aparelho.
+        if state == TaskState::Done {
+            campos.push(("startedAt", serde_json::Value::Null));
+        }
+        self.emitir_update(&transaction, "task", id.as_uuid(), &campos)?;
         // A Daily Session acompanha, NA MESMA TRANSACAO.
         //
         // O §11 do pedido pede que concluir a Task vinculada conclua o objetivo
@@ -1551,6 +1564,73 @@ impl WorkRepository for SqliteStorage {
         // Task fecha junto") vive em `mos_core::completes_with_task`, com teste;
         // o filtro `link_kind = 'task'` la dentro e a traducao dela para SQL.
         self.sync_objectives_with_task(&transaction, id.as_uuid(), state == TaskState::Done, &now)?;
+        transaction.commit().map_err(map_sql_error)?;
+        query_task(&connection, id)
+    }
+
+    fn plan_task(
+        &self,
+        id: TaskId,
+        scheduled_for: Option<Day>,
+        adiando: bool,
+    ) -> Result<Task, CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let dia = scheduled_for.as_ref().map(|d| d.as_str().to_owned());
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let antes = query_task(&transaction, id)?;
+        let adiamentos = antes.postponed_count as i64 + if adiando { 1 } else { 0 };
+        let changed = transaction
+            .execute(
+                "UPDATE tasks SET scheduled_for = ?1, postponed_count = ?2, updated_at = ?3 WHERE id = ?4",
+                params![dia, adiamentos, now, id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        ensure_changed(changed)?;
+        let mut mudancas: Vec<(&str, serde_json::Value)> = Vec::new();
+        if antes.scheduled_for.as_ref().map(|d| d.as_str().to_owned()) != dia {
+            mudancas.push(("scheduledFor", serde_json::json!(dia)));
+        }
+        if adiando {
+            mudancas.push(("postponedCount", serde_json::json!(adiamentos)));
+        }
+        if !mudancas.is_empty() {
+            self.emitir_update(&transaction, "task", id.as_uuid(), &mudancas)?;
+        }
+        transaction.commit().map_err(map_sql_error)?;
+        query_task(&connection, id)
+    }
+
+    fn set_task_started(
+        &self,
+        id: TaskId,
+        started_at: Option<OffsetDateTime>,
+    ) -> Result<Task, CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let inicio = started_at.map(format_time).transpose()?;
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let antes = query_task(&transaction, id)?;
+        let mut mudancas: Vec<(&str, serde_json::Value)> =
+            vec![("startedAt", serde_json::json!(inicio))];
+        // Comecar poe em `doing`; parar deixa onde esta.
+        let estado = if started_at.is_some()
+            && antes.state != TaskState::Doing
+            && antes.state != TaskState::Done
+        {
+            mudancas.push(("workState", serde_json::json!(TaskState::Doing.as_str())));
+            TaskState::Doing
+        } else {
+            antes.state
+        };
+        let changed = transaction
+            .execute(
+                "UPDATE tasks SET started_at = ?1, work_state = ?2, updated_at = ?3 WHERE id = ?4",
+                params![inicio, estado.as_str(), now, id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        ensure_changed(changed)?;
+        self.emitir_update(&transaction, "task", id.as_uuid(), &mudancas)?;
         transaction.commit().map_err(map_sql_error)?;
         query_task(&connection, id)
     }
