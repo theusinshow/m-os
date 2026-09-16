@@ -56,6 +56,13 @@ pub struct Live {
     /// silencio com credito de legenda inventado, entao essa distincao decide
     /// se o audio chega a ele.
     pub peak_milli: AtomicU64,
+    /// O maior RMS desde a ultima LEITURA, e nao desde o inicio.
+    ///
+    /// Existe para o Recording Guardian: ele le uma vez por segundo, e o
+    /// instantaneo lido nesse ritmo cai nas pausas entre palavras — uma fala
+    /// inteira podia parecer silencio. Quem le troca por zero (`swap`), e a
+    /// janela recomeca.
+    pub window_max_milli: AtomicU64,
     /// `-1` enquanto o canal esta vivo; o instante da perda, em ms, depois.
     pub lost_at_ms: AtomicI64,
     pub opened: AtomicBool,
@@ -356,6 +363,7 @@ fn run(
             let level = rms_milli(payload, format);
             live.level_milli.store(level, Ordering::Relaxed);
             live.peak_milli.fetch_max(level, Ordering::Relaxed);
+            live.window_max_milli.fetch_max(level, Ordering::Relaxed);
 
             if let Err(error) = writer.write(payload) {
                 state = lost(started, &format!("a escrita em disco falhou: {error}"));

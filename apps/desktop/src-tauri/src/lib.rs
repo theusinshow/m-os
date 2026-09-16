@@ -36,6 +36,17 @@ mod hermes_tunel;
 mod ingest;
 mod jarvis;
 mod meeting;
+
+/// Os atalhos globais de reuniao.
+///
+/// `Ctrl+Alt+M` inicia (ou marca momento, se ja grava); `Ctrl+Alt+Shift+M`
+/// encerra. No ABNT2, `AltGr+M` nao produz caractere, entao nao rouba tecla de
+/// quem digita. Nao ha tela para trocar: um segundo par de atalhos
+/// configuraveis seria cerimonia para um gesto que quase nunca colide.
+mod meeting_shortcut {
+    pub const PRIMARY: &str = "Ctrl+Alt+M";
+    pub const STOP: &str = "Ctrl+Alt+Shift+M";
+}
 mod microfone;
 mod monitor;
 mod openai_usage;
@@ -246,6 +257,12 @@ pub(crate) struct UserSettings {
     pub(crate) atualizacao_falha: String,
     #[serde(default)]
     pub(crate) atualizacao_falha_em: String,
+    /// Reunioes: processar sozinho, Recording Guardian, retencao e vocabulario.
+    ///
+    /// Aqui, e nao no banco, porque sao fatos DESTE aparelho: o Guardian observa
+    /// o microfone deste computador, e o celular nao grava reuniao.
+    #[serde(default)]
+    pub(crate) meetings: meeting::MeetingPreferences,
 }
 
 #[derive(Serialize)]
@@ -1476,6 +1493,8 @@ pub struct TrayHandles {
     pub tray: tauri::tray::TrayIcon<tauri::Wry>,
     /// O item que carrega o relogio. Vive dentro de `live`.
     pub clock: tauri::menu::MenuItem<tauri::Wry>,
+    /// "Pausar" / "Retomar", que troca de texto com o estado.
+    pub pause: tauri::menu::MenuItem<tauri::Wry>,
     /// Os DOIS itens da faixa: um item so pertence a um menu, e o tray troca de
     /// menu quando uma gravacao comeca. Marcar so um deixaria a marca errada
     /// metade do tempo.
@@ -1499,8 +1518,10 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     // Um item so pertence a um menu, entao o menu de gravacao tem instancias
     // proprias. Os ids sao os mesmos: quem trata o evento nao precisa saber
     // qual menu estava montado.
-    let clock = MenuItem::with_id(app, "meeting_open", "Meeting Notes", true, None::<&str>)?;
-    let stop = MenuItem::with_id(app, "meeting_stop", "Parar gravacao", true, None::<&str>)?;
+    let clock = MenuItem::with_id(app, "meeting_open", "● Reunião", true, None::<&str>)?;
+    let mark = MenuItem::with_id(app, "meeting_mark", "Marcar momento", true, None::<&str>)?;
+    let pause = MenuItem::with_id(app, "meeting_pause", "Pausar", true, None::<&str>)?;
+    let stop = MenuItem::with_id(app, "meeting_stop", "Encerrar gravação", true, None::<&str>)?;
     let open_live = MenuItem::with_id(app, "open", "Abrir M/OS", true, None::<&str>)?;
     let capture_live = MenuItem::with_id(app, "capture", "Captura rapida", true, None::<&str>)?;
     let quit_live = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
@@ -1510,6 +1531,8 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         app,
         &[
             &clock,
+            &mark,
+            &pause,
             &stop,
             &open_live,
             &capture_live,
@@ -1528,6 +1551,8 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             // exatamente nessa situacao que a pessoa precisa parar sem procurar
             // o aplicativo atras do Meet.
             "meeting_stop" => meeting::stop_from_tray(app),
+            "meeting_mark" => meeting::mark_from_shortcut(app),
+            "meeting_pause" => meeting::toggle_pause_from_tray(app),
             "faixa" => usage::alternar_pela_bandeja(app),
             "quit" => app.exit(0),
             _ => {}
@@ -1544,6 +1569,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     app.manage(TrayHandles {
         tray,
         clock,
+        pause,
         faixa: [faixa, faixa_live],
         idle,
         live,
@@ -2098,6 +2124,25 @@ pub fn run() {
                     // O Quick Reminder. Antes da Captura pelo mesmo motivo que
                     // a faixa: o ramo da Captura e o fallback de tudo que nao
                     // foi reconhecido antes.
+                    // As reunioes, antes do fallback pela mesma razao.
+                    let reuniao = meeting_shortcut::PRIMARY
+                        .parse::<tauri_plugin_global_shortcut::Shortcut>()
+                        .is_ok_and(|parsed| &parsed == shortcut);
+                    if reuniao {
+                        if event.state == ShortcutState::Pressed {
+                            meeting::primary_shortcut(app);
+                        }
+                        return;
+                    }
+                    let encerrar = meeting_shortcut::STOP
+                        .parse::<tauri_plugin_global_shortcut::Shortcut>()
+                        .is_ok_and(|parsed| &parsed == shortcut);
+                    if encerrar {
+                        if event.state == ShortcutState::Pressed {
+                            meeting::stop_shortcut(app);
+                        }
+                        return;
+                    }
                     let lembrete = attention::QUICK_SHORTCUT
                         .parse::<tauri_plugin_global_shortcut::Shortcut>()
                         .is_ok_and(|parsed| &parsed == shortcut);
@@ -2391,9 +2436,10 @@ pub fn run() {
                     eprintln!("meeting: reconciliacao de abertura falhou: {error}");
                 }
             }
-            if let Err(error) = meeting::clean_expired_audio(app.handle()) {
-                eprintln!("meeting: limpeza de audio falhou: {error}");
-            }
+            // Lixeira vencida, pastas marcadas para apagar, WAVs temporarios
+            // orfaos e a retencao — nesta ordem, e depois da reconciliacao.
+            meeting::housekeeping_on_open(app.handle());
+            app.manage(meeting::PipelineRuntime::default());
 
             let shortcut_status = match app.global_shortcut().register(configured_shortcut.as_str())
             {
@@ -2462,6 +2508,35 @@ pub fn run() {
                 );
             }
 
+            // Os atalhos de reuniao, pela mesma regra: registrados depois, sem
+            // derrubar nada, e recusados se colidirem com um gesto que ja existe.
+            for atalho in [meeting_shortcut::PRIMARY, meeting_shortcut::STOP] {
+                let colide = [
+                    configured_shortcut.as_str(),
+                    configured_voice_shortcut.as_str(),
+                    usage::ATALHO,
+                    attention::QUICK_SHORTCUT,
+                ]
+                .iter()
+                .any(|outro| {
+                    outro.parse::<tauri_plugin_global_shortcut::Shortcut>().ok()
+                        == atalho.parse::<tauri_plugin_global_shortcut::Shortcut>().ok()
+                });
+                if colide {
+                    diagnostico::escrever(
+                        diagnostico::Nivel::Aviso,
+                        "reuniao",
+                        &format!("o atalho {atalho} ja pertence a outro gesto"),
+                    );
+                } else if let Err(causa) = app.global_shortcut().register(atalho) {
+                    diagnostico::escrever(
+                        diagnostico::Nivel::Aviso,
+                        "reuniao",
+                        &format!("o atalho {atalho} nao registrou: {causa}"),
+                    );
+                }
+            }
+
             let voice_status = if configured_voice_shortcut == configured_shortcut {
                 "Conflito com o atalho da Captura rapida.".to_owned()
             } else {
@@ -2504,6 +2579,7 @@ pub fn run() {
             tauri::async_runtime::spawn(attention::run(app.handle().clone()));
             tauri::async_runtime::spawn(meeting::run(app.handle().clone()));
             tauri::async_runtime::spawn(meeting::run_levels(app.handle().clone()));
+            tauri::async_runtime::spawn(meeting::run_pipeline(app.handle().clone()));
             tauri::async_runtime::spawn(usage::run(app.handle().clone()));
             tauri::async_runtime::spawn(openai_usage::run(app.handle().clone()));
             tauri::async_runtime::spawn(piloto::run(app.handle().clone()));
@@ -2614,6 +2690,31 @@ pub fn run() {
                     meeting::meeting_previews,
                     meeting::meeting_accept_insight,
                     meeting::meeting_dismiss_insight,
+                    meeting::meeting_preferences,
+                    meeting::meeting_set_preferences,
+                    meeting::meeting_stop_and_trim,
+                    meeting::meeting_mark_moment,
+                    meeting::meeting_guardian_continue,
+                    meeting::meeting_overview,
+                    meeting::meeting_overview_one,
+                    meeting::meeting_bookmarks,
+                    meeting::meeting_add_bookmark,
+                    meeting::meeting_delete_bookmark,
+                    meeting::meeting_trash,
+                    meeting::meeting_restore,
+                    meeting::meeting_trashed,
+                    meeting::meeting_empty_trash,
+                    meeting::meeting_set_trim,
+                    meeting::meeting_clear_trim,
+                    meeting::meeting_trim_suggestion,
+                    meeting::meeting_accept_batch,
+                    meeting::meeting_add_insight,
+                    meeting::meeting_follow_up,
+                    meeting::meeting_project_suggestion,
+                    meeting::meeting_clip,
+                    meeting::meeting_audio_test,
+                    meeting::meeting_guardian_stats,
+                    meeting::meeting_debug,
                     jarvis::action_undo,
                     calendar::calendar_window,
                     academic::academic_dashboard,

@@ -169,7 +169,7 @@ impl Monitor {
 /// contador viraria uma inatividade de 49 dias, e o dia inteiro de trabalho
 /// seria descontado da fatura.
 #[cfg(windows)]
-fn idle_seconds() -> Option<i64> {
+pub(crate) fn idle_seconds() -> Option<i64> {
     use windows_sys::Win32::System::SystemInformation::GetTickCount;
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
 
@@ -189,7 +189,7 @@ fn idle_seconds() -> Option<i64> {
 /// Fora do Windows nao ha o que medir, e fingir zero seria pior: zero significa
 /// "acabou de mexer", e a Linha do Tempo passaria a nunca ver inatividade.
 #[cfg(not(windows))]
-fn idle_seconds() -> Option<i64> {
+pub(crate) fn idle_seconds() -> Option<i64> {
     None
 }
 

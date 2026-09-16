@@ -2866,17 +2866,36 @@ impl MeetingService {
         Ok(job)
     }
 
-    /// A configuracao do transcritor apareceu: libera os jobs que a esperavam.
-    pub fn configuration_ready(&self) -> Result<usize, CoreError> {
+    /// A configuracao que faltava apareceu: libera os jobs que esperavam ESTE
+    /// codigo (`transcriber_missing` ou `consent_missing`), e so eles — liberar
+    /// um job de analise porque o transcritor voltou faria o laco girar
+    /// gravando a mesma falha a cada volta.
+    pub fn release_waiting(&self, code: &str) -> Result<usize, CoreError> {
         let now = self.clock.now();
         let mut freed = 0;
         for mut job in self.repository.meeting_jobs()? {
-            if job.configuration_ready(now) {
+            if job.last_error_code.as_deref() == Some(code) && job.configuration_ready(now) {
                 self.repository.save_meeting_job(&job)?;
                 freed += 1;
             }
         }
         Ok(freed)
+    }
+
+    /// "Processar automaticamente" desligado: o job fica esperando a pessoa.
+    pub fn hold_for_manual_start(&self, id: &str) -> Result<(), CoreError> {
+        let meeting_id = crate::MeetingId::parse(id)?;
+        if let Some(mut job) = self.repository.meeting_job(meeting_id)? {
+            if job.status == crate::JobStatus::Queued {
+                job.status = crate::JobStatus::NeedsAttention;
+                job.last_error_code = Some("manual_start".into());
+                job.last_error_message =
+                    Some("A gravação está salva. O processamento espera você pedir.".into());
+                job.updated_at = self.clock.now();
+                self.repository.save_meeting_job(&job)?;
+            }
+        }
+        Ok(())
     }
 
     /// A abertura: jobs orfaos voltam para a fila, reunioes presas no meio de um

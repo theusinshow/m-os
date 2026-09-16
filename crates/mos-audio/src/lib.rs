@@ -29,7 +29,10 @@ use serde::{Deserialize, Serialize};
 
 pub use chunks::{recover, Format, Recovered, CHUNK_MS};
 pub use session::{Channel, ChannelInfo, SessionDir, SessionFile, Timing};
-pub use wav::{export_channel, export_channel_normalized};
+pub use wav::{
+    clip_wav_bytes, export_channel, export_channel_normalized, export_channel_range_normalized,
+    read_channel_range, ClipMode,
+};
 
 /// O que pode dar errado na captura.
 ///
@@ -221,6 +224,26 @@ impl Recording {
 
     pub fn is_paused(&self) -> bool {
         self.paused.load(Ordering::Relaxed)
+    }
+
+    /// O maior nivel de cada canal desde a ultima chamada, e zera a janela.
+    ///
+    /// `(mic, system)`, em milesimos. E o que o Recording Guardian le: nivel de
+    /// energia, e nunca o audio. Nenhum PCM sai daqui.
+    #[cfg(windows)]
+    pub fn take_window_levels(&self) -> (u64, u64) {
+        let take = |thread: &Option<capture::ChannelThread>| {
+            thread
+                .as_ref()
+                .map(|thread| thread.live.window_max_milli.swap(0, Ordering::Relaxed))
+                .unwrap_or(0)
+        };
+        (take(&self.mic), take(&self.system))
+    }
+
+    #[cfg(not(windows))]
+    pub fn take_window_levels(&self) -> (u64, u64) {
+        (0, 0)
     }
 }
 

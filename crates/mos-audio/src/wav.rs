@@ -152,6 +152,175 @@ pub fn export_channel_normalized(
     Ok((frames, ganho))
 }
 
+/// As amostras de um canal dentro de `[start_ms, end_ms)`.
+///
+/// Le os chunks em ordem, pula ate o primeiro frame da faixa e para no ultimo.
+/// **E o que torna o corte nao destrutivo**: os arquivos em disco continuam
+/// inteiros, e so a leitura escolhe o que conta. Um chunk truncado no meio de um
+/// frame perde o resto, pela mesma razao do `export_channel`.
+///
+/// So para PCM mono i16, que e o formato da captura — outro formato devolve
+/// erro em vez de ler bytes com a regua errada.
+pub fn read_channel_range(
+    session_root: &Path,
+    channel: Channel,
+    start_ms: i64,
+    end_ms: i64,
+) -> Result<Vec<i16>, AudioError> {
+    let session = SessionDir::new(session_root);
+    let format = session
+        .read_manifest()?
+        .map(|manifest| manifest.format)
+        .unwrap_or(Format::CAPTURE);
+    if format.channels != 1 || format.bytes_per_sample != 2 {
+        return Err(AudioError::Storage {
+            path: session_root.display().to_string(),
+            detail: "o recorte so le PCM mono de 16 bits".into(),
+        });
+    }
+
+    let rate = format.sample_rate as i64;
+    let first = (start_ms.max(0) * rate) / 1000;
+    let last = if end_ms == i64::MAX {
+        i64::MAX
+    } else {
+        (end_ms.max(0) * rate) / 1000
+    };
+    if last <= first {
+        return Ok(Vec::new());
+    }
+
+    let mut paths: Vec<_> = match fs::read_dir(session.channel(channel)) {
+        Ok(entries) => entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "pcm"))
+            .collect(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => return Err(storage(&session.channel(channel), error)),
+    };
+    paths.sort();
+
+    let mut samples = Vec::new();
+    let mut position: i64 = 0;
+    'files: for path in paths {
+        let bytes = fs::read(&path).map_err(|error| storage(&path, error))?;
+        let usable = bytes.len() - bytes.len() % 2;
+        let count = (usable / 2) as i64;
+        if position + count <= first {
+            position += count;
+            continue;
+        }
+        let skip = (first - position).max(0) as usize;
+        for pair in bytes[..usable].chunks_exact(2).skip(skip) {
+            if first + samples.len() as i64 >= last {
+                break 'files;
+            }
+            samples.push(i16::from_le_bytes([pair[0], pair[1]]));
+        }
+        position += count;
+        if usable != bytes.len() {
+            break;
+        }
+    }
+    // O laco acima conta `samples` a partir de `first`, entao o limite certo e
+    // `last - first` amostras — reforcado aqui para o caso de o primeiro arquivo
+    // lido comecar exatamente em `first`.
+    let wanted = if last == i64::MAX {
+        samples.len()
+    } else {
+        ((last - first) as usize).min(samples.len())
+    };
+    samples.truncate(wanted);
+    Ok(samples)
+}
+
+/// Um canal inteiro ou uma faixa dele, com o nivel corrigido para o
+/// transcritor, num WAV.
+///
+/// Os timestamps que o transcritor devolve sao relativos ao inicio DESTE
+/// arquivo: quem chama soma `start_ms` para voltar a regua da reuniao.
+pub fn export_channel_range_normalized(
+    session_root: &Path,
+    channel: Channel,
+    destination: &Path,
+    start_ms: i64,
+    end_ms: i64,
+) -> Result<(u64, f32), AudioError> {
+    let samples = read_channel_range(session_root, channel, start_ms, end_ms)?;
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|error| storage(parent, error))?;
+    }
+    if samples.is_empty() {
+        fs::write(destination, header(Format::CAPTURE, 0))
+            .map_err(|error| storage(destination, error))?;
+        return Ok((0, 1.0));
+    }
+    let gain = calibrar(&samples);
+    let bytes = wav_bytes(&samples, gain);
+    fs::write(destination, &bytes).map_err(|error| storage(destination, error))?;
+    Ok((samples.len() as u64, gain))
+}
+
+/// Qual audio ouvir num trecho.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClipMode {
+    /// Os dois canais somados — a reuniao como ela soou.
+    Both,
+    /// So o microfone: "Voce".
+    Mic,
+    /// So o audio do sistema: "Remoto".
+    System,
+}
+
+/// Um trecho curto, pronto para tocar, como bytes de WAV.
+///
+/// **O renderer nunca recebe caminho de arquivo** (§18): ele recebe o WAV em
+/// memoria. Por isso o trecho tem teto — 60 s a 16 kHz mono sao 1,9 MB, o que
+/// atravessa a ponte sem cerimonia.
+pub fn clip_wav_bytes(
+    session_root: &Path,
+    mode: ClipMode,
+    start_ms: i64,
+    duration_ms: i64,
+) -> Result<Vec<u8>, AudioError> {
+    let duration_ms = duration_ms.clamp(1_000, 60_000);
+    let end_ms = start_ms.max(0) + duration_ms;
+    let read = |channel: Channel| -> Result<Vec<i16>, AudioError> {
+        let samples = read_channel_range(session_root, channel, start_ms, end_ms)?;
+        let gain = calibrar(&samples);
+        Ok(samples.into_iter().map(|s| com_ganho(s, gain)).collect())
+    };
+    let samples = match mode {
+        ClipMode::Mic => read(Channel::Mic)?,
+        ClipMode::System => read(Channel::System)?,
+        ClipMode::Both => {
+            let mic = read(Channel::Mic)?;
+            let system = read(Channel::System)?;
+            let length = mic.len().max(system.len());
+            (0..length)
+                .map(|index| {
+                    let a = *mic.get(index).unwrap_or(&0) as i32;
+                    let b = *system.get(index).unwrap_or(&0) as i32;
+                    (a + b).clamp(i16::MIN as i32, i16::MAX as i32) as i16
+                })
+                .collect()
+        }
+    };
+    Ok(wav_bytes(&samples, 1.0))
+}
+
+fn wav_bytes(samples: &[i16], gain: f32) -> Vec<u8> {
+    let data_bytes = samples.len() as u64 * 2;
+    let mut out = Vec::with_capacity(HEADER_BYTES as usize + data_bytes as usize);
+    out.extend_from_slice(&header(Format::CAPTURE, data_bytes));
+    for sample in samples {
+        out.extend_from_slice(&com_ganho(*sample, gain).to_le_bytes());
+    }
+    out
+}
+
 /// O cabecalho RIFF/WAVE de 44 bytes, para PCM inteiro.
 fn header(format: Format, data_bytes: u64) -> [u8; HEADER_BYTES as usize] {
     let channels = format.channels;
@@ -268,6 +437,81 @@ fn storage(path: &Path, error: std::io::Error) -> AudioError {
     AudioError::Storage {
         path: path.display().to_string(),
         detail: error.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod range_tests {
+    use super::*;
+    use crate::{chunks::ChunkWriter, session::SessionFile, CHUNK_MS};
+
+    /// Um canal com amostras que dizem a propria posicao: a amostra `n` vale
+    /// `n % 30000`. Assim o recorte prova onde comecou e onde acabou.
+    fn canal(root: &Path, channel: Channel, seconds: usize, chunk_ms: u64) {
+        let session = SessionDir::new(root);
+        session
+            .write_manifest(&SessionFile {
+                version: SessionFile::VERSION,
+                started_at: "2026-09-16T14:00:00Z".into(),
+                format: Format::CAPTURE,
+                chunk_ms: CHUNK_MS,
+                mic: None,
+                system: None,
+            })
+            .unwrap();
+        let mut writer =
+            ChunkWriter::create(&session.channel(channel), Format::CAPTURE, chunk_ms).unwrap();
+        let bytes: Vec<u8> = (0..seconds * 16_000)
+            .flat_map(|n| ((n % 30_000) as i16).to_le_bytes())
+            .collect();
+        writer.write(&bytes).unwrap();
+        writer.finish().unwrap();
+    }
+
+    #[test]
+    fn o_recorte_comeca_e_termina_no_frame_certo_atravessando_chunks() {
+        let dir = tempfile::tempdir().unwrap();
+        // Chunks de 1 s: a faixa 2,5 s..4,25 s atravessa tres arquivos.
+        canal(dir.path(), Channel::Mic, 6, 1_000);
+        let samples = read_channel_range(dir.path(), Channel::Mic, 2_500, 4_250).unwrap();
+        assert_eq!(samples.len(), 28_000);
+        assert_eq!(samples[0] as i64, 40_000 % 30_000);
+        assert_eq!(*samples.last().unwrap() as i64, (40_000 + 27_999) % 30_000);
+    }
+
+    #[test]
+    fn faixa_alem_do_fim_devolve_o_que_existe() {
+        let dir = tempfile::tempdir().unwrap();
+        canal(dir.path(), Channel::System, 2, 1_000);
+        let samples = read_channel_range(dir.path(), Channel::System, 1_000, i64::MAX).unwrap();
+        assert_eq!(samples.len(), 16_000);
+        assert!(
+            read_channel_range(dir.path(), Channel::System, 5_000, 6_000)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn o_trecho_para_ouvir_e_um_wav_valido_e_curto() {
+        let dir = tempfile::tempdir().unwrap();
+        canal(dir.path(), Channel::Mic, 3, 1_000);
+        canal(dir.path(), Channel::System, 3, 1_000);
+        let bytes = clip_wav_bytes(dir.path(), ClipMode::Both, 1_000, 1_000).unwrap();
+        assert_eq!(&bytes[0..4], b"RIFF");
+        assert_eq!(bytes.len(), HEADER_BYTES as usize + 16_000 * 2);
+    }
+
+    #[test]
+    fn exportar_a_faixa_gera_wav_com_o_tamanho_da_faixa() {
+        let dir = tempfile::tempdir().unwrap();
+        canal(dir.path(), Channel::Mic, 4, 1_000);
+        let destino = dir.path().join("out").join("mic.wav");
+        let (frames, _) =
+            export_channel_range_normalized(dir.path(), Channel::Mic, &destino, 1_000, 3_000)
+                .unwrap();
+        assert_eq!(frames, 32_000);
+        assert_eq!(fs::metadata(&destino).unwrap().len(), 44 + 64_000);
     }
 }
 
