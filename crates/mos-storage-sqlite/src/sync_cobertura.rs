@@ -93,6 +93,9 @@ pub(crate) const LOCAIS: &[(&str, &str)] = &[
     ("meeting_insights", "idem"),
     ("meeting_evidence", "idem"),
     ("meeting_transcript_index", "idem"),
+    ("meeting_jobs", "o pipeline que transcreve o audio DESTA maquina; o outro PC nao tem o audio para processar"),
+    ("meeting_bookmarks", "pertence a reuniao, que e local"),
+    ("meeting_guardian_events", "metrica do Guardian nesta maquina: o que ele sugeriu aqui e o que a pessoa respondeu aqui"),
     ("voice_notes", "idem"),
     ("ingestions", "o arquivo mora em `stored_path`"),
     // --- sessao e credencial ---

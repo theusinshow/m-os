@@ -42,7 +42,7 @@ pub use cronocad_import::ImportReport;
 pub use sync_manifesto::LinhaDoManifesto;
 pub use sync_reparo::Reparo;
 
-const SCHEMA_VERSION: u32 = 41;
+const SCHEMA_VERSION: u32 = 42;
 const MIGRATION_001: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_002: &str = include_str!("../migrations/0002_work.sql");
 const MIGRATION_003: &str = include_str!("../migrations/0003_apps.sql");
@@ -98,6 +98,7 @@ const MIGRATION_038: &str = include_str!("../migrations/0038_sync_pendentes.sql"
 const MIGRATION_039: &str = include_str!("../migrations/0039_task_execution.sql");
 const MIGRATION_040: &str = include_str!("../migrations/0040_reminder_depth.sql");
 const MIGRATION_041: &str = include_str!("../migrations/0041_autopilot.sql");
+const MIGRATION_042: &str = include_str!("../migrations/0042_meeting_agent_v2.sql");
 
 pub struct SqliteStorage {
     /// O PORTAO: quem vai mexer na conexao E no relogio passa por aqui antes.
@@ -546,6 +547,11 @@ fn migrate(connection: &Connection, backup_directory: &Path) -> Result<(), CoreE
             .execute_batch(MIGRATION_041)
             .map_err(map_sql_error)?;
     }
+    if current <= 41 {
+        connection
+            .execute_batch(MIGRATION_042)
+            .map_err(map_sql_error)?;
+    }
     if current < SCHEMA_VERSION {
         verify_foreign_keys(connection, &orfas_antes)?;
     }
@@ -934,6 +940,7 @@ mod tests {
             MIGRATION_039,
             MIGRATION_040,
             MIGRATION_041,
+            MIGRATION_042,
         ];
         for migration in migrations.into_iter().take(ate as usize) {
             connection.execute_batch(migration).unwrap();

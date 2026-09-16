@@ -48,6 +48,40 @@ macro_rules! meeting_id {
 meeting_id!(MeetingId, "Meeting ID invalido.");
 meeting_id!(SegmentId, "ID de segmento invalido.");
 meeting_id!(InsightId, "ID de item de reuniao invalido.");
+meeting_id!(BookmarkId, "ID de momento marcado invalido.");
+
+/// Um momento que a pessoa marcou durante a gravacao (⭐).
+///
+/// Sinal de relevancia para o Hermes, e atalho na transcricao. **Nunca fato**:
+/// uma marca diz "aqui importou", e nao o que importou.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeetingBookmark {
+    pub id: BookmarkId,
+    pub meeting_id: MeetingId,
+    /// Na regua da gravacao, a mesma dos segmentos.
+    pub at_ms: i64,
+    #[serde(default)]
+    pub note: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+}
+
+/// Um evento do Recording Guardian, para metrica local.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GuardianEventRecord {
+    pub meeting_id: MeetingId,
+    #[serde(with = "time::serde::rfc3339")]
+    pub at: OffsetDateTime,
+    /// `suggested | continued | stopped_from_prompt | countdown_started |
+    /// countdown_cancelled | auto_stopped | long_prompted | trim_suggested |
+    /// trim_applied | trim_reverted | health_warning`.
+    pub kind: String,
+    pub confidence: Option<f32>,
+    pub trigger: String,
+    pub excess_ms: Option<i64>,
+}
 
 /// De onde a reuniao nasceu.
 ///
@@ -230,8 +264,13 @@ impl MeetingStatus {
 
     /// A captura esta viva. E o que a reconciliacao da abertura procura (§9.1) e
     /// o que impede uma segunda gravacao de comecar.
+    ///
+    /// **`Paused` conta.** A pausa mantem os streams abertos e o gravador vivo;
+    /// uma queda com a reuniao pausada deixa a mesma sessao pela metade que uma
+    /// queda gravando. Ate a V2 ela ficava de fora, e a reconciliacao nunca a
+    /// encontrava.
     pub fn is_capturing(self) -> bool {
-        matches!(self, Self::Recording | Self::Stopping)
+        matches!(self, Self::Recording | Self::Paused | Self::Stopping)
     }
 
     /// Nao ha mais trabalho a fazer nesta reuniao sem o usuario pedir.
@@ -269,6 +308,14 @@ pub enum Transition {
     Fail(FailedStage),
     /// Tentar de novo depois de uma falha.
     Retry,
+    /// O estagio em curso nao terminou — falha passageira ou queda do app — e
+    /// o pipeline vai tentar de novo sozinho. Volta ao repouso ANTERIOR sem
+    /// passar por `failed`: falha passageira nao e falha para a pessoa.
+    Requeue,
+    /// O corte mudou e pede audio que a transcricao atual nao cobre: volta a
+    /// `Recorded` para transcrever de novo. A transcricao anterior so e
+    /// substituida quando a nova terminar.
+    Reprocess,
 }
 
 impl Transition {
@@ -287,6 +334,8 @@ impl Transition {
             Self::AnalysisDone => "concluir a analise de",
             Self::Fail(_) => "falhar",
             Self::Retry => "tentar de novo",
+            Self::Requeue => "reenfileirar",
+            Self::Reprocess => "reprocessar",
         }
     }
 }
@@ -348,7 +397,7 @@ pub fn apply(
 
         // A abertura encontrou uma reuniao em captura. Nao existe outro caminho
         // para isso: o processo anterior morreu sem terminar (§9.1).
-        (Recording | Stopping, Transition::DetectInterrupted) => {
+        (Recording | Paused | Stopping, Transition::DetectInterrupted) => {
             next.status = Interrupted;
             next.ended_at = Some(now);
         }
@@ -403,7 +452,7 @@ pub fn apply(
         (Analyzing, Transition::Fail(FailedStage::Analysis)) => {
             next.status = Failed(FailedStage::Analysis);
         }
-        (Recording | Stopping | Interrupted, Transition::Fail(FailedStage::Audio)) => {
+        (Recording | Paused | Stopping | Interrupted, Transition::Fail(FailedStage::Audio)) => {
             next.status = Failed(FailedStage::Audio);
             if next.ended_at.is_none() {
                 next.ended_at = Some(now);
@@ -412,6 +461,24 @@ pub fn apply(
 
         (Failed(stage), Transition::Retry) => {
             next.status = stage.resting_state();
+            next.failure = None;
+        }
+
+        (Transcribing, Transition::Requeue) => {
+            next.status = Recorded;
+        }
+        (Analyzing, Transition::Requeue) => {
+            next.status = Transcribed;
+        }
+
+        (
+            Transcribed
+            | Ready
+            | Failed(FailedStage::Transcription)
+            | Failed(FailedStage::Analysis),
+            Transition::Reprocess,
+        ) => {
+            next.status = Recorded;
             next.failure = None;
         }
 
@@ -515,6 +582,92 @@ impl AudioRetention {
     }
 }
 
+/// Por que a gravacao parou.
+///
+/// Diagnostico e metrica, e nao texto de tela: a pessoa sabe que clicou. O que
+/// ela NAO sabe — e o que este campo responde depois — e quantas reunioes o
+/// Guardian encerrou, quantas cairam por dispositivo, quantas o app levou junto
+/// ao sair.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StopReason {
+    Manual,
+    /// O Recording Guardian encerrou com sinal de app (a chamada acabou).
+    AutoMeetingEnded,
+    /// O Recording Guardian encerrou por inatividade longa, sem app associado.
+    AutoInactivity,
+    /// A abertura encontrou a gravacao viva num processo morto.
+    CrashRecovery,
+    /// Os dois canais cairam.
+    DeviceFailure,
+    /// O M/OS saiu com a gravacao em curso.
+    AppExit,
+}
+
+impl StopReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::AutoMeetingEnded => "auto_meeting_ended",
+            Self::AutoInactivity => "auto_inactivity",
+            Self::CrashRecovery => "crash_recovery",
+            Self::DeviceFailure => "device_failure",
+            Self::AppExit => "app_exit",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, CoreError> {
+        match value {
+            "manual" => Ok(Self::Manual),
+            "auto_meeting_ended" => Ok(Self::AutoMeetingEnded),
+            "auto_inactivity" => Ok(Self::AutoInactivity),
+            "crash_recovery" => Ok(Self::CrashRecovery),
+            "device_failure" => Ok(Self::DeviceFailure),
+            "app_exit" => Ok(Self::AppExit),
+            _ => Err(CoreError::new(
+                ErrorCode::DataIntegrity,
+                "Motivo de parada desconhecido.",
+                false,
+            )),
+        }
+    }
+}
+
+/// Quem decidiu o corte.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrimOrigin {
+    /// A pessoa ajustou as alcas.
+    Manual,
+    /// O Guardian cortou sozinho, com confianca alta, ANTES de processar.
+    Auto,
+    /// A pessoa aceitou uma sugestao feita depois de processar.
+    Suggested,
+}
+
+impl TrimOrigin {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::Auto => "auto",
+            Self::Suggested => "suggested",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, CoreError> {
+        match value {
+            "manual" => Ok(Self::Manual),
+            "auto" => Ok(Self::Auto),
+            "suggested" => Ok(Self::Suggested),
+            _ => Err(CoreError::new(
+                ErrorCode::DataIntegrity,
+                "Origem de corte desconhecida.",
+                false,
+            )),
+        }
+    }
+}
+
 /// A falha que parou a reuniao, em forma legivel.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -567,9 +720,49 @@ pub struct Meeting {
     /// prompt exige `segment` por item, e uma nota nao foi dita, foi escrita.
     #[serde(default)]
     pub notes: String,
+
+    /// Por que a gravacao parou. `None` em reuniao anterior a V2 ou em curso.
+    #[serde(default)]
+    pub stop_reason: Option<StopReason>,
+    /// O corte nao destrutivo, em ms relativos ao inicio. Os chunks ficam.
+    #[serde(default)]
+    pub trim_start_ms: Option<i64>,
+    #[serde(default)]
+    pub trim_end_ms: Option<i64>,
+    #[serde(default)]
+    pub trim_origin: Option<TrimOrigin>,
+    /// Quando foi para a lixeira. So existe com `lifecycle_state = trashed`.
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    pub trashed_at: Option<OffsetDateTime>,
+    /// O programa que tinha o microfone quando a reuniao comecou (ADR-047).
+    #[serde(default)]
+    pub associated_app: Option<String>,
+    /// Onde o Guardian acha que a conversa acabou, em ms relativos.
+    #[serde(default)]
+    pub suggested_end_ms: Option<i64>,
 }
 
 impl Meeting {
+    /// A faixa que o processamento le, em ms relativos: `[inicio, fim)`.
+    ///
+    /// Sem corte, e a gravacao inteira. O fim nunca passa da duracao medida —
+    /// um corte gravado antes de uma recuperacao mais curta nao pode pedir
+    /// audio que nao existe.
+    pub fn effective_range(&self) -> (i64, i64) {
+        let start = self.trim_start_ms.unwrap_or(0).max(0);
+        let end = self
+            .trim_end_ms
+            .unwrap_or(self.duration_ms)
+            .min(self.duration_ms.max(0));
+        (start.min(end), end)
+    }
+
+    /// Quanto a faixa efetiva descarta do total gravado.
+    pub fn trimmed_ms(&self) -> i64 {
+        let (start, end) = self.effective_range();
+        (self.duration_ms - (end - start)).max(0)
+    }
+
     /// O audio pode ser apagado agora?
     ///
     /// A regra e CONSERVADORA de proposito. Ela responde `false` em toda duvida,
@@ -608,9 +801,23 @@ pub struct NewMeeting {
     pub project_id: Option<ProjectId>,
     pub audio_dir: String,
     pub retention: AudioRetention,
+    /// O programa com o microfone aberto quando a gravacao comecou.
+    pub associated_app: Option<String>,
 }
 
 impl NewMeeting {
+    pub fn with_associated_app(mut self, app: Option<String>) -> Self {
+        self.associated_app = app
+            .map(|app| app.trim().to_owned())
+            .filter(|app| !app.is_empty());
+        self
+    }
+
+    pub fn with_retention(mut self, retention: AudioRetention) -> Self {
+        self.retention = retention;
+        self
+    }
+
     /// O titulo nasce do relogio, e nao de um formulario.
     ///
     /// `VISION.md` §14: se a funcionalidade exigir que o usuario pare para
@@ -646,6 +853,7 @@ impl NewMeeting {
             // vindo do renderer de escapar do diretorio de dados (§18).
             audio_dir: format!("meetings/{id}"),
             retention: AudioRetention::default(),
+            associated_app: None,
         }
     }
 }
@@ -700,6 +908,14 @@ pub struct TranscriptSegment {
     /// atribuicao de canal.
     pub speaker: Option<String>,
     pub confidence: Option<f32>,
+    /// A leitura com o vocabulario aplicado. `None` = igual a `text`.
+    ///
+    /// **`text` nunca muda.** E o que o whisper disse, e e o que a evidencia
+    /// cita. A normalizacao e uma copia ao lado.
+    #[serde(default)]
+    pub text_normalized: Option<String>,
+    #[serde(default)]
+    pub corrections: Vec<crate::meeting_text::Correction>,
 }
 
 /// Um segmento antes de entrar no banco, ainda sem `seq` global.
@@ -755,6 +971,8 @@ pub fn interleave(
             text: raw.text,
             speaker: None,
             confidence: raw.confidence,
+            text_normalized: None,
+            corrections: Vec::new(),
         })
         .collect()
 }
@@ -782,12 +1000,20 @@ pub struct MeetingAnalysis {
 #[serde(rename_all = "snake_case")]
 pub enum InsightKind {
     Decision,
+    /// ACTION: o que VOCE se comprometeu a fazer.
     MyAction,
+    /// Legado da V1: acao de outra pessoa. Lido como `Commitment`.
     OtherAction,
+    /// COMMITMENT: o que outra pessoa se comprometeu a fazer — o Waiting For.
+    Commitment,
     Deadline,
     FollowUp,
     OpenQuestion,
     Risk,
+    /// DEPENDENCY: algo de que o trabalho depende e que ainda nao existe.
+    Dependency,
+    /// REFERENCE: documento, norma, link ou arquivo citado.
+    Reference,
     Topic,
 }
 
@@ -797,10 +1023,13 @@ impl InsightKind {
             Self::Decision => "decision",
             Self::MyAction => "my_action",
             Self::OtherAction => "other_action",
+            Self::Commitment => "commitment",
             Self::Deadline => "deadline",
             Self::FollowUp => "follow_up",
             Self::OpenQuestion => "open_question",
             Self::Risk => "risk",
+            Self::Dependency => "dependency",
+            Self::Reference => "reference",
             Self::Topic => "topic",
         }
     }
@@ -810,10 +1039,13 @@ impl InsightKind {
             "decision" => Ok(Self::Decision),
             "my_action" => Ok(Self::MyAction),
             "other_action" => Ok(Self::OtherAction),
+            "commitment" => Ok(Self::Commitment),
             "deadline" => Ok(Self::Deadline),
             "follow_up" => Ok(Self::FollowUp),
             "open_question" => Ok(Self::OpenQuestion),
             "risk" => Ok(Self::Risk),
+            "dependency" => Ok(Self::Dependency),
+            "reference" => Ok(Self::Reference),
             "topic" => Ok(Self::Topic),
             _ => Err(CoreError::new(
                 ErrorCode::DataIntegrity,
@@ -831,8 +1063,59 @@ impl InsightKind {
     pub fn is_actionable(self) -> bool {
         matches!(
             self,
-            Self::MyAction | Self::OtherAction | Self::Deadline | Self::FollowUp
+            Self::MyAction
+                | Self::OtherAction
+                | Self::Commitment
+                | Self::Deadline
+                | Self::FollowUp
+                | Self::Dependency
         )
+    }
+
+    /// O trabalho e de OUTRA pessoa: aceitar cria uma Task de espera
+    /// (`waiting_for`), e nao uma Task para fazer.
+    pub fn is_external(self) -> bool {
+        matches!(self, Self::OtherAction | Self::Commitment)
+    }
+}
+
+/// De onde o item veio.
+///
+/// A origem decide o que o item precisa para merecer um clique. O que o Hermes
+/// inferiu precisa de evidencia; o que a pessoa ESCREVEU ja e dela — exigir
+/// evidencia de uma nota seria pedir prova de que ela quis dizer o que digitou.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InsightOrigin {
+    /// Inferido pelo Hermes a partir da transcricao, com evidencia.
+    #[default]
+    Spoken,
+    /// Um marcador escrito nas notas (`!task`, `!decision`, `!question`).
+    Written,
+    /// Criado pela pessoa a partir de um trecho da transcricao.
+    Manual,
+}
+
+impl InsightOrigin {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Spoken => "spoken",
+            Self::Written => "written",
+            Self::Manual => "manual",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, CoreError> {
+        match value {
+            "spoken" => Ok(Self::Spoken),
+            "written" => Ok(Self::Written),
+            "manual" => Ok(Self::Manual),
+            _ => Err(CoreError::new(
+                ErrorCode::DataIntegrity,
+                "Origem de item de reuniao desconhecida.",
+                false,
+            )),
+        }
     }
 }
 
@@ -933,6 +1216,14 @@ pub struct MeetingInsight {
     pub created_task_id: Option<TaskId>,
     pub created_reminder_id: Option<ReminderId>,
     pub evidence: Vec<MeetingEvidence>,
+    #[serde(default)]
+    pub origin: InsightOrigin,
+    /// O prazo interpretado a partir de `due_hint` e do inicio da reuniao.
+    /// `None` quando a expressao nao resolve — e ai so o texto aparece.
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    pub due_at: Option<OffsetDateTime>,
+    #[serde(default)]
+    pub due_confidence: Option<Confidence>,
 }
 
 impl MeetingInsight {
@@ -952,7 +1243,16 @@ impl MeetingInsight {
         self.status == InsightStatus::Proposed
             && self.kind.is_actionable()
             && self.confidence != Confidence::Low
-            && !self.evidence.is_empty()
+            && (!self.evidence.is_empty() || self.origin != InsightOrigin::Spoken)
+    }
+
+    /// Vem marcado na revisao em lote?
+    ///
+    /// So a confianca ALTA vem marcada. A media aparece desmarcada, pedindo
+    /// revisao; a baixa nem tem caixa. Pre-selecionar a media transformaria
+    /// "revise" em "confirme sem ler".
+    pub fn preselected(&self) -> bool {
+        self.eligible_for_bulk() && self.confidence == Confidence::High
     }
 }
 
@@ -1214,6 +1514,21 @@ pub struct AcceptInsight {
     /// interpretacao dele acontece na tela, onde a pessoa ve e corrige. Aceitar
     /// "amanha" aqui obrigaria o dominio a adivinhar que horas.
     pub remind_at: Option<OffsetDateTime>,
+    /// O prazo da Task (`Task.due_at`, ADR-066). Vem da tela, pre-preenchido com
+    /// o prazo resolvido do item e editavel.
+    pub due_at: Option<OffsetDateTime>,
+}
+
+/// Um item da revisao em lote, ja com o que a pessoa confirmou.
+#[derive(Clone, Debug)]
+pub struct BatchAcceptItem {
+    pub accept: AcceptInsight,
+    pub task: crate::NewTask,
+    pub reminder: Option<crate::NewReminder>,
+    /// Compromisso de outra pessoa: a Task nasce aguardando alguem.
+    pub waiting_for: Option<String>,
+    /// Ja existe uma Task igual: o item e LIGADO a ela, e nenhuma Task nasce.
+    pub link_existing: Option<TaskId>,
 }
 
 /// O que a aceitacao produziu.
@@ -1312,7 +1627,59 @@ mod tests {
             updated_at: now(),
             cancelled_at: None,
             notes: String::new(),
+            stop_reason: None,
+            trim_start_ms: None,
+            trim_end_ms: None,
+            trim_origin: None,
+            trashed_at: None,
+            associated_app: None,
+            suggested_end_ms: None,
         }
+    }
+
+    #[test]
+    fn reenfileirar_volta_ao_repouso_sem_passar_por_falha() {
+        let voltou = apply(
+            &meeting(MeetingStatus::Transcribing),
+            Transition::Requeue,
+            now(),
+        )
+        .unwrap();
+        assert_eq!(voltou.status, MeetingStatus::Recorded);
+        let voltou = apply(
+            &meeting(MeetingStatus::Analyzing),
+            Transition::Requeue,
+            now(),
+        )
+        .unwrap();
+        assert_eq!(voltou.status, MeetingStatus::Transcribed);
+        assert!(apply(&meeting(MeetingStatus::Ready), Transition::Requeue, now()).is_err());
+    }
+
+    #[test]
+    fn pausada_conta_como_captura_e_e_recuperada_na_queda() {
+        assert!(MeetingStatus::Paused.is_capturing());
+        let caiu = apply(
+            &meeting(MeetingStatus::Paused),
+            Transition::DetectInterrupted,
+            now(),
+        )
+        .unwrap();
+        assert_eq!(caiu.status, MeetingStatus::Interrupted);
+    }
+
+    #[test]
+    fn a_faixa_efetiva_respeita_o_corte_e_a_duracao() {
+        let mut reuniao = meeting(MeetingStatus::Recorded);
+        reuniao.duration_ms = 60 * 60 * 1000;
+        assert_eq!(reuniao.effective_range(), (0, 60 * 60 * 1000));
+        reuniao.trim_end_ms = Some(30 * 60 * 1000);
+        reuniao.trim_start_ms = Some(60_000);
+        assert_eq!(reuniao.effective_range(), (60_000, 30 * 60 * 1000));
+        assert_eq!(reuniao.trimmed_ms(), 31 * 60 * 1000);
+        // Corte gravado alem do que o disco sustenta nao pede audio inexistente.
+        reuniao.trim_end_ms = Some(90 * 60 * 1000);
+        assert_eq!(reuniao.effective_range().1, 60 * 60 * 1000);
     }
 
     #[test]
@@ -1632,6 +1999,9 @@ mod tests {
                     char_end: None,
                 })
                 .collect(),
+            origin: InsightOrigin::Spoken,
+            due_at: None,
+            due_confidence: None,
         }
     }
 

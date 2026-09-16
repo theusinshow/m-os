@@ -92,6 +92,62 @@ pub struct AnalysisOutcome {
     pub topics: Vec<String>,
     pub insights: Vec<MeetingInsight>,
     pub rejections: Rejections,
+    /// O titulo sugerido, ja validado. So substitui o titulo do relogio.
+    pub title: Option<String>,
+    /// O Project como o modelo o nomeou, CRU. Quem confere contra a lista real
+    /// e `infer_project`.
+    pub project_hint: Option<String>,
+}
+
+/// A projecao V2 da analise: os itens separados pelo que significam para quem
+/// gravou.
+///
+/// **Nao e segunda tabela.** Os itens moram em `meeting_insights` com `kind`;
+/// isto e so a forma de ler — a mesma decisao da ADR-025 que manteve uma
+/// tabela e nao oito.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeetingAnalysisV2 {
+    pub summary: String,
+    pub topics: Vec<String>,
+    pub decisions: Vec<MeetingInsight>,
+    pub user_actions: Vec<MeetingInsight>,
+    pub external_commitments: Vec<MeetingInsight>,
+    pub questions: Vec<MeetingInsight>,
+    pub risks: Vec<MeetingInsight>,
+    pub deadlines: Vec<MeetingInsight>,
+    pub references: Vec<MeetingInsight>,
+}
+
+impl MeetingAnalysisV2 {
+    pub fn project(summary: &str, insights: &[MeetingInsight]) -> Self {
+        let mut view = Self {
+            summary: summary.to_owned(),
+            ..Self::default()
+        };
+        for insight in insights {
+            if insight.status == InsightStatus::Dismissed {
+                continue;
+            }
+            let bucket = match insight.kind {
+                InsightKind::Decision => &mut view.decisions,
+                InsightKind::MyAction | InsightKind::FollowUp => &mut view.user_actions,
+                InsightKind::OtherAction | InsightKind::Commitment | InsightKind::Dependency => {
+                    &mut view.external_commitments
+                }
+                InsightKind::OpenQuestion => &mut view.questions,
+                InsightKind::Risk => &mut view.risks,
+                InsightKind::Deadline => &mut view.deadlines,
+                InsightKind::Reference => &mut view.references,
+                InsightKind::Topic => {
+                    view.topics.push(insight.text.clone());
+                    continue;
+                }
+            };
+            bucket.push(insight.clone());
+        }
+        view
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +158,10 @@ pub struct AnalysisOutcome {
 struct Payload {
     #[serde(default)]
     summary: String,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    project: Option<String>,
     #[serde(default)]
     topics: Vec<String>,
     #[serde(default)]
@@ -266,8 +326,18 @@ pub fn parse_analysis(
             created_task_id: None,
             created_reminder_id: None,
             evidence,
+            origin: crate::InsightOrigin::Spoken,
+            due_at: None,
+            due_confidence: None,
         });
     }
+
+    // O dominio valida o que o modelo sugeriu. Duplicata some, decisao
+    // hipotetica vira pergunta, e acao "minha" dita so pelo remoto pede revisao.
+    let insights = crate::meeting_text::apply_domain_rules(
+        crate::meeting_text::dedupe_insights(insights),
+        segments,
+    );
 
     Ok(AnalysisOutcome {
         summary,
@@ -279,6 +349,14 @@ pub fn parse_analysis(
             .collect(),
         insights,
         rejections,
+        title: payload
+            .title
+            .as_deref()
+            .and_then(crate::meeting_text::validate_title),
+        project_hint: payload
+            .project
+            .map(|project| project.trim().to_owned())
+            .filter(|project| !project.is_empty()),
     })
 }
 
@@ -446,6 +524,65 @@ fn clock(ms: i64) -> String {
 /// Elas nao pedem gentileza nem tom: pedem FORMA. O que garante qualidade e a
 /// validacao do lado de ca, e nao a educacao do prompt — um modelo que ignore
 /// isto produz um bloco que `parse_analysis` recusa.
+/// O que acompanha a transcricao alem das notas.
+#[derive(Clone, Debug, Default)]
+pub struct AnalysisContext<'a> {
+    /// Nomes dos Projects ativos, para o modelo reconhecer e sugerir.
+    pub projects: &'a [String],
+    /// Termos proprios: nomes, siglas, codigos. Glossario, e nao correcao.
+    pub vocabulary: &'a [String],
+    /// Momentos que a pessoa marcou, em ms relativos. Sinal de relevancia.
+    pub bookmarks_ms: &'a [i64],
+}
+
+/// As instrucoes V2: titulo, Project, tipos novos e os sinais da pessoa.
+pub fn instructions_v2(title: &str, notes: &str, context: &AnalysisContext<'_>) -> String {
+    let base = instructions(title, notes);
+    let mut extra = String::new();
+    if !context.vocabulary.is_empty() {
+        extra.push_str(&format!(
+            "\nVOCABULARIO DE QUEM GRAVOU (a grafia certa de nomes e siglas; a\n\
+             transcricao pode ter escrito diferente):\n{}\n",
+            context.vocabulary.join(", ")
+        ));
+    }
+    if !context.projects.is_empty() {
+        extra.push_str(&format!(
+            "\nPROJECTS EXISTENTES (use o nome exato em `project`, ou deixe vazio):\n{}\n",
+            context.projects.join(" | ")
+        ));
+    }
+    if !context.bookmarks_ms.is_empty() {
+        extra.push_str(&format!(
+            "\nMOMENTOS QUE A PESSOA MARCOU DURANTE A REUNIAO: {}.\n\
+             Eles indicam que ali houve algo importante. Sao um SINAL de\n\
+             relevancia, e nao um fato: nao invente item so porque ha marca.\n",
+            context
+                .bookmarks_ms
+                .iter()
+                .map(|ms| clock(*ms))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    format!(
+        "{base}\n\n\
+         VERSAO 2 DO CONTRATO. Alem do acima, o JSON aceita:\n\
+         - \"version\": 2\n\
+         - \"title\": um titulo util e curto (ate 60 caracteres), que diga do que\n\
+         \x20 a reuniao tratou. Nada de data.\n\
+         - \"project\": o nome de um dos Projects existentes, se a reuniao for\n\
+         \x20 claramente dele.\n\
+         - `kind` tambem pode ser:\n\
+         \x20 `commitment` (outra pessoa se comprometeu com algo — use no lugar de\n\
+         \x20 other_action), `dependency` (algo de que o trabalho depende e ainda\n\
+         \x20 nao existe), `reference` (documento, norma, arquivo ou link citado).\n\
+         - decisao e so o que foi FECHADO. Ideia, hipotese ou \"acho que\" e\n\
+         \x20 `open_question`.\n\
+         - reuniao sem acoes nao tem acoes: nao invente item para preencher.\n{extra}"
+    )
+}
+
 pub fn instructions(title: &str, notes: &str) -> String {
     // Sem notas, o bloco NAO existe. Um cabecalho vazio ensinaria o modelo a
     // procurar conteudo que nao esta la, e modelo que procura o que nao existe

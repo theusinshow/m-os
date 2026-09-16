@@ -19,6 +19,10 @@ mod functions;
 mod ingestion;
 mod meeting;
 mod meeting_analysis;
+pub mod meeting_dates;
+pub mod meeting_guardian;
+pub mod meeting_pipeline;
+pub mod meeting_text;
 mod monitoring;
 mod piloto;
 mod ports;
@@ -113,15 +117,20 @@ pub use ingestion::{
 };
 pub use meeting::{
     apply as apply_meeting, clean_segments, interleave, is_speech, AcceptInsight, AcceptedInsight,
-    AudioRetention, Channel as MeetingChannel, ChannelOutcome, Confidence, FailedStage, InsightId,
-    InsightKind, InsightPreview, InsightStatus, Meeting, MeetingAnalysis, MeetingEvidence,
+    AudioRetention, BatchAcceptItem, BookmarkId, Channel as MeetingChannel, ChannelOutcome,
+    Confidence, FailedStage, GuardianEventRecord, InsightId, InsightKind, InsightOrigin,
+    InsightPreview, InsightStatus, Meeting, MeetingAnalysis, MeetingBookmark, MeetingEvidence,
     MeetingFailure, MeetingId, MeetingInsight, MeetingSource, MeetingStatus, NewMeeting,
-    RawSegment, SegmentId, TranscriptSegment, TranscriptionError, TranscriptionProvider,
-    TranscriptionRequest, Transition as MeetingTransition,
+    RawSegment, SegmentId, StopReason, TranscriptSegment, TranscriptionError,
+    TranscriptionProvider, TranscriptionRequest, Transition as MeetingTransition, TrimOrigin,
 };
 pub use meeting_analysis::{
-    build_windows, instructions, parse_analysis, AnalysisError, AnalysisOutcome, PromptWindow,
-    Rejections, WINDOW_BUDGET_CHARS,
+    build_windows, instructions, instructions_v2, parse_analysis, AnalysisContext, AnalysisError,
+    AnalysisOutcome, MeetingAnalysisV2, PromptWindow, Rejections, WINDOW_BUDGET_CHARS,
+};
+pub use meeting_pipeline::{
+    meeting_phase, pipeline_progress, AfterFailure, FailureClass, JobStage, JobStatus, MeetingJob,
+    MeetingPhase, PipelineProgress, StageFailure,
 };
 pub use monitoring::{
     decidir_oferta, diff_transitions, open_periods, uncovered, ActivityEvent, ActivityEventId,
@@ -167,9 +176,9 @@ pub use service::{
     AcademicService, AppService, AttentionService, AudioOutcome, CaptureService,
     ConversationService, CreateAppInput, CreateCaptureInput, CreateProjectInput,
     CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DailyService, DataService,
-    MeetingService, MemoryService, MonitoringService, Servicos, TrackingService, UpdateAppInput,
-    UpdateProjectInput, UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, VoiceService,
-    WorkService,
+    GuardianSettle, MeetingOverview, MeetingService, MemoryService, MonitoringService, Servicos,
+    TrackingService, TrimOutcome, UpdateAppInput, UpdateProjectInput, UpdateResourceInput,
+    UpdateTaskInput, UpdateWorkspaceInput, VoiceService, WorkService,
 };
 pub use stale::{
     atividade_do_project, compose_stale, project_activity, tolerancia, trabalho_aberto, Parada,

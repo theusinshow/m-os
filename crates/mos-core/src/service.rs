@@ -2138,6 +2138,29 @@ impl MeetingService {
         title: &str,
         project_id: Option<&str>,
     ) -> Result<crate::Meeting, CoreError> {
+        self.start_with(
+            title,
+            project_id,
+            crate::MeetingSource::Manual,
+            None,
+            crate::AudioRetention::default(),
+        )
+    }
+
+    /// Comeca a gravar, com o que a V2 sabe no clique.
+    ///
+    /// `source` distingue o clique na pagina do clique na oferta de deteccao —
+    /// **os dois sao cliques**. Nao existe origem que nao seja uma pessoa
+    /// autorizando (§17.2). `associated_app` e o programa que tinha o microfone;
+    /// o Guardian o acompanha para perceber quando a chamada acabou.
+    pub fn start_with(
+        &self,
+        title: &str,
+        project_id: Option<&str>,
+        source: crate::MeetingSource,
+        associated_app: Option<String>,
+        retention: crate::AudioRetention,
+    ) -> Result<crate::Meeting, CoreError> {
         if let Some(current) = self.recording()? {
             return Err(CoreError::new(
                 crate::ErrorCode::InvalidTransition,
@@ -2146,15 +2169,11 @@ impl MeetingService {
             ));
         }
         let project_id = project_id.map(crate::ProjectId::parse).transpose()?;
-        self.repository.create_meeting(crate::NewMeeting::start(
-            title,
-            // `Manual` fixo, e nao um parametro. A §17.2 promete que nenhum
-            // caminho de codigo inicia gravacao sem clique; um parametro de
-            // origem abriria exatamente esse caminho.
-            crate::MeetingSource::Manual,
-            project_id,
-            self.clock.now(),
-        ))
+        self.repository.create_meeting(
+            crate::NewMeeting::start(title, source, project_id, self.clock.now())
+                .with_associated_app(associated_app)
+                .with_retention(retention),
+        )
     }
 
     /// A gravacao em curso, se houver.
@@ -2472,7 +2491,22 @@ impl MeetingService {
         &self,
         accept: crate::AcceptInsight,
     ) -> Result<crate::AcceptedInsight, CoreError> {
-        let task = crate::NewTask::create(&accept.title, &accept.description, accept.project_id)?;
+        // Um item e um lote de um. O caminho e o mesmo, e com ele vem o que o
+        // lote sabe fazer: prazo nativo, espera por outra pessoa e o vinculo com
+        // uma Task igual que ja exista.
+        self.accept_batch(vec![accept])?
+            .pop()
+            .ok_or_else(|| CoreError::new(crate::ErrorCode::NotFound, "Nada foi aceito.", false))
+    }
+
+    /// O caminho da V1, mantido para quem ainda o chama pelo repositorio.
+    #[allow(dead_code)]
+    fn accept_insight_single(
+        &self,
+        accept: crate::AcceptInsight,
+    ) -> Result<crate::AcceptedInsight, CoreError> {
+        let task = crate::NewTask::create(&accept.title, &accept.description, accept.project_id)?
+            .with_due_at(accept.due_at);
 
         let reminder = match accept.remind_at {
             Some(instant) => {
@@ -2525,6 +2559,914 @@ impl MeetingService {
         let meeting = self.repository.meeting(crate::MeetingId::parse(id)?)?;
         let next = crate::apply_meeting(&meeting, transition, self.clock.now())?;
         self.repository.save_meeting(&next)
+    }
+}
+
+/// O que o Guardian sabia quando a gravacao parou.
+#[derive(Clone, Debug, Default)]
+pub struct GuardianSettle {
+    pub associated_app: Option<String>,
+    pub suggested_end_ms: Option<i64>,
+    /// O corte seguro, quando o Guardian o sustenta (`confident_trim_end`).
+    pub confident_trim_end_ms: Option<i64>,
+}
+
+/// O que mudou ao ajustar o corte.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrimOutcome {
+    pub meeting: crate::Meeting,
+    /// O estagio que voltou para a fila, quando o corte exigiu.
+    pub requeued: Option<crate::JobStage>,
+    pub removed_segments: usize,
+}
+
+/// Uma linha da lista de reunioes, com o que a lista precisa mostrar.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeetingOverview {
+    pub meeting: crate::Meeting,
+    pub phase: crate::MeetingPhase,
+    pub progress: crate::PipelineProgress,
+    pub job: Option<crate::MeetingJob>,
+    /// Acoes minhas ainda por revisar.
+    pub pending_actions: usize,
+    pub tasks_created: usize,
+    pub decisions: usize,
+    /// Compromissos de outras pessoas.
+    pub waiting: usize,
+    pub questions: usize,
+    /// A frase para a pessoa quando algo precisa dela. Vazia quando nao.
+    pub attention: String,
+}
+
+/// Quantos dias para tras a deduplicacao procura uma Task igual.
+pub const DEDUPE_TASK_DAYS: i64 = 14;
+/// Quantos dias para tras a abertura enfileira reunioes da V1 que ficaram paradas.
+pub const LEGACY_REQUEUE_DAYS: i64 = 7;
+
+impl MeetingService {
+    // ------------------------------------------------------------------------
+    // Parar
+    // ------------------------------------------------------------------------
+
+    /// A captura fechou, com o motivo da parada e o que o Guardian sabia.
+    ///
+    /// Alem do `settle_audio` da V1: grava `stop_reason`, guarda o fim provavel,
+    /// aplica o corte automatico quando ele e seguro (e estica a retencao para o
+    /// desfazer ter audio), le os marcadores das notas e enfileira a
+    /// transcricao. **Parar e o unico gesto; o resto anda sozinho.**
+    pub fn settle_recording(
+        &self,
+        id: &str,
+        outcome: AudioOutcome,
+        reason: crate::StopReason,
+        guardian: GuardianSettle,
+    ) -> Result<crate::Meeting, CoreError> {
+        let mut settled = self.settle_audio(id, outcome)?;
+        settled.stop_reason = Some(reason);
+        if settled.associated_app.is_none() {
+            settled.associated_app = guardian.associated_app;
+        }
+        settled.suggested_end_ms = guardian.suggested_end_ms;
+        if let Some(end) = guardian
+            .confident_trim_end_ms
+            .filter(|end| *end > 0 && *end < settled.duration_ms)
+        {
+            settled.trim_end_ms = Some(end);
+            settled.trim_origin = Some(crate::TrimOrigin::Auto);
+            if settled.retention == crate::AudioRetention::DeleteAfterProcessing {
+                // O corte automatico precisa de volta. Sem audio, "incluir de
+                // novo" seria um botao que nao faz nada.
+                settled.retention = crate::AudioRetention::Keep24h;
+            }
+        }
+        let settled = self.repository.save_meeting(&settled)?;
+        self.apply_written_insights(id)?;
+        if settled.status == crate::MeetingStatus::Recorded {
+            self.queue(id, crate::JobStage::Transcription)?;
+        }
+        Ok(settled)
+    }
+
+    // ------------------------------------------------------------------------
+    // Pipeline
+    // ------------------------------------------------------------------------
+
+    pub fn job(&self, id: &str) -> Result<Option<crate::MeetingJob>, CoreError> {
+        self.repository.meeting_job(crate::MeetingId::parse(id)?)
+    }
+
+    pub fn jobs(&self) -> Result<Vec<crate::MeetingJob>, CoreError> {
+        self.repository.meeting_jobs()
+    }
+
+    /// Poe um estagio na fila, reaproveitando a linha da reuniao.
+    pub fn queue(&self, id: &str, stage: crate::JobStage) -> Result<crate::MeetingJob, CoreError> {
+        let meeting_id = crate::MeetingId::parse(id)?;
+        let now = self.clock.now();
+        let job = match self.repository.meeting_job(meeting_id)? {
+            Some(mut job) => {
+                job.advance(stage, now);
+                job
+            }
+            None => crate::MeetingJob::queue(meeting_id, stage, now),
+        };
+        self.repository.save_meeting_job(&job)?;
+        Ok(job)
+    }
+
+    /// Os jobs que devem rodar agora, na ordem em que entraram.
+    ///
+    /// Reuniao fora de `active` nao roda: arquivada ainda pode rodar? Pode — o
+    /// arquivo e da pessoa, o processamento e do sistema. Lixeira nao.
+    pub fn due_jobs(&self) -> Result<Vec<crate::MeetingJob>, CoreError> {
+        let now = self.clock.now();
+        let mut due: Vec<crate::MeetingJob> = self
+            .repository
+            .meeting_jobs()?
+            .into_iter()
+            .filter(|job| job.is_due(now))
+            .collect();
+        due.retain(|job| {
+            self.repository
+                .meeting(job.meeting_id)
+                .map(|meeting| meeting.lifecycle_state != crate::LifecycleState::Trashed)
+                .unwrap_or(false)
+        });
+        due.sort_by_key(|job| job.updated_at);
+        Ok(due)
+    }
+
+    /// Comeca o estagio do job: marca `running` e move a reuniao.
+    pub fn begin_job(&self, id: &str) -> Result<(crate::Meeting, crate::MeetingJob), CoreError> {
+        let meeting_id = crate::MeetingId::parse(id)?;
+        let now = self.clock.now();
+        let mut job = self.repository.meeting_job(meeting_id)?.ok_or_else(|| {
+            CoreError::new(
+                crate::ErrorCode::NotFound,
+                "Nao ha job para esta reuniao.",
+                false,
+            )
+        })?;
+        let mut meeting = self.repository.meeting(meeting_id)?;
+
+        // Um job que volta depois de desistir encontra a reuniao em `failed`:
+        // o retry a devolve ao repouso antes de comecar.
+        if matches!(meeting.status, crate::MeetingStatus::Failed(_)) {
+            meeting = crate::apply_meeting(&meeting, crate::MeetingTransition::Retry, now)?;
+        }
+        // Interrompida com audio: processar e o caminho, e ele nao espera clique.
+        if meeting.status == crate::MeetingStatus::Interrupted {
+            meeting =
+                crate::apply_meeting(&meeting, crate::MeetingTransition::ProcessRecovered, now)?;
+        }
+        let transition = match job.stage {
+            crate::JobStage::Transcription => crate::MeetingTransition::StartTranscription,
+            crate::JobStage::Analysis => crate::MeetingTransition::StartAnalysis,
+        };
+        let meeting = crate::apply_meeting(&meeting, transition, now)?;
+        let meeting = self.repository.save_meeting(&meeting)?;
+        job.start(now);
+        self.repository.save_meeting_job(&job)?;
+        Ok((meeting, job))
+    }
+
+    pub fn job_progress(&self, id: &str, fraction: f32) -> Result<(), CoreError> {
+        let meeting_id = crate::MeetingId::parse(id)?;
+        if let Some(mut job) = self.repository.meeting_job(meeting_id)? {
+            job.set_progress(fraction, self.clock.now());
+            self.repository.save_meeting_job(&job)?;
+        }
+        Ok(())
+    }
+
+    /// A transcricao terminou. Enfileira a analise quando ela e permitida.
+    pub fn complete_transcription_job(
+        &self,
+        id: &str,
+        segments: Vec<crate::TranscriptSegment>,
+        analysis_allowed: bool,
+    ) -> Result<crate::Meeting, CoreError> {
+        let meeting = self.finish_transcription(id, segments)?;
+        let meeting_id = meeting.id;
+        let now = self.clock.now();
+        let mut job = self.repository.meeting_job(meeting_id)?.unwrap_or_else(|| {
+            crate::MeetingJob::queue(meeting_id, crate::JobStage::Transcription, now)
+        });
+        if analysis_allowed {
+            job.advance(crate::JobStage::Analysis, now);
+        } else {
+            job.succeed(now);
+        }
+        self.repository.save_meeting_job(&job)?;
+        Ok(meeting)
+    }
+
+    /// A analise terminou: grava, aplica titulo e Project quando cabem, fecha.
+    pub fn complete_analysis_job(
+        &self,
+        analysis: crate::MeetingAnalysis,
+        insights: Vec<crate::MeetingInsight>,
+        title: Option<String>,
+        project: Option<crate::meeting_text::ProjectInference>,
+    ) -> Result<crate::Meeting, CoreError> {
+        let meeting_id = analysis.meeting_id;
+        let mut meeting = self.finish_analysis(analysis, insights)?;
+        if let Some(title) = title {
+            if crate::meeting_text::is_default_title(&meeting.title) {
+                meeting = self.repository.set_meeting_title(meeting_id, &title)?;
+            }
+        }
+        if let Some(project) = project {
+            // So a confianca ALTA associa sozinha; media fica como sugestao na
+            // tela. E so onde a pessoa ainda nao escolheu.
+            if meeting.project_id.is_none() && project.confidence == crate::Confidence::High {
+                meeting = self
+                    .repository
+                    .set_meeting_project(meeting_id, Some(project.project_id))?;
+            }
+        }
+        if let Some(mut job) = self.repository.meeting_job(meeting_id)? {
+            job.succeed(self.clock.now());
+            self.repository.save_meeting_job(&job)?;
+        }
+        Ok(meeting)
+    }
+
+    /// Um estagio falhou. Decide, pela politica pura, entre esperar e desistir.
+    pub fn fail_job(
+        &self,
+        id: &str,
+        failure: &crate::StageFailure,
+    ) -> Result<(crate::Meeting, crate::AfterFailure), CoreError> {
+        let meeting_id = crate::MeetingId::parse(id)?;
+        let now = self.clock.now();
+        let mut job = self.repository.meeting_job(meeting_id)?.ok_or_else(|| {
+            CoreError::new(
+                crate::ErrorCode::NotFound,
+                "Nao ha job para esta reuniao.",
+                false,
+            )
+        })?;
+        let after = job.fail(failure, now);
+        self.repository.save_meeting_job(&job)?;
+
+        let meeting = self.repository.meeting(meeting_id)?;
+        let meeting = match after {
+            crate::AfterFailure::RetryAt(_) | crate::AfterFailure::WaitForConfiguration => {
+                match meeting.status {
+                    crate::MeetingStatus::Transcribing | crate::MeetingStatus::Analyzing => {
+                        self.repository.save_meeting(&crate::apply_meeting(
+                            &meeting,
+                            crate::MeetingTransition::Requeue,
+                            now,
+                        )?)?
+                    }
+                    _ => meeting,
+                }
+            }
+            crate::AfterFailure::GiveUp => {
+                let stage = job.stage.failed_stage();
+                match meeting.status {
+                    crate::MeetingStatus::Transcribing | crate::MeetingStatus::Analyzing => {
+                        self.fail(id, stage, &failure.message)?
+                    }
+                    _ => meeting,
+                }
+            }
+        };
+        Ok((meeting, after))
+    }
+
+    /// A pessoa pediu para tentar de novo. Zera a contagem.
+    pub fn retry_job(&self, id: &str) -> Result<crate::MeetingJob, CoreError> {
+        let meeting_id = crate::MeetingId::parse(id)?;
+        let now = self.clock.now();
+        let meeting = self.repository.meeting(meeting_id)?;
+        let mut job = match self.repository.meeting_job(meeting_id)? {
+            Some(job) => job,
+            None => {
+                let stage = match meeting.status {
+                    crate::MeetingStatus::Transcribed
+                    | crate::MeetingStatus::Failed(crate::FailedStage::Analysis)
+                    | crate::MeetingStatus::Ready => crate::JobStage::Analysis,
+                    _ => crate::JobStage::Transcription,
+                };
+                crate::MeetingJob::queue(meeting_id, stage, now)
+            }
+        };
+        // Uma analise que ja terminou pode ser pedida de novo ("analisar de
+        // novo"): o estagio volta a ser o da analise.
+        if job.status == crate::JobStatus::Done {
+            job.advance(crate::JobStage::Analysis, now);
+        }
+        job.manual_retry(now);
+        self.repository.save_meeting_job(&job)?;
+        Ok(job)
+    }
+
+    /// A configuracao do transcritor apareceu: libera os jobs que a esperavam.
+    pub fn configuration_ready(&self) -> Result<usize, CoreError> {
+        let now = self.clock.now();
+        let mut freed = 0;
+        for mut job in self.repository.meeting_jobs()? {
+            if job.configuration_ready(now) {
+                self.repository.save_meeting_job(&job)?;
+                freed += 1;
+            }
+        }
+        Ok(freed)
+    }
+
+    /// A abertura: jobs orfaos voltam para a fila, reunioes presas no meio de um
+    /// estagio voltam ao repouso, e reunioes paradas da V1 entram no pipeline.
+    ///
+    /// E o §9.3 do `MEETING-AGENT.md`, finalmente escrito.
+    pub fn recover_pipeline_on_open(&self, analysis_allowed: bool) -> Result<usize, CoreError> {
+        let now = self.clock.now();
+        let mut touched = 0usize;
+        let jobs = self.repository.meeting_jobs()?;
+
+        for mut job in jobs.iter().cloned() {
+            if job.status == crate::JobStatus::Running {
+                job.recover_orphan(now);
+                self.repository.save_meeting_job(&job)?;
+                touched += 1;
+            }
+        }
+
+        for meeting in self.repository.meetings(true)? {
+            let id = meeting.id.to_string();
+            match meeting.status {
+                crate::MeetingStatus::Transcribing | crate::MeetingStatus::Analyzing => {
+                    let requeued =
+                        crate::apply_meeting(&meeting, crate::MeetingTransition::Requeue, now)?;
+                    self.repository.save_meeting(&requeued)?;
+                    if !jobs.iter().any(|job| job.meeting_id == meeting.id) {
+                        let stage = if meeting.status == crate::MeetingStatus::Transcribing {
+                            crate::JobStage::Transcription
+                        } else {
+                            crate::JobStage::Analysis
+                        };
+                        self.queue(&id, stage)?;
+                    }
+                    touched += 1;
+                }
+                // A V1 deixava reunioes paradas esperando um clique. As recentes
+                // entram no pipeline; as antigas ficam como estao — acordar um
+                // mes de reunioes de uma vez mandaria tudo ao Hermes sem ninguem
+                // ter pedido naquele dia.
+                crate::MeetingStatus::Recorded | crate::MeetingStatus::Transcribed
+                    if now - meeting.started_at <= time::Duration::days(LEGACY_REQUEUE_DAYS)
+                        && !jobs.iter().any(|job| job.meeting_id == meeting.id) =>
+                {
+                    if meeting.status == crate::MeetingStatus::Recorded {
+                        if meeting.audio_deleted_at.is_none() {
+                            self.queue(&id, crate::JobStage::Transcription)?;
+                            touched += 1;
+                        }
+                    } else if analysis_allowed {
+                        self.queue(&id, crate::JobStage::Analysis)?;
+                        touched += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(touched)
+    }
+
+    /// Reunioes interrompidas com audio entram no pipeline sem pedir decisao.
+    pub fn auto_process_recovered(&self) -> Result<Vec<crate::Meeting>, CoreError> {
+        let mut processed = Vec::new();
+        for meeting in self.repository.meetings(true)? {
+            if meeting.status != crate::MeetingStatus::Interrupted || meeting.duration_ms == 0 {
+                continue;
+            }
+            let id = meeting.id.to_string();
+            let mut recovered = meeting.clone();
+            recovered
+                .stop_reason
+                .get_or_insert(crate::StopReason::CrashRecovery);
+            let recovered = self.repository.save_meeting(&recovered)?;
+            if self.repository.meeting_job(meeting.id)?.is_none() {
+                self.queue(&id, crate::JobStage::Transcription)?;
+            }
+            processed.push(recovered);
+        }
+        Ok(processed)
+    }
+
+    // ------------------------------------------------------------------------
+    // Lixeira
+    // ------------------------------------------------------------------------
+
+    /// Manda para a lixeira. Cancela o que estava na fila.
+    ///
+    /// **Gravando nao vai.** Quem chama precisa parar antes — a tela pergunta
+    /// "Encerrar e apagar".
+    pub fn trash(&self, id: &str) -> Result<crate::Meeting, CoreError> {
+        let meeting = self.meeting(id)?;
+        if meeting.status.is_capturing() {
+            return Err(CoreError::new(
+                crate::ErrorCode::InvalidTransition,
+                "Esta reuniao ainda esta sendo gravada. Encerre antes de apagar.",
+                false,
+            ));
+        }
+        if let Some(mut job) = self.repository.meeting_job(meeting.id)? {
+            if job.status.is_open() {
+                job.cancel(self.clock.now());
+                self.repository.save_meeting_job(&job)?;
+            }
+        }
+        self.repository
+            .set_meeting_trashed(meeting.id, Some(self.clock.now()))
+    }
+
+    /// Tira da lixeira. O pipeline que foi cancelado volta, se ainda havia o
+    /// que fazer.
+    pub fn restore(&self, id: &str) -> Result<crate::Meeting, CoreError> {
+        let meeting_id = crate::MeetingId::parse(id)?;
+        let restored = self.repository.set_meeting_trashed(meeting_id, None)?;
+        if let Some(mut job) = self.repository.meeting_job(meeting_id)? {
+            if job.status == crate::JobStatus::Cancelled {
+                job.manual_retry(self.clock.now());
+                self.repository.save_meeting_job(&job)?;
+            }
+        }
+        Ok(restored)
+    }
+
+    pub fn trashed(&self) -> Result<Vec<crate::Meeting>, CoreError> {
+        self.repository.trashed_meetings()
+    }
+
+    /// As que passaram dos 30 dias na lixeira.
+    pub fn expired_trash(&self) -> Result<Vec<crate::Meeting>, CoreError> {
+        let now = self.clock.now();
+        Ok(self
+            .repository
+            .trashed_meetings()?
+            .into_iter()
+            .filter(|meeting| crate::meeting_pipeline::trash_expired(meeting, now))
+            .collect())
+    }
+
+    // ------------------------------------------------------------------------
+    // Corte
+    // ------------------------------------------------------------------------
+
+    /// Ajusta a faixa que conta. Reprocessa so o que precisa.
+    pub fn set_trim(
+        &self,
+        id: &str,
+        start_ms: i64,
+        end_ms: i64,
+        origin: crate::TrimOrigin,
+    ) -> Result<TrimOutcome, CoreError> {
+        let mut meeting = self.meeting(id)?;
+        if meeting.status.is_capturing() {
+            return Err(CoreError::new(
+                crate::ErrorCode::InvalidTransition,
+                "Encerre a gravacao antes de ajustar o inicio e o fim.",
+                false,
+            ));
+        }
+        if matches!(
+            meeting.status,
+            crate::MeetingStatus::Transcribing | crate::MeetingStatus::Analyzing
+        ) {
+            return Err(CoreError::new(
+                crate::ErrorCode::InvalidTransition,
+                "A reuniao esta sendo processada. Ajuste o corte quando ela terminar.",
+                true,
+            ));
+        }
+        let duration = meeting.duration_ms.max(0);
+        let start = start_ms.clamp(0, duration);
+        let end = end_ms.clamp(0, duration);
+        if end <= start {
+            return Err(CoreError::new(
+                crate::ErrorCode::InvalidInput,
+                "O fim precisa vir depois do inicio.",
+                false,
+            ));
+        }
+
+        let (old_start, old_end) = meeting.effective_range();
+        let full = start == 0 && end == duration;
+        meeting.trim_start_ms = (start > 0).then_some(start);
+        meeting.trim_end_ms = (end < duration).then_some(end);
+        meeting.trim_origin = (!full).then_some(origin);
+        meeting.updated_at = self.clock.now();
+
+        let has_transcript = matches!(
+            meeting.status,
+            crate::MeetingStatus::Transcribed
+                | crate::MeetingStatus::Ready
+                | crate::MeetingStatus::Failed(crate::FailedStage::Analysis)
+        );
+        let shrinks = start >= old_start && end <= old_end;
+
+        if !has_transcript {
+            let meeting = self.repository.save_meeting(&meeting)?;
+            return Ok(TrimOutcome {
+                meeting,
+                requeued: None,
+                removed_segments: 0,
+            });
+        }
+
+        if shrinks {
+            let meeting = self.repository.save_meeting(&meeting)?;
+            let removed = self
+                .repository
+                .remove_segments_outside(meeting.id, start, end)?;
+            let requeued = if removed > 0 && self.repository.analysis(meeting.id)?.is_some() {
+                self.queue(id, crate::JobStage::Analysis)?;
+                Some(crate::JobStage::Analysis)
+            } else {
+                None
+            };
+            return Ok(TrimOutcome {
+                meeting: self.meeting(id)?,
+                requeued,
+                removed_segments: removed,
+            });
+        }
+
+        if meeting.audio_deleted_at.is_some() {
+            return Err(CoreError::new(
+                crate::ErrorCode::InvalidTransition,
+                "O audio desta reuniao ja foi apagado, entao a faixa nao pode crescer.",
+                false,
+            ));
+        }
+        let meeting = crate::apply_meeting(
+            &meeting,
+            crate::MeetingTransition::Reprocess,
+            self.clock.now(),
+        )?;
+        let meeting = self.repository.save_meeting(&meeting)?;
+        self.queue(id, crate::JobStage::Transcription)?;
+        Ok(TrimOutcome {
+            meeting,
+            requeued: Some(crate::JobStage::Transcription),
+            removed_segments: 0,
+        })
+    }
+
+    /// Volta a faixa inteira.
+    pub fn clear_trim(&self, id: &str) -> Result<TrimOutcome, CoreError> {
+        let meeting = self.meeting(id)?;
+        self.set_trim(id, 0, meeting.duration_ms, crate::TrimOrigin::Manual)
+    }
+
+    /// A sugestao de corte feita pela transcricao, quando o Guardian nao sabia.
+    pub fn transcript_trim_suggestion(&self, id: &str) -> Result<Option<i64>, CoreError> {
+        let meeting = self.meeting(id)?;
+        if meeting.trim_end_ms.is_some() {
+            return Ok(None);
+        }
+        if let Some(end) = meeting
+            .suggested_end_ms
+            .filter(|end| meeting.duration_ms - end >= crate::meeting_guardian::TRIM_MIN_EXCESS_MS)
+        {
+            return Ok(Some(end));
+        }
+        let segments = self.transcript(id)?;
+        Ok(crate::meeting_guardian::trim_suggestion_from_segments(
+            segments.iter().map(|segment| segment.end_ms),
+            meeting.duration_ms,
+        ))
+    }
+
+    // ------------------------------------------------------------------------
+    // Momentos e metrica
+    // ------------------------------------------------------------------------
+
+    pub fn add_bookmark(&self, id: &str, at_ms: i64) -> Result<crate::MeetingBookmark, CoreError> {
+        let bookmark = crate::MeetingBookmark {
+            id: crate::BookmarkId::new(),
+            meeting_id: crate::MeetingId::parse(id)?,
+            at_ms: at_ms.max(0),
+            note: String::new(),
+            created_at: self.clock.now(),
+        };
+        self.repository.add_meeting_bookmark(&bookmark)?;
+        Ok(bookmark)
+    }
+
+    pub fn bookmarks(&self, id: &str) -> Result<Vec<crate::MeetingBookmark>, CoreError> {
+        self.repository
+            .meeting_bookmarks(crate::MeetingId::parse(id)?)
+    }
+
+    pub fn delete_bookmark(&self, bookmark_id: &str) -> Result<(), CoreError> {
+        self.repository
+            .delete_meeting_bookmark(crate::BookmarkId::parse(bookmark_id)?)
+    }
+
+    pub fn record_guardian_event(
+        &self,
+        id: &str,
+        kind: &str,
+        confidence: Option<f32>,
+        trigger: &str,
+        excess_ms: Option<i64>,
+    ) -> Result<(), CoreError> {
+        self.repository
+            .record_guardian_event(&crate::GuardianEventRecord {
+                meeting_id: crate::MeetingId::parse(id)?,
+                at: self.clock.now(),
+                kind: kind.to_owned(),
+                confidence,
+                trigger: trigger.to_owned(),
+                excess_ms,
+            })
+    }
+
+    pub fn guardian_counts(&self) -> Result<Vec<(String, i64)>, CoreError> {
+        self.repository.guardian_event_counts()
+    }
+
+    // ------------------------------------------------------------------------
+    // Itens
+    // ------------------------------------------------------------------------
+
+    /// Le os marcadores das notas e grava como itens escritos.
+    pub fn apply_written_insights(&self, id: &str) -> Result<usize, CoreError> {
+        let meeting = self.meeting(id)?;
+        let insights = crate::meeting_text::written_insights(meeting.id, &meeting.notes);
+        self.repository
+            .replace_written_insights(meeting.id, insights)
+    }
+
+    /// Interpreta os prazos dos itens, na referencia do inicio da reuniao.
+    ///
+    /// `offset` e o fuso de quem gravou: o dominio nao conhece fuso, e "amanha"
+    /// depende dele.
+    pub fn resolve_dues(&self, id: &str, offset: time::UtcOffset) -> Result<usize, CoreError> {
+        let meeting = self.meeting(id)?;
+        let reference = meeting.started_at.to_offset(offset);
+        let mut resolved = 0;
+        for insight in self.repository.insights(meeting.id)? {
+            if insight.due_at.is_some() {
+                continue;
+            }
+            let Some(expression) = insight.due_hint.as_deref() else {
+                continue;
+            };
+            if let Some(due) = crate::meeting_dates::resolve_due(expression, reference) {
+                self.repository.set_insight_due(
+                    insight.id,
+                    Some(due.resolved_at),
+                    Some(due.confidence),
+                )?;
+                resolved += 1;
+            }
+        }
+        Ok(resolved)
+    }
+
+    /// Um item criado pela pessoa a partir de um trecho da transcricao.
+    pub fn add_manual_insight(
+        &self,
+        id: &str,
+        segment_id: &str,
+        kind: crate::InsightKind,
+        text: Option<&str>,
+    ) -> Result<crate::MeetingInsight, CoreError> {
+        let meeting = self.meeting(id)?;
+        let segment_id = crate::SegmentId::parse(segment_id)?;
+        let segment = self
+            .transcript(id)?
+            .into_iter()
+            .find(|segment| segment.id == segment_id)
+            .ok_or_else(|| {
+                CoreError::new(crate::ErrorCode::NotFound, "Trecho nao encontrado.", false)
+            })?;
+        let text = text
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                segment
+                    .text_normalized
+                    .clone()
+                    .unwrap_or_else(|| segment.text.clone())
+            });
+        self.repository.add_manual_insight(crate::MeetingInsight {
+            id: crate::InsightId::new(),
+            meeting_id: meeting.id,
+            kind,
+            seq: 0,
+            text,
+            owner: None,
+            due_hint: crate::meeting_dates::find_due_expression(&segment.text),
+            confidence: crate::Confidence::High,
+            status: crate::InsightStatus::Proposed,
+            created_task_id: None,
+            created_reminder_id: None,
+            evidence: vec![crate::MeetingEvidence {
+                segment_id,
+                seq: 0,
+                char_start: None,
+                char_end: None,
+            }],
+            origin: crate::InsightOrigin::Manual,
+            due_at: None,
+            due_confidence: None,
+        })
+    }
+
+    /// A revisao em lote: cria as Tasks marcadas numa transacao so.
+    ///
+    /// Tres coisas que o item sozinho da V1 nao fazia:
+    ///
+    /// - **prazo nativo** — `Task.due_at` recebe o que a tela confirmou;
+    /// - **espera** — compromisso de outra pessoa nasce aguardando ela, e entra
+    ///   no Waiting For que o piloto ja cobra;
+    /// - **sem duplicata** — Task ativa com o mesmo titulo no mesmo Project,
+    ///   criada nos ultimos 14 dias, recebe o vinculo em vez de uma gemea.
+    pub fn accept_batch(
+        &self,
+        accepts: Vec<crate::AcceptInsight>,
+    ) -> Result<Vec<crate::AcceptedInsight>, CoreError> {
+        if accepts.is_empty() {
+            return Ok(Vec::new());
+        }
+        let now = self.clock.now();
+        let recent = self
+            .repository
+            .recent_open_tasks(now - time::Duration::days(DEDUPE_TASK_DAYS))?;
+
+        let mut items = Vec::with_capacity(accepts.len());
+        let mut keys_in_batch: Vec<(String, Option<crate::ProjectId>)> = Vec::new();
+        for accept in accepts {
+            let meeting_id = self.repository.insights_meeting(accept.insight_id)?;
+            let meeting = self.repository.meeting(meeting_id)?;
+            let insight = self
+                .repository
+                .insights(meeting_id)?
+                .into_iter()
+                .find(|insight| insight.id == accept.insight_id)
+                .ok_or_else(|| {
+                    CoreError::new(
+                        crate::ErrorCode::NotFound,
+                        "Item de reuniao nao encontrado.",
+                        false,
+                    )
+                })?;
+
+            let key = crate::meeting_text::normalized_key(&accept.title);
+            if keys_in_batch
+                .iter()
+                .any(|(other, project)| *other == key && *project == accept.project_id)
+            {
+                return Err(CoreError::new(
+                    crate::ErrorCode::InvalidInput,
+                    "Dois itens do lote viram a mesma Task. Desmarque um deles.",
+                    false,
+                ));
+            }
+            keys_in_batch.push((key.clone(), accept.project_id));
+
+            let link_existing = recent
+                .iter()
+                .find(|(_, title, project)| {
+                    *project == accept.project_id
+                        && crate::meeting_text::normalized_key(title) == key
+                })
+                .map(|(task, _, _)| *task);
+
+            let description = if accept.description.trim().is_empty() {
+                format!("Da reuniao \"{}\"", meeting.title)
+            } else {
+                accept.description.clone()
+            };
+            let task = crate::NewTask::create(&accept.title, &description, accept.project_id)?
+                .with_due_at(accept.due_at);
+            let reminder = match accept.remind_at {
+                Some(instant) if link_existing.is_none() => Some(
+                    crate::NewReminder::at(
+                        &accept.title,
+                        &format!("Da reuniao \"{}\"", meeting.title),
+                        instant,
+                        self.clock.as_ref(),
+                    )?
+                    .with_target(crate::ReminderTarget::Task(task.id)),
+                ),
+                _ => None,
+            };
+            let waiting_for = insight.kind.is_external().then(|| {
+                insight
+                    .owner
+                    .clone()
+                    .filter(|owner| !owner.trim().is_empty())
+                    .unwrap_or_else(|| "outra pessoa".to_owned())
+            });
+            items.push(crate::BatchAcceptItem {
+                accept,
+                task,
+                reminder,
+                waiting_for,
+                link_existing,
+            });
+        }
+        self.repository.accept_insights_batch(items)
+    }
+
+    /// A projecao V2 da analise.
+    pub fn analysis_v2(&self, id: &str) -> Result<crate::MeetingAnalysisV2, CoreError> {
+        let summary = self
+            .analysis(id)?
+            .map(|analysis| analysis.summary)
+            .unwrap_or_default();
+        Ok(crate::MeetingAnalysisV2::project(
+            &summary,
+            &self.insights(id)?,
+        ))
+    }
+
+    // ------------------------------------------------------------------------
+    // Lista
+    // ------------------------------------------------------------------------
+
+    /// A lista com fase, progresso e contagens.
+    pub fn overview(&self, include_archived: bool) -> Result<Vec<MeetingOverview>, CoreError> {
+        let jobs = self.repository.meeting_jobs()?;
+        let mut rows = Vec::new();
+        for meeting in self.repository.meetings(include_archived)? {
+            rows.push(self.overview_of(meeting, &jobs)?);
+        }
+        Ok(rows)
+    }
+
+    pub fn overview_one(&self, id: &str) -> Result<MeetingOverview, CoreError> {
+        let meeting = self.meeting(id)?;
+        let jobs: Vec<crate::MeetingJob> = self
+            .repository
+            .meeting_job(meeting.id)?
+            .into_iter()
+            .collect();
+        self.overview_of(meeting, &jobs)
+    }
+
+    fn overview_of(
+        &self,
+        meeting: crate::Meeting,
+        jobs: &[crate::MeetingJob],
+    ) -> Result<MeetingOverview, CoreError> {
+        let job = jobs
+            .iter()
+            .find(|job| job.meeting_id == meeting.id)
+            .cloned();
+        let insights = self.repository.insights(meeting.id)?;
+        let live = |kind: &[crate::InsightKind]| {
+            insights
+                .iter()
+                .filter(|i| kind.contains(&i.kind) && i.status != crate::InsightStatus::Dismissed)
+                .count()
+        };
+        let pending_actions = insights
+            .iter()
+            .filter(|i| i.status == crate::InsightStatus::Proposed && i.kind.is_actionable())
+            .count();
+        let tasks_created = insights
+            .iter()
+            .filter(|i| i.created_task_id.is_some())
+            .count();
+        let phase = crate::meeting_phase(&meeting, job.as_ref());
+        let progress = crate::pipeline_progress(&meeting, job.as_ref());
+        let attention = match phase {
+            crate::MeetingPhase::NeedsAttention => job
+                .as_ref()
+                .and_then(|job| job.last_error_message.clone())
+                .or_else(|| meeting.failure.as_ref().map(|f| f.message.clone()))
+                .unwrap_or_else(|| "Esta reunião precisa de você.".to_owned()),
+            crate::MeetingPhase::FailedRecoverable => {
+                "A transcrição não deu certo. O áudio está seguro.".to_owned()
+            }
+            _ => String::new(),
+        };
+        Ok(MeetingOverview {
+            decisions: live(&[crate::InsightKind::Decision]),
+            waiting: live(&[
+                crate::InsightKind::OtherAction,
+                crate::InsightKind::Commitment,
+            ]),
+            questions: live(&[crate::InsightKind::OpenQuestion]),
+            meeting,
+            phase,
+            progress,
+            job,
+            pending_actions,
+            tasks_created,
+            attention,
+        })
     }
 }
 

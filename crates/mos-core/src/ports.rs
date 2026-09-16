@@ -884,6 +884,102 @@ pub trait MeetingRepository: Send + Sync {
     ) -> Result<Vec<(crate::Meeting, String)>, CoreError>;
 
     fn rebuild_meeting_search(&self) -> Result<usize, CoreError>;
+
+    // --- V2: lixeira ------------------------------------------------------
+
+    /// As reunioes na lixeira, da mais recente para a mais antiga.
+    fn trashed_meetings(&self) -> Result<Vec<crate::Meeting>, CoreError>;
+
+    /// Manda para a lixeira (`Some`) ou tira dela (`None`).
+    fn set_meeting_trashed(
+        &self,
+        id: crate::MeetingId,
+        at: Option<time::OffsetDateTime>,
+    ) -> Result<crate::Meeting, CoreError>;
+
+    // --- V2: pipeline -------------------------------------------------------
+
+    fn meeting_job(&self, id: crate::MeetingId) -> Result<Option<crate::MeetingJob>, CoreError>;
+
+    /// Todos os jobs, para a lista mostrar progresso sem N consultas.
+    fn meeting_jobs(&self) -> Result<Vec<crate::MeetingJob>, CoreError>;
+
+    /// Grava o job inteiro (insert ou update). Uma linha por reuniao.
+    fn save_meeting_job(&self, job: &crate::MeetingJob) -> Result<(), CoreError>;
+
+    // --- V2: momentos, metrica ----------------------------------------------
+
+    fn add_meeting_bookmark(&self, bookmark: &crate::MeetingBookmark) -> Result<(), CoreError>;
+    fn meeting_bookmarks(
+        &self,
+        id: crate::MeetingId,
+    ) -> Result<Vec<crate::MeetingBookmark>, CoreError>;
+    fn delete_meeting_bookmark(&self, id: crate::BookmarkId) -> Result<(), CoreError>;
+
+    fn record_guardian_event(&self, event: &crate::GuardianEventRecord) -> Result<(), CoreError>;
+    /// Contagem por `kind`, de todas as reunioes. Metrica local.
+    fn guardian_event_counts(&self) -> Result<Vec<(String, i64)>, CoreError>;
+
+    // --- V2: itens ------------------------------------------------------------
+
+    /// Troca os itens ESCRITOS (marcadores das notas) que ainda nao foram
+    /// resolvidos. Aceitos e descartados ficam — a pessoa ja decidiu sobre eles.
+    fn replace_written_insights(
+        &self,
+        id: crate::MeetingId,
+        insights: Vec<crate::MeetingInsight>,
+    ) -> Result<usize, CoreError>;
+
+    /// Um item criado pela pessoa a partir de um trecho da transcricao.
+    fn add_manual_insight(
+        &self,
+        insight: crate::MeetingInsight,
+    ) -> Result<crate::MeetingInsight, CoreError>;
+
+    /// Grava o prazo interpretado de um item.
+    fn set_insight_due(
+        &self,
+        insight_id: crate::InsightId,
+        due_at: Option<time::OffsetDateTime>,
+        confidence: Option<crate::Confidence>,
+    ) -> Result<(), CoreError>;
+
+    /// A revisao em lote: todas as Tasks, lembretes e vinculos numa transacao.
+    ///
+    /// Tudo ou nada. Criar quatro de seis Tasks e falhar na quinta deixaria a
+    /// pessoa sem saber quais existem — pior que nao ter criado nenhuma.
+    fn accept_insights_batch(
+        &self,
+        items: Vec<crate::BatchAcceptItem>,
+    ) -> Result<Vec<crate::AcceptedInsight>, CoreError>;
+
+    /// Tasks ativas e abertas criadas desde `since`, para a deduplicacao.
+    fn recent_open_tasks(
+        &self,
+        since: time::OffsetDateTime,
+    ) -> Result<Vec<(crate::TaskId, String, Option<crate::ProjectId>)>, CoreError>;
+
+    // --- V2: transcricao ------------------------------------------------------
+
+    /// Remove os segmentos fora de `[start_ms, end_ms)` — o corte aplicado a uma
+    /// transcricao que ja existe. Devolve quantos sairam.
+    fn remove_segments_outside(
+        &self,
+        id: crate::MeetingId,
+        start_ms: i64,
+        end_ms: i64,
+    ) -> Result<usize, CoreError>;
+
+    /// Grava a leitura normalizada, segmento a segmento. `text` nao e tocado.
+    fn save_normalized_transcript(
+        &self,
+        id: crate::MeetingId,
+        rows: Vec<(
+            crate::SegmentId,
+            Option<String>,
+            Vec<crate::meeting_text::Correction>,
+        )>,
+    ) -> Result<(), CoreError>;
 }
 
 pub trait DataMaintenance: Send + Sync {

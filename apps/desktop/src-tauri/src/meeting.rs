@@ -1315,6 +1315,8 @@ async fn consolidate(
         topics,
         insights,
         rejections,
+        title: None,
+        project_hint: None,
     })
 }
 
@@ -1381,6 +1383,7 @@ pub fn meeting_accept_insight(
             .map(mos_core::ProjectId::parse)
             .transpose()?,
         remind_at,
+        due_at: None,
     })?;
 
     let _ = app.emit("data-changed", "meeting-insight");
