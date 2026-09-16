@@ -14,7 +14,7 @@ import { SyncChip, SyncHealth } from "./SyncHealth";
 import { RescueMode } from "./RescueMode";
 import { EncerrarDia } from "./EncerrarDia";
 import { AutopilotToast, useAutopilotAvisos } from "./AutopilotToast";
-import type { AvisoDoAutopilot, Panorama, SaudeDoSync } from "./types";
+import type { AvisoDoAutopilot, Meeting, Panorama, SaudeDoSync } from "./types";
 import { arrangeHome, fillBand, HOME_SECTIONS, HOME_SIZES, HOME_WIDGETS, moveInArrangement, placementsFor, touchedSections, type ArrangedWidget, type HomeWidgetRole, type HomeWidgetSpan, type PlacedWidget } from "./homeLayout";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
 import { hermes, type HermesConnectionState } from "./hermes";
@@ -102,7 +102,7 @@ type DailyProps = {
 };
 
 type Theme = "dark" | "light";
-type CommandResult = SearchItem | { kind: "function"; function: FunctionDefinition };
+type CommandResult = SearchItem | { kind: "function"; function: FunctionDefinition } | { kind: "meeting"; meeting: Meeting; snippet: string };
 type FunctionIntent = { target: FunctionIntentTarget; key: number };
 
 // A ordem e a ordem das colunas do kanban. DOING e a unica coluna em sodio:
@@ -2528,8 +2528,8 @@ function CaptureViewer({ capture, close }: { capture: Capture; close: () => void
  * A divisao agora segue `UX-PRINCIPLES.md` §13: o Command encontra e executa, a
  * pagina Hermes conversa. Quem quer perguntar vai para a pagina — que e onde a
  * conversa fica guardada. */
-function CommandSurface({ close, closing = false, openCapture, openTask, openProject, openWorkspace, openApp, openResource, openDailySession, routeFunction }: {
-  closing?: boolean; close: () => void; openCapture: (capture: Capture) => void; openTask: (task: Task) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openDailySession: (sessionId: string) => void; routeFunction: (definition: FunctionDefinition) => void }) {
+function CommandSurface({ close, closing = false, openCapture, openTask, openProject, openWorkspace, openApp, openResource, openDailySession, openMeeting, routeFunction }: {
+  closing?: boolean; close: () => void; openMeeting: (id: string) => void; openCapture: (capture: Capture) => void; openTask: (task: Task) => void; openProject: (project: Project) => void; openWorkspace: (workspace: Workspace) => void; openApp: (app: RegisteredApp) => void; openResource: (resource: Resource) => void; openDailySession: (sessionId: string) => void; routeFunction: (definition: FunctionDefinition) => void }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CommandResult[]>([]);
   const [includeArchived, setIncludeArchived] = useState(false);
@@ -2558,9 +2558,9 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
 
   async function searchCommand(requestId: number) {
     try {
-      const [items, resources, functions] = await Promise.all([api.search(query, includeArchived), api.searchResources(query, includeArchived), api.searchFunctions(query)]);
+      const [items, resources, functions, meetings] = await Promise.all([api.search(query, includeArchived), api.searchResources(query, includeArchived), api.searchFunctions(query), api.meetingSearch(query).catch(() => [])]);
       if (requestId !== searchSequence.current) return;
-      setResults([...items, ...resources.map((resource) => ({ kind: "resource" as const, resource })), ...functions.map((definition) => ({ kind: "function" as const, function: definition }))]);
+      setResults([...items, ...resources.map((resource) => ({ kind: "resource" as const, resource })), ...meetings.map((hit) => ({ kind: "meeting" as const, meeting: hit.meeting, snippet: hit.snippet })), ...functions.map((definition) => ({ kind: "function" as const, function: definition }))]);
       setActiveIndex(0);
       setError("");
     } catch (nextError) {
@@ -2587,6 +2587,7 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
   function openItem(item: CommandResult) {
     close();
     if (item.kind === "function") routeFunction(item.function);
+    else if (item.kind === "meeting") openMeeting(item.meeting.id);
     else if (item.kind === "project") openProject(item.project);
     else if (item.kind === "workspace") openWorkspace(item.workspace);
     else if (item.kind === "task") openTask(item.task);
@@ -2646,9 +2647,9 @@ function CommandSurface({ close, closing = false, openCapture, openTask, openPro
           {!query ? <div className="command-prompt"><span className="micro-label">ENCONTRAR E EXECUTAR</span><p>Busque Tasks, Projects, Captures, Resources, Apps e comandos.</p></div> : null}
           {query && !searching && !error && !results.length ? <div className="command-prompt"><span className="micro-label">SEM RESULTADOS</span><p>Nada corresponde a “{query}”.</p></div> : null}
           {results.map((item, index) => {
-            const type = item.kind === "function" ? "FUNCTION" : item.kind === "project" ? "PROJECT" : item.kind === "workspace" ? "WORKSPACE" : item.kind === "task" ? "TASK" : item.kind === "app" ? "APP" : item.kind === "resource" ? "RESOURCE" : item.kind === "daily_objective" ? "OBJETIVO" : item.derivedTask ? "TASK + CAPTURE" : "CAPTURE";
-            const title = item.kind === "function" ? item.function.name : item.kind === "project" ? item.project.name : item.kind === "workspace" ? item.workspace.name : item.kind === "task" ? item.task.title : item.kind === "app" ? item.app.name : item.kind === "resource" ? item.resource.title : item.kind === "daily_objective" ? item.objective.title : item.derivedTask?.title ?? item.capture.content;
-            const context = item.kind === "function" ? `${item.function.id} · risco ${functionRiskLabels[item.function.risk]}` : item.kind === "project" ? item.project.description : item.kind === "workspace" ? item.workspace.description : item.kind === "task" ? item.project?.name : item.kind === "app" ? item.app.description || item.app.launchTarget || "" : item.kind === "resource" ? `${resourceHost(item.resource.url)}${item.resource.note ? ` · ${item.resource.note}` : ""}` : item.kind === "daily_objective" ? dataPorExtenso(item.day) : item.project?.name ?? item.capture.content;
+            const type = item.kind === "meeting" ? "REUNIÃO" : item.kind === "function" ? "FUNCTION" : item.kind === "project" ? "PROJECT" : item.kind === "workspace" ? "WORKSPACE" : item.kind === "task" ? "TASK" : item.kind === "app" ? "APP" : item.kind === "resource" ? "RESOURCE" : item.kind === "daily_objective" ? "OBJETIVO" : item.derivedTask ? "TASK + CAPTURE" : "CAPTURE";
+            const title = item.kind === "meeting" ? item.meeting.title : item.kind === "function" ? item.function.name : item.kind === "project" ? item.project.name : item.kind === "workspace" ? item.workspace.name : item.kind === "task" ? item.task.title : item.kind === "app" ? item.app.name : item.kind === "resource" ? item.resource.title : item.kind === "daily_objective" ? item.objective.title : item.derivedTask?.title ?? item.capture.content;
+            const context = item.kind === "meeting" ? (item.snippet || new Date(item.meeting.startedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })) : item.kind === "function" ? `${item.function.id} · risco ${functionRiskLabels[item.function.risk]}` : item.kind === "project" ? item.project.description : item.kind === "workspace" ? item.workspace.description : item.kind === "task" ? item.project?.name : item.kind === "app" ? item.app.description || item.app.launchTarget || "" : item.kind === "resource" ? `${resourceHost(item.resource.url)}${item.resource.note ? ` · ${item.resource.note}` : ""}` : item.kind === "daily_objective" ? dataPorExtenso(item.day) : item.project?.name ?? item.capture.content;
             return <button id={`command-result-${index}`} role="option" aria-selected={index === activeIndex} data-active={index === activeIndex || undefined} key={`${item.kind}-${index}-${title}`} className="command-row" onFocus={() => setActiveIndex(index)} onMouseEnter={() => setActiveIndex(index)} onClick={() => openItem(item)}><span>{type}</span><strong>{title}</strong><small>{context}</small></button>;
           })}
         </div>
@@ -3551,7 +3552,7 @@ function DesktopApp() {
       onRecibo={(message, run) => showReceipt({ message, run })}
       refresh={refresh}
       onOcupacao={setDropOcupado}
-    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} openDailySession={(sessionId) => { void api.dailySession(sessionId).then((carregada) => setFluxoDoDia({ tipo: "sessao", carregada })).catch(() => undefined); }} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} tasks={tasks} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} openTask={setDrawerTask} remind={() => setComposer({ title: drawerTask.title, target: { type: "task", id: drawerTask.id }, targetLabel: "TASK" })} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}<Argos pose={argosPose} presenca={argosPresenca} canto={argosCanto} onAbrir={() => setAttentionOpen(true)} onAbrirHermes={() => navigate("hermes")} /><LazyMotion features={loadMotionFeatures} strict><AnimatePresence>{undo ? <m.div className="receipt" role="status" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></m.div> : null}</AnimatePresence></LazyMotion></div>;
+    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openMeeting={(id) => { setFocusedMeetingId(id); navigate("reunioes"); }} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} openDailySession={(sessionId) => { void api.dailySession(sessionId).then((carregada) => setFluxoDoDia({ tipo: "sessao", carregada })).catch(() => undefined); }} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} tasks={tasks} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} openTask={setDrawerTask} remind={() => setComposer({ title: drawerTask.title, target: { type: "task", id: drawerTask.id }, targetLabel: "TASK" })} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}<Argos pose={argosPose} presenca={argosPresenca} canto={argosCanto} onAbrir={() => setAttentionOpen(true)} onAbrirHermes={() => navigate("hermes")} /><LazyMotion features={loadMotionFeatures} strict><AnimatePresence>{undo ? <m.div className="receipt" role="status" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></m.div> : null}</AnimatePresence></LazyMotion></div>;
 }
 
 /**

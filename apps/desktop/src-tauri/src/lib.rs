@@ -2715,6 +2715,7 @@ pub fn run() {
                     meeting::meeting_audio_test,
                     meeting::meeting_guardian_stats,
                     meeting::meeting_debug,
+                    meeting::meeting_search,
                     jarvis::action_undo,
                     calendar::calendar_window,
                     academic::academic_dashboard,

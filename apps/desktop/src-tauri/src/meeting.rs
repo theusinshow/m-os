@@ -598,6 +598,43 @@ pub fn meeting_overview_one(
     state.meetings.overview_one(id)
 }
 
+/// Um resultado da busca global: a reuniao, e o trecho que a trouxe.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeetingSearchHit {
+    pub meeting: Meeting,
+    /// A fala que casou, quando veio da transcricao. Vazio quando veio do
+    /// titulo, do resumo ou de um item.
+    pub snippet: String,
+}
+
+/// A busca que atravessa reunioes — "quando falamos sobre o perfil W?".
+///
+/// Uma reuniao, um resultado: primeiro o que casa no titulo, resumo e itens;
+/// depois o que casa so na fala, com o trecho (§15.2).
+#[tauri::command]
+pub fn meeting_search(
+    state: tauri::State<'_, AppState>,
+    query: &str,
+) -> Result<Vec<MeetingSearchHit>, CoreError> {
+    let mut hits: Vec<MeetingSearchHit> = state
+        .meetings
+        .search(query, 8)?
+        .into_iter()
+        .map(|meeting| MeetingSearchHit {
+            meeting,
+            snippet: String::new(),
+        })
+        .collect();
+    for (meeting, snippet) in state.meetings.search_transcripts(query, 8)? {
+        if hits.iter().all(|hit| hit.meeting.id != meeting.id) {
+            hits.push(MeetingSearchHit { meeting, snippet });
+        }
+    }
+    hits.truncate(8);
+    Ok(hits)
+}
+
 #[tauri::command]
 pub fn meeting_get(state: tauri::State<'_, AppState>, id: &str) -> Result<Meeting, CoreError> {
     state.meetings.meeting(id)

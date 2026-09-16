@@ -545,6 +545,9 @@ export const api = {
   meetingGuardianStats() {
     return invoke<{ counts: [string, number][] }>("meeting_guardian_stats");
   },
+  meetingSearch(query: string) {
+    return invoke<{ meeting: Meeting; snippet: string }[]>("meeting_search", { query });
+  },
   meetingDebug(id: string) {
     return invoke<Record<string, unknown>>("meeting_debug", { id });
   },
