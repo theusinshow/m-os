@@ -35,6 +35,10 @@ pub enum TipoDeAtencao {
     StaleTask,
     SchedulingConflict,
     ReminderDue,
+    /// Reuniao pronta com acoes por revisar.
+    MeetingReview,
+    /// Reuniao que nao anda sozinha: transcritor ausente, sem audio, falha.
+    MeetingNeedsAttention,
 }
 
 impl TipoDeAtencao {
@@ -51,6 +55,8 @@ impl TipoDeAtencao {
             Self::StaleTask => "stale_task",
             Self::SchedulingConflict => "scheduling_conflict",
             Self::ReminderDue => "reminder_due",
+            Self::MeetingReview => "meeting_review",
+            Self::MeetingNeedsAttention => "meeting_needs_attention",
         }
     }
 }
@@ -60,16 +66,35 @@ impl TipoDeAtencao {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "acao", rename_all = "snake_case")]
 pub enum AcaoRecomendada {
-    ComecarTask { id: String },
-    AbrirTask { id: String },
-    ReagendarTask { id: String, para: String },
-    Cobrar { id: String, quem: String },
+    ComecarTask {
+        id: String,
+    },
+    AbrirTask {
+        id: String,
+    },
+    ReagendarTask {
+        id: String,
+        para: String,
+    },
+    Cobrar {
+        id: String,
+        quem: String,
+    },
     ProcessarInbox,
     AbrirSync,
-    AbrirAcademico { tipo: String, id: String },
+    AbrirAcademico {
+        tipo: String,
+        id: String,
+    },
     EncerrarDia,
     IniciarDia,
-    AbrirLembrete { id: String },
+    AbrirLembrete {
+        id: String,
+    },
+    /// Abre a reuniao — na revisao das acoes, quando houver.
+    AbrirReuniao {
+        id: String,
+    },
     Nenhuma,
 }
 
@@ -367,6 +392,62 @@ pub fn compor_atencao(r: &Retrato<'_>) -> Vec<ItemDeAtencao> {
         });
     }
 
+    // ---- reunioes ---------------------------------------------------------
+    //
+    // So duas perguntas: ha acoes esperando revisao, e ha reuniao que nao anda
+    // sozinha. Processando nao e atencao — o M/OS esta cuidando, e dizer isso
+    // na lista do "precisa de voce" ensinaria a pessoa a ignorar a lista.
+    for reuniao in r.reunioes {
+        use crate::MeetingPhase::*;
+        match reuniao.fase {
+            NeedsAttention | FailedRecoverable => itens.push(ItemDeAtencao {
+                tipo: TipoDeAtencao::MeetingNeedsAttention,
+                severidade: Severidade::Media,
+                titulo: reuniao.titulo.clone(),
+                descricao: reuniao.atencao.clone(),
+                alvo: Alvo::meeting(&reuniao.id),
+                razoes: vec![if reuniao.atencao.is_empty() {
+                    "a reunião precisa de você".into()
+                } else {
+                    reuniao.atencao.clone()
+                }],
+                desde: rfc(reuniao.quando),
+                acao: AcaoRecomendada::AbrirReuniao {
+                    id: reuniao.id.clone(),
+                },
+                peso: 10,
+            }),
+            Ready | PartiallyReady if reuniao.acoes_pendentes > 0 => {
+                let dias = dias_entre(&r.dia_de(reuniao.quando), &hoje);
+                itens.push(ItemDeAtencao {
+                    tipo: TipoDeAtencao::MeetingReview,
+                    // Revisar logo e barato; revisar uma semana depois e
+                    // reconstruir de memoria. A severidade sobe com o tempo, e
+                    // nunca passa de media: ninguem se atrasa por nao revisar.
+                    severidade: if dias >= 2 {
+                        Severidade::Media
+                    } else {
+                        Severidade::Baixa
+                    },
+                    titulo: reuniao.titulo.clone(),
+                    descricao: if reuniao.acoes_pendentes == 1 {
+                        "1 ação encontrada".into()
+                    } else {
+                        format!("{} ações encontradas", reuniao.acoes_pendentes)
+                    },
+                    alvo: Alvo::meeting(&reuniao.id),
+                    razoes: vec!["reunião pronta, com ações por revisar".into()],
+                    desde: rfc(reuniao.quando),
+                    acao: AcaoRecomendada::AbrirReuniao {
+                        id: reuniao.id.clone(),
+                    },
+                    peso: reuniao.acoes_pendentes as i32 + dias as i32,
+                });
+            }
+            _ => {}
+        }
+    }
+
     // ---- academico --------------------------------------------------------
     for c in r.academic {
         if c.decision != crate::Decision::None {
@@ -641,6 +722,53 @@ mod tests {
     use super::*;
     use crate::Day;
     use time::Duration;
+
+    fn reuniao(
+        fase: crate::MeetingPhase,
+        acoes: usize,
+        dias: i64,
+    ) -> super::super::ReuniaoNoRetrato {
+        super::super::ReuniaoNoRetrato {
+            id: "r1".into(),
+            titulo: "Revisão estrutural".into(),
+            fase,
+            acoes_pendentes: acoes,
+            atencao: "O transcritor local não foi encontrado.".into(),
+            quando: agora() - Duration::days(dias),
+        }
+    }
+
+    #[test]
+    fn reuniao_pronta_com_acoes_vira_revisao_e_processando_nao_aparece() {
+        let mut c = Cenario::default();
+        c.reunioes.push(reuniao(crate::MeetingPhase::Ready, 3, 0));
+        c.reunioes
+            .push(reuniao(crate::MeetingPhase::Processing, 0, 0));
+        c.reunioes.push(reuniao(crate::MeetingPhase::Ready, 0, 0));
+        let itens = compor_atencao(&c.retrato());
+        let revisoes: Vec<_> = itens
+            .iter()
+            .filter(|i| i.tipo == TipoDeAtencao::MeetingReview)
+            .collect();
+        assert_eq!(revisoes.len(), 1);
+        assert_eq!(revisoes[0].descricao, "3 ações encontradas");
+        assert_eq!(revisoes[0].severidade, Severidade::Baixa);
+        assert!(matches!(
+            revisoes[0].acao,
+            AcaoRecomendada::AbrirReuniao { .. }
+        ));
+        assert_eq!(itens.len(), 1);
+    }
+
+    #[test]
+    fn reuniao_travada_pede_a_pessoa_com_a_frase_do_problema() {
+        let mut c = Cenario::default();
+        c.reunioes
+            .push(reuniao(crate::MeetingPhase::NeedsAttention, 0, 1));
+        let itens = compor_atencao(&c.retrato());
+        assert_eq!(itens[0].tipo, TipoDeAtencao::MeetingNeedsAttention);
+        assert!(itens[0].descricao.contains("transcritor"));
+    }
 
     #[test]
     fn task_vencida_e_urgente_depois_de_tres_dias() {

@@ -12,12 +12,15 @@ describe("proximoPasso", () => {
   it("gravada diz o que falta, porque foi essa palavra que enganou", () => {
     // 20/08: a reuniao ficou em `recorded`, a tela disse so "gravada", e a
     // leitura honesta de quem olhou foi "nao gravou nada".
+    // Na V2 o que falta acontece sozinho, e a frase diz isso em vez de mandar
+    // procurar um botao.
     const passo = proximoPasso("recorded");
-    expect(passo).toMatch(/transcrever/i);
+    expect(passo).toMatch(/salvo/i);
+    expect(passo).toMatch(/sozinha/i);
   });
 
-  it("transcrita aponta a analise", () => {
-    expect(proximoPasso("transcribed")).toMatch(/análise/i);
+  it("transcrita diz que a organizacao segue sozinha", () => {
+    expect(proximoPasso("transcribed")).toMatch(/sozinha/i);
   });
 
   it("o que esta em curso nao pede acao nenhuma", () => {

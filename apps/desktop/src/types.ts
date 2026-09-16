@@ -958,6 +958,131 @@ export type Meeting = {
    *  contexto e não gera item: o prompt exige `segment` por item, e uma nota não
    *  foi dita, foi escrita. */
   notes: string;
+  /** Por que a gravação parou. Diagnóstico, e não texto de tela. */
+  stopReason: StopReason | null;
+  /** O corte não destrutivo, em ms relativos. Os chunks ficam. */
+  trimStartMs: number | null;
+  trimEndMs: number | null;
+  trimOrigin: "manual" | "auto" | "suggested" | null;
+  trashedAt: string | null;
+  /** O programa que tinha o microfone quando a reunião começou. */
+  associatedApp: string | null;
+  /** Onde o Guardian acha que a conversa acabou, em ms relativos. */
+  suggestedEndMs: number | null;
+};
+
+export type StopReason =
+  | "manual" | "auto_meeting_ended" | "auto_inactivity" | "crash_recovery"
+  | "device_failure" | "app_exit";
+
+/** Reunião → Processando → Pronta. O estado técnico nunca chega à tela. */
+export type MeetingPhase =
+  | "recording" | "finalizing" | "processing" | "ready" | "partially_ready"
+  | "recovered" | "needs_attention" | "failed_recoverable" | "discarded";
+
+export type JobStage = "transcription" | "analysis";
+export type JobStatus = "queued" | "running" | "waiting_retry" | "needs_attention" | "done" | "cancelled";
+
+export type MeetingJob = {
+  meetingId: string;
+  stage: JobStage;
+  status: JobStatus;
+  attemptCount: number;
+  progress: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  lastErrorCode: string | null;
+  /** A frase para a pessoa. Nunca contém fala. */
+  lastErrorMessage: string | null;
+  nextRetryAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StepState = "done" | "active" | "pending" | "waiting" | "failed";
+export type PipelineProgress = {
+  steps: { key: "saved" | "audio" | "transcription" | "analysis" | "ready"; state: StepState }[];
+  /** Ponderada e medida. `null` quando não há o que medir. */
+  fraction: number | null;
+};
+
+/** Uma linha da lista, com o que a lista precisa mostrar. */
+export type MeetingOverview = {
+  meeting: Meeting;
+  phase: MeetingPhase;
+  progress: PipelineProgress;
+  job: MeetingJob | null;
+  pendingActions: number;
+  tasksCreated: number;
+  decisions: number;
+  waiting: number;
+  questions: number;
+  /** A frase quando algo precisa da pessoa. Vazia quando não. */
+  attention: string;
+};
+
+/** O progresso ao vivo, emitido pelo pipeline. */
+export type MeetingProgressEvent = {
+  meetingId: string;
+  stage: JobStage;
+  progress: number;
+  overall: number;
+  detail: string;
+};
+
+export type MeetingBookmark = {
+  id: string;
+  meetingId: string;
+  atMs: number;
+  note: string;
+  createdAt: string;
+};
+
+/** O que o Recording Guardian pede que a tela mostre. */
+export type GuardianView =
+  | { kind: "idle" }
+  | { kind: "ask"; prompt: "ended" | "long"; trigger: string; suggestedEndMs: number | null; excessMs: number }
+  | { kind: "countdown"; secondsLeft: number; trigger: string; suggestedEndMs: number | null; excessMs: number };
+
+export type GuardianConfig = {
+  warnOnEnd: boolean;
+  autoStop: boolean;
+  warnLong: boolean;
+};
+
+export type MeetingPreferences = {
+  autoProcess: boolean;
+  guardian: GuardianConfig;
+  retention: AudioRetention;
+  vocabulary: string[];
+};
+
+export type AudioTest = {
+  micOk: boolean;
+  systemOk: boolean;
+  systemSilent: boolean;
+  micLevel: number;
+  systemLevel: number;
+};
+
+export type TrimOutcome = {
+  meeting: Meeting;
+  requeued: JobStage | null;
+  removedSegments: number;
+};
+
+export type ProjectInference = {
+  projectId: string;
+  confidence: Confidence;
+  reason: string;
+};
+
+export type TranscriptCorrection = {
+  original: string;
+  term: string;
+  start: number;
+  end: number;
+  uncertain: boolean;
 };
 
 /** MIC é quem gravou; SYSTEM são os outros. É a distinção que a V1 protege. */
@@ -973,11 +1098,18 @@ export type TranscriptSegment = {
   text: string;
   speaker: string | null;
   confidence: number | null;
+  /** A leitura com o vocabulário aplicado. `null` = igual ao cru. */
+  textNormalized: string | null;
+  corrections: TranscriptCorrection[];
 };
 
 export type InsightKind =
-  | "decision" | "my_action" | "other_action" | "deadline"
-  | "follow_up" | "open_question" | "risk" | "topic";
+  | "decision" | "my_action" | "other_action" | "commitment" | "deadline"
+  | "follow_up" | "open_question" | "risk" | "dependency" | "reference" | "topic";
+
+/** De onde o item veio: dito (Hermes, com evidência), escrito (marcador nas
+ *  notas) ou criado pela pessoa a partir de um trecho. */
+export type InsightOrigin = "spoken" | "written" | "manual";
 
 export type Confidence = "high" | "medium" | "low";
 export type InsightStatus = "proposed" | "accepted" | "dismissed";
@@ -1004,6 +1136,10 @@ export type MeetingInsight = {
   createdTaskId: string | null;
   createdReminderId: string | null;
   evidence: MeetingEvidence[];
+  origin: InsightOrigin;
+  /** O prazo interpretado a partir de `dueHint` e do início da reunião. */
+  dueAt: string | null;
+  dueConfidence: Confidence | null;
 };
 
 export type MeetingAnalysis = {
@@ -1050,6 +1186,7 @@ export type MeetingTick = {
   /** Vem do átomo da sessão, e não do banco: a barra precisa parar de pulsar no
    *  MESMO instante em que o áudio para. */
   paused: boolean;
+  guardian: GuardianView;
 };
 
 export type TranscriberStatus = {
@@ -1803,7 +1940,8 @@ export type SeveridadeDeAtencao = "baixa" | "media" | "alta" | "urgente";
 export type TipoDeAtencao =
   | "overdue" | "upcoming_deadline" | "stale_waiting_for" | "unprocessed_capture"
   | "unsynced_changes" | "academic_deadline" | "unfinished_day" | "day_not_started"
-  | "stale_task" | "scheduling_conflict" | "reminder_due";
+  | "stale_task" | "scheduling_conflict" | "reminder_due"
+  | "meeting_review" | "meeting_needs_attention";
 
 export type Alvo = { kind: string; id: string };
 
@@ -1818,6 +1956,7 @@ export type AcaoRecomendada =
   | { acao: "encerrar_dia" }
   | { acao: "iniciar_dia" }
   | { acao: "abrir_lembrete"; id: string }
+  | { acao: "abrir_reuniao"; id: string }
   | { acao: "nenhuma" };
 
 export type ItemDeAtencao = {

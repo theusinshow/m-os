@@ -1,39 +1,48 @@
 import { describe, expect, it } from "vitest";
 import { rotuloDoProcessamento, type Processamento } from "./processamento";
 
-const transcrevendo = (canal: "mic" | "system", progress: number): Processamento =>
-  ({ tipo: "transcrevendo", meetingId: "m", canal, progress });
+const progresso = (stage: "transcription" | "analysis", overall: number, detail: string): Processamento => ({
+  tipo: "progresso",
+  meetingId: "m",
+  evento: { meetingId: "m", stage, progress: 0.5, overall, detail },
+});
 
 describe("o que a barra promete", () => {
-  it("a transcrição mostra percentual, porque ele é medido", () => {
-    const r = rotuloDoProcessamento(transcrevendo("mic", 0.62));
-    expect(r.titulo).toMatch(/transcrevendo/i);
-    expect(r.detalhe).toMatch(/você/i);
-    expect(r.fracao).toBeCloseTo(0.62);
+  it("mostra a fração global medida, e nomeia o canal", () => {
+    const r = rotuloDoProcessamento(progresso("transcription", 0.36, "mic"));
+    expect(r.titulo).toBe("Organizando reunião");
+    expect(r.detalhe).toMatch(/você/);
+    expect(r.fracao).toBeCloseTo(0.36);
+    expect(rotuloDoProcessamento(progresso("transcription", 0.6, "system")).detalhe).toMatch(/outros/);
   });
 
-  it("nomeia o canal, porque são duas passadas e não uma", () => {
-    // Esconder o canal faria a barra ir até a metade, parecer travada e recomeçar.
-    expect(rotuloDoProcessamento(transcrevendo("system", 0.4)).detalhe).toMatch(/outros|remoto/i);
+  it("a organização diz o que faz, sem janela crua", () => {
+    expect(rotuloDoProcessamento(progresso("analysis", 0.8, "2/3")).detalhe).toMatch(/decisões e tarefas/);
+    expect(rotuloDoProcessamento(progresso("analysis", 0.95, "juntando")).detalhe).toMatch(/junt/);
   });
 
-  it("a análise conta janelas, e nunca inventa percentual", () => {
-    const r = rotuloDoProcessamento({ tipo: "analisando", meetingId: "m", window: 2, windows: 5 });
-    expect(r.detalhe).toMatch(/2 de 5/);
-    // Rede não tem fração: ou voltou, ou não voltou.
-    expect(r.fracao).toBeNull();
+  it("pronta conta ações e decisões e oferece revisar", () => {
+    const r = rotuloDoProcessamento({ tipo: "pronta", meetingId: "m", titulo: "X", acoes: 3, decisoes: 2 });
+    expect(r.titulo).toBe("Reunião pronta");
+    expect(r.detalhe).toBe("3 ações · 2 decisões");
+    expect(r.acao).toBe("Revisar");
   });
 
-  it("a janela zero é a que junta, e ela se diz por nome", () => {
-    const r = rotuloDoProcessamento({ tipo: "analisando", meetingId: "m", window: 0, windows: 5 });
-    expect(r.detalhe).toMatch(/junt/i);
-    expect(r.detalhe).not.toMatch(/0 de 5/);
+  it("pronta sem ações não inventa tarefa", () => {
+    const r = rotuloDoProcessamento({ tipo: "pronta", meetingId: "m", titulo: "Alinhamento", acoes: 0, decisoes: 0 });
+    expect(r.detalhe).toBe("Alinhamento");
+    expect(r.acao).toBe("Abrir");
   });
 
-  it("a falha não vira barra: ela vira a mensagem e fica", () => {
-    const r = rotuloDoProcessamento({ tipo: "falhou", meetingId: "m", detalhe: "o modelo sumiu" });
-    expect(r.fracao).toBeNull();
-    expect(r.detalhe).toBe("o modelo sumiu");
+  it("falha passageira não é erro: é espera", () => {
+    const r = rotuloDoProcessamento({ tipo: "aguardando", meetingId: "m" });
+    expect(r.erro).toBe(false);
+    expect(r.detalhe).toMatch(/sozinho/);
+  });
+
+  it("a falha que precisa da pessoa vira a mensagem e fica", () => {
+    const r = rotuloDoProcessamento({ tipo: "falhou", meetingId: "m", detalhe: "o transcritor sumiu" });
     expect(r.erro).toBe(true);
+    expect(r.detalhe).toBe("o transcritor sumiu");
   });
 });

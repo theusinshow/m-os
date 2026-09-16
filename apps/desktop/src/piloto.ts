@@ -135,6 +135,7 @@ export function rotuloDaAcao(acao: AcaoRecomendada): string {
     case "encerrar_dia": return "Encerrar dia";
     case "iniciar_dia": return "Montar meu dia";
     case "abrir_lembrete": return "Abrir";
+    case "abrir_reuniao": return "Revisar";
     case "nenhuma": return "";
   }
 }

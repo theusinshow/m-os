@@ -2750,6 +2750,19 @@ function DesktopApp() {
      recuperacao escrevem aqui; a pagina le uma vez e segue com o proprio
      estado. */
   const [focusedMeetingId, setFocusedMeetingId] = useState<string | null>(null);
+  /* "Perguntar ao Hermes" numa reunião: a reunião vira chip na tela do Hermes,
+     com um rascunho — e nada é enviado sem a pessoa. */
+  const [sementeHermes, setSementeHermes] = useState<{ contexto: { origin: "explicit"; entity: "meeting"; id: string; label: string }; rascunho: string; chave: number } | null>(null);
+  /* O atalho de reunião pediu o consentimento da primeira gravação. A tela de
+     Reuniões abre o diálogo quando este número muda. */
+  const [consentimentoPedido, setConsentimentoPedido] = useState(0);
+  useEffect(() => {
+    const off = listen("meeting-consent-needed", () => {
+      setPage("reunioes");
+      setConsentimentoPedido((n) => n + 1);
+    });
+    return () => { void off.then((fn) => fn()); };
+  }, []);
   const [railExpanded, setRailExpanded] = useState(() => localStorage.getItem("m-os-rail-expanded") === "true");
   const [recent, setRecent] = useState<Capture[]>([]);
   const [inbox, setInbox] = useState<Capture[]>([]);
@@ -3251,6 +3264,7 @@ function DesktopApp() {
     abrirSync: () => setSyncHealthOpen(true),
     abrirAcademico: () => navigate("academic"),
     abrirLembrete: () => setAttentionOpen(true),
+    abrirReuniao: (id: string) => { setFocusedMeetingId(id); navigate("reunioes"); },
     montarDia: () => { void api.pilotoIniciarDia().then((dia) => { daily.setDia(dia); void daily.recarregar(); refreshPiloto(); }).catch(() => undefined); },
     iniciarDiaManual: () => setFluxoDoDia({ tipo: "iniciar" }),
     encerrarDia: () => setEncerrarOpen(true),
@@ -3317,6 +3331,28 @@ function DesktopApp() {
        de acrescentar vive la, ao lado do que ja existe — e escolher o proximo
        objetivo sem ver os outros e escolher no escuro. */
     if (target === "piloto_now") { navigate("home"); refreshPiloto(); return; }
+    if (target.startsWith("meeting_")) {
+      // O erro de um comando de reuniao aparece na pagina de Reunioes, que e onde
+      // a pessoa pode agir sobre ele.
+      const falhar = () => navigate("reunioes");
+      if (target === "meeting_start") {
+        void api.meetingAnalysisConsent().then((consentimento) => {
+          if (!consentimento.granted) { setPage("reunioes"); setConsentimentoPedido((n) => n + 1); return undefined; }
+          return api.meetingStart("", null).then((meeting) => { setFocusedMeetingId(meeting.id); navigate("reunioes"); });
+        }).catch(falhar);
+      } else if (target === "meeting_open_current") {
+        void api.meetingRecording().then((tick) => { if (tick) { setFocusedMeetingId(tick.meetingId); } navigate("reunioes"); }).catch(falhar);
+      } else if (target === "meeting_mark") {
+        void api.meetingMarkMoment().catch(falhar);
+      } else if (target === "meeting_pause") {
+        void api.meetingPause().catch(falhar);
+      } else if (target === "meeting_resume") {
+        void api.meetingResume().catch(falhar);
+      } else if (target === "meeting_stop") {
+        void api.meetingStop().then((meeting) => { setFocusedMeetingId(meeting.id); navigate("reunioes"); }).catch(falhar);
+      }
+      return;
+    }
     if (target === "daily_start") { setFluxoDoDia({ tipo: "iniciar" }); return; }
     if (target === "daily_view" || target === "daily_add_objective") { setFluxoDoDia({ tipo: "sessao" }); return; }
     if (target === "daily_end") { if (daily.dia) setFluxoDoDia({ tipo: "encerrar", dia: daily.dia, sessao: null }); return; }
@@ -3392,13 +3428,13 @@ function DesktopApp() {
     return new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date()).toUpperCase().replace(",", " ·");
   }, [page]);
   const pageContent = useMemo(() => {
-    if (page === "hermes") return <HermesPage inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} openTask={(id) => { const task = tasks.find((candidate) => candidate.id === id); if (task) setDrawerTask(task); }} />;
+    if (page === "hermes") return <HermesPage semente={sementeHermes} inbox={inbox} projects={projects} tasks={tasks} receipt={showReceipt} openProject={openProject} openResource={(id) => { const resource = resources.find((candidate) => candidate.id === id); if (resource) openResource(resource); }} openTask={(id) => { const task = tasks.find((candidate) => candidate.id === id); if (task) setDrawerTask(task); }} />;
     if (page === "home") return <HomePage syncStatus={syncStatus} refreshSync={refreshSync} recent={recent} inbox={inbox} projects={projects} tasks={tasks} stale={stale} academic={academic} workspaces={workspaces} apps={apps} resources={resources} resourceWorkspaces={resourceWorkspaces} status={status} hiddenWidgets={hiddenWidgets} setHiddenWidgets={setHiddenWidgets} widgetPlacements={widgetPlacements} setWidgetPlacements={setWidgetPlacements} refresh={refresh} openCapture={setViewedCapture} openProject={openProject} openWorkspace={openWorkspace} openTask={setDrawerTask} openApp={openRegisteredApp} openResource={openResource} openInbox={() => setPage("inbox")} openTasksPage={() => setPage("tasks")} openTempoPage={() => setPage("tempo")} openProjectsPage={() => setPage("projects")} openLibraryPage={() => setPage("library")} openAppsPage={() => setPage("apps")} openFinancePage={() => setPage("finance")} openCalendarPage={() => setPage("calendario")} openMeetingsPage={() => setPage("reunioes")} openAcademicPage={() => setPage("academic")} currentWorkspaceId={currentWorkspaceId} setCurrentWorkspaceId={setCurrentWorkspaceId} currentWorkspace={currentWorkspace} intent={functionIntent ?? undefined} daily={dailyProps} piloto={pilotoProps} />;
     if (page === "tempo") return <TempoPage projects={projects} openProject={openProject} receipt={showReceipt} />;
     if (page === "finance") return <FinancePage />;
     if (page === "academic") return <AcademicPage refresh={refresh} />;
     if (page === "calendario") return <CalendarPage />;
-    if (page === "reunioes") return <MeetingsPage projects={projects} focus={focusedMeetingId} receipt={showReceipt} refresh={refresh} />;
+    if (page === "reunioes") return <MeetingsPage projects={projects} focus={focusedMeetingId} receipt={showReceipt} refresh={refresh} consentimentoPedido={consentimentoPedido} perguntarAoHermes={(meeting) => { setSementeHermes({ contexto: { origin: "explicit", entity: "meeting", id: meeting.id, label: meeting.title }, rascunho: "Sobre esta reunião: ", chave: Date.now() }); navigate("hermes"); }} />;
     if (page === "inbox") return <InboxPage captures={inbox} projects={projects} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} openResource={openResource} intent={functionIntent ?? undefined} />;
     if (page === "projects") return <ProjectsPage projects={projects} tasks={tasks} initialProjectId={selectedProjectId} refresh={refresh} receipt={showReceipt} openTask={setDrawerTask} intent={functionIntent ?? undefined} />;
     if (page === "workspaces") return <WorkspacesPage workspaces={workspaces} projects={projects} apps={apps} initialWorkspaceId={selectedWorkspaceId} refresh={refresh} receipt={showReceipt} openProject={openProject} openApp={openRegisteredApp} openHome={(workspace) => { setCurrentWorkspaceId(workspace.id); setPage("home"); }} intent={functionIntent ?? undefined} />;

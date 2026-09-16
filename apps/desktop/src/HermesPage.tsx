@@ -123,10 +123,13 @@ function contextsOf(message: Message): ContextInput[] {
 
 
 
-export function HermesPage({ inbox, projects, tasks, receipt, openProject, openResource, openTask }: {
+export function HermesPage({ inbox, projects, tasks, receipt, openProject, openResource, openTask, semente }: {
   inbox: Capture[];
   projects: Project[];
   tasks: Task[];
+  /** Uma entidade trazida de outra tela ("Perguntar ao Hermes"), com um
+   *  rascunho. Vira chip visível antes de qualquer envio (ADR-027). */
+  semente?: { contexto: ContextInput; rascunho: string; chave: number } | null;
   openProject?: (project: Project) => void;
   openResource?: (id: string) => void;
   openTask?: (id: string) => void;
@@ -321,6 +324,15 @@ export function HermesPage({ inbox, projects, tasks, receipt, openProject, openR
     node.addEventListener("scroll", measure, { passive: true });
     return () => node.removeEventListener("scroll", measure);
   }, []);
+
+  // A semente chega uma vez por gesto: o chip entra, o rascunho entra, e nada
+  // é enviado — quem pergunta é a pessoa.
+  useEffect(() => {
+    if (!semente) return;
+    setContexts([semente.contexto]);
+    setDraft(semente.rascunho);
+    window.setTimeout(() => field.current?.focus(), 50);
+  }, [semente?.chave]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const suggestions = useMemo(() => sugestoesDe(inbox, projects, tasks), [inbox, projects, tasks]);
   const online = status?.state === "online" && status.sessionReady;

@@ -76,6 +76,7 @@ pub struct Leitura {
     pub sync: SyncNoRetrato,
     pub ultima_presenca: Option<time::OffsetDateTime>,
     pub habitos: Habitos,
+    pub reunioes: Vec<mos_core::ReuniaoNoRetrato>,
 }
 
 impl Leitura {
@@ -92,6 +93,7 @@ impl Leitura {
             sync: &self.sync,
             ultima_presenca: self.ultima_presenca,
             habitos: &self.habitos,
+            reunioes: &self.reunioes,
         }
     }
 }
@@ -134,6 +136,24 @@ pub fn ler<R: Runtime>(app: &AppHandle<R>) -> Result<Leitura, CoreError> {
         fim_habitual_minuto: None,
     };
 
+    // As reunioes das duas ultimas semanas: mais velha que isso, uma acao nao
+    // revisada ja nao e pendencia da reuniao — e da memoria de quem estava la.
+    let reunioes = state
+        .meetings
+        .overview(false)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|row| now_local - row.meeting.started_at <= time::Duration::days(14))
+        .map(|row| mos_core::ReuniaoNoRetrato {
+            id: row.meeting.id.to_string(),
+            titulo: row.meeting.title.clone(),
+            fase: row.phase,
+            acoes_pendentes: row.pending_actions,
+            atencao: row.attention.clone(),
+            quando: row.meeting.ended_at.unwrap_or(row.meeting.started_at),
+        })
+        .collect();
+
     Ok(Leitura {
         now_local,
         tasks,
@@ -146,6 +166,7 @@ pub fn ler<R: Runtime>(app: &AppHandle<R>) -> Result<Leitura, CoreError> {
         sync,
         ultima_presenca,
         habitos,
+        reunioes,
     })
 }
 

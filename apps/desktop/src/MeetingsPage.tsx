@@ -1,618 +1,381 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
-import { conversations } from "./hermes";
 import { Button } from "./Button";
 import { CardGravacao } from "./CardGravacao";
-import { formatMeetingClock } from "./RecordingBar";
-import { proximoPasso, rotuloDoEstado } from "./meetingEstado";
-import { EVENTOS_DE_REUNIAO, selecaoAoFocar } from "./meetingsSync";
-import { ActionMenu, EmptyState, Inspector, PageHeader, PaneHeader, Panel, StateMessage } from "./Surface";
 import { Icon } from "./Icon";
+import { selecaoAoFocar } from "./meetingsSync";
+import {
+  aguardandoOutros, doTipo, duracao, exigeAtencao, fraseDoCorte, jaCriados, linhaDeContagem,
+  relogio, rotuloDaFase, secaoDa, seloDoCartao,
+} from "./reuniao";
+import {
+  DialogoApagar, DialogoCorte, DialogoFollowUp, ListaDeItens, Lixeira, ProgressoDaReuniao,
+  RevisaoEmLote, Transcricao, nomeDoProject,
+} from "./ReuniaoPartes";
+import { ActionMenu, EmptyState, Inspector, PageHeader, PaneHeader, Panel, StateMessage } from "./Surface";
 import type {
-  Confidence, InsightKind, Meeting, MeetingAnalysis, MeetingInsight,
-  Project, TranscriptSegment,
+  Meeting, MeetingAnalysis, MeetingBookmark, MeetingInsight, MeetingOverview,
+  MeetingProgressEvent, Project, ProjectInference, TranscriptSegment,
 } from "./types";
 
 /**
- * A superfície de Reuniões.
+ * Reuniões: "Você participa da reunião. O M/OS cuida do resto."
  *
- * Duas views num controle segmentado, e **não quatro abas**. Controle segmentado
- * troca projeção da mesma informação; aba esconde coisas diferentes. Ações e
- * Decisões não são outra informação — são o resumo em outro nível de detalhe, e
- * são exatamente o que a pessoa veio ver. Escondê-las atrás de uma aba faria a
- * tela abrir vazia do conteúdo que a justifica.
+ * A V1 era um pipeline com botões — Transcrever, esperar, Analisar, esperar,
+ * abrir item por item. A V2 mostra só o que a pessoa precisa: a reunião
+ * acontecendo, a reunião sendo organizada, a reunião pronta, e o que exige
+ * atenção. Transcrever e analisar deixaram de ser gestos.
  *
- * Só a transcrição merece view própria: é longa, tem busca e tem um modo de
- * leitura diferente.
+ * A página de uma reunião pronta prioriza RESULTADO, nesta ordem:
+ *
+ * ```
+ * Reunião com equipe estrutural
+ * Hoje · 48 min · 167-25
+ *
+ * O que exige sua atenção      ← a revisão em lote
+ * Decisões
+ * Aguardando outras pessoas
+ * Perguntas em aberto
+ * Riscos e referências
+ * Notas
+ * Transcrição
+ * ```
+ *
+ * Spec: `docs/superpowers/specs/2026-09-16-meeting-agent-v2-design.md` §9.
  */
 
-/* Os rotulos e o "o que falta" vivem no `meetingEstado.ts`, fora do componente,
-   porque nao ha teste de DOM neste repo e essa copy ja enganou uma vez. */
+type Receipt = (action: { message: string; run: () => Promise<unknown> }) => void;
+type Visao = "resumo" | "transcricao" | "notas";
+type Lista = "reunioes" | "lixeira";
 
-/** O rótulo que a pessoa lê. O nome técnico nunca aparece. */
-const KIND_LABEL: Record<InsightKind, string> = {
-  my_action: "SUA AÇÃO",
-  other_action: "AÇÃO DE OUTROS",
-  decision: "DECISÃO",
-  deadline: "PRAZO",
-  follow_up: "FOLLOW-UP",
-  open_question: "QUESTÃO EM ABERTO",
-  risk: "RISCO",
-  topic: "TÓPICO",
-};
+const CHAVE_CORTE_DISPENSADO = "mos.reuniao.corte-dispensado";
 
-/** A ordem de leitura da Visão geral. É a ordem do §22.4. */
-const SECTIONS: InsightKind[] = [
-  "my_action", "decision", "other_action", "deadline",
-  "follow_up", "open_question", "risk",
-];
-
-const CONFIDENCE_LABEL: Record<Confidence, string> = {
-  high: "alta confiança",
-  medium: "confiança média",
-  low: "confiança baixa",
-};
-
-function dayLabel(iso: string) {
-  const date = new Date(iso);
-  const today = new Date();
-  const same = (a: Date, b: Date) =>
-    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-  if (same(date, today)) return "HOJE";
-  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
-  if (same(date, yesterday)) return "ONTEM";
-  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "long" }).toUpperCase();
+function lerDispensados(): string[] {
+  try { return JSON.parse(localStorage.getItem(CHAVE_CORTE_DISPENSADO) ?? "[]"); } catch { return []; }
 }
 
-function hourOf(iso: string) {
-  return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+function quandoFoi(iso: string): string {
+  const data = new Date(iso);
+  const hoje = new Date();
+  const mesmoDia = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  const ontem = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 1);
+  const hora = data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  if (mesmoDia(data, hoje)) return `Hoje, ${hora}`;
+  if (mesmoDia(data, ontem)) return `Ontem, ${hora}`;
+  return `${data.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}, ${hora}`;
 }
 
-/** `1h12` ou `42m`. Nunca segundos: numa reunião eles são ruído. */
-function durationLabel(ms: number) {
-  const minutes = Math.round(ms / 60000);
-  if (minutes < 1) return "menos de 1m";
-  const hours = Math.floor(minutes / 60);
-  return hours ? `${hours}h${String(minutes % 60).padStart(2, "0")}` : `${minutes}m`;
-}
-
-// ---------------------------------------------------------------------------
-// Evidência
-// ---------------------------------------------------------------------------
-
-/**
- * O `WHY?`.
- *
- * Clicar leva à fala que sustenta o item. Este botão é a diferença entre uma
- * afirmação e uma afirmação com procedência — e o documento é explícito: o
- * Meeting Agent não apresenta inferência como fato sem proveniência.
- */
-function Evidence({ insight, segments, jump }: {
-  insight: MeetingInsight;
-  segments: TranscriptSegment[];
-  jump: (segmentId: string) => void;
-}) {
-  if (!insight.evidence.length) {
-    return (
-      <p className="meeting-no-evidence">
-        Sem evidência na transcrição. Confira antes de criar a Task.
-      </p>
-    );
-  }
-  return (
-    <div className="meeting-evidence">
-      {insight.evidence.map((evidence) => {
-        const segment = segments.find((item) => item.id === evidence.segmentId);
-        if (!segment) return null;
-        return (
-          <button
-            key={`${evidence.segmentId}-${evidence.seq}`}
-            type="button"
-            className="meeting-evidence-link"
-            onClick={() => jump(evidence.segmentId)}
-            title={segment.text}
-          >
-            <span className="meeting-evidence-time">{formatMeetingClock(segment.startMs)}</span>
-            <span className="meeting-evidence-who">{segment.channel === "mic" ? "VOCÊ" : "REMOTO"}</span>
-            <span className="meeting-evidence-quote">{segment.text}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Criar Task a partir de um item
-// ---------------------------------------------------------------------------
-
-/**
- * O preview.
- *
- * **Todo item mostra preview, inclusive os de confiança alta.** O risco
- * classifica a consequência da ação; o preview responde a outra coisa — a
- * incerteza da interpretação. Numa reunião isso é extremo: ninguém escolheu
- * nada, alguém só falou.
- */
-function AcceptDialog({ insight, projects, meetingProject, close, done }: {
-  insight: MeetingInsight;
+export function MeetingsPage({ projects, focus, receipt, refresh, perguntarAoHermes, consentimentoPedido }: {
   projects: Project[];
-  meetingProject: string | null;
-  close: () => void;
-  done: (action: { message: string; run: () => Promise<unknown> }) => void;
-}) {
-  const [title, setTitle] = useState(insight.text);
-  const [projectId, setProjectId] = useState(meetingProject ?? "");
-  const [remind, setRemind] = useState(Boolean(insight.dueHint));
-  // O padrão é amanhã às 9h, e ele é uma SUGESTÃO editável — não uma leitura do
-  // `dueHint`. Interpretar "sexta" aqui congelaria um palpite; mostrar um campo
-  // põe a interpretação na tela, que é o que o §19 pede.
-  const [when, setWhen] = useState(() => {
-    const date = new Date();
-    date.setDate(date.getDate() + 1);
-    date.setHours(9, 0, 0, 0);
-    // `datetime-local` quer hora local sem fuso.
-    const pad = (value: number) => String(value).padStart(2, "0");
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  });
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState("");
-  const first = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { first.current?.focus(); first.current?.select(); }, []);
-
-  const submit = async () => {
-    setBusy(true);
-    setNote("");
-    try {
-      const receipt = await api.meetingAcceptInsight({
-        insightId: insight.id,
-        title,
-        projectId: projectId || null,
-        remindAt: remind ? new Date(when) : null,
-      });
-      done({
-        message: receipt.reminderId ? "Task e lembrete criados" : "Task criada",
-        run: () => conversations.undoAction(receipt.undo),
-      });
-      close();
-    } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error));
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="meeting-scrim" onClick={close}>
-      <div
-        className="meeting-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Criar Task a partir da reunião"
-        onClick={(event) => event.stopPropagation()}
-        onKeyDown={(event) => { if (event.key === "Escape") close(); }}
-      >
-        <header>
-          <span className="micro-label">{KIND_LABEL[insight.kind]}</span>
-          <h2>Criar Task</h2>
-        </header>
-
-        <label className="meeting-field">
-          <span>Título</span>
-          <input ref={first} value={title} onChange={(event) => setTitle(event.target.value)} />
-        </label>
-
-        <label className="meeting-field">
-          <span>Project</span>
-          <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
-            <option value="">Sem Project</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>{project.name}</option>
-            ))}
-          </select>
-        </label>
-
-        <label className="meeting-field-inline">
-          <input type="checkbox" checked={remind} onChange={(event) => setRemind(event.target.checked)} />
-          <span>Criar lembrete</span>
-          {insight.dueHint ? <em className="meeting-due-hint">na reunião: “{insight.dueHint}”</em> : null}
-        </label>
-
-        {remind ? (
-          <label className="meeting-field">
-            <span>Quando</span>
-            <input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} />
-          </label>
-        ) : null}
-
-        {note ? <StateMessage state="error" label="Não foi possível concluir" detail={note} /> : null}
-
-        <footer className="form-actions">
-          <Button variant="ghost" onClick={close}>Cancelar</Button>
-          <Button onClick={() => void submit()} disabled={busy || !title.trim()}>
-            {busy ? "Criando…" : "Criar"}
-          </Button>
-        </footer>
-      </div>
-    </div>
-  );
-}
-
-
-/**
- * A tela de consentimento.
- *
- * **Uma vez, e não a cada reunião.** `UX-PRINCIPLES` §21 é explícito:
- * confirmações constantes ensinam a clicar sem ler, e uma tela jurídica
- * repetida seria pior que nenhuma porque ninguém a leria na décima vez.
- *
- * O que substitui a repetição é estado visível: barra de gravação persistente,
- * ícone no tray, e nenhum caminho de código que grave sem clique.
- */
-function ConsentDialog({ close, granted }: { close: () => void; granted: () => void }) {
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="meeting-scrim" onClick={close}>
-      <div
-        className="meeting-dialog meeting-consent"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Meeting Notes grava áudio"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header><h2>Meeting Notes grava áudio</h2></header>
-        <p>
-          Enquanto estiver gravando, o M/OS captura o seu microfone e o áudio que
-          sai pelos alto-falantes — o que inclui a voz das outras pessoas na
-          chamada.
-        </p>
-        <p>
-          O áudio fica neste computador e é apagado depois de processado. A
-          transcrição é feita aqui. Para a análise, ela é enviada ao Hermes; você
-          pode desligar isso em Settings.
-        </p>
-        <p>
-          <b>Obter o consentimento dos outros participantes, quando necessário, é
-          responsabilidade sua.</b>
-        </p>
-        <footer className="form-actions">
-          <Button variant="ghost" onClick={close}>Cancelar</Button>
-          <Button
-            disabled={busy}
-            onClick={() => {
-              setBusy(true);
-              void api.meetingSetAnalysisConsent(true).then(granted).catch(() => setBusy(false));
-            }}
-          >Entendi, gravar</Button>
-        </footer>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// A página
-// ---------------------------------------------------------------------------
-
-export function MeetingsPage({ projects, focus, receipt, refresh }: {
-  projects: Project[];
-  /** Abre direto numa reunião — usado pela barra de gravação e pela recuperação. */
+  /** Muda quando o atalho global pediu o consentimento da primeira gravação. */
+  consentimentoPedido?: number;
+  /** Abre direto numa reunião — barra de gravação, Home, notificação. */
   focus?: string | null;
-  /**
-   * O recibo do M/OS, que **é** o desfazer: ele só aparece quando há caminho de
-   * volta (ADR-035). Confirmação sem volta não passa por aqui — ela vira uma
-   * linha de estado na própria tela, que some sozinha.
-   */
-  receipt: (action: { message: string; run: () => Promise<unknown> }) => void;
+  receipt: Receipt;
   refresh: () => Promise<unknown>;
+  perguntarAoHermes: (meeting: Meeting) => void;
 }) {
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [chosenId, setChosenId] = useState<string | null>(focus ?? null);
-  const [view, setView] = useState<"overview" | "transcript" | "notes">("overview");
-  const [segments, setSegments] = useState<TranscriptSegment[]>([]);
-  const [insights, setInsights] = useState<MeetingInsight[]>([]);
-  const [analysis, setAnalysis] = useState<MeetingAnalysis | null>(null);
-  const [accepting, setAccepting] = useState<MeetingInsight | null>(null);
-  const [query, setQuery] = useState("");
-  const [note, setNote] = useState("");
-  /** Confirmação sem volta. Some sozinha; não ocupa o recibo. */
-  const [flash, setFlash] = useState("");
-  const [narrowPane, setNarrowPane] = useState<"list" | "detail">(focus ? "detail" : "list");
-  const [recording, setRecording] = useState(false);
-  /* Carregar tem de aparecer. Uma lista vazia enquanto carrega e indistinguivel
-     de uma lista vazia porque nao ha nada — e as duas pedem reacoes opostas. */
-  const [carregandoLista, setCarregandoLista] = useState(true);
-  const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
-  const [askConsent, setAskConsent] = useState(false);
-  /* A identidade da reuniao — nome, Project, arquivo, existencia.
-     Ate 2026-08-25 o backend sabia fazer as quatro coisas e a tela nao oferecia
-     nenhuma: `meetingSetTitle`, `meetingSetProject` e `meetingSetArchived`
-     existiam em `api.ts` sem um unico chamador. O dominio ate justifica o nome
-     automatico dizendo que "o titulo e editavel depois" — e nao era. */
-  const [renomeando, setRenomeando] = useState(false);
-  const [rascunhoDoTitulo, setRascunhoDoTitulo] = useState("");
-  /** A reuniao que espera confirmacao de exclusao. Nunca `true`: o nome dela
-   *  precisa aparecer no aviso, e um booleano nao carrega nome. */
-  const [apagando, setApagando] = useState<Meeting | null>(null);
+  const [linhas, setLinhas] = useState<MeetingOverview[]>([]);
+  const [lixeira, setLixeira] = useState<Meeting[]>([]);
+  const [lista, setLista] = useState<Lista>("reunioes");
+  const [busca, setBusca] = useState("");
   const [mostrarArquivadas, setMostrarArquivadas] = useState(false);
-  const inspector = useRef<HTMLElement>(null);
-  const transcriptRef = useRef<HTMLDivElement>(null);
+  const [escolhida, setEscolhida] = useState<string | null>(focus ?? null);
+  const [painelEstreito, setPainelEstreito] = useState<"list" | "detail">(focus ? "detail" : "list");
+  const [carregando, setCarregando] = useState(true);
+  const [nota, setNota] = useState("");
+  const [flash, setFlash] = useState("");
 
-  const loadList = useCallback(async () => {
-    setCarregandoLista(true);
+  const [visao, setVisao] = useState<Visao>("resumo");
+  const [trechos, setTrechos] = useState<TranscriptSegment[]>([]);
+  const [itens, setItens] = useState<MeetingInsight[]>([]);
+  const [analise, setAnalise] = useState<MeetingAnalysis | null>(null);
+  const [marcas, setMarcas] = useState<MeetingBookmark[]>([]);
+  const [sugestaoDeCorte, setSugestaoDeCorte] = useState<number | null>(null);
+  const [sugestaoDeProject, setSugestaoDeProject] = useState<ProjectInference | null>(null);
+  const [alvo, setAlvo] = useState<string | null>(null);
+  const [progresso, setProgresso] = useState<Record<string, number>>({});
+  const [gravandoId, setGravandoId] = useState<string | null>(null);
+
+  const [renomeando, setRenomeando] = useState(false);
+  const [rascunhoTitulo, setRascunhoTitulo] = useState("");
+  const [notasEditadas, setNotasEditadas] = useState<string | null>(null);
+  const [apagando, setApagando] = useState<Meeting | null>(null);
+  const [cortando, setCortando] = useState<Meeting | null>(null);
+  const [followUp, setFollowUp] = useState<string | null>(null);
+  const [pedirConsentimento, setPedirConsentimento] = useState(false);
+  const [menuDeContexto, setMenuDeContexto] = useState<{ meeting: Meeting; x: number; y: number } | null>(null);
+  const [dispensados, setDispensados] = useState<string[]>(lerDispensados);
+  const [tecnico, setTecnico] = useState<Record<string, unknown> | null>(null);
+
+  const carregarLista = useCallback(async () => {
     try {
-      setMeetings(await api.meetings(mostrarArquivadas));
-    } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error));
+      const [visao, lixo, tick] = await Promise.all([
+        api.meetingOverview(mostrarArquivadas),
+        api.meetingTrashed(),
+        api.meetingRecording(),
+      ]);
+      setLinhas(visao);
+      setLixeira(lixo);
+      setGravandoId(tick?.meetingId ?? null);
+    } catch (erro) {
+      setNota(erro instanceof Error ? erro.message : String(erro));
     } finally {
-      setCarregandoLista(false);
+      setCarregando(false);
     }
   }, [mostrarArquivadas]);
 
-  useEffect(() => { void loadList(); }, [loadList]);
+  useEffect(() => { void carregarLista(); }, [carregarLista]);
 
-  /* O foco vem do shell: a barra de gravacao aponta para a reuniao que acabou de
-     parar, e a recuperacao aponta para a que ficou interrompida. Como PROP, ele
-     muda depois da montagem — e `useState(focus)` sozinho so valia na primeira
-     vez, o que deixava a pagina ja aberta surda justamente no momento em que ela
-     precisava obedecer. O efeito depende so de `focus` de proposito: rodar a
-     cada render desfaria, no render seguinte, o clique da pessoa noutra linha. */
   useEffect(() => {
-    setChosenId((atual) => selecaoAoFocar(focus, atual));
-    if (focus) setNarrowPane("detail");
+    if (consentimentoPedido) setPedirConsentimento(true);
+  }, [consentimentoPedido]);
+
+  useEffect(() => {
+    setEscolhida((atual) => selecaoAoFocar(focus, atual));
+    if (focus) { setPainelEstreito("detail"); setLista("reunioes"); }
   }, [focus]);
 
-  // Saber se já há gravação em curso é o que decide entre "Iniciar" e nada:
-  // oferecer iniciar durante uma gravação daria um botão que só produz erro.
-  useEffect(() => {
-    void api.meetingRecording().then((tick) => setRecording(Boolean(tick))).catch(() => undefined);
-  }, [meetings]);
+  const linha = useMemo(() => linhas.find((l) => l.meeting.id === escolhida) ?? null, [linhas, escolhida]);
+  const escolhidaNaLixeira = useMemo(() => lixeira.find((m) => m.id === escolhida) ?? null, [lixeira, escolhida]);
 
-  const start = useCallback(async () => {
-    setNote("");
+  const carregarDetalhe = useCallback(async () => {
+    if (!escolhida) { setTrechos([]); setItens([]); setAnalise(null); setMarcas([]); return; }
     try {
-      // O consentimento é conferido ANTES de gravar, e não antes de analisar:
-      // é a gravação que abre o microfone, e é ela que a pessoa precisa ter
-      // autorizado uma vez.
-      const consent = await api.meetingAnalysisConsent();
-      if (!consent.granted) { setAskConsent(true); return; }
-      const meeting = await api.meetingStart("", null);
-      setRecording(true);
-      setChosenId(meeting.id);
-      setNarrowPane("detail");
-      await loadList();
-    } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error));
-    }
-  }, [loadList]);
-
-  // O backend avisa quando um estágio termina. Sem isto, uma transcrição de
-  // vinte minutos só apareceria se a pessoa trocasse de tela e voltasse.
-  useEffect(() => {
-    const offs = EVENTOS_DE_REUNIAO.map(
-      (name) => listen(name, () => { void loadList(); void loadDetail(); }),
-    );
-    return () => { offs.forEach((off) => void off.then((fn) => fn())); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadList, chosenId]);
-
-  const chosen = useMemo(
-    () => meetings.find((meeting) => meeting.id === chosenId) ?? null,
-    [meetings, chosenId],
-  );
-
-  /* `chosen` sai da LISTA, entao atualizar a reuniao e substituir a linha dela.
-     Sem isto, pausar mudaria o banco e a tela continuaria mostrando "gravando"
-     ate o proximo `loadList`. */
-  const substituir = useCallback((atualizada: Meeting) => {
-    setMeetings((atuais) =>
-      atuais.map((meeting) => (meeting.id === atualizada.id ? atualizada : meeting)),
-    );
-  }, []);
-
-  const loadDetail = useCallback(async () => {
-    if (!chosenId) { setSegments([]); setInsights([]); setAnalysis(null); return; }
-    setCarregandoDetalhe(true);
-    try {
-      const [transcript, items, summary] = await Promise.all([
-        api.meetingTranscript(chosenId),
-        api.meetingInsights(chosenId),
-        api.meetingAnalysis(chosenId),
+      const [transcricao, todos, resumo, momentos, corte, project] = await Promise.all([
+        api.meetingTranscript(escolhida),
+        api.meetingInsights(escolhida),
+        api.meetingAnalysis(escolhida),
+        api.meetingBookmarks(escolhida),
+        api.meetingTrimSuggestion(escolhida).catch(() => null),
+        api.meetingProjectSuggestion(escolhida).catch(() => null),
       ]);
-      setSegments(transcript);
-      setInsights(items);
-      setAnalysis(summary);
-    } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error));
-    } finally {
-      setCarregandoDetalhe(false);
+      setTrechos(transcricao);
+      setItens(todos);
+      setAnalise(resumo);
+      setMarcas(momentos);
+      setSugestaoDeCorte(corte);
+      setSugestaoDeProject(project && project.confidence !== "low" ? project : null);
+    } catch {
+      /* Apagada por outro caminho: a lista recarrega e a seleção some. */
     }
-  }, [chosenId]);
+  }, [escolhida]);
 
-  useEffect(() => { void loadDetail(); }, [loadDetail]);
+  useEffect(() => { void carregarDetalhe(); setNotasEditadas(null); setTecnico(null); }, [carregarDetalhe]);
 
-  const act = async (run: () => Promise<unknown>, message?: string) => {
-    setNote("");
+  const recarregar = useCallback(() => { void carregarLista(); void carregarDetalhe(); }, [carregarLista, carregarDetalhe]);
+
+  useEffect(() => {
+    const eventos = [
+      "meeting-started", "meeting-stopped", "meeting-transcribed", "meeting-analyzed",
+      "meeting-failed", "meeting-waiting", "meeting-ready", "meeting-trashed", "meeting-deleted",
+    ];
+    const offs = eventos.map((nome) => listen(nome, () => recarregar()));
+    offs.push(listen<MeetingProgressEvent>("meeting-progress", (evento) => {
+      // O whisper reporta muitas vezes por segundo. A página só re-renderiza
+      // quando o NÚMERO que ela mostra muda.
+      setProgresso((atual) => {
+        const id = evento.payload.meetingId;
+        const antes = atual[id];
+        if (antes != null && Math.round(antes * 100) === Math.round(evento.payload.overall * 100)) return atual;
+        return { ...atual, [id]: evento.payload.overall };
+      });
+    }));
+    offs.push(listen<string>("data-changed", (evento) => {
+      if (String(evento.payload).startsWith("meeting")) recarregar();
+    }));
+    offs.push(listen("meeting-consent-needed", () => setPedirConsentimento(true)));
+    return () => { offs.forEach((off) => void off.then((fn) => fn())); };
+  }, [recarregar]);
+
+  const mostrarFlash = (texto: string) => {
+    setFlash(texto);
+    window.setTimeout(() => setFlash(""), 4000);
+  };
+
+  const agir = async (acao: () => Promise<unknown>, mensagem?: string) => {
+    setNota("");
     try {
-      await run();
-      await loadList();
-      await loadDetail();
-      if (message) {
-        setFlash(message);
-        window.setTimeout(() => setFlash(""), 4000);
-      }
-    } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error));
+      await acao();
+      recarregar();
+      if (mensagem) mostrarFlash(mensagem);
+    } catch (erro) {
+      setNota(erro instanceof Error ? erro.message : String(erro));
     }
   };
 
-  /* Renomear grava no `blur` e no Enter, e nao num botao Salvar: o titulo e um
-     campo so, e um formulario de um campo com botao proprio e cerimonia. Esc
-     desiste — sem isso, comecar a editar por engano nao teria saida que nao
-     fosse gravar. */
-  const gravarTitulo = async () => {
-    if (!chosen) return;
-    const limpo = rascunhoDoTitulo.trim();
-    setRenomeando(false);
-    if (!limpo || limpo === chosen.title) return;
-    await act(() => api.meetingSetTitle(chosen.id, limpo));
-  };
+  const iniciar = useCallback(async () => {
+    setNota("");
+    try {
+      const consentimento = await api.meetingAnalysisConsent();
+      if (!consentimento.granted) { setPedirConsentimento(true); return; }
+      const meeting = await api.meetingStart("", null);
+      setEscolhida(meeting.id);
+      setPainelEstreito("detail");
+      recarregar();
+    } catch (erro) {
+      setNota(erro instanceof Error ? erro.message : String(erro));
+    }
+  }, [recarregar]);
 
-  /* NAO passa pelo `act`.
-     `act` recarrega lista E DETALHE, e o detalhe aqui e o da reuniao que acabou
-     de ser apagada: a leitura devolveria NotFound e a tela pintaria "Nao foi
-     possivel concluir" logo depois de a exclusao ter dado certo. Soltar o
-     `chosenId` antes nao resolve — o `loadDetail` que o `act` chama e o do
-     render anterior, e ele ainda carrega o id antigo na closure.
-
-     Sem recibo, tambem de proposito: o recibo do M/OS **e** o desfazer
-     (ADR-035), e oferecer um que nao desfaz seria a pior das duas opcoes — a
-     promessa de volta sem a volta. A confirmacao veio antes; o que sobra depois
-     e uma linha de estado que some sozinha. */
-  const apagar = async (meeting: Meeting) => {
+  const apagar = async (meeting: Meeting, pararAntes: boolean) => {
     setApagando(null);
-    setNote("");
     try {
-      await api.meetingDelete(meeting.id);
-      if (chosenId === meeting.id) {
-        setChosenId(null);
-        setNarrowPane("list");
-      }
-      await loadList();
-      setFlash(`“${meeting.title}” foi apagada.`);
-      window.setTimeout(() => setFlash(""), 4000);
+      await api.meetingTrash(meeting.id, pararAntes);
+      if (escolhida === meeting.id) { setEscolhida(null); setPainelEstreito("list"); }
+      receipt({
+        message: `“${meeting.title}” foi para a lixeira`,
+        run: () => api.meetingRestore(meeting.id).then(() => recarregar()),
+      });
+      recarregar();
       await refresh();
-    } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error));
+    } catch (erro) {
+      setNota(erro instanceof Error ? erro.message : String(erro));
     }
   };
 
-  const jump = (segmentId: string) => {
-    setView("transcript");
-    // O salto acontece depois do render da outra view.
-    window.setTimeout(() => {
-      const node = transcriptRef.current?.querySelector(`[data-segment="${segmentId}"]`);
-      node?.scrollIntoView({ block: "center", behavior: "smooth" });
-      node?.classList.add("is-target");
-      window.setTimeout(() => node?.classList.remove("is-target"), 2000);
-    }, 40);
+  const saltar = (segmentId: string) => {
+    setVisao("transcricao");
+    setAlvo(null);
+    window.setTimeout(() => setAlvo(segmentId), 30);
   };
 
-  const grouped = useMemo(() => {
-    const groups = new Map<string, Meeting[]>();
-    for (const meeting of meetings) {
-      const key = dayLabel(meeting.startedAt);
-      const list = groups.get(key) ?? [];
-      list.push(meeting);
-      groups.set(key, list);
-    }
-    return [...groups.entries()];
-  }, [meetings]);
+  const filtradas = useMemo(() => {
+    const agulha = busca.trim().toLowerCase();
+    if (!agulha) return linhas;
+    return linhas.filter((l) => l.meeting.title.toLowerCase().includes(agulha)
+      || (nomeDoProject(projects, l.meeting.projectId) ?? "").toLowerCase().includes(agulha));
+  }, [linhas, busca, projects]);
 
-  const interrupted = useMemo(
-    () => meetings.filter((meeting) => meeting.status === "interrupted"),
-    [meetings],
-  );
-  const proposed = insights.filter((insight) => insight.status === "proposed");
-  const filteredSegments = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return segments;
-    return segments.filter((segment) => segment.text.toLowerCase().includes(needle));
-  }, [segments, query]);
+  const secoes = useMemo(() => ({
+    em_andamento: filtradas.filter((l) => secaoDa(l) === "em_andamento"),
+    atencao: filtradas.filter((l) => secaoDa(l) === "atencao"),
+    recentes: filtradas.filter((l) => secaoDa(l) === "recentes"),
+  }), [filtradas]);
+
+  // Memoizados: a revisão guarda rascunho por item, e um array novo a cada
+  // render faria o rascunho reiniciar.
+  const minhas = useMemo(() => exigeAtencao(itens), [itens]);
+  const deOutros = useMemo(() => aguardandoOutros(itens), [itens]);
+  const criados = useMemo(() => jaCriados(itens), [itens]);
+
+  const meeting = linha?.meeting ?? null;
+  const gravandoEsta = meeting ? meeting.status === "recording" || meeting.status === "paused" : false;
+  const dispensouCorte = meeting ? dispensados.includes(meeting.id) : true;
+
+  // Funções de desenho, e não componentes: um componente declarado dentro do
+  // render nasce com identidade nova a cada render, e o React remontaria os
+  // cartões — perdendo o foco de quem navega pelo teclado.
+  const cartao = (l: MeetingOverview) => {
+    const contagem = linhaDeContagem(l);
+    const project = nomeDoProject(projects, l.meeting.projectId);
+    return (
+      <button
+        key={l.meeting.id}
+        type="button"
+        className="reuniao-cartao"
+        aria-current={l.meeting.id === escolhida ? "true" : undefined}
+        data-fase={l.phase}
+        onClick={() => { setEscolhida(l.meeting.id); setVisao("resumo"); setPainelEstreito("detail"); }}
+        onContextMenu={(evento) => {
+          evento.preventDefault();
+          setMenuDeContexto({ meeting: l.meeting, x: evento.clientX, y: evento.clientY });
+        }}
+      >
+        <span className="reuniao-cartao-titulo">{l.meeting.title}</span>
+        <span className="reuniao-cartao-meta">
+          {quandoFoi(l.meeting.startedAt)} · {duracao(l.meeting.durationMs)}{project ? ` · ${project}` : ""}
+        </span>
+        {contagem ? <span className="reuniao-cartao-contagem">{contagem}</span> : null}
+        <span className="reuniao-cartao-selo" data-fase={l.phase}>
+          {l.phase === "recording" ? "● Gravando" : seloDoCartao(l, progresso[l.meeting.id])}
+        </span>
+      </button>
+    );
+  };
+
+  const secao = (rotulo: string, grupo: MeetingOverview[]) => grupo.length ? (
+    <div className="meeting-group">
+      <span className="micro-label">{rotulo}</span>
+      {grupo.map(cartao)}
+    </div>
+  ) : null;
 
   return (
     <div className="page meetings-page">
       <PageHeader
         title="Reuniões"
-        subtitle="O que foi dito, o que ficou decidido e o que você prometeu."
-        actions={recording
-          ? <span className="micro-label">GRAVANDO</span>
-          : <Button variant="primary" onClick={() => void start()}>Iniciar Meeting Notes</Button>}
+        subtitle="Você participa da reunião. O M/OS cuida do resto."
+        actions={gravandoId
+          ? <Button variant="outline" onClick={() => { setEscolhida(gravandoId); setPainelEstreito("detail"); }}>Abrir gravação</Button>
+          : <Button variant="primary" onClick={() => void iniciar()} title="Ctrl+Alt+M">Iniciar reunião</Button>}
       />
 
-      {interrupted.length ? (
-        <div className="meeting-interrupted-notice" role="status">
-          <p>
-            {interrupted.length === 1
-              ? "Uma reunião foi interrompida e espera decisão."
-              : `${interrupted.length} reuniões foram interrompidas e esperam decisão.`}
-          </p>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setChosenId(interrupted[0].id);
-              setNarrowPane("detail");
-              setView("overview");
-            }}
-          >Ver</Button>
-        </div>
-      ) : null}
-
-      {note ? <StateMessage state="error" label="Não foi possível concluir" detail={note} /> : null}
+      {nota ? <StateMessage state="error" label="Não foi possível concluir" detail={nota} /> : null}
       {flash ? <StateMessage state="saved" label={flash} /> : null}
 
       <div className="split-page inspector-page meetings-split">
         <section className="list-pane">
-          <PaneHeader segments={["Reuniões"]} meta={`${meetings.length}`} />
-          {/* O interruptor mora na LISTA, e nao em Settings: arquivar acontece
-              aqui, e o unico caminho de volta precisa estar onde a pessoa
-              percebe que a reuniao sumiu. Ate 2026-08-25 nao havia caminho
-              nenhum — `api.meetings(false)` era fixo, e uma reuniao arquivada
-              saia da tela para sempre. */}
-          <label className="meeting-arquivadas">
+          <PaneHeader segments={["Reuniões"]} meta={lista === "lixeira" ? `${lixeira.length} na lixeira` : `${linhas.length}`} />
+          <div className="reuniao-lista-topo">
             <input
-              type="checkbox"
-              checked={mostrarArquivadas}
-              onChange={(event) => setMostrarArquivadas(event.currentTarget.checked)}
+              className="reuniao-busca"
+              value={busca}
+              onChange={(evento) => setBusca(evento.currentTarget.value)}
+              placeholder="Buscar reuniões"
+              aria-label="Buscar reuniões"
             />
-            <span className="micro-label">MOSTRAR ARQUIVADAS</span>
-          </label>
-          {carregandoLista && meetings.length === 0 ? (
+            <div className="segmented" role="tablist" aria-label="Qual lista">
+              <button role="tab" aria-selected={lista === "reunioes"} onClick={() => setLista("reunioes")}>Reuniões</button>
+              <button role="tab" aria-selected={lista === "lixeira"} onClick={() => setLista("lixeira")}>
+                Lixeira{lixeira.length ? ` · ${lixeira.length}` : ""}
+              </button>
+            </div>
+          </div>
+
+          {lista === "lixeira" ? (
+            <Lixeira
+              reunioes={lixeira}
+              restaurar={(m) => void agir(() => api.meetingRestore(m.id), `“${m.title}” restaurada`)}
+              apagarDeVez={(m) => void agir(() => api.meetingDelete(m.id), "Apagada de vez")}
+              esvaziar={() => void agir(() => api.meetingEmptyTrash(), "Lixeira esvaziada")}
+            />
+          ) : carregando && linhas.length === 0 ? (
             <div className="meeting-carregando" role="status">
-              <span className="processing-trilha" data-indeterminado>
-                <span className="processing-preenchimento" />
-              </span>
+              <span className="processing-trilha" data-indeterminado><span className="processing-preenchimento" /></span>
               <span className="micro-label">CARREGANDO AS REUNIÕES</span>
             </div>
-          ) : meetings.length === 0 ? (
+          ) : linhas.length === 0 ? (
             <EmptyState>
-              Nenhuma reunião ainda. Comece uma gravação para a primeira aparecer aqui.
+              Nenhuma reunião ainda. Quando você entrar numa chamada, o M/OS oferece gravar — ou use Iniciar reunião.
             </EmptyState>
           ) : (
             <div className="meeting-groups">
-              {grouped.map(([day, list]) => (
-                <div className="meeting-group" key={day}>
-                  <span className="micro-label">{day}</span>
-                  {list.map((meeting) => (
-                    <button
-                      key={meeting.id}
-                      type="button"
-                      className="list-row meeting-row"
-                      aria-current={meeting.id === chosenId ? "true" : undefined}
-                      data-status={meeting.status}
-                      onClick={() => { setChosenId(meeting.id); setView("overview"); setNarrowPane("detail"); }}
-                    >
-                      <span className="meeting-row-time">{hourOf(meeting.startedAt)}</span>
-                      <span className="meeting-row-title">{meeting.title}</span>
-                      <span className="meeting-row-duration">{durationLabel(meeting.durationMs)}</span>
-                      <span className="meeting-row-meta">{rotuloDoEstado(meeting.status)}</span>
-                    </button>
-                  ))}
-                </div>
-              ))}
+              {secao("EM ANDAMENTO", secoes.em_andamento)}
+              {secao("PRECISA DE ATENÇÃO", secoes.atencao)}
+              {secao("RECENTES", secoes.recentes)}
+              <label className="meeting-arquivadas">
+                <input type="checkbox" checked={mostrarArquivadas} onChange={(evento) => setMostrarArquivadas(evento.currentTarget.checked)} />
+                <span className="micro-label">MOSTRAR ARQUIVADAS</span>
+              </label>
             </div>
           )}
         </section>
 
         <Inspector
-          ref={inspector}
           label="Reunião"
-          open={narrowPane === "detail"}
-          onBack={() => setNarrowPane("list")}
-          onEscape={() => setNarrowPane("list")}
+          open={painelEstreito === "detail"}
+          onBack={() => setPainelEstreito("list")}
+          onEscape={() => setPainelEstreito("list")}
         >
-          {!chosen ? (
+          {escolhidaNaLixeira && !meeting ? (
+            <div className="meeting-detail">
+              <h2>{escolhidaNaLixeira.title}</h2>
+              <p className="support-copy">Esta reunião está na lixeira.</p>
+              <Button onClick={() => void agir(() => api.meetingRestore(escolhidaNaLixeira.id), "Reunião restaurada")}>Restaurar</Button>
+            </div>
+          ) : !linha || !meeting ? (
             <EmptyState>Escolha uma reunião.</EmptyState>
           ) : (
             <div className="meeting-detail">
@@ -623,221 +386,270 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
                       className="meeting-title-input"
                       aria-label="Nome da reunião"
                       autoFocus
-                      value={rascunhoDoTitulo}
-                      onChange={(event) => setRascunhoDoTitulo(event.currentTarget.value)}
-                      onBlur={() => void gravarTitulo()}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") { event.preventDefault(); void gravarTitulo(); }
-                        if (event.key === "Escape") { event.preventDefault(); setRenomeando(false); }
+                      value={rascunhoTitulo}
+                      onChange={(evento) => setRascunhoTitulo(evento.currentTarget.value)}
+                      onBlur={() => {
+                        setRenomeando(false);
+                        const limpo = rascunhoTitulo.trim();
+                        if (limpo && limpo !== meeting.title) void agir(() => api.meetingSetTitle(meeting.id, limpo));
+                      }}
+                      onKeyDown={(evento) => {
+                        if (evento.key === "Enter") (evento.currentTarget as HTMLInputElement).blur();
+                        if (evento.key === "Escape") { evento.preventDefault(); setRenomeando(false); }
                       }}
                     />
-                  ) : (
-                    <h2>{chosen.title}</h2>
-                  )}
+                  ) : <h2>{meeting.title}</h2>}
                   <ActionMenu
                     trigger={<Icon name="more" />}
                     label="Ações da reunião"
                     items={[
+                      { label: "Renomear", onSelect: () => { setRascunhoTitulo(meeting.title); setRenomeando(true); } },
                       {
-                        label: "Renomear",
-                        onSelect: () => { setRascunhoDoTitulo(chosen.title); setRenomeando(true); },
+                        label: "Ajustar início e fim",
+                        disabled: gravandoEsta || meeting.durationMs < 2000 || meeting.status === "transcribing" || meeting.status === "analyzing",
+                        onSelect: () => setCortando(meeting),
                       },
                       {
-                        label: chosen.lifecycleState === "archived" ? "Desarquivar" : "Arquivar",
-                        onSelect: () => void act(
-                          () => api.meetingSetArchived(chosen.id, chosen.lifecycleState !== "archived"),
-                          chosen.lifecycleState === "archived" ? "Reunião desarquivada" : "Reunião arquivada",
+                        label: "Preparar follow-up",
+                        disabled: !analise && itens.length === 0,
+                        onSelect: () => void api.meetingFollowUp(meeting.id).then(setFollowUp).catch((e) => setNota(String(e))),
+                      },
+                      { label: "Perguntar ao Hermes", disabled: trechos.length === 0, onSelect: () => perguntarAoHermes(meeting) },
+                      {
+                        label: meeting.lifecycleState === "archived" ? "Desarquivar" : "Arquivar",
+                        onSelect: () => void agir(
+                          () => api.meetingSetArchived(meeting.id, meeting.lifecycleState !== "archived"),
+                          meeting.lifecycleState === "archived" ? "Reunião desarquivada" : "Reunião arquivada",
                         ),
                       },
-                      {
-                        label: "Apagar reunião",
-                        danger: true,
-                        // Uma gravação em curso não se apaga: o gravador está com
-                        // arquivos abertos naquele diretório neste instante. O
-                        // backend recusa; desabilitar aqui evita ensinar que o
-                        // item às vezes não faz nada (§23).
-                        disabled: chosen.status === "recording" || chosen.status === "paused" || chosen.status === "stopping",
-                        onSelect: () => setApagando(chosen),
-                      },
+                      { label: "Apagar reunião", danger: true, onSelect: () => setApagando(meeting) },
                     ]}
                   />
                 </div>
                 <p className="meeting-head-meta">
-                  {new Date(chosen.startedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
-                  {" · "}{hourOf(chosen.startedAt)}
-                  {" · "}{durationLabel(chosen.durationMs)}
-                  {chosen.lifecycleState === "archived" ? " · arquivada" : ""}
+                  {quandoFoi(meeting.startedAt)} · {duracao(meeting.durationMs)}
+                  {meeting.lifecycleState === "archived" ? " · arquivada" : ""}
+                  {linha.phase !== "ready" && linha.phase !== "recording" ? ` · ${rotuloDaFase(linha.phase)}` : ""}
                 </p>
-                {/* O Project vive numa linha propria e SEMPRE visivel, mesmo sem
-                    vinculo. Escondido quando vazio, ele so seria descoberto por
-                    quem ja soubesse que existe — e uma reuniao sem Project e
-                    justamente a que precisa do seletor. */}
                 <label className="meeting-field meeting-head-project">
                   <span className="micro-label">PROJECT</span>
                   <select
-                    value={chosen.projectId ?? ""}
-                    onChange={(event) => {
-                      const escolhido = event.currentTarget.value;
-                      void act(() => api.meetingSetProject(chosen.id, escolhido || null));
+                    value={meeting.projectId ?? ""}
+                    onChange={(evento) => {
+                      const valor = evento.currentTarget.value;
+                      void agir(() => api.meetingSetProject(meeting.id, valor || null));
                     }}
                   >
                     <option value="">Sem Project</option>
                     {projects
-                      .filter((project) => project.lifecycleState === "active" || project.id === chosen.projectId)
-                      .map((project) => (
-                        <option key={project.id} value={project.id}>{project.name}</option>
-                      ))}
+                      .filter((p) => p.lifecycleState === "active" || p.id === meeting.projectId)
+                      .map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </label>
-                <ChannelHealth meeting={chosen} />
-                {/* O que FALTA, e nao so onde a coisa esta. Em 20/08 a tela
-                    dizia "gravada" e era verdade — mas quem leu entendeu que
-                    nada tinha sido gravado. Ver `meetingEstado.ts`. */}
-                {proximoPasso(chosen.status) ? (
-                  <p className="meeting-proximo-passo">{proximoPasso(chosen.status)}</p>
-                ) : null}
               </header>
 
-              {chosen.status === "recording" || chosen.status === "paused" ? (
-                <CardGravacao meeting={chosen} onMudou={substituir} />
+              {sugestaoDeProject && !meeting.projectId ? (
+                <div className="reuniao-aviso">
+                  <p>Parece ser do Project <b>{nomeDoProject(projects, sugestaoDeProject.projectId)}</b>.</p>
+                  <Button variant="ghost" size="sm" onClick={() => void agir(() => api.meetingSetProject(meeting.id, sugestaoDeProject.projectId), "Project associado")}>Associar</Button>
+                </div>
               ) : null}
 
-              <MeetingActions meeting={chosen} act={act} refresh={refresh} />
+              {gravandoEsta ? (
+                <CardGravacao
+                  meeting={meeting}
+                  onMudou={() => recarregar()}
+                  onEncerrou={(m) => { setEscolhida(m.id); recarregar(); }}
+                />
+              ) : null}
 
-              <div className="segmented" role="tablist" aria-label="Visão da reunião">
-                <button
-                  role="tab"
-                  aria-selected={view === "overview"}
-                  onClick={() => setView("overview")}
-                >Visão geral</button>
-                <button
-                  role="tab"
-                  aria-selected={view === "transcript"}
-                  onClick={() => setView("transcript")}
-                >Transcrição{segments.length ? ` · ${segments.length}` : ""}</button>
-                <button
-                  role="tab"
-                  aria-selected={view === "notes"}
-                  onClick={() => setView("notes")}
-                >Anotações{chosen.notes?.trim() ? " ·" : ""}</button>
-              </div>
+              {linha.phase === "processing" || linha.phase === "finalizing" ? (
+                <ProgressoDaReuniao linha={linha} fracaoAoVivo={progresso[meeting.id] ?? null} />
+              ) : null}
 
-              {view === "notes" ? (
-                <div className="meeting-overview">
-                  {chosen.status === "recording" || chosen.status === "paused" ? (
-                    /* Gravando, o campo esta no card acima — nao ha dois lugares
-                       para escrever a mesma nota. */
-                    <p className="support-copy">
-                      Escreva no card acima. O que você anotar sobe junto com a transcrição
-                      quando a análise rodar.
-                    </p>
-                  ) : chosen.notes ? (
-                    <Panel label="ANOTAÇÕES">
-                      <p className="meeting-summary">{chosen.notes}</p>
-                    </Panel>
+              {linha.phase === "needs_attention" || linha.phase === "failed_recoverable" || linha.phase === "recovered" ? (
+                <div className="reuniao-aviso" data-tom="atencao">
+                  <p>
+                    {linha.phase === "failed_recoverable" || meeting.status === "failed" ? "A gravação está segura. " : ""}
+                    {linha.attention || (linha.phase === "recovered"
+                      ? `O M/OS fechou durante a gravação. ${duracao(meeting.durationMs)} foram recuperados.`
+                      : "Esta reunião precisa de você.")}
+                  </p>
+                  {meeting.durationMs > 0 ? (
+                    <Button size="sm" onClick={() => void agir(() => api.meetingRetry(meeting.id), "Processando de novo")}>
+                      {linha.job?.lastErrorCode === "manual_start" ? "Processar agora" : "Tentar de novo"}
+                    </Button>
                   ) : (
-                    <EmptyState>Nada foi anotado nesta reunião.</EmptyState>
+                    <Button variant="ghost" size="sm" onClick={() => setApagando(meeting)}>Apagar</Button>
                   )}
                 </div>
-              ) : view === "overview" ? (
+              ) : null}
+
+              {linha.phase === "partially_ready" ? (
+                <div className="reuniao-aviso">
+                  <p>
+                    <b>Transcrição pronta.</b>{" "}
+                    {linha.job?.lastErrorCode === "consent_missing"
+                      ? "A organização com o Hermes espera a autorização em Settings."
+                      : trechos.length === 0
+                        ? "Nenhuma fala foi encontrada nesta gravação."
+                        : "Organização inteligente pendente — tenta de novo sozinha."}
+                  </p>
+                  {trechos.length > 0 && linha.job?.lastErrorCode !== "consent_missing" ? (
+                    <Button variant="ghost" size="sm" onClick={() => void agir(() => api.meetingRetry(meeting.id), "Tentando de novo")}>Tentar agora</Button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {meeting.trimOrigin === "auto" && meeting.trimEndMs != null ? (
+                <div className="reuniao-aviso">
+                  <p>Ignoramos {duracao(meeting.durationMs - meeting.trimEndMs)} depois do fim da reunião.</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!!meeting.audioDeletedAt}
+                    onClick={() => void agir(() => api.meetingClearTrim(meeting.id), "O trecho volta a contar")}
+                  >Incluir de volta</Button>
+                </div>
+              ) : sugestaoDeCorte != null && !dispensouCorte && (linha.phase === "ready" || linha.phase === "partially_ready") ? (
+                <div className="reuniao-aviso">
+                  <p>{fraseDoCorte(meeting.durationMs, sugestaoDeCorte)} Ignorar esse trecho?</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void agir(() => api.meetingSetTrim(meeting.id, 0, sugestaoDeCorte, "suggested"), "Trecho ignorado")}
+                  >Ignorar</Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const proximos = [...dispensados, meeting.id].slice(-200);
+                      setDispensados(proximos);
+                      try { localStorage.setItem(CHAVE_CORTE_DISPENSADO, JSON.stringify(proximos)); } catch { /* sem storage */ }
+                    }}
+                  >Manter</Button>
+                </div>
+              ) : null}
+
+              {!gravandoEsta ? (
+                <div className="segmented" role="tablist" aria-label="Visão da reunião">
+                  <button role="tab" aria-selected={visao === "resumo"} onClick={() => setVisao("resumo")}>Resumo</button>
+                  <button role="tab" aria-selected={visao === "transcricao"} onClick={() => setVisao("transcricao")}>
+                    Transcrição{trechos.length ? ` · ${trechos.length}` : ""}
+                  </button>
+                  <button role="tab" aria-selected={visao === "notas"} onClick={() => setVisao("notas")}>
+                    Notas{meeting.notes.trim() ? " ·" : ""}
+                  </button>
+                </div>
+              ) : null}
+
+              {gravandoEsta ? null : visao === "resumo" ? (
                 <div className="meeting-overview">
-                  {analysis ? (
+                  <RevisaoEmLote
+                    titulo={minhas.length === 1 ? "1 ITEM PRECISA DA SUA ATENÇÃO" : `O QUE EXIGE SUA ATENÇÃO`}
+                    linhas={minhas}
+                    trechos={trechos}
+                    projectId={meeting.projectId}
+                    saltar={saltar}
+                    receipt={receipt}
+                    depois={() => { recarregar(); void refresh(); }}
+                  />
+
+                  {analise?.summary ? (
                     <Panel label="RESUMO">
-                      <p className="meeting-summary">{analysis.summary}</p>
-                      {analysis.windows > 1 ? (
-                        <p className="meeting-windows">
-                          A transcrição não coube num envio: foi analisada em {analysis.windows} partes.
-                        </p>
+                      <p className="meeting-summary">{analise.summary}</p>
+                      {analise.windows > 1 ? (
+                        <p className="meeting-windows">A transcrição foi organizada em {analise.windows} partes.</p>
                       ) : null}
                     </Panel>
                   ) : null}
 
-                  {SECTIONS.map((kind) => {
-                    const items = proposed.filter((insight) => insight.kind === kind);
-                    if (!items.length) return null;
-                    return (
-                      <Panel label={KIND_LABEL[kind]} count={String(items.length)} key={kind}>
-                        {items.map((insight) => (
-                          <article className="meeting-insight" key={insight.id} data-confidence={insight.confidence}>
-                            <p className="meeting-insight-text">{insight.text}</p>
-                            <p className="meeting-insight-meta">
-                              {insight.owner ? <span>{insight.owner}</span> : null}
-                              {insight.dueHint ? <span>prazo: {insight.dueHint}</span> : null}
-                              <span>{CONFIDENCE_LABEL[insight.confidence]}</span>
-                            </p>
-                            <Evidence insight={insight} segments={segments} jump={jump} />
-                            <div className="meeting-insight-actions">
-                              {kind === "my_action" || kind === "other_action" || kind === "deadline" || kind === "follow_up" ? (
-                                <Button variant="ghost" onClick={() => setAccepting(insight)}>Criar Task</Button>
-                              ) : null}
-                              <Button
-                                variant="ghost"
-                                onClick={() => void act(() => api.meetingDismissInsight(insight.id))}
-                              >Descartar</Button>
-                            </div>
-                          </article>
-                        ))}
-                      </Panel>
-                    );
-                  })}
+                  <ListaDeItens titulo="DECISÕES" itens={doTipo(itens, ["decision"])} trechos={trechos} saltar={saltar} depois={recarregar} />
 
-                  {!analysis && !proposed.length ? (
-                    <EmptyState>
-                      {chosen.status === "transcribed"
-                        ? "Transcrição pronta. A análise ainda não foi feita."
-                        : "Nada analisado ainda."}
-                    </EmptyState>
+                  <RevisaoEmLote
+                    titulo="AGUARDANDO OUTRAS PESSOAS"
+                    linhas={deOutros}
+                    trechos={trechos}
+                    projectId={meeting.projectId}
+                    saltar={saltar}
+                    receipt={receipt}
+                    depois={() => { recarregar(); void refresh(); }}
+                    externa
+                  />
+
+                  <ListaDeItens titulo="PERGUNTAS EM ABERTO" itens={doTipo(itens, ["open_question"])} trechos={trechos} saltar={saltar} depois={recarregar} />
+                  <ListaDeItens titulo="RISCOS" itens={doTipo(itens, ["risk"])} trechos={trechos} saltar={saltar} depois={recarregar} />
+                  <ListaDeItens titulo="REFERÊNCIAS" itens={doTipo(itens, ["reference"])} trechos={trechos} saltar={saltar} depois={recarregar} />
+                  <ListaDeItens titulo="TÓPICOS" itens={doTipo(itens, ["topic"])} trechos={trechos} saltar={saltar} depois={recarregar} />
+
+                  {criados.length ? (
+                    <Panel label="JÁ VIRARAM TASK" count={String(criados.length)}>
+                      <ul className="reuniao-itens">
+                        {criados.map((item) => <li key={item.id}><span className="reuniao-item-texto">{item.text}</span></li>)}
+                      </ul>
+                    </Panel>
+                  ) : null}
+
+                  {marcas.length ? (
+                    <Panel label="MOMENTOS MARCADOS" count={String(marcas.length)}>
+                      <div className="reuniao-marcas">
+                        {marcas.map((marca) => (
+                          <span key={marca.id} className="reuniao-marca">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const trecho = trechos.find((t) => marca.atMs >= t.startMs - 5000 && marca.atMs <= t.endMs + 5000);
+                                if (trecho) saltar(trecho.id); else setVisao("transcricao");
+                              }}
+                            >★ {relogio(marca.atMs)}</button>
+                            <button type="button" aria-label="Remover marca" onClick={() => void api.meetingDeleteBookmark(marca.id).then(recarregar)}>×</button>
+                          </span>
+                        ))}
+                      </div>
+                    </Panel>
+                  ) : null}
+
+                  {!analise && itens.length === 0 && linha.phase === "ready" ? (
+                    <EmptyState>Nenhuma decisão ou tarefa foi identificada nesta reunião.</EmptyState>
+                  ) : null}
+
+                  {import.meta.env.DEV ? (
+                    <details
+                      className="reuniao-tecnico"
+                      onToggle={(evento) => {
+                        if ((evento.currentTarget as HTMLDetailsElement).open) void api.meetingDebug(meeting.id).then(setTecnico).catch(() => undefined);
+                      }}
+                    >
+                      <summary className="micro-label">TÉCNICO (DESENVOLVIMENTO)</summary>
+                      <pre>{tecnico ? JSON.stringify(tecnico, null, 2) : "…"}</pre>
+                    </details>
                   ) : null}
                 </div>
+              ) : visao === "transcricao" ? (
+                <Transcricao
+                  meeting={meeting}
+                  trechos={trechos}
+                  marcas={marcas}
+                  itens={itens}
+                  alvo={alvo}
+                  audioDisponivel={!meeting.audioDeletedAt}
+                  depois={recarregar}
+                />
               ) : (
-                <div className="meeting-transcript" ref={transcriptRef}>
-                  <label className="meeting-field">
-                    <span className="micro-label">BUSCAR NA TRANSCRIÇÃO</span>
-                    <input
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder="palavra ou frase"
-                    />
-                  </label>
-                  <p className="micro-label">{filteredSegments.length} de {segments.length} segmentos</p>
-                  {chosen.status === "recording" || chosen.status === "paused" ? (
-                    /* Nao fica vazia nem promete o que nao vai cumprir. A razao
-                       esta escrita porque ela e uma escolha e nao um limite:
-                       transcrever pedacos soltos corta palavras na emenda. */
-                    <EmptyState>
-                      A transcrição é feita de uma vez, com a reunião inteira — transcrever
-                      pedaços soltos corta palavras na emenda e perde o contexto que
-                      desambigua. Por isso ela não acompanha a gravação: ao parar, a reunião
-                      aparece aqui e o botão <strong>Transcrever</strong> a produz.
-                    </EmptyState>
-                  ) : segments.length === 0 ? (
-                    carregandoDetalhe ? (
-                      <div className="meeting-carregando" role="status">
-                        <span className="processing-trilha" data-indeterminado>
-                          <span className="processing-preenchimento" />
-                        </span>
-                        <span className="micro-label">CARREGANDO A TRANSCRIÇÃO</span>
-                      </div>
-                    ) : (
-                      <EmptyState>
-                        Esta reunião ainda não foi transcrita. O áudio está salvo — o botão
-                        <b> Transcrever</b> acima produz o texto.
-                      </EmptyState>
-                    )
-                  ) : (
-                    filteredSegments.map((segment) => (
-                      <p
-                        className="meeting-line"
-                        key={segment.id}
-                        data-segment={segment.id}
-                        data-channel={segment.channel}
-                      >
-                        <span className="meeting-line-time">{formatMeetingClock(segment.startMs)}</span>
-                        <span className="meeting-line-who">{segment.channel === "mic" ? "VOCÊ" : "REMOTO"}</span>
-                        <span className="meeting-line-text">{segment.text}</span>
-                      </p>
-                    ))
-                  )}
+                <div className="meeting-overview">
+                  <textarea
+                    className="card-gravacao-notas"
+                    aria-label="Notas da reunião"
+                    value={notasEditadas ?? meeting.notes}
+                    placeholder="Nada foi anotado. !task, !decision e !question viram itens."
+                    onChange={(evento) => setNotasEditadas(evento.currentTarget.value)}
+                    onBlur={() => {
+                      if (notasEditadas != null && notasEditadas !== meeting.notes) {
+                        void agir(() => api.meetingSetNotes(meeting.id, notasEditadas));
+                      }
+                    }}
+                  />
+                  <p className="support-copy">Linhas com !task, !decision ou !question aparecem no Resumo como itens escritos por você.</p>
                 </div>
               )}
             </div>
@@ -845,53 +657,42 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
         </Inspector>
       </div>
 
-      {askConsent ? (
-        <ConsentDialog
-          close={() => setAskConsent(false)}
-          granted={() => { setAskConsent(false); void start(); }}
-        />
-      ) : null}
-
-      {apagando ? (
-        /* O padrao de exclusao definitiva do M/OS, o mesmo de Settings: rotulo
-           que nomeia a gravidade, o nome do que vai sumir, o que exatamente se
-           perde, e o unico caminho de volta que ainda existe. §54 pede que
-           apagar pareca diferente de arquivar — as duas saidas ficam lado a
-           lado no menu, e so uma abre isto. */
-        <div className="meeting-scrim" onClick={() => setApagando(null)}>
-          <div
-            className="meeting-dialog meeting-apagar"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="apagar-reuniao"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <header>
-              <span className="micro-label">EXCLUSÃO DEFINITIVA</span>
-              <h2 id="apagar-reuniao">Apagar “{apagando.title}”?</h2>
-            </header>
-            <p>
-              Isto apaga a reunião, a transcrição, a análise e o áudio do disco. Não há
-              Desfazer: o único caminho de volta é restaurar um backup anterior a esta ação.
-            </p>
-            <p className="support-copy">
-              Para guardar sem que ela apareça na lista, use <b>Arquivar</b>.
-            </p>
-            <footer className="form-actions">
-              <Button variant="ghost" onClick={() => setApagando(null)}>Cancelar</Button>
-              <Button variant="danger" onClick={() => void apagar(apagando)}>Apagar</Button>
-            </footer>
+      {menuDeContexto ? (
+        <div className="reuniao-contexto-scrim" onClick={() => setMenuDeContexto(null)} onContextMenu={(e) => { e.preventDefault(); setMenuDeContexto(null); }}>
+          <div className="reuniao-contexto" role="menu" style={{ left: menuDeContexto.x, top: menuDeContexto.y }}>
+            <button role="menuitem" type="button" onClick={() => { setEscolhida(menuDeContexto.meeting.id); setPainelEstreito("detail"); setMenuDeContexto(null); }}>Abrir</button>
+            <button role="menuitem" type="button" data-perigo onClick={() => { setApagando(menuDeContexto.meeting); setMenuDeContexto(null); }}>Apagar reunião</button>
           </div>
         </div>
       ) : null}
 
-      {accepting ? (
-        <AcceptDialog
-          insight={accepting}
-          projects={projects}
-          meetingProject={chosen?.projectId ?? null}
-          close={() => setAccepting(null)}
-          done={(action) => { receipt(action); void loadDetail(); void refresh(); }}
+      {apagando ? (
+        <DialogoApagar
+          meeting={apagando}
+          gravando={apagando.id === gravandoId}
+          fechar={() => setApagando(null)}
+          apagar={(pararAntes) => apagar(apagando, pararAntes)}
+        />
+      ) : null}
+
+      {cortando ? (
+        <DialogoCorte
+          meeting={cortando}
+          fechar={() => setCortando(null)}
+          salvar={async (inicio, fim) => {
+            const resultado = await api.meetingSetTrim(cortando.id, inicio, fim, "manual");
+            recarregar();
+            mostrarFlash(resultado.requeued ? "Ajustado. A reunião vai ser organizada de novo." : "Início e fim ajustados");
+          }}
+        />
+      ) : null}
+
+      {followUp != null ? <DialogoFollowUp texto={followUp} fechar={() => setFollowUp(null)} /> : null}
+
+      {pedirConsentimento ? (
+        <DialogoConsentimento
+          fechar={() => setPedirConsentimento(false)}
+          autorizado={() => { setPedirConsentimento(false); void iniciar(); }}
         />
       ) : null}
     </div>
@@ -899,102 +700,30 @@ export function MeetingsPage({ projects, focus, receipt, refresh }: {
 }
 
 /**
- * A saúde dos canais, depois que a gravação terminou.
- *
- * Só aparece quando algo saiu do normal. Uma linha dizendo "os dois canais
- * funcionaram" em toda reunião viraria ruído, e o que precisa ser visível é a
- * exceção.
+ * O consentimento. **Uma vez, e não a cada reunião** (`UX-PRINCIPLES` §21):
+ * confirmações constantes ensinam a clicar sem ler.
  */
-function ChannelHealth({ meeting }: { meeting: Meeting }) {
-  const problems: string[] = [];
-  for (const [label, outcome] of [["Microfone", meeting.mic], ["Áudio do sistema", meeting.system]] as const) {
-    if (outcome.state === "lost") {
-      problems.push(`${label} caiu aos ${formatMeetingClock(outcome.atMs)}. O restante foi preservado.`);
-    } else if (outcome.state === "unavailable") {
-      problems.push(`${label} não foi capturado: ${outcome.reason}`);
-    }
-  }
-  if (!problems.length) return null;
+function DialogoConsentimento({ fechar, autorizado }: { fechar: () => void; autorizado: () => void }) {
+  const [ocupado, setOcupado] = useState(false);
   return (
-    <div className="meeting-health">
-      {problems.map((problem) => <p key={problem}>{problem}</p>)}
+    <div className="meeting-scrim" onClick={fechar}>
+      <div className="meeting-dialog meeting-consent" role="dialog" aria-modal="true" aria-label="Reuniões gravam áudio" onClick={(e) => e.stopPropagation()}>
+        <header><h2>Reuniões gravam áudio</h2></header>
+        <p>Enquanto estiver gravando, o M/OS captura o seu microfone e o áudio que sai pelo computador — o que inclui a voz das outras pessoas na chamada.</p>
+        <p>O áudio fica neste computador e é apagado depois de processado. A transcrição é feita aqui. Para organizar decisões e tarefas, a transcrição é enviada ao Hermes; dá para desligar isso em Settings.</p>
+        <p><b>Obter o consentimento dos outros participantes, quando necessário, é responsabilidade sua.</b></p>
+        <footer className="form-actions">
+          <Button variant="ghost" onClick={fechar}>Cancelar</Button>
+          <Button
+            autoFocus
+            disabled={ocupado}
+            onClick={() => {
+              setOcupado(true);
+              void api.meetingSetAnalysisConsent(true).then(autorizado).catch(() => setOcupado(false));
+            }}
+          >Entendi, gravar</Button>
+        </footer>
+      </div>
     </div>
   );
-}
-
-/**
- * O que dá para fazer com esta reunião agora.
- *
- * Um botão por estado, e nunca todos ao mesmo tempo: oferecer "analisar" numa
- * reunião sem transcrição ensinaria que o botão às vezes não faz nada.
- */
-function MeetingActions({ meeting, act, refresh }: {
-  meeting: Meeting;
-  act: (run: () => Promise<unknown>, message?: string) => Promise<void>;
-  refresh: () => Promise<unknown>;
-}) {
-  const after = async (run: () => Promise<unknown>, message?: string) => {
-    await act(run, message);
-    await refresh();
-  };
-
-  if (meeting.status === "interrupted") {
-    return (
-      <div className="meeting-recovery">
-        <p>
-          Esta gravação foi interrompida. <b>{durationLabel(meeting.durationMs)}</b> foram recuperados.
-        </p>
-        <div className="meeting-insight-actions">
-          <Button onClick={() => void after(() => api.meetingProcessRecovered(meeting.id), "Reunião recuperada")}>
-            Processar
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => void after(() => api.meetingDiscard(meeting.id), "Gravação descartada")}
-          >
-            Descartar
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  if (meeting.status === "failed" && meeting.failure) {
-    // A separação que o §20 exige: "a gravação está segura" e "perdi a
-    // gravação" pedem respostas opostas, e o estágio é o que as distingue.
-    const safe = meeting.failure.stage !== "audio";
-    return (
-      <div className="meeting-failure">
-        <p>
-          {safe ? "A gravação está segura. " : ""}
-          {meeting.failure.message}
-        </p>
-        <Button onClick={() => void after(() => api.meetingRetry(meeting.id), "Tentando de novo")}>
-          Tentar de novo
-        </Button>
-      </div>
-    );
-  }
-
-  const buttons: React.ReactNode[] = [];
-  if (meeting.status === "recorded") {
-    buttons.push(
-      <Button key="t" onClick={() => void after(() => api.meetingTranscribe(meeting.id), "Transcrevendo…")}>
-        Transcrever
-      </Button>,
-    );
-  }
-  if (meeting.status === "transcribed" || meeting.status === "ready") {
-    buttons.push(
-      <Button key="a" variant={meeting.status === "ready" ? "ghost" : "primary"}
-        onClick={() => void after(() => api.meetingAnalyze(meeting.id), "Analisando…")}>
-        {meeting.status === "ready" ? "Analisar de novo" : "Analisar com o Hermes"}
-      </Button>,
-    );
-  }
-  if (meeting.status === "transcribing" || meeting.status === "analyzing") {
-    return <p className="meeting-working">{rotuloDoEstado(meeting.status)}…</p>;
-  }
-  if (!buttons.length) return null;
-  return <div className="meeting-insight-actions">{buttons}</div>;
 }

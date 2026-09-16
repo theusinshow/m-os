@@ -13230,3 +13230,665 @@ button.daily-objective-title:focus-visible {
   .sync-chip[data-tom="girando"] .sync-chip-icone { animation: none; }
   .piloto-barra > span { transition: none; }
 }
+
+/* ==========================================================================
+   Meeting Agent V2 — "Você participa da reunião. O M/OS cuida do resto."
+   Spec: docs/superpowers/specs/2026-09-16-meeting-agent-v2-design.md
+   Calmo de propósito: poucas bordas, nenhum gradiente, um só loop (o ponto).
+   ========================================================================== */
+
+.segmented button[aria-pressed="true"] {
+  background: var(--surface-active);
+  color: var(--text);
+}
+
+/* --- O mini card do shell ------------------------------------------------- */
+
+.recording-controles,
+.recording-guardian {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.recording-guardian-texto {
+  min-width: 0;
+  max-width: 26ch;
+  overflow: hidden;
+  font: var(--text-small);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* A pergunta do Guardian ganha a borda do sódio: ela e a unica coisa na barra
+   que pede resposta, e a cor nomeia isso sem soar alarme (ADR-042). */
+.recording-bar[data-guardian] {
+  border-color: var(--signal-ink);
+}
+
+.recording-marcar {
+  display: grid;
+  place-items: center;
+  width: var(--height-control-sm);
+  height: var(--height-control-sm);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-secondary);
+  font: var(--text-ui);
+  cursor: pointer;
+}
+
+.recording-marcar:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.recording-marcar[data-marcou] {
+  color: var(--signal-ink);
+}
+
+.processing-acao {
+  flex: none;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text);
+  font: var(--text-small);
+  cursor: pointer;
+}
+
+.processing-bar[data-pronta] {
+  border-color: var(--border-strong);
+}
+
+/* --- O card de gravacao na pagina ---------------------------------------- */
+
+.card-gravacao-topo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.card-gravacao-canais {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-2);
+}
+
+.card-gravacao-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.card-gravacao-espaco {
+  flex: 1;
+}
+
+/* --- A lista --------------------------------------------------------------- */
+
+.reuniao-lista-topo {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.reuniao-busca {
+  width: 100%;
+  height: var(--height-control-sm);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: var(--text-small);
+}
+
+.reuniao-cartao {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "titulo selo"
+    "meta meta"
+    "contagem contagem";
+  gap: 2px var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.reuniao-cartao:hover {
+  background: var(--surface-hover);
+}
+
+.reuniao-cartao[aria-current="true"] {
+  background: var(--surface-active);
+  border-color: var(--border-strong);
+}
+
+.reuniao-cartao-titulo {
+  grid-area: titulo;
+  overflow: hidden;
+  font: var(--text-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.reuniao-cartao-meta {
+  grid-area: meta;
+  font: var(--text-meta);
+  color: var(--text-secondary);
+}
+
+.reuniao-cartao-contagem {
+  grid-area: contagem;
+  font: var(--text-small);
+  color: var(--text-secondary);
+}
+
+.reuniao-cartao-selo {
+  grid-area: selo;
+  align-self: start;
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  color: var(--text-system);
+  white-space: nowrap;
+}
+
+.reuniao-cartao-selo[data-fase="recording"] {
+  color: var(--danger);
+}
+
+.reuniao-cartao-selo[data-fase="needs_attention"],
+.reuniao-cartao-selo[data-fase="failed_recoverable"],
+.reuniao-cartao-selo[data-fase="recovered"] {
+  color: var(--signal-ink);
+}
+
+.reuniao-contexto-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+}
+
+.reuniao-contexto {
+  position: fixed;
+  display: grid;
+  min-width: 180px;
+  padding: var(--space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-overlay);
+}
+
+.reuniao-contexto button {
+  height: var(--height-menu-item);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font: var(--text-small);
+  text-align: left;
+  cursor: pointer;
+}
+
+.reuniao-contexto button:hover {
+  background: var(--surface-hover);
+}
+
+.reuniao-contexto button[data-perigo] {
+  color: var(--danger);
+}
+
+/* --- Avisos e progresso --------------------------------------------------- */
+
+.reuniao-aviso {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.reuniao-aviso p {
+  flex: 1 1 24ch;
+  margin: 0;
+  font: var(--text-small);
+}
+
+.reuniao-aviso[data-tom="atencao"] {
+  border-color: var(--signal-ink);
+}
+
+.reuniao-progresso {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.reuniao-progresso header {
+  display: flex;
+  justify-content: space-between;
+}
+
+.reuniao-progresso-porcento {
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.reuniao-passos {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font: var(--text-small);
+}
+
+.reuniao-passos li {
+  display: flex;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+}
+
+.reuniao-passos li[data-estado="done"],
+.reuniao-passos li[data-estado="active"] {
+  color: var(--text);
+}
+
+.reuniao-passos li[data-estado="failed"] {
+  color: var(--signal-ink);
+}
+
+/* --- Revisao em lote e itens ---------------------------------------------- */
+
+.reuniao-revisao-lista,
+.reuniao-itens {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reuniao-revisao-linha {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+  align-items: start;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+
+.reuniao-revisao-linha:not([data-selecionavel]) .reuniao-revisao-titulo {
+  color: var(--text-secondary);
+}
+
+.reuniao-revisao-linha input[type="checkbox"] {
+  margin-top: 6px;
+}
+
+.reuniao-revisao-sem-caixa {
+  text-align: center;
+  color: var(--text-disabled);
+}
+
+.reuniao-revisao-corpo {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.reuniao-revisao-titulo {
+  width: 100%;
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: none;
+  color: var(--text);
+  font: var(--text-ui);
+}
+
+.reuniao-revisao-titulo:focus-visible {
+  border-bottom-color: var(--signal-ink);
+  outline: none;
+}
+
+.reuniao-revisao-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  font: var(--text-meta);
+  color: var(--text-secondary);
+}
+
+.reuniao-revisar {
+  color: var(--signal-ink);
+}
+
+.reuniao-revisao-prazo {
+  position: relative;
+  display: grid;
+  justify-items: end;
+}
+
+.reuniao-revisao-prazo input[type="date"] {
+  width: 132px;
+  height: var(--height-control-sm);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: var(--text-meta);
+  color-scheme: dark;
+}
+
+[data-theme='light'] .reuniao-revisao-prazo input[type="date"] {
+  color-scheme: light;
+}
+
+.reuniao-prazo-rotulo {
+  font: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  color: var(--text-secondary);
+}
+
+.reuniao-descartar {
+  padding: 0 var(--space-1);
+  border: 0;
+  background: none;
+  color: var(--text-system);
+  font: var(--text-ui);
+  cursor: pointer;
+}
+
+.reuniao-descartar:hover {
+  color: var(--text);
+}
+
+.reuniao-revisao-rodape {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.reuniao-itens li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+
+.reuniao-itens li .reuniao-revisao-meta {
+  grid-column: 1;
+}
+
+.reuniao-itens li[data-confianca="low"] .reuniao-item-texto {
+  color: var(--text-secondary);
+}
+
+.reuniao-item-texto {
+  max-width: 70ch;
+}
+
+.reuniao-evidencias {
+  display: inline-flex;
+  gap: var(--space-1);
+}
+
+.reuniao-evidencia {
+  padding: 0 var(--space-1);
+  border: 0;
+  border-left: 2px solid var(--border-control);
+  background: none;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.reuniao-evidencia:hover {
+  border-left-color: var(--text);
+  color: var(--text);
+}
+
+.reuniao-marcas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.reuniao-marca {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.reuniao-marca button {
+  padding: 2px var(--space-2);
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: var(--text-meta);
+  cursor: pointer;
+}
+
+.reuniao-marca button + button {
+  color: var(--text-system);
+}
+
+/* --- Transcricao ------------------------------------------------------------ */
+
+.reuniao-transcricao {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.reuniao-transcricao-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.reuniao-transcricao-filtros .reuniao-busca {
+  flex: 1 1 18ch;
+  width: auto;
+}
+
+.reuniao-ouvir-modo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.reuniao-player {
+  width: 100%;
+  height: 36px;
+}
+
+.reuniao-linhas {
+  display: grid;
+  gap: 2px;
+}
+
+.reuniao-linha {
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+}
+
+.reuniao-linha[data-marcado] .meeting-line-time {
+  color: var(--signal-ink);
+}
+
+.reuniao-linha-acoes {
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0;
+}
+
+.reuniao-linha:hover .reuniao-linha-acoes,
+.reuniao-linha:focus-within .reuniao-linha-acoes {
+  opacity: 1;
+}
+
+.reuniao-linha-acoes button {
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  cursor: pointer;
+}
+
+.reuniao-linha-acoes button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* A troca do vocabulario: grifo discreto, e a incerta com o `?` no texto.
+   Nunca cor de erro — e uma leitura, e nao uma falha. */
+.reuniao-correcao {
+  background: none;
+  color: inherit;
+  text-decoration: underline dotted var(--text-system);
+  text-underline-offset: 3px;
+}
+
+.reuniao-correcao[data-incerta] {
+  text-decoration-color: var(--signal-ink);
+}
+
+/* --- Dialogos e Settings --------------------------------------------------- */
+
+.reuniao-corte {
+  position: relative;
+  height: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--border);
+}
+
+.reuniao-corte-util {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--radius-sm);
+  background: var(--text-secondary);
+}
+
+.reuniao-followup {
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: var(--text-small);
+  resize: vertical;
+}
+
+.reuniao-lixeira {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.reuniao-lixeira ul {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reuniao-lixeira-linha {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+
+.reuniao-lixeira-linha > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.reuniao-teste {
+  display: grid;
+  gap: 2px;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font: var(--text-small);
+  color: var(--signal-ink);
+}
+
+.reuniao-teste li[data-ok] {
+  color: var(--text);
+}
+
+.reuniao-avancado summary,
+.reuniao-tecnico summary {
+  cursor: pointer;
+  font: var(--text-small);
+  color: var(--text-secondary);
+}
+
+.reuniao-avancado[open] {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.reuniao-tecnico pre {
+  max-height: 320px;
+  overflow: auto;
+  font: var(--text-meta);
+  white-space: pre-wrap;
+}
+
+@media (max-width: 960px) {
+  .recording-guardian-texto {
+    display: none;
+  }
+  .reuniao-revisao-linha {
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+  }
+  .reuniao-revisao-prazo {
+    grid-column: 2;
+    justify-items: start;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .reuniao-linha-acoes {
+    transition: opacity var(--dur-instant) var(--ease-state);
+  }
+}

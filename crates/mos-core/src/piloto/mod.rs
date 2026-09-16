@@ -68,6 +68,12 @@ impl Alvo {
             id: id.to_string(),
         }
     }
+    pub fn meeting(id: &str) -> Self {
+        Self {
+            kind: "meeting".into(),
+            id: id.to_owned(),
+        }
+    }
     pub fn academic(kind: &str, id: &str) -> Self {
         Self {
             kind: format!("academic_{kind}"),
@@ -137,6 +143,25 @@ pub struct Retrato<'a> {
     /// A ultima vez que a pessoa esteve no M/OS antes desta abertura.
     pub ultima_presenca: Option<OffsetDateTime>,
     pub habitos: &'a Habitos,
+    /// Reunioes recentes que ainda pedem algo da pessoa. Vazio no bolso: o
+    /// celular nao grava reuniao, e as Tasks que nasceram delas ja viajam.
+    pub reunioes: &'a [ReuniaoNoRetrato],
+}
+
+/// Uma reuniao, do ponto de vista do piloto: so o que decide se ela precisa da
+/// pessoa. A fase e a do `meeting_pipeline` — o piloto nao reinterpreta estado.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReuniaoNoRetrato {
+    pub id: String,
+    pub titulo: String,
+    pub fase: crate::MeetingPhase,
+    /// Acoes minhas ainda por revisar.
+    pub acoes_pendentes: usize,
+    /// A frase da pendencia, quando a fase pede a pessoa.
+    pub atencao: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub quando: OffsetDateTime,
 }
 
 impl<'a> Retrato<'a> {
@@ -335,6 +360,7 @@ pub(crate) mod fixtures {
         pub sync: SyncNoRetrato,
         pub ultima_presenca: Option<OffsetDateTime>,
         pub habitos: Habitos,
+        pub reunioes: Vec<ReuniaoNoRetrato>,
     }
 
     impl Default for Cenario {
@@ -351,6 +377,7 @@ pub(crate) mod fixtures {
                 sync: SyncNoRetrato::EmDia,
                 ultima_presenca: Some(agora() - time::Duration::hours(12)),
                 habitos: Habitos::default(),
+                reunioes: Vec::new(),
             }
         }
     }
@@ -369,6 +396,7 @@ pub(crate) mod fixtures {
                 sync: &self.sync,
                 ultima_presenca: self.ultima_presenca,
                 habitos: &self.habitos,
+                reunioes: &self.reunioes,
             }
         }
     }

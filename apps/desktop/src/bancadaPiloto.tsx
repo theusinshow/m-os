@@ -27,7 +27,7 @@ const daqui = (min: number) => new Date(AGORA.getTime() + min * 60_000).toISOStr
 
 const acoes: AcoesDoPiloto = {
   abrirTask: () => undefined, abrirInbox: () => undefined, abrirSync: () => undefined, abrirAcademico: () => undefined,
-  abrirLembrete: () => undefined, montarDia: () => undefined, iniciarDiaManual: () => undefined, encerrarDia: () => undefined,
+  abrirLembrete: () => undefined, abrirReuniao: () => undefined, montarDia: () => undefined, iniciarDiaManual: () => undefined, encerrarDia: () => undefined,
   abrirResgate: () => undefined, atualizar: () => undefined,
 };
 

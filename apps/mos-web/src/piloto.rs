@@ -109,6 +109,9 @@ impl Leitura {
             sync: &self.sync,
             ultima_presenca: self.ultima_presenca,
             habitos: &self.habitos,
+            // O bolso nao grava reuniao: as Tasks que nasceram delas ja viajam
+            // pelo sync, e e por elas que a atencao do celular sabe da reuniao.
+            reunioes: &[],
         }
     }
 }

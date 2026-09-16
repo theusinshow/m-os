@@ -22,6 +22,12 @@ export type FunctionIntentTarget =
   | "daily_end"
   | "piloto_now"
   | "updates_check"
+  | "meeting_start"
+  | "meeting_open_current"
+  | "meeting_mark"
+  | "meeting_pause"
+  | "meeting_resume"
+  | "meeting_stop"
   | "function_registry";
 
 const lowRiskTargets: Readonly<Record<string, FunctionIntentTarget>> = {
@@ -60,6 +66,14 @@ const lowRiskTargets: Readonly<Record<string, FunctionIntentTarget>> = {
   "task.start": "piloto_now",
   "task.plan": "tasks_move",
   "system.update_check": "updates_check",
+  /* As da reunião agem na hora, sem trocar de tela — exceto abrir. Quem está
+     numa chamada quer marcar o momento, e não navegar. */
+  "meeting.start": "meeting_start",
+  "meeting.open_current": "meeting_open_current",
+  "meeting.mark_moment": "meeting_mark",
+  "meeting.pause": "meeting_pause",
+  "meeting.resume": "meeting_resume",
+  "meeting.stop": "meeting_stop",
 };
 
 export function resolveFunctionTarget(definition: FunctionDefinition): FunctionIntentTarget {

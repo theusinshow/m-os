@@ -2,59 +2,36 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { Button } from "./Button";
-import type { ChannelOutcome, Meeting, MeetingTick } from "./types";
+import { copyDoGuardian, relogio } from "./reuniao";
+import type { ChannelOutcome, GuardianView, Meeting, MeetingTick } from "./types";
 
 /**
- * A barra de gravação.
+ * O mini card da reunião em curso.
  *
- * Ela vive no shell, e não numa página, por uma razão que é promessa e não
+ * Ele vive no shell, e não numa página, por uma razão que é promessa e não
  * conveniência: **nunca gravar sem indicação visível** (`MEETING-AGENT.md`
- * §17.2). Se ela morasse na tela de Reuniões, navegar para a Home apagaria da
- * vista o fato de que o microfone está aberto.
+ * §17.2). Se ele morasse em Reuniões, navegar para a Home apagaria da vista o
+ * fato de que o microfone está aberto.
  *
- * O NÍVEL SAIU DAQUI e virou onda no card da página Reuniões. A razão é a mesma
- * que antes justificava tê-lo: a pergunta que a forma responde. Aqui a barra
- * acompanha você por telas que não são sobre a reunião, e o que importa é
- * "estou gravando?" e "perdi o áudio?" — a primeira o relógio responde, a
- * segunda o `data-warning` responde. "Está me ouvindo AGORA?" é pergunta de quem
- * está na reunião, e é lá que ela é respondida.
- *
- * O que fica: relógio, o ponto, o alarme de canal perdido e PARAR. Parar não
- * pode exigir navegar até Reuniões — a §17.2 promete indicação em qualquer tela,
- * e poder agir de qualquer tela é a consequência prática dela.
+ * `● Gravando · 24:32  [⭐] [Pausar] [Encerrar]` — e, quando o Recording
+ * Guardian suspeita que a reunião acabou, a pergunta aparece AQUI, sem modal:
+ * a pessoa pode estar no meio de outra coisa, e nada no M/OS trava por causa
+ * dela.
  */
-
-function clock(ms: number) {
-  const total = Math.floor(ms / 1000);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return h ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
-}
 
 /**
- * O estado de um canal, em uma palavra e uma cor de estado.
+ * O estado de um canal, só quando saiu do normal.
  *
- * `lost` não vira erro vermelho de tela cheia: o outro canal pode estar
- * gravando, e §20 exige que a pessoa consiga distinguir "perdi a gravação" de
- * "um canal caiu e o outro continua".
+ * `lost` não vira erro de tela cheia: o outro canal pode estar gravando, e §20
+ * exige distinguir "perdi a gravação" de "um canal caiu e o outro continua".
  */
-function Channel({ label, outcome }: {
-  label: string;
-  outcome: ChannelOutcome;
-}) {
-  const state = outcome.state;
-  const detail =
-    state === "lost" ? `perdido aos ${clock(outcome.atMs)}`
-      : state === "unavailable" ? "indisponível"
-        : null;
+function CanalComProblema({ label, outcome }: { label: string; outcome: ChannelOutcome }) {
+  if (outcome.state !== "lost" && outcome.state !== "unavailable") return null;
+  const detalhe = outcome.state === "lost" ? `caiu aos ${relogio(outcome.atMs)}` : "indisponível";
   return (
-    <span className="meeting-channel" data-state={state} title={detail ?? undefined}>
-      {/* Sem medidor: o que fica e o ROTULO e, quando algo deu errado, o que
-          deu errado. Canal saudavel nao precisa dizer nada alem de existir. */}
+    <span className="meeting-channel" data-state={outcome.state} title={detalhe}>
       <span className="micro-label">{label}</span>
-      {detail ? <span className="meeting-channel-note">{detail}</span> : null}
+      <span className="meeting-channel-note">{detalhe}</span>
     </span>
   );
 }
@@ -64,52 +41,82 @@ export function RecordingBar({ onStopped, openMeeting }: {
   openMeeting: (id: string) => void;
 }) {
   const [tick, setTick] = useState<MeetingTick | null>(null);
-  const [stopping, setStopping] = useState(false);
-  const [note, setNote] = useState("");
-  // Guardado num ref para o `listen` não precisar ser refeito a cada tick.
-  const stoppingRef = useRef(false);
+  const [ocupado, setOcupado] = useState(false);
+  const [nota, setNota] = useState("");
+  const [marcou, setMarcou] = useState(false);
+  const parandoRef = useRef(false);
 
   useEffect(() => {
-    let alive = true;
+    let vivo = true;
     // O primeiro estado vem por pergunta, e não por evento: se o app abriu com
-    // uma gravação já em curso — o que acontece quando a janela fecha e volta
-    // pelo tray — esperar o próximo evento deixaria a barra ausente por até um
-    // segundo, e uma barra ausente lê-se como "não está gravando".
-    void api.meetingRecording().then((current) => { if (alive) setTick(current); }).catch(() => undefined);
-
-    const unlisten = listen<MeetingTick>("meeting-tick", (event) => {
-      if (!stoppingRef.current) setTick(event.payload);
-    });
+    // uma gravação já em curso, esperar o próximo evento deixaria a barra
+    // ausente por até um segundo — e ausente lê-se como "não está gravando".
+    void api.meetingRecording().then((atual) => { if (vivo) setTick(atual); }).catch(() => undefined);
+    const offs = [
+      listen<MeetingTick>("meeting-tick", (evento) => {
+        if (!parandoRef.current) setTick(evento.payload);
+      }),
+      listen<GuardianView>("meeting-guardian", (evento) => {
+        setTick((atual) => (atual ? { ...atual, guardian: evento.payload } : atual));
+      }),
+      listen<Meeting>("meeting-started", () => {
+        void api.meetingRecording().then(setTick).catch(() => undefined);
+      }),
+      // Parou por outro caminho — tray, atalho, Guardian: a barra some junto.
+      listen<Meeting>("meeting-stopped", () => setTick(null)),
+    ];
     return () => {
-      alive = false;
-      void unlisten.then((off) => off());
+      vivo = false;
+      offs.forEach((off) => void off.then((fn) => fn()));
     };
   }, []);
 
-  const stop = useCallback(async () => {
-    setStopping(true);
-    stoppingRef.current = true;
-    setNote("");
+  const agir = useCallback(async (acao: () => Promise<unknown>) => {
+    setOcupado(true);
+    setNota("");
     try {
-      const meeting = await api.meetingStop();
+      await acao();
+    } catch (erro) {
+      // Falhar NÃO limpa a barra: a gravação pode continuar viva, e apagar o
+      // indicador seria a mentira mais cara desta tela.
+      setNota(erro instanceof Error ? erro.message : String(erro));
+    } finally {
+      setOcupado(false);
+    }
+  }, []);
+
+  const encerrar = useCallback((cortarEm: number | null) => agir(async () => {
+    parandoRef.current = true;
+    try {
+      const meeting = cortarEm != null ? await api.meetingStopAndTrim(cortarEm) : await api.meetingStop();
       setTick(null);
       onStopped(meeting);
-    } catch (error) {
-      // Parar que falha NÃO limpa a barra: a gravação pode continuar viva, e
-      // apagar o indicador seria a mentira mais cara desta tela.
-      setNote(error instanceof Error ? error.message : String(error));
     } finally {
-      setStopping(false);
-      stoppingRef.current = false;
+      parandoRef.current = false;
     }
-  }, [onStopped]);
+  }), [agir, onStopped]);
+
+  const marcar = useCallback(() => agir(async () => {
+    await api.meetingMarkMoment();
+    // A confirmação é um brilho curto na estrela, e não um recibo: marcar é um
+    // gesto de meio segundo no meio de uma conversa.
+    setMarcou(true);
+    window.setTimeout(() => setMarcou(false), 900);
+  }), [agir]);
 
   if (!tick) return null;
 
-  const bothGone = !hasAudio(tick.mic) && !hasAudio(tick.system);
+  const semAudio = tick.mic.state === "unavailable" && tick.system.state === "unavailable";
+  const copy = copyDoGuardian(tick.guardian, tick.durationMs);
 
   return (
-    <div className="recording-bar" role="status" aria-live="polite" data-warning={bothGone || undefined}>
+    <div
+      className="recording-bar"
+      role="status"
+      aria-live="polite"
+      data-warning={semAudio || undefined}
+      data-guardian={copy ? tick.guardian.kind : undefined}
+    >
       <button
         type="button"
         className="recording-open"
@@ -117,21 +124,51 @@ export function RecordingBar({ onStopped, openMeeting }: {
         aria-label="Abrir a reunião em gravação"
       >
         <span className="recording-dot" data-pausada={tick.paused || undefined} aria-hidden="true" />
-        <span className="recording-clock">{clock(tick.durationMs)}</span>
+        <span className="micro-label">{tick.paused ? "PAUSADA" : "GRAVANDO"}</span>
+        <span className="recording-clock">{relogio(tick.durationMs)}</span>
       </button>
-      <Channel label="MIC" outcome={tick.mic} />
-      <Channel label="SISTEMA" outcome={tick.system} />
-      {tick.paused ? <span className="micro-label">PAUSADO</span> : null}
-      {/* O `title` existe porque o CSS trunca: a mensagem do backend pode ser
-          longa, e truncar sem deixar como ler o resto esconderia justamente a
-          razao de a gravacao nao ter parado. */}
-      {note ? <span className="recording-note" title={note}>{note}</span> : null}
-      {/* `Button`, e nao um `<button>` cru: sem a classe do design system o
-          controle caia no desenho nativo do WebView2 — caixa branca preenchida,
-          com o rotulo herdando a cor clara da barra e sumindo dentro dela. */}
-      <Button variant="outline" size="sm" className="recording-stop" onClick={() => void stop()} disabled={stopping}>
-        {stopping ? "PARANDO…" : "PARAR"}
-      </Button>
+
+      <CanalComProblema label="MIC" outcome={tick.mic} />
+      <CanalComProblema label="SISTEMA" outcome={tick.system} />
+
+      {copy ? (
+        /* A pergunta do Guardian no lugar dos controles comuns: enquanto ela
+           existe, as duas respostas são o que importa. */
+        <span className="recording-guardian">
+          <span className="recording-guardian-texto" title={copy.corpo}>{copy.titulo}</span>
+          <Button variant="outline" size="sm" disabled={ocupado} onClick={() => void encerrar(copy.cortarEm)}>
+            {tick.guardian.kind === "countdown" ? `${copy.encerrar} · ${tick.guardian.secondsLeft}s` : copy.encerrar}
+          </Button>
+          <Button variant="ghost" size="sm" disabled={ocupado} onClick={() => void agir(() => api.meetingGuardianContinue())}>
+            {copy.continuar}
+          </Button>
+        </span>
+      ) : (
+        <span className="recording-controles">
+          <button
+            type="button"
+            className="recording-marcar"
+            data-marcou={marcou || undefined}
+            onClick={() => void marcar()}
+            disabled={ocupado || tick.paused}
+            aria-label="Marcar momento"
+            title="Marcar momento · Ctrl+Alt+M"
+          >★</button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={ocupado}
+            onClick={() => void agir(() => (tick.paused ? api.meetingResume() : api.meetingPause()))}
+          >
+            {tick.paused ? "Retomar" : "Pausar"}
+          </Button>
+          <Button variant="outline" size="sm" className="recording-stop" disabled={ocupado} onClick={() => void encerrar(null)}>
+            Encerrar
+          </Button>
+        </span>
+      )}
+
+      {nota ? <span className="recording-note" title={nota}>{nota}</span> : null}
     </div>
   );
 }
@@ -140,4 +177,4 @@ export function hasAudio(outcome: ChannelOutcome) {
   return outcome.state !== "unavailable";
 }
 
-export { clock as formatMeetingClock };
+export { relogio as formatMeetingClock };

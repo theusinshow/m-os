@@ -27,6 +27,8 @@ export type AcoesDoPiloto = {
   abrirSync: () => void;
   abrirAcademico: () => void;
   abrirLembrete: (id: string) => void;
+  /** Abre a reunião — na revisão das ações, quando houver. */
+  abrirReuniao: (id: string) => void;
   montarDia: () => void;
   iniciarDiaManual: () => void;
   encerrarDia: () => void;
@@ -67,6 +69,7 @@ export function HomePiloto({ panorama, acoes, resgateDispensado, dispensarResgat
       case "encerrar_dia": return acoes.encerrarDia();
       case "iniciar_dia": return acoes.montarDia();
       case "abrir_lembrete": return acoes.abrirLembrete(acao.id);
+      case "abrir_reuniao": return acoes.abrirReuniao(acao.id);
       case "nenhuma": return;
     }
   }

@@ -5,8 +5,8 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { EstadoDaAtualizacao } from "./atualizacao";
 import type { Ocorrencia } from "./types";
 import type { OpenAiUsageStatus } from "./types";
-import type { AnalysisConsent, InsightPreview, Meeting, MeetingAnalysis, MeetingInsight,
-  MeetingTick, TranscriberStatus, TranscriptSegment,
+import type { AnalysisConsent, AudioTest, InsightPreview, Meeting, MeetingAnalysis, MeetingBookmark, MeetingInsight,
+  MeetingOverview, MeetingPreferences, MeetingTick, ProjectInference, TranscriberStatus, TranscriptSegment, TrimOutcome,
   VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
   WidgetPlacement, WidgetPlacementInput, RadialPin, RadialPinInput, Reminder, ReminderTarget, ReminderTrigger, ReminderEvent, Recurrence, AttentionRow, AttentionSettings, ParsedReminder, ActiveTimer, ActivityEvent, ActivityType, AppCapabilities, CalendarItem, Client, ClientInput, InvoiceData, Issuer, MonitoredApp, MonitoringSettings, PendingReminder, Period, ProjectTracking, ReportLine, ReportPdfData, SilencedApp, TrackingSettings, AppCatalogEntry, AppLaunchKind, AppStatus, BackupInspection, BackupReceipt, Capture, CaptureSource, DailyContext, DailySessionSummary, DailyToday, DropContext, EndDayInput, FunctionDefinition, Ingestion, IngestionReceipt, HiddenWidget, ImportReport, ObjectiveDraft, ObjectivePriority, ObjectiveStatus, Project, RegisteredApp, TimeEntry, Resource, ResourceKind, ResourceWorkspace, SearchItem, StartDayInput, AcademicDashboard, AcademicToday, Assignment, AssignmentStatus, Exam, ExamStatus, ReminderPriority, Semester, StaleView, SyncRound, SyncStatus, AparelhoNaMalha, StudySession, Subject, ChecklistItem, Task, TaskDetail, TaskPriority, TaskState, UpdateTaskInput, Week, WeekSummary, TimeEntryEdit, Totals, UpdateInfo, UpdateProgress, Workspace, UnivirtusStatus, SyncReport, ProviderSubjectFact, Decision, Faixa, AcaoDeResgate, ObjectiveResolution, Panorama, PlanoDeResgate, PropostaDeEncerramento, SaudeDoSync } from "./types";
 
@@ -446,8 +446,107 @@ export const api = {
   // Nenhum destes carrega audio: a captura inteira vive no Rust, e o que sobe
   // para ca e estado. `meetingRecording` le atomicos, entao chamar de segundo em
   // segundo custa quase nada.
-  meetingStart(title: string, projectId?: string | null) {
-    return invoke<Meeting>("meeting_start", { title, projectId: projectId ?? null });
+  /** `source: "detected"` quando o clique veio da oferta; `associatedApp` é o
+   *  programa que tinha o microfone. Os dois são cliques — nada grava sozinho. */
+  meetingStart(title: string, projectId?: string | null, source?: "manual" | "detected", associatedApp?: string | null) {
+    return invoke<Meeting>("meeting_start", {
+      title,
+      projectId: projectId ?? null,
+      source: source ?? null,
+      associatedApp: associatedApp ?? null,
+    });
+  },
+  /** Encerra e ignora o que veio depois do fim provável (corte não destrutivo). */
+  meetingStopAndTrim(endMs: number) {
+    return invoke<Meeting>("meeting_stop_and_trim", { endMs });
+  },
+  meetingMarkMoment() {
+    return invoke<MeetingBookmark>("meeting_mark_moment");
+  },
+  meetingGuardianContinue() {
+    return invoke<void>("meeting_guardian_continue");
+  },
+  meetingOverview(includeArchived = false) {
+    return invoke<MeetingOverview[]>("meeting_overview", { includeArchived });
+  },
+  meetingOverviewOne(id: string) {
+    return invoke<MeetingOverview>("meeting_overview_one", { id });
+  },
+  meetingBookmarks(id: string) {
+    return invoke<MeetingBookmark[]>("meeting_bookmarks", { id });
+  },
+  meetingAddBookmark(id: string, atMs: number) {
+    return invoke<MeetingBookmark>("meeting_add_bookmark", { id, atMs });
+  },
+  meetingDeleteBookmark(bookmarkId: string) {
+    return invoke<void>("meeting_delete_bookmark", { bookmarkId });
+  },
+  /** Apagar = lixeira, com desfazer. `stopFirst` é o "Encerrar e apagar". */
+  meetingTrash(id: string, stopFirst = false) {
+    return invoke<Meeting>("meeting_trash", { id, stopFirst });
+  },
+  meetingRestore(id: string) {
+    return invoke<Meeting>("meeting_restore", { id });
+  },
+  meetingTrashed() {
+    return invoke<Meeting[]>("meeting_trashed");
+  },
+  meetingEmptyTrash() {
+    return invoke<number>("meeting_empty_trash");
+  },
+  meetingSetTrim(id: string, startMs: number, endMs: number, origin?: "manual" | "suggested") {
+    return invoke<TrimOutcome>("meeting_set_trim", { id, startMs, endMs, origin: origin ?? null });
+  },
+  meetingClearTrim(id: string) {
+    return invoke<TrimOutcome>("meeting_clear_trim", { id });
+  },
+  meetingTrimSuggestion(id: string) {
+    return invoke<number | null>("meeting_trim_suggestion", { id });
+  },
+  meetingAcceptBatch(items: {
+    insightId: string;
+    title: string;
+    projectId?: string | null;
+    dueAt?: Date | null;
+    remindAt?: Date | null;
+  }[]) {
+    return invoke<AcceptReceipt[]>("meeting_accept_batch", {
+      items: items.map((item) => ({
+        insightId: item.insightId,
+        title: item.title,
+        projectId: item.projectId ?? null,
+        dueAt: item.dueAt ? item.dueAt.toISOString() : null,
+        remindAt: item.remindAt ? item.remindAt.toISOString() : null,
+      })),
+    });
+  },
+  meetingAddInsight(id: string, segmentId: string, kind: "my_action" | "decision" | "open_question", text?: string) {
+    return invoke<MeetingInsight>("meeting_add_insight", { id, segmentId, kind, text: text ?? null });
+  },
+  meetingFollowUp(id: string) {
+    return invoke<string>("meeting_follow_up", { id });
+  },
+  meetingProjectSuggestion(id: string) {
+    return invoke<ProjectInference | null>("meeting_project_suggestion", { id });
+  },
+  /** Um trecho de até 60 s, em base64. O renderer nunca vê caminho de arquivo. */
+  meetingClip(id: string, startMs: number, mode: "both" | "mic" | "system", durationMs = 30000) {
+    return invoke<string>("meeting_clip", { id, startMs, durationMs, mode });
+  },
+  meetingAudioTest() {
+    return invoke<AudioTest>("meeting_audio_test");
+  },
+  meetingPreferences() {
+    return invoke<MeetingPreferences>("meeting_preferences");
+  },
+  meetingSetPreferences(preferences: MeetingPreferences) {
+    return invoke<MeetingPreferences>("meeting_set_preferences", { preferences });
+  },
+  meetingGuardianStats() {
+    return invoke<{ counts: [string, number][] }>("meeting_guardian_stats");
+  },
+  meetingDebug(id: string) {
+    return invoke<Record<string, unknown>>("meeting_debug", { id });
   },
   meetingStop() {
     return invoke<Meeting>("meeting_stop");
@@ -548,6 +647,7 @@ export const api = {
     description?: string;
     projectId?: string | null;
     remindAt?: Date | null;
+    dueAt?: Date | null;
   }) {
     return invoke<AcceptReceipt>("meeting_accept_insight", {
       insightId: input.insightId,
@@ -555,6 +655,7 @@ export const api = {
       description: input.description ?? null,
       projectId: input.projectId ?? null,
       remindAt: input.remindAt ? input.remindAt.toISOString() : null,
+      dueAt: input.dueAt ? input.dueAt.toISOString() : null,
     });
   },
   meetingDismissInsight(insightId: string) {

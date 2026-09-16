@@ -44,11 +44,11 @@ export function rotuloDoEstado(status: MeetingStatus): string {
 export function proximoPasso(status: MeetingStatus): string | null {
   switch (status) {
     case "recorded":
-      return "O áudio está salvo. Falta transcrever — use o botão Transcrever.";
+      return "O áudio está salvo. A transcrição começa sozinha.";
     case "transcribed":
-      return "A transcrição está pronta. Falta a análise do Hermes.";
+      return "A transcrição está pronta. A organização com o Hermes segue sozinha quando ele responder.";
     case "interrupted":
-      return "Esta gravação foi cortada por uma queda. Decida se processa ou descarta.";
+      return "Esta gravação foi cortada por uma queda. O que foi salvo é processado sozinho.";
     case "failed":
       return "A gravação está segura. Você pode tentar de novo.";
     case "cancelled":
