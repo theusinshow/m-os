@@ -160,7 +160,23 @@ anterior a esta feature e foi corrigido junto.
 
 ---
 
-## 7. Onde as coisas moram
+## 7. Tasks que nascem de reuniões
+
+Desde 2026-09-16 (ADR-071) o Meeting Agent usa os campos da ADR-066 em vez de
+contorná-los:
+
+| O item da reunião | vira na Task |
+|---|---|
+| prazo dito ("sexta", "dia 20") | `due_at`, resolvido na referência do **início da reunião**, 18:00 local, editável na revisão |
+| compromisso de outra pessoa (`commitment`, `@pessoa` nas notas) | `waiting_for` = quem prometeu — entra no "aguardando" que o piloto cobra |
+| a mesma ação vista de novo | **nenhuma Task nova**: Task ativa com o mesmo título normalizado, no mesmo Project, criada nos últimos 14 dias, é ligada ao item |
+| lembrete pedido | Reminder complementar, alvo na Task — prazo continua não notificando sozinho (§3) |
+
+A revisão cria todas numa transação; um recibo desfaz todas. Apagar a reunião
+**não apaga** as Tasks: elas já são trabalho. A descrição diz de qual reunião
+vieram.
+
+## 8. Onde as coisas moram
 
 | | |
 |---|---|

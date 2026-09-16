@@ -4131,3 +4131,98 @@ Task ativa e o sinal de evitamento do Attention Engine passam a ter chão. A
 `EditTask` não carrega os três campos: eles mudam por gestos próprios
 (`plan_task`, `set_task_started`), para uma edição de título nunca levar junto
 um planejamento lido antes.
+
+## ADR-071 — A reunião se organiza sozinha: parar é o único gesto
+
+**Estado:** Accepted · 2026-09-16 · revisa `MEETING-AGENT.md` §9.2, §17.2 e §22
+
+### Contexto
+
+A V1 do Meeting Agent tinha a cadeia inteira — gravar, recuperar, transcrever, analisar,
+virar Task — e exigia que a pessoa a empurrasse: Transcrever, esperar, às vezes clicar de novo,
+Analisar, esperar, abrir item por item. Não havia fila nem retry: o Hermes fora do ar levava a
+reunião a `failed`; uma queda no meio deixava `transcribing` para sempre (o §9.3 prometia o
+conserto e ele nunca foi escrito). E `paused` não cabia no CHECK da 0020 — pausar falhava no
+banco, e ninguém tinha apertado.
+
+### Decisão
+
+1. **Pipeline persistente** (`meeting_jobs`, uma linha por reunião) com política pura em
+   `mos-core::meeting_pipeline`: falha transitória espera na escada 30 s · 2 min · 10 min · 30 min
+   · 2 h sem virar `failed`; falta de configuração (transcritor, consentimento) espera sem gastar
+   tentativa e volta sozinha; permanente pede a pessoa. Transcrição desiste em 4, análise em 6.
+2. **O estado técnico some da tela.** `meeting_phase` traduz os onze estados em Gravando ·
+   Organizando · Pronta e três exceções. Transcrição pronta com análise pendente é "Transcrição
+   pronta", nunca falha.
+3. **Recuperada com áudio processa sozinha.** Processar não apaga nada; a decisão da §9.2 era o
+   preço de um processamento caro e manual.
+4. **Prazo nativo e lote.** O item resolve a expressão ("sexta") em `due_at` na referência do início
+   da reunião; a revisão em lote cria Tasks com `due_at`, compromisso de outra pessoa nasce com
+   `waiting_for`, e uma Task igual recente é ligada em vez de duplicada.
+5. **Lixeira com desfazer.** Apagar reunião vai para a lixeira por 30 dias; a exclusão definitiva
+   usa tombstone para não deixar pasta órfã. Tasks e lembretes criados ficam.
+6. **Atalho global.** `Ctrl+Alt+M` inicia ou marca momento; `Ctrl+Alt+Shift+M` encerra. É gesto da
+   pessoa, com indicação no mesmo segundo — a §17.2 proibia gravar sem indicação, e isso continua.
+
+### Consequências
+
+A reunião comum custa **iniciar, encerrar, revisar**. Migration 0042 recria `meetings` e
+`meeting_insights` (a CHECK precisava de `paused` e dos tipos novos) e acrescenta três tabelas
+locais. O áudio pode ser apagado logo depois da transcrição pela retenção padrão — ouvir trecho e
+crescer o corte dependem de a pessoa escolher reter. O sync das reuniões continua fora: as Tasks
+criadas viajam; o derivado da reunião exige uma geração de cobertura própria.
+
+## ADR-072 — O Recording Guardian percebe o fim da reunião pelo microfone do app, e nunca pelo que foi dito
+
+**Estado:** Accepted · 2026-09-16 · estende a ADR-047
+
+### Contexto
+
+A pessoa sai da chamada e esquece o M/OS gravando; a gravação segue por horas, ocupando disco e,
+depois, whisper. Esquecer a gravação ligada precisava deixar de ser problema da pessoa. Os
+atalhos óbvios estão errados: **silêncio** não é fim (reunião tem silêncio), **fim do Calendar**
+não é fim (reunião atrasa — e `Event` nem existe), **timeout** simples interrompe reunião longa
+ativa.
+
+### Decisão
+
+Uma heurística pura (`mos-core::meeting_guardian`) combina sinais que **já** estavam dentro das
+fronteiras das ADR-037 e ADR-047 — nenhum lê conteúdo, título de janela ou aba:
+
+- o **app associado** à reunião (o da oferta, ou o que tinha o microfone) **largou o microfone**
+  (`ConsentStore`) — o sinal que sustenta tudo, e o que resolve o Meet no Chrome sem ler a aba;
+- o **processo** dele terminou (nome de executável);
+- **energia sonora** por canal: o maior RMS desde a última leitura, contra um piso adaptativo com
+  teto — o mesmo número que desenha a onda, nunca o áudio;
+- **tela bloqueada** (`LogonUI.exe`) e **ausência de input**;
+- **duração**, só como amplificador.
+
+```text
+app largou o microfone há ≥ 90 s  0,50   + processo fechou 0,15
+remoto quieto ≥ 90 s              0,15   (≥ 5 min +0,10)
+local quieto ≥ 90 s               0,15   (≥ 5 min +0,05)
+ausente ≥ 5 min                   0,10
+≥ 0,55 pergunta · ≥ 0,80 contagem de 20 s (só com auto-stop ligado)
+```
+
+**Vetos:** pausa; atividade nos últimos 45 s enquanto o app largou o microfone há menos de 10 min;
+o app readquirir o microfone desfaz a suspeita sozinho. **Com o app ainda no microfone**, só 20 min
+de silêncio dos dois lados perguntam, e nunca encerram. **Sem app**, 20 min de silêncio perguntam;
+45 min com a pessoa ausente há 30 permitem auto-stop por inatividade.
+
+**Contra a irritação:** "Continuar gravando" silencia 15 → 30 → 60 min; só um sinal NOVO (o app
+largar o microfone ou fechar depois do clique) fura o cooldown; pergunta ignorada não se repete;
+reunião longa só pergunta aos 2 h e com inatividade. Auto-stop vem **desligado**.
+
+**Corte:** o Guardian guarda onde a conversa provavelmente acabou. Com sinal de app e nenhuma fala
+depois, o excesso ≥ 10 min é ignorado sozinho ao parar — de forma não destrutiva, com a retenção
+esticada para permitir "Incluir de volta". Sem sinal de app, só sugestão.
+
+### Consequências
+
+A gravação esquecida vira uma pergunta discreta no mini card, no tray e na janelinha — ou, para
+quem liga o auto-stop, 20 segundos e encerra. Cada sugestão, "continuar", contagem e corte fica em
+`meeting_guardian_events`, local e sem conteúdo, para a calibração deixar de ser palpite: os pesos
+são constantes nomeadas, e a primeira semana de uso real decide se mudam. O que esta ADR **não**
+consegue: perceber o fim de uma reunião presencial com a mesma confiança (não há app para largar o
+microfone) — por isso ali o Guardian só pergunta.

@@ -1,12 +1,15 @@
 # M/OS — Meeting Agent
 
-**Status:** **Fases 1 a 5 e a interface concluídas.** Gates A, B, D e E passam; C passa com
-áudio sintético. A cadeia é operável ponta a ponta: gravar → recuperar → transcrever →
-analisar → virar Task e Reminder, com evidência clicável e desfazer. Reuniões entrou no rail
-pela **ADR-044**. **Falta o Gate F (os dez itens do `DESIGN-FOUNDATIONS.md` §16) e o Gate G
-— uma reunião de verdade.**
+**Status:** **V2 entregue em 2026-09-16 (§26).** A cadeia anda sozinha — parar é o único gesto;
+transcrever e analisar viraram um pipeline persistente com retry — e o **Recording Guardian**
+percebe quando a reunião provavelmente acabou (ADR-071, ADR-072). Gates A, B, D e E passam; C passa
+com áudio sintético. **Falta o Gate G — uma reunião de verdade —, agora incluindo o Guardian
+perguntando no fim de uma chamada real.**
 
-**Data:** 2026-08-18
+> As seções 1–25 descrevem a V1 e continuam valendo onde a §26 não as revisa. Onde revisa, há uma
+> nota no lugar.
+
+**Data:** 2026-08-18 · V2 em 2026-09-16
 
 **Subordinado a:** `VISION.md`, `PRODUCT.md`, `CORE.md`, `CORE-FOUNDATION.md`, `UX-PRINCIPLES.md`, `ARCHITECTURE.md`, `DECISIONS.md`, `DESIGN-FOUNDATIONS.md`
 
@@ -683,6 +686,9 @@ Para cada uma:
 
 ### 9.2 O que o usuário vê
 
+> **Revisado pela V2 (§26.3):** reunião interrompida **com áudio** entra no pipeline sozinha — não
+> pede mais "Processar". Sem áudio, continua pedindo a pessoa. Descartar continua existindo.
+
 ```text
   Reuniao interrompida
   18 de agosto, 14:02
@@ -703,6 +709,8 @@ transformaria 1h18 de reunião em zero sem ninguém perceber. **Não existe roti
 áudio de uma Meeting que o usuário não decidiu descartar.**
 
 ### 9.3 O caso em que a queda foi no meio do processamento
+
+> **Implementado na V2 (§26.3)** por `recover_pipeline_on_open`: nunca tinha sido escrito.
 
 Meetings em `Transcribing` ou `Analyzing` na abertura voltam ao repouso anterior (`Recorded` /
 `Transcribed`) e são reprocessadas sob demanda. É o mesmo tratamento que
@@ -1209,6 +1217,10 @@ pior que nenhuma, porque ninguém a leria na décima vez.
 
 ### 17.2 O que substitui a confirmação repetida
 
+> **Revisado pela V2 (§26.10):** existe atalho global (`Ctrl+Alt+M`) e o clique na oferta de
+> detecção. Os dois são gestos da pessoa, e a indicação aparece no mesmo segundo. Continua não
+> existindo gravação que comece sem gesto.
+
 Estado visível, sempre:
 
 - barra de gravação persistente na janela, com ponto vermelho e cronômetro;
@@ -1476,6 +1488,9 @@ Nenhum redesenho. Tokens, `Panel`, `Surface`, list-row e a linguagem de widgets 
 
 ### 22.1 Estado inicial e gravação
 
+> **Revisado pela V2 (§26.10):** a página prioriza o resultado; Transcrever e Analisar deixaram de
+> ser botões do fluxo normal.
+
 ```text
    Start Meeting Notes
 ```
@@ -1711,3 +1726,291 @@ Nenhum é pulado. Cada um exige evidência registrada, não percepção.
 
 **Se o Gate A falhar, o trabalho para e este documento é reaberto.** Não haverá UI construída
 sobre uma captura que não funciona.
+
+---
+
+## 26. V2 — "Você participa da reunião. O M/OS cuida do resto."
+
+**Data:** 2026-09-16 · **Decisões:** ADR-071 e ADR-072 · **Spec:**
+`docs/superpowers/specs/2026-09-16-meeting-agent-v2-design.md` · **Migration:** `0042_meeting_agent_v2.sql`
+
+A V1 provou a cadeia. A V2 tira a pessoa de dentro dela. O problema nunca foi falta de
+feature — era **fricção**: gravar, parar, clicar em Transcrever, esperar, às vezes clicar de
+novo, clicar em Analisar, esperar, abrir item por item, e às vezes esquecer o M/OS gravando por
+horas depois da chamada.
+
+O fluxo que a V2 entrega:
+
+```text
+1. Entrar na chamada  → "Parece que você entrou em uma reunião"  [Gravar]
+2. A reunião acontece
+3. A chamada acaba    → "Parece que sua reunião terminou"        [Encerrar]
+                        (ou, com auto-stop: 20 s e encerra sozinho)
+4. O M/OS organiza    → "Reunião pronta — 4 ações · 2 decisões"  [Revisar]
+5. Revisar em lote    → "Criar 3 tarefas"
+```
+
+### 26.1 O que a auditoria encontrou
+
+| Achado | Consequência |
+|---|---|
+| Transcrever e analisar só por botão | três cliques e duas esperas por reunião |
+| Nenhuma fila e nenhum retry | Hermes fora = `failed` e fim; queda no meio = `transcribing` para sempre (a §9.3 nunca tinha sido implementada) |
+| **`paused` não cabia no CHECK da 0020** | pausar falhava no banco; ninguém tinha apertado |
+| **`capturing_meetings` ignorava `paused`** | queda com a reunião pausada nunca era reconciliada |
+| WAV temporário só era apagado no sucesso | ~115 MB por hora por canal ficavam em `%TEMP%` a cada falha |
+| Nada percebia o fim da reunião | gravação esquecida rodava por horas |
+| Apagar era só definitivo, e a pasta podia ficar órfã | sem desfazer, sem lixeira |
+| Prazo era só texto | a Task nascia sem `due_at` (ADR-066 já existia) |
+
+### 26.2 Modelo mental: Reunião → Processando → Pronta
+
+O enum de onze estados **continua** a verdade técnica (§6), agora com `Paused` recuperável e
+duas transições novas: `Requeue` (`transcribing → recorded`, `analyzing → transcribed`, para
+falha passageira e queda) e `Reprocess` (volta a `recorded` quando o corte cresce).
+
+A pessoa vê `meeting_phase(meeting, job)` (`mos-core/src/meeting_pipeline.rs`):
+
+| Fase | Quando |
+|---|---|
+| Gravando | `recording`, `paused` |
+| Salvando | `stopping` |
+| Organizando | `recorded`, `transcribing`, `analyzing`, ou `transcribed` com análise na fila |
+| Pronta | `ready` |
+| Transcrição pronta | `transcribed` sem análise possível (sem consentimento, ou análise esgotada) |
+| Recuperada | `interrupted` antes de o pipeline pegá-la |
+| Precisa de você | transcritor ausente, nenhum áudio, "processar automaticamente" desligado |
+| Precisa de você (áudio seguro) | transcrição esgotou as tentativas |
+
+### 26.3 O pipeline persistente
+
+`meeting_jobs`: **uma linha por reunião** (a reunião tem um pipeline, não uma fila de pedidos) com
+`stage`, `status`, `attempt_count`, `progress`, `started_at`, `finished_at`, `last_error_code`,
+`last_error_message`, `next_retry_at`.
+
+A política é pura (`MeetingJob::fail`):
+
+| Classe | Exemplo | O que acontece |
+|---|---|---|
+| Transitória | Hermes fora, whisper morreu, disco temporário | espera na escada **30 s · 2 min · 10 min · 30 min · 2 h**; a reunião volta ao repouso e **não vira `failed`** |
+| Configuração | transcritor ausente, consentimento não dado | `needs_attention` **sem gastar tentativa**; volta sozinha quando a configuração aparece (`release_waiting(código)`) |
+| Permanente | não há áudio, não há fala | `needs_attention` e `failed(stage)` |
+
+Transcrição desiste depois de **4** tentativas; análise depois de **6** — o Hermes fora por uma
+tarde é normal, o whisper falhar quatro vezes seguidas não é.
+
+O laço (`meeting::run_pipeline`) acorda a cada 15 s ou pelo sino (`wake_pipeline`: parar,
+retry, configurar, consentir), processa **um job por vez** e grava progresso medido. Na
+abertura, `recover_pipeline_on_open` devolve jobs `running` à fila (gastando uma tentativa — um
+estágio que derruba o app não derruba para sempre), volta reuniões presas ao repouso e enfileira
+as da V1 paradas há até 7 dias. `auto_process_recovered` põe no pipeline as `interrupted` com
+áudio: **a §9.2 deixou de exigir decisão**, porque processar não apaga nada.
+
+A análise entra na fila **mesmo sem consentimento**: ela espera como configuração e anda no dia
+em que a pessoa autorizar. Transcrição pronta nunca é inutilizada pela etapa seguinte.
+
+Canal que é só silêncio (RMS < 33 em toda janela de 1 s, ≈ −60 dBFS) **não vai ao whisper** — é
+onde nascem os créditos de legenda inventados, e não vale meia hora de GPU.
+
+### 26.4 Recording Guardian
+
+O detalhe completo, com os pesos, está na ADR-072 e em `mos-core/src/meeting_guardian.rs`. O
+essencial:
+
+**Sinais**, todos dentro das fronteiras das ADR-037 e ADR-047 — nenhum lê conteúdo:
+
+- o **app associado** (o da oferta, ou o que tinha o microfone ao começar, ou o primeiro a abri-lo
+  nos 5 minutos seguintes) **liberou o microfone** — `ConsentStore`;
+- o **processo** dele terminou — nome de executável (app da Store: desconhecido);
+- **atividade** de cada canal — o maior RMS desde a última leitura (`window_max_milli`), contra
+  um piso adaptativo com teto; o loopback em silêncio é zero digital;
+- **tela bloqueada** (`LogonUI.exe`) e **ausência de input** (`GetLastInputInfo`);
+- **duração** (só amplifica);
+- fim do evento do Calendar: **previsto e sempre vazio** — `Event` não existe (§0.3).
+
+**Heurística** (confiança):
+
+```text
+app largou o microfone há ≥ 90 s ...... 0,50   (tolerância antes disso: nada)
+  + processo encerrado ................ +0,15
+remoto sem atividade ≥ 90 s ........... +0,15   (≥ 5 min: +0,10)
+local sem atividade ≥ 90 s ............ +0,15   (≥ 5 min: +0,05)
+ausente/bloqueado ≥ 5 min ............. +0,10
+```
+
+- **Vetos:** pausa; atividade nos últimos 45 s com menos de 10 min desde que o app largou o
+  microfone; o app readquiriu o microfone (a suspeita some sozinha).
+- **App ainda no microfone:** só silêncio dos dois lados por 20 min vira pergunta; **nunca**
+  auto-stop.
+- **Sem app associado:** 20 min de silêncio → pergunta; 45 min + 30 min ausente → confiança alta
+  (`auto_inactivity`).
+- **Som depois de o app largar há 10 min** (música): pergunta, mas não encerra sozinho.
+
+| Confiança | Veredito |
+|---|---|
+| ≥ 0,55 | "Parece que sua reunião terminou." |
+| ≥ 0,80 + auto-stop ligado + motivo sustentável | contagem de 20 s |
+
+**Cooldown:** "Continuar gravando" silencia 15 min, depois 30, depois 60. Só fura o cooldown um
+**sinal novo**: o app largar o microfone ou o processo fechar **depois** do clique. Silêncio nunca
+fura. Pergunta ignorada não se repete: fica na barra e no tray.
+
+**Reunião longa:** aos 2 h (e a cada hora depois), só com inatividade de 10 min ou app fora do
+microfone: "Esta reunião está sendo gravada há 2h37. Ela ainda está acontecendo?"
+
+**Superfícies:** o mini card do shell troca os controles pela pergunta; a janelinha
+`reuniao-detectada` (a oferta nunca coexiste com uma gravação) mostra a pergunta sem roubar foco;
+o tray diz `● Reunião · 34:12 · terminou?`.
+
+**Saúde:** microfone em zero digital por 2 min com a chamada ativa → uma notificação.
+
+### 26.5 `stop_reason`
+
+`manual · auto_meeting_ended · auto_inactivity · crash_recovery · device_failure · app_exit`.
+Todos os caminhos de parar passam por `meeting::finish_recording(reason)` — antes da V2 eram
+quatro cópias, e uma emitia menos eventos que as outras. Não aparece na tela; aparece no log e no
+painel técnico.
+
+### 26.6 Corte (trim)
+
+**Não destrutivo:** `trim_start_ms`, `trim_end_ms`, `trim_origin`. Os chunks ficam; a transcrição
+lê só a faixa (`mos_audio::export_channel_range_normalized`) e desloca os segmentos para a régua
+da reunião — a evidência `14:04` não muda de significado.
+
+1. **Automático ao parar**, só com sinal de app: o app largou o microfone, nada falou mais de
+   1 min depois disso, e o excesso passa de 10 min (`confident_trim_end`). A retenção sobe para no
+   mínimo 24 h, para "Incluir de volta" ter áudio.
+2. **Sugerido depois de processar:** a última fala termina ≥ 10 min antes do fim → "Detectamos
+   31 min depois do provável fim da reunião. Ignorar esse trecho?".
+3. **Na pergunta do Guardian:** com excesso ≥ 5 min, "Encerrar" vira "Encerrar e ignorar os últimos
+   31 min".
+4. **Manual:** "Ajustar início e fim", duas alças.
+
+Reprocessar só se necessário: faixa que **encolhe** remove segmentos e reanalisa só se algum saiu;
+faixa que **cresce** retranscreve (recusado se o áudio já foi apagado).
+
+### 26.7 Apagar e o ciclo de vida dos arquivos
+
+- **Apagar reunião** (`•••` na página, menu de contexto na lista) → **lixeira** (`lifecycle_state =
+  trashed`, `trashed_at`), com recibo e **Desfazer**. O job em curso é cancelado; restaurar o
+  devolve à fila.
+- **Gravando:** "Esta reunião ainda está sendo gravada." `[Encerrar e apagar] [Cancelar]`.
+- **Tasks e Reminders criados ficam.** O diálogo diz isso.
+- **30 dias** na lixeira → exclusão definitiva na abertura. "Apagar de vez" e "Esvaziar lixeira"
+  existem na aba Lixeira.
+- **Exclusão definitiva:** um tombstone (`meetings/<id>/.apagar`) é escrito **antes** de apagar a
+  linha; o banco sai numa transação (FTS antes do vínculo, vínculo antes da linha; segmentos,
+  análise, itens, evidência, jobs, momentos e eventos do Guardian por `CASCADE`); depois a pasta e o
+  temporário. Se a pasta não sair, a abertura seguinte a remove **porque tem o tombstone**. Pasta sem
+  linha e **sem** tombstone continua sendo só relatada (§9.2).
+
+| Arquivo | Nasce | Morre |
+|---|---|---|
+| `meetings/<id>/mic|system/*.pcm` | na gravação | retenção (após processar / 24 h / nunca), descarte, exclusão definitiva |
+| `meetings/<id>/session.json` | na gravação | junto dos chunks |
+| `meetings/<id>/.apagar` | na exclusão definitiva | junto da pasta |
+| `%TEMP%/mos-meeting-<id>/*.wav` | na transcrição | **sempre** ao fim dela (sucesso ou falha); órfãos > 1 h na abertura |
+| `%TEMP%/mos-audio-test-*` | no teste de áudio | ao fim do teste; órfãos na abertura |
+
+Áudio numa transcrição em fila **não** é apagado pela retenção.
+
+### 26.8 Itens, prazos e Tasks
+
+- **Contrato V2** (`instructions_v2`): `title`, `project`, e os tipos `commitment`, `dependency`,
+  `reference`. `other_action` continua aceito e vira `commitment`. Vocabulário, nomes de Projects e
+  momentos marcados sobem como contexto.
+- **O domínio valida:** deduplicação por texto normalizado; decisão com "talvez", "acho que",
+  "vamos ver"… vira pergunta com confiança baixa; ação "minha" dita só pelo canal remoto, sem
+  primeira pessoa, perde a confiança alta.
+- **Origem:** `spoken` (Hermes, com evidência), `written` (marcador nas notas), `manual` (criado de
+  um trecho). Escrito não precisa de evidência para entrar no lote.
+- **Marcadores nas notas:** `!task`, `!decision`, `!question`, `!risk`, com `@pessoa` (tarefa de
+  outra pessoa vira compromisso dela) e `#projeto`. Lidos ao parar e a cada edição posterior — sem
+  Hermes.
+- **Prazos:** `resolve_due` em pt-BR (`hoje`, `amanhã`, `sexta`, `sexta que vem`, `dia 20`, `20/09`,
+  `em 3 dias`, `semana que vem`, `fim do mês`…), referência no **início da reunião**, no fuso de quem
+  gravou, 18:00 por padrão. Persistidos: expressão (`due_hint`), `due_at`, `due_confidence`.
+- **Revisão em lote:** alta vem marcada, média desmarcada com "revisar", baixa sem caixa. Nenhum
+  número de confiança aparece. "Criar 2 tarefas" numa transação, com um recibo que desfaz todas.
+- **`Task.due_at`** recebe o prazo; compromisso de outra pessoa nasce com `waiting_for`. Task ativa
+  com o mesmo título normalizado no mesmo Project, criada nos últimos 14 dias, é **ligada** em vez
+  de duplicada.
+- **Project automático:** código citado que existe (`167-25`), `#tag` nas notas e cronômetro do
+  CronoCAD rodando associam sozinhos; nome citado 3 vezes sem empate e palpite do Hermes conferido
+  contra a lista são só sugestão ("Parece ser do Project X · Associar").
+- **Título automático:** o do Hermes substitui o do relógio **enquanto** ninguém renomear.
+
+### 26.9 Transcrição crua e normalizada
+
+`meeting_segments.text` **nunca muda**. `text_normalized` e `corrections` guardam a leitura com o
+vocabulário: troca só de acento/caixa é certa; troca por semelhança (distância ≤ 1 para termos de
+6–9 letras, ≤ 2 para ≥ 10, nunca palavra comum) é **incerta** e aparece como **[Criciúma?]**. O
+vocabulário **nunca vai ao whisper** — `--prompt` produziu 82 repetições em 20/08.
+
+### 26.10 Superfícies
+
+- **Página:** título, data, duração, Project; progresso por passos com % medido; "O que exige sua
+  atenção"; Resumo; Decisões; Aguardando outras pessoas; Perguntas; Riscos; Referências; Momentos;
+  Notas; Transcrição. `•••`: Renomear · Ajustar início e fim · Preparar follow-up · Perguntar ao
+  Hermes · Arquivar · Apagar reunião.
+- **Lista:** Em andamento · Precisa de atenção · Recentes, busca, menu de contexto, aba Lixeira.
+- **Transcrição:** busca sem acento, Você/Remoto, Marcados, Com itens; por trecho: ouvir
+  (Ambos/Você/Remoto, WAV em memória — o renderer nunca vê caminho), copiar, marcar momento, criar
+  Task, marcar decisão.
+- **Shell:** `● GRAVANDO 24:32 [★] [Pausar] [Encerrar]`; barra de processamento que termina em
+  "Reunião pronta · 3 ações · Revisar".
+- **Tray:** relógio, Marcar momento, Pausar/Retomar, Encerrar.
+- **Command:** Iniciar reunião, Abrir reunião atual, Marcar momento, Pausar, Retomar, Encerrar.
+- **Atalhos:** `Ctrl+Alt+M` inicia (ou marca momento se já grava); `Ctrl+Alt+Shift+M` encerra.
+  **Revisa a §17.2:** iniciar por atalho é um gesto da pessoa, e a barra aparece no mesmo segundo.
+- **Home:** o Attention Engine ganha `meeting_review` ("3 ações encontradas · Revisar") e
+  `meeting_needs_attention`. Processando não é atenção.
+- **Notificações:** "Reunião pronta — 3 ações identificadas · 2 decisões registradas" quando a janela
+  não está em foco; "Uma reunião precisa de você" quando esgota; "Gravação encerrada" no auto-stop.
+- **Settings → Reuniões:** Gravação (detecção, teste de áudio), Automação (processar sozinho,
+  organizar com o Hermes), Proteção contra gravação esquecida (três caixas, sem limiares), Privacidade
+  (retenção), Vocabulário, Transcrição local recolhida em "Avançado". Nenhum limiar técnico aparece.
+- **Painel técnico:** só em desenvolvimento (`import.meta.env.DEV`).
+
+### 26.11 Observabilidade e métricas
+
+Log (`diagnostico`, origem `reuniao`), **nunca com conteúdo**: `id`, `stage`, `duration_ms`,
+`error_code`, `retry_count`, `stop_reason`, `guardian_trigger`, `excesso_ms`.
+
+`meeting_guardian_events` (local): `suggested`, `continued`, `stopped_from_prompt`,
+`countdown_started`, `countdown_cancelled`, `auto_stopped`, `long_prompted`, `trim_suggested`,
+`trim_applied`, `trim_reverted`, `health_warning` — com confiança, gatilho e excesso. Settings mostra
+o resumo. Tempo de transcrição e de análise vão no log de conclusão.
+
+### 26.12 O que continua fora
+
+| Fora | Por quê |
+|---|---|
+| Sync das reuniões | locais em `sync_cobertura.rs` (a linha aponta para áudio). O derivado — título, resumo, itens — poderia viajar, mas exige geração 5 da cobertura, projeção e backfill. **As Tasks criadas já viajam.** Ver `SYNC.md` §14 |
+| Participantes | não há entidade Pessoa nem `Event` |
+| Calendar como sinal do Guardian | `Event` não existe |
+| Transcrição progressiva durante a gravação | corta palavras na emenda (spec 19/08 §4) |
+| Iniciar gravação sozinho | consentimento: a detecção oferece, a pessoa clica |
+| iOS | o domínio (pipeline, Guardian, prazos, dedupe) é puro e serve; loopback é Windows |
+
+### 26.13 Testes
+
+- `mos-core`: `meeting_pipeline` (escada, desistência por estágio, configuração sem custo, órfão,
+  fase, progresso ponderado, lixeira), `meeting_guardian` (reunião normal, continuar e cooldown que
+  escala, sinal novo fura cooldown, auto-stop com contagem, contagem que se desfaz, falso positivo,
+  3 h ativas, reunião longa, esquecida com corte, Meet com Chrome aberto, música, silêncio com app na
+  chamada, pausa, adoção, inatividade longa, microfone mudo), `meeting_dates`, `meeting_text`,
+  transições `Requeue`/`Reprocess`/`Paused`, piloto.
+- `mos-storage-sqlite` (`v2_tests`): pausa no banco, parar enfileira, corte automático, falha
+  passageira e esgotamento, cadeia inteira com título e Project, abertura retoma, interrompida
+  processa sozinha, lixeira/desfazer/expiração, gravando não apaga, exclusão definitiva sem órfãos e
+  com Tasks mantidas, corte que encolhe/cresce/recusa, prazos, lote com prazo/espera/dedupe, lote tudo
+  ou nada, lista, transcrição normalizada, momentos, consentimento posterior, job que não parte,
+  processamento manual.
+- `mos-audio`: leitura por faixa atravessando chunks, faixa além do fim, trecho WAV, exportação.
+- Renderer: `reuniao.test.ts` (fase, contagem, progresso, revisão, prazos, Guardian, filtros,
+  grifo em bytes UTF-8, corte), `processamento.test.ts`, `meetingEstado.test.ts`.
+
+**Gate de uso real (continua aberto):** uma chamada de Teams e uma de Meet, ponta a ponta, com o
+Guardian perguntando no fim. A heurística foi calibrada em cenários sintéticos; os pesos são
+constantes nomeadas justamente para serem ajustados depois de uma semana de uso.

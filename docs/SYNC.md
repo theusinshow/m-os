@@ -464,6 +464,16 @@ trava o valor.
   Calendar, Meetings, Conversations, Tracking, Apps e Voice. Nenhum deles
   bloqueia aresta do Knowledge Graph — Workspace bloqueava, e foi por isso que
   ele veio antes.
+- **Meetings, depois da V2 (2026-09-16).** As três tabelas novas —
+  `meeting_jobs`, `meeting_bookmarks`, `meeting_guardian_events` — são LOCAIS,
+  com o motivo em `sync_cobertura.rs`: o pipeline processa o áudio DESTA
+  máquina, e o Guardian mede o microfone DESTE computador. O que da reunião
+  chega ao celular hoje são as **Tasks** criadas na revisão (com `due_at` e
+  `waiting_for`), que já viajam. Sincronizar o derivado — título, resumo, itens
+  e decisões, sem áudio nem transcrição — é possível e útil ("o que ficou
+  decidido?" no bolso), e exige: geração 5 da cobertura, projeção de
+  `meeting` sem `audio_dir` como fonte de verdade, e decidir se a transcrição
+  (grande) viaja ou fica. Deliberadamente fora da V2.
 - **O arquivo dos Resources.** Só o metadado viaja. PDF, imagem e áudio são
   outra camada (§44), com upload, download, cache e checksum. Não existe.
 - **Arquivos binários.** Resources com PDF, imagem e áudio não sincronizam como
