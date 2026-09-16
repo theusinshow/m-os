@@ -245,6 +245,9 @@ pub fn inicio_habitual(inicios_minuto: &mut [u16]) -> Option<u16> {
 }
 
 #[cfg(test)]
+// O cenario nasce padrao e cada teste muda so o que importa para ele: montar
+// o `Cenario` inteiro num literal esconderia justamente essa diferenca.
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::super::fixtures::*;
     use super::*;
@@ -348,7 +351,7 @@ mod tests {
 
     #[test]
     fn inicio_habitual_e_mediana_com_tres_ou_mais() {
-        assert_eq!(inicio_habitual(&mut vec![500, 520]), None);
-        assert_eq!(inicio_habitual(&mut vec![540, 500, 520, 900]), Some(540));
+        assert_eq!(inicio_habitual(&mut [500, 520]), None);
+        assert_eq!(inicio_habitual(&mut [540, 500, 520, 900]), Some(540));
     }
 }

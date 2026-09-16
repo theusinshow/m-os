@@ -339,6 +339,9 @@ fn empurrar(passos: &mut Vec<Passo>, passo: PassoDeResgate, mut itens: Vec<ItemD
 }
 
 #[cfg(test)]
+// O cenario nasce padrao e cada teste muda so o que importa para ele: montar
+// o `Cenario` inteiro num literal esconderia justamente essa diferenca.
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::super::fixtures::*;
     use super::*;

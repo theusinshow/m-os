@@ -472,6 +472,9 @@ pub fn instante_de_adiar(
 }
 
 #[cfg(test)]
+// O cenario nasce padrao e cada teste muda so o que importa para ele: montar
+// o `Cenario` inteiro num literal esconderia justamente essa diferenca.
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::super::fixtures::*;
     use super::*;

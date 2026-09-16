@@ -114,10 +114,10 @@ fn planejar_emite_so_o_dia_e_adiar_conta() {
         Some(&serde_json::json!("2026-09-15"))
     );
     assert!(
-        c.get("dueAt").is_none(),
+        !c.contains_key("dueAt"),
         "o prazo nao viaja junto do planejamento"
     );
-    assert!(c.get("postponedCount").is_none());
+    assert!(!c.contains_key("postponedCount"));
     pc.confirmar(&[ops[0].id]).unwrap();
 
     let amanha = Day::parse("2026-09-16").unwrap();
