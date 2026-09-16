@@ -1468,6 +1468,10 @@ impl Sinais {
 /// (§20).
 pub async fn run(app: AppHandle) {
     let mut sinais = Sinais::new();
+    // As preferencias moram num arquivo. Ler a cada segundo seria IO por nada:
+    // relidas a cada dez voltas, uma mudanca em Settings chega em dez segundos.
+    let mut config = preferences(&app).guardian;
+    let mut voltas: u32 = 0;
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
@@ -1484,7 +1488,10 @@ pub async fn run(app: AppHandle) {
             }
         };
         sinais.refresh(associated.as_deref());
-        let config = preferences(&app).guardian;
+        voltas = voltas.wrapping_add(1);
+        if voltas % 10 == 0 {
+            config = preferences(&app).guardian;
+        }
 
         // 2. A volta do Guardian, com a trava.
         let (frame, events, meeting_id, changed) = {
@@ -2189,8 +2196,11 @@ async fn run_transcription_job(app: &AppHandle, id: &str, consent: bool) {
             Err(error) => {
                 log(
                     crate::diagnostico::Nivel::Aviso,
-                    &format!("pipeline nao comecou id={id}: {}", error.message),
+                    &format!(
+                        "pipeline nao comecou id={id} stage=transcription error_code=not_startable"
+                    ),
                 );
+                let _ = state.meetings.abandon_job(id, &error.message);
                 return;
             }
         }
@@ -2216,9 +2226,13 @@ async fn run_transcription_job(app: &AppHandle, id: &str, consent: bool) {
             let state = app.state::<AppState>();
             let count = segments.len();
             let has_speech = count > 0;
+            // A analise entra na fila mesmo SEM consentimento: ela espera a
+            // autorizacao como configuracao (`consent_missing`), e anda sozinha
+            // no dia em que a pessoa autorizar. Terminar o job aqui deixaria a
+            // reuniao transcrita para sempre sem organizacao.
             match state
                 .meetings
-                .complete_transcription_job(id, segments, consent && has_speech)
+                .complete_transcription_job(id, segments, has_speech)
             {
                 Ok(meeting) => {
                     log(
@@ -2436,8 +2450,11 @@ async fn run_analysis_job(app: &AppHandle, id: &str, consent: bool) {
             Err(error) => {
                 log(
                     crate::diagnostico::Nivel::Aviso,
-                    &format!("analise nao comecou id={id}: {}", error.message),
+                    &format!(
+                        "pipeline nao comecou id={id} stage=analysis error_code=not_startable"
+                    ),
                 );
+                let _ = state.meetings.abandon_job(id, &error.message);
                 return;
             }
         }

@@ -3991,6 +3991,78 @@ mod v2_tests {
     }
 
     #[test]
+    fn sem_consentimento_a_analise_espera_e_anda_quando_autorizam() {
+        let (_dir, storage, service, _clock) = montar();
+        let meeting = gravada(&service, "", 60_000);
+        let id = meeting.id.to_string();
+        service.begin_job(&id).unwrap();
+        service
+            .complete_transcription_job(&id, segmentos(&meeting), true)
+            .unwrap();
+
+        // O laco tenta analisar sem consentimento: espera, sem gastar tentativa.
+        let (depois, after) = service
+            .fail_job(
+                &id,
+                &StageFailure::new("consent_missing", "espera", FailureClass::Configuration),
+            )
+            .unwrap();
+        assert_eq!(after, AfterFailure::WaitForConfiguration);
+        assert_eq!(depois.status, MeetingStatus::Transcribed);
+        let visao = service.overview_one(&id).unwrap();
+        assert_eq!(visao.phase, mos_core::MeetingPhase::PartiallyReady);
+        assert!(service.due_jobs().unwrap().is_empty());
+
+        // O transcritor voltar nao libera a analise; o consentimento, sim.
+        assert_eq!(service.release_waiting("transcriber_missing").unwrap(), 0);
+        assert_eq!(service.release_waiting("consent_missing").unwrap(), 1);
+        let due = service.due_jobs().unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].stage, JobStage::Analysis);
+        assert_eq!(
+            storage
+                .meeting_job(meeting.id)
+                .unwrap()
+                .unwrap()
+                .attempt_count,
+            0
+        );
+    }
+
+    #[test]
+    fn job_que_nao_consegue_comecar_sai_da_fila() {
+        let (_dir, _storage, service, _clock) = montar();
+        let meeting = gravada(&service, "", 60_000);
+        let id = meeting.id.to_string();
+        service.begin_job(&id).unwrap();
+        service
+            .complete_transcription_job(&id, segmentos(&meeting), false)
+            .unwrap();
+        // Pedido de transcricao sobre uma reuniao ja transcrita: nao parte.
+        service.queue(&id, JobStage::Transcription).unwrap();
+        assert!(service.begin_job(&id).is_err());
+        service
+            .abandon_job(&id, "nao da para transcrever agora")
+            .unwrap();
+        assert!(service.due_jobs().unwrap().is_empty());
+    }
+
+    #[test]
+    fn processar_automaticamente_desligado_espera_a_pessoa() {
+        let (_dir, _storage, service, _clock) = montar();
+        let meeting = gravada(&service, "", 60_000);
+        let id = meeting.id.to_string();
+        service.hold_for_manual_start(&id).unwrap();
+        assert!(service.due_jobs().unwrap().is_empty());
+        assert_eq!(
+            service.overview_one(&id).unwrap().phase,
+            mos_core::MeetingPhase::NeedsAttention
+        );
+        service.retry_job(&id).unwrap();
+        assert_eq!(service.due_jobs().unwrap().len(), 1);
+    }
+
+    #[test]
     fn momentos_marcados_voltam_em_ordem() {
         let (_dir, _storage, service, _clock) = montar();
         let meeting = service.start("", None).unwrap();

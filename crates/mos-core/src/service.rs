@@ -2882,6 +2882,22 @@ impl MeetingService {
         Ok(freed)
     }
 
+    /// Um job que nao consegue comecar — a reuniao esta num estado de onde o
+    /// estagio nao parte — e cancelado, e nao deixado na fila.
+    ///
+    /// Sem isto, um "transcrever" pedido sobre uma reuniao que ja nao aceita
+    /// transcricao ficaria `queued` para sempre, e o laco tentaria a cada volta.
+    pub fn abandon_job(&self, id: &str, message: &str) -> Result<(), CoreError> {
+        let meeting_id = crate::MeetingId::parse(id)?;
+        if let Some(mut job) = self.repository.meeting_job(meeting_id)? {
+            job.cancel(self.clock.now());
+            job.last_error_code = Some("not_startable".into());
+            job.last_error_message = Some(message.trim().to_owned());
+            self.repository.save_meeting_job(&job)?;
+        }
+        Ok(())
+    }
+
     /// "Processar automaticamente" desligado: o job fica esperando a pessoa.
     pub fn hold_for_manual_start(&self, id: &str) -> Result<(), CoreError> {
         let meeting_id = crate::MeetingId::parse(id)?;
