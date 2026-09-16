@@ -23,6 +23,7 @@ import { EmptyConversation, sugestoesDe } from "./hermes/EmptyConversation";
 import { MessageTurn } from "./hermes/MessageTurn";
 import { SmartComposer } from "./hermes/SmartComposer";
 import { coladoNoFim } from "./hermes/composer";
+import { conversaSobDemanda } from "./hermes/conversaSobDemanda";
 import { decorridoDe } from "./hermes/atividade";
 import type { Capture, Project, Task } from "./types";
 
@@ -158,6 +159,13 @@ export function HermesPage({ inbox, projects, tasks, receipt, openProject, openR
   const railClose = useRef<HTMLButtonElement>(null);
   const buffer = useRef<StreamBuffer>({ ...EMPTY_BUFFER });
   const frame = useRef(0);
+  /** A conversa que ainda nao existe no banco, e so nasce quando a pessoa fala. */
+  const sobDemanda = useRef(
+    conversaSobDemanda({
+      create: () => conversationApi.create(),
+      selecionar: (id) => hermes.selectConversation(id),
+    }),
+  );
   /** Até onde a resposta já foi anunciada. O leitor de tela recebe parágrafo
    *  concluído, nunca token. */
   const announced = useRef(0);
@@ -206,16 +214,16 @@ export function HermesPage({ inbox, projects, tasks, receipt, openProject, openR
     setSummaries(await conversationApi.list().catch(() => []));
   }, []);
 
+  /**
+   * Entrar no Hermes abre um chat novo, e nao o ultimo.
+   *
+   * A conversa de antes nao se perde: ela esta no rail, que este efeito carrega.
+   * Retomar a mais recente fazia toda visita cair no meio de um assunto
+   * encerrado — e a saida, apagar a conversa, custava o historico.
+   */
   useEffect(() => {
     void hermes.status().then(setStatus).catch(() => undefined);
-    void conversationApi
-      .current()
-      .then(async (current) => {
-        setConversation(current);
-        setMessages(await conversationApi.messages(current.id).catch(() => []));
-        await reloadList();
-      })
-      .catch(() => undefined);
+    void reloadList();
   }, [reloadList]);
 
   useEffect(() => {
@@ -319,12 +327,19 @@ export function HermesPage({ inbox, projects, tasks, receipt, openProject, openR
 
   const ask = useCallback(async (text: string, attached: ContextInput[]) => {
     const question = text.trim();
-    if (!question || !conversationId) return;
+    if (!question) return;
+    const alvo = await sobDemanda.current.garantir(conversation);
+    if (!alvo) {
+      setAnnouncement("Não foi possível abrir a conversa.");
+      return;
+    }
+    setConversation(alvo);
     setDraft("");
     setContexts([]);
     setAnnouncement("Enviado.");
-    await hermes.send(conversationId, question, attached).catch(() => setAnnouncement("Não foi possível enviar."));
-  }, [conversationId]);
+    await hermes.send(alvo.id, question, attached).catch(() => setAnnouncement("Não foi possível enviar."));
+    await reloadList();
+  }, [conversation, reloadList]);
 
   function edit(question: Message) {
     setDraft(messageText(question));
@@ -375,14 +390,17 @@ export function HermesPage({ inbox, projects, tasks, receipt, openProject, openR
     return undefined;
   }, [openProject, openResource, openTask, projects]);
 
+  /**
+   * Volta ao rascunho. Nao grava nada: antes, cada clique no "+" deixava uma
+   * conversa vazia no banco, e ela ainda viajava para o celular pela
+   * sincronizacao.
+   */
   const newConversation = useCallback(async () => {
-    const created = await conversationApi.create().catch(() => null);
-    if (!created) return;
-    setConversation(created);
+    sobDemanda.current.reiniciar();
+    setConversation(null);
     setMessages([]);
     setStream(null);
     buffer.current = { ...EMPTY_BUFFER };
-    await hermes.selectConversation(created.id).catch(() => undefined);
     await reloadList();
     if (compact) setRailOpen(false);
     field.current?.focus();
