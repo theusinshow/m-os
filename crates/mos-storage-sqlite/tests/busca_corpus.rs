@@ -30,6 +30,15 @@ fn chave(item: &SearchItem) -> String {
     }
 }
 
+/// (titulo, descricao, projeto, esperando por, passos)
+type Tarefa<'a> = (
+    &'a str,
+    &'a str,
+    Option<mos_core::ProjectId>,
+    &'a str,
+    &'a [&'a str],
+);
+
 fn massa() -> Massa {
     let dir = tempfile::tempdir().unwrap();
     let backups = dir.path().join("backups");
@@ -57,7 +66,7 @@ fn massa() -> Massa {
         )
         .unwrap();
 
-    let tarefas: &[(&str, &str, Option<mos_core::ProjectId>, &str, &[&str])] = &[
+    let tarefas: &[Tarefa] = &[
         (
             "Enviar bases para o Victor",
             "Plantas de fundação revisadas",
