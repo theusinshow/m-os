@@ -341,8 +341,16 @@ where
 // ------------------------------------------------------------------ rotas
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Captura {
     pub texto: String,
+    /// A chave que o aparelho gerou ao guardar a captura (UUID). Com ela, o
+    /// reenvio devolve a mesma Capture em vez de criar outra (ADR-077).
+    #[serde(default)]
+    pub chave: Option<String>,
+    /// Quando a pessoa capturou, com o fuso do aparelho. Ausente = agora.
+    #[serde(default)]
+    pub capturada_em: Option<String>,
 }
 
 async fn capturar(
@@ -350,13 +358,23 @@ async fn capturar(
     Json(pedido): Json<Captura>,
 ) -> Resultado<Json<serde_json::Value>> {
     let capture = escrever(&estado, move |estado| {
-        estado.captures.create(CreateCaptureInput {
+        let input = CreateCaptureInput {
             content: pedido.texto,
             // A origem diz de ONDE veio, e isso e informacao de verdade: uma
             // captura feita no celular no meio da rua tem outra natureza da que
             // foi digitada no PC com o projeto aberto.
             source: CaptureSource::QuickCapture,
-        })
+        };
+        match pedido.chave.as_deref() {
+            Some(chave) => {
+                let quando = pedido.capturada_em.as_deref().and_then(|t| {
+                    time::OffsetDateTime::parse(t, &time::format_description::well_known::Rfc3339)
+                        .ok()
+                });
+                estado.captures.create_keyed(chave, input, quando)
+            }
+            None => estado.captures.create(input),
+        }
     })
     .await?;
 

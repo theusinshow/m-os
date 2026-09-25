@@ -37,6 +37,37 @@ impl CaptureService {
             .create(NewCapture::create(&input.content, input.source)?)
     }
 
+    /// Cria a Capture com a CHAVE que o aparelho escolheu, uma vez so.
+    ///
+    /// E o contrato da captura offline do bolso (F3.3, ADR-077): o telefone
+    /// guarda o texto e uma chave antes de dizer "guardado", e reenvia quando
+    /// houver conexao. Reenviar a mesma chave devolve a Capture que ja existe
+    /// — timeout depois do commit, app reaberto e rede instavel produzem um
+    /// item so. `captured_at` e a hora em que a pessoa capturou, e nao a hora
+    /// em que a rede voltou; nunca no futuro.
+    pub fn create_keyed(
+        &self,
+        key: &str,
+        input: CreateCaptureInput,
+        captured_at: Option<time::OffsetDateTime>,
+    ) -> Result<Capture, CoreError> {
+        let id = CaptureId::parse(key)?;
+        if let Ok(existente) = self.repository.get(id) {
+            return Ok(existente);
+        }
+        let mut nova = NewCapture::create(&input.content, input.source)?;
+        nova.id = id;
+        if let Some(quando) = captured_at {
+            nova.captured_at = quando.min(nova.captured_at);
+        }
+        match self.repository.create(nova) {
+            Ok(capture) => Ok(capture),
+            // Dois reenvios ao mesmo tempo: quem perdeu a corrida acha a linha
+            // que o outro gravou.
+            Err(erro) => self.repository.get(id).map_err(|_| erro),
+        }
+    }
+
     pub fn get(&self, id: &str) -> Result<Capture, CoreError> {
         self.repository.get(CaptureId::parse(id)?)
     }

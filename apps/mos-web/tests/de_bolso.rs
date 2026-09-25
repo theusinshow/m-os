@@ -1621,3 +1621,59 @@ async fn resgate_no_bolso_aplica_o_lote_e_aponta_a_falha() {
         .unwrap();
     assert_eq!(depois["scheduledFor"], "2026-09-30");
 }
+
+/// F3.3: a captura guardada offline no telefone é reenviada com a mesma
+/// chave. Reenviar — timeout, app reaberto, rede instável — produz UM item, e
+/// a hora é a da captura, não a da rede voltando.
+#[tokio::test(flavor = "multi_thread")]
+async fn reenviar_a_mesma_captura_nao_duplica() {
+    let hub = servir_hub().await;
+    let pasta_web = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta_web.path(), hub).await;
+    let cliente = reqwest::Client::new();
+    let chave = mos_core::CaptureId::new().to_string();
+    let pedido = serde_json::json!({
+        "texto": "ligar para o Victor sobre as bases",
+        "chave": chave,
+        "capturadaEm": "2026-09-24T08:15:00-03:00",
+    });
+
+    let mut ids = Vec::new();
+    for _ in 0..3 {
+        let resposta: serde_json::Value = cliente
+            .post(format!("http://{web}/api/capturar"))
+            .json(&pedido)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        ids.push(resposta["id"].as_str().unwrap().to_owned());
+    }
+    assert!(ids.iter().all(|id| id == &chave), "{ids:?}");
+
+    let inbox: serde_json::Value = cliente
+        .get(format!("http://{web}/api/inbox"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let iguais: Vec<_> = inbox
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["content"] == "ligar para o Victor sobre as bases")
+        .collect();
+    assert_eq!(iguais.len(), 1, "{inbox}");
+    assert_eq!(
+        time::OffsetDateTime::parse(
+            iguais[0]["capturedAt"].as_str().unwrap(),
+            &time::format_description::well_known::Rfc3339
+        )
+        .unwrap(),
+        time::macros::datetime!(2026-09-24 08:15 -03:00),
+    );
+}

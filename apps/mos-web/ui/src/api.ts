@@ -393,6 +393,17 @@ export class SemSessao extends Error {
   }
 }
 
+/**
+ * O pedido nem chegou ao servidor. Diferente de uma recusa: quem recebe isto
+ * pode guardar e tentar depois, porque o M/OS não viu nada (F3.3).
+ */
+export class SemConexao extends Error {
+  constructor() {
+    super("Sem conexão com o M/OS.");
+    this.name = "SemConexao";
+  }
+}
+
 async function pedir<T>(caminho: string, init?: RequestInit): Promise<T> {
   let resposta: Response;
   try {
@@ -401,7 +412,7 @@ async function pedir<T>(caminho: string, init?: RequestInit): Promise<T> {
       headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
     });
   } catch {
-    throw new Error("Sem conexão com o M/OS.");
+    throw new SemConexao();
   }
   if (resposta.status === 401) throw new SemSessao();
   if (!resposta.ok) {
@@ -412,10 +423,12 @@ async function pedir<T>(caminho: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  capturar(texto: string) {
+  /** `chave` e `capturadaEm` vêm da fila do aparelho: reenviar a mesma
+   *  chave devolve a mesma Capture (ADR-077). */
+  capturar(texto: string, chave?: string, capturadaEm?: string) {
     return pedir<{ id: string }>("/api/capturar", {
       method: "POST",
-      body: JSON.stringify({ texto }),
+      body: JSON.stringify({ texto, chave, capturadaEm }),
     });
   },
   inbox() {
@@ -728,7 +741,7 @@ export const api = {
  * O `toISOString` devolve UTC, e é justamente o que não serve: o servidor roda
  * em UTC e precisa saber onde o dia começa para quem está olhando.
  */
-function comOffsetLocal(quando: Date): string {
+export function comOffsetLocal(quando: Date): string {
   const minutos = -quando.getTimezoneOffset();
   const sinal = minutos >= 0 ? "+" : "-";
   const doisDigitos = (numero: number) =>

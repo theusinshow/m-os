@@ -96,3 +96,11 @@ describe("os cartoes do panorama", () => {
     expect(chaves).toEqual(["sync", "hoje", "inbox", "tasks", "ultima"]);
   });
 });
+
+describe("sem leitura do servidor", () => {
+  it("o cartão de sync não diz EM DIA", () => {
+    const sync = cartoesDaHome(null, FALSO, AGORA).find((c) => c.chave === "sync");
+    expect(sync?.numero).toBe("—");
+    expect(sync?.legenda).toMatch(/sem leitura/);
+  });
+});

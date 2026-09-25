@@ -1,17 +1,18 @@
 /**
  * O service worker: a única parte do M/OS que roda com o app fechado.
  *
- * # O que ele NÃO faz, e por quê
+ * # Cache: só quando a rede falha (ADR-077)
  *
- * Ele não guarda nada em cache. A tentação é óbvia — um service worker é o
- * lugar canônico para offline —, mas a PWA daqui vai *dentro do binário*
- * (`rust-embed`), e um cache de página serviria a versão antiga depois de um
- * deploy, sem nada na tela indicando isso. O pior sintoma possível: você
- * conserta um defeito, reinstala, e o celular continua mostrando o defeito.
+ * Com rede, TUDO vem do servidor, sempre — a PWA vai *dentro do binário*
+ * (`rust-embed`), e um cache servido primeiro mostraria a versão antiga depois
+ * de um deploy, sem nada na tela indicando isso: você conserta um defeito,
+ * reinstala, e o celular continua mostrando o defeito. Isso continua proibido.
  *
- * Offline de verdade — capturar sem sinal e enfileirar — é uma decisão
- * separada, com Background Sync e uma fila própria. Está fora daqui de
- * propósito.
+ * Sem rede, a casca (a página e os assets com hash) sai da última cópia que
+ * funcionou. É o que permite abrir o app em modo avião e CAPTURAR — a captura
+ * vai para a fila do aparelho (`filaDeCaptura.ts`) e segue quando a rede volta.
+ * `/api/*` nunca é guardado: dado velho fingindo ser atual é pior que um aviso
+ * de "sem conexão".
  *
  * # A regra do iOS que não perdoa
  *
@@ -29,6 +30,51 @@ self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (evento) =>
   evento.waitUntil(self.clients.claim()),
 );
+
+const CASCA = "mos-casca-v1";
+const PAGINA = "/__casca__";
+
+self.addEventListener("fetch", (evento) => {
+  const pedido = evento.request;
+  const url = new URL(pedido.url);
+  if (pedido.method !== "GET" || url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith("/api/") || url.pathname === "/sw.js") return;
+  const navegacao = pedido.mode === "navigate";
+  evento.respondWith(
+    fetch(pedido)
+      .then((resposta) => {
+        // Só o que deu certo e não foi redirecionado (a porta sem sessão
+        // redireciona) vira cópia de reserva.
+        if (resposta.ok && !resposta.redirected) {
+          const copia = resposta.clone();
+          evento.waitUntil(guardarCasca(navegacao ? PAGINA : pedido, copia, navegacao));
+        }
+        return resposta;
+      })
+      .catch(async () => {
+        const cache = await caches.open(CASCA);
+        const guardada = await cache.match(navegacao ? PAGINA : pedido);
+        return guardada ?? Response.error();
+      }),
+  );
+});
+
+/** Guarda a cópia. Na página, apaga os assets que ela não usa mais — senão
+ *  cada deploy deixaria o JS anterior ocupando espaço para sempre. */
+async function guardarCasca(chave, resposta, pagina) {
+  const cache = await caches.open(CASCA);
+  if (!pagina) {
+    await cache.put(chave, resposta);
+    return;
+  }
+  const html = await resposta.clone().text();
+  await cache.put(chave, resposta);
+  const usados = new Set([...html.matchAll(/\/assets\/[^"']+/g)].map((m) => m[0]));
+  for (const pedido of await cache.keys()) {
+    const caminho = new URL(pedido.url).pathname;
+    if (caminho.startsWith("/assets/") && !usados.has(caminho)) await cache.delete(pedido);
+  }
+}
 
 self.addEventListener("push", (evento) => {
   let aviso;

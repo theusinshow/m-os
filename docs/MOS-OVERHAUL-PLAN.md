@@ -525,8 +525,8 @@ Não vou usar contagem de arquivos, linhas ou features como sinal de progresso. 
 ### Marco 2 — continuidade diária entre dispositivos
 
 - [x] Começar, encerrar e retomar o dia no desktop e na PWA.
-- [ ] Captura mobile pendente funciona sob o contrato offline definido.
-- [ ] Estado desatualizado, indisponível e sincronizado é compreensível.
+- [x] Captura mobile pendente funciona sob o contrato offline definido.
+- [x] Estado desatualizado, indisponível e sincronizado é compreensível.
 - [x] Política de foco entre réplicas implementada e testada.
 
 ### Marco 3 — recuperar e agir pelo contexto
@@ -575,5 +575,6 @@ O objetivo de conclusão permanece o da missão: abrir o M/OS deve ajudar a deci
 | F2.2 | Feito | Rescue Mode na PWA; `aplicar_resgate` no core com falha por item | `de_bolso::resgate_no_bolso_aplica_o_lote_e_aponta_a_falha`; bancada 390px |
 
 | F3.2 | Feito | Foco = início mais recente, derivado na leitura; parar solta sobras | `piloto_planejamento::inicios_offline_convergem_para_o_mais_recente_em_qualquer_ordem` |
+| F3.3 | Feito | Fila de captura no aparelho, chave do cliente, SW rede-primeiro; "SEM CONEXÃO" em vez de "EM DIA" | `filaDeCaptura.test.ts`; `de_bolso::reenviar_a_mesma_captura_nao_duplica`; E2E Chromium offline |
 
-Decisões registradas em ADR-074 (F1), ADR-075 (F2) e ADR-076 (F3.2).
+Decisões registradas em ADR-074 (F1), ADR-075 (F2), ADR-076 (F3.2) e ADR-077 (F3.3).

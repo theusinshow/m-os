@@ -60,7 +60,18 @@ export function cartoesDaHome(
 
   const semHub = estado?.sincroniza === false;
   const pendentes = estado?.pendentes ?? 0;
-  cartoes.push({
+  // Sem leitura do servidor, o cartão não sabe nada sobre o sync — e diz isso,
+  // em vez de cair no "EM DIA" que a ausência de dado produziria.
+  if (!estado) {
+    cartoes.push({
+      chave: "sync",
+      rotulo: "SYNC",
+      numero: "—",
+      legenda: "sem leitura do M/OS agora",
+      destino: "mais",
+      palavra: true,
+    });
+  } else cartoes.push({
     chave: "sync",
     rotulo: "SYNC",
     numero: semHub

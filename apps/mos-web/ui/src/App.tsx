@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import {
   api,
   pedeAtencao,
+  comOffsetLocal,
+  SemConexao,
   SemSessao,
   type AlvoDoLembrete,
   type Capture,
@@ -21,6 +23,7 @@ import {
   type Task as ItemDeTask,
 } from "./api";
 import { ativar, marcarIcone, situacao, type Situacao } from "./notificacoes";
+import { esvaziar, guardar, novaChave, pendentes as lerPendentes, remover, type Pendente } from "./filaDeCaptura";
 import { Porta } from "./Porta";
 import { Quando } from "./Quando";
 import { porExtenso } from "./instantes";
@@ -75,6 +78,8 @@ export function App() {
   const [pagina, setPagina] = useState<Pagina>("home");
   const [texto, setTexto] = useState("");
   const [capturas, setCapturas] = useState<Capture[]>([]);
+  /** Capturas guardadas no aparelho que o M/OS ainda não recebeu (F3.3). */
+  const [naFila, setNaFila] = useState<Pendente[]>(() => lerPendentes());
   const [tasks, setTasks] = useState<ItemDeTask[]>([]);
   const [lembretes, setLembretes] = useState<ItemDeLembrete[]>([]);
   const [resolvidos, setResolvidos] = useState<ItemDeLembrete[]>([]);
@@ -266,18 +271,61 @@ export function App() {
     const conteudo = texto.trim();
     if (!conteudo) return;
     setOcupado(true);
+    // Primeiro o aparelho, depois a rede (F3.3). Se o armazenamento recusar,
+    // a captura ainda tenta ir direto — mas sem rede o texto fica no campo.
+    const item: Pendente = { chave: novaChave(), texto: conteudo, capturadaEm: comOffsetLocal(new Date()) };
+    let noAparelho = true;
+    try { guardar(item); } catch { noAparelho = false; }
     try {
-      await api.capturar(conteudo);
-      // O campo esvazia só depois do sucesso. Esvaziar antes e falhar depois
-      // apagaria o que a pessoa acabou de escrever — e ela não tem cópia.
+      await api.capturar(item.texto, item.chave, item.capturadaEm);
+      remover(item.chave);
+      // O campo esvazia só depois de a captura estar segura em algum lugar.
+      // Esvaziar antes e falhar depois apagaria o que a pessoa acabou de
+      // escrever — e ela não tem cópia.
       setTexto("");
       contar("Guardado.");
+      setNaFila(lerPendentes());
       await atualizar();
     } catch (causa) {
-      reclamar(causa);
+      const semRede = causa instanceof SemConexao || causa instanceof SemSessao;
+      if (semRede && noAparelho) {
+        setTexto("");
+        contar("Guardado neste aparelho. Vai para o M/OS quando a conexão voltar.");
+      } else if (semRede) {
+        contar("Sem conexão, e este navegador não deixou guardar no aparelho. O texto continua no campo.", true);
+      } else {
+        // Recusa de verdade (texto inválido): não fica na fila tentando para sempre.
+        remover(item.chave);
+        reclamar(causa);
+      }
+      setNaFila(lerPendentes());
     }
     setOcupado(false);
   }
+
+  /** Manda o que ficou no aparelho. Anda quando o app abre, volta a ficar
+   *  visível ou a rede volta — não há segundo plano garantido no navegador. */
+  const enviarFila = useCallback(async () => {
+    if (lerPendentes().length === 0) return;
+    const r = await esvaziar((p) => api.capturar(p.texto, p.chave, p.capturadaEm));
+    setNaFila(lerPendentes());
+    if (r.enviadas > 0) {
+      contar(r.enviadas === 1 ? "1 captura guardada no aparelho chegou ao M/OS." : `${r.enviadas} capturas guardadas no aparelho chegaram ao M/OS.`);
+      await atualizar();
+    }
+  }, [atualizar]);
+
+  useEffect(() => {
+    void enviarFila();
+    const aoVoltar = () => { if (document.visibilityState === "visible") void enviarFila(); };
+    const aoConectar = () => void enviarFila();
+    window.addEventListener("online", aoConectar);
+    document.addEventListener("visibilitychange", aoVoltar);
+    return () => {
+      window.removeEventListener("online", aoConectar);
+      document.removeEventListener("visibilitychange", aoVoltar);
+    };
+  }, [enviarFila]);
 
   async function novaTask(evento: FormEvent) {
     evento.preventDefault();
@@ -649,13 +697,21 @@ export function App() {
         <header className="topo">
           <Marca tamanho={18} girando={ocupado} />
           <span className="marca">M/OS</span>
-          <span className="fila" data-estado={sinalDaFila(estado, pendentes)}>
+          <span className="fila" data-estado={estado === null && erroLeitura ? "sem-hub" : sinalDaFila(estado, pendentes)}>
             <i aria-hidden="true" />
-            {estado?.sincroniza === false
-              ? "SEM HUB"
-              : pendentes > 0
-                ? `${pendentes} NA FILA`
-                : "EM DIA"}
+            {/* Sem nenhuma leitura do servidor não há como dizer "em dia":
+                falha de leitura não pode parecer ausência de pendência. */}
+            {estado === null && erroLeitura
+              ? naFila.length > 0
+                ? `${naFila.length} NO APARELHO`
+                : "SEM CONEXÃO"
+              : estado?.sincroniza === false
+                ? "SEM HUB"
+                : pendentes > 0
+                  ? `${pendentes} NA FILA`
+                  : naFila.length > 0
+                    ? `${naFila.length} NO APARELHO`
+                    : "EM DIA"}
           </span>
         </header>
       )}
@@ -684,7 +740,7 @@ export function App() {
           />
           </>
         ) : null}
-        {pagina === "capturar" ? <Capturar capturas={capturas} /> : null}
+        {pagina === "capturar" ? <Capturar capturas={capturas} naFila={naFila} /> : null}
         {pagina === "fazer" && tarefaAberta ? (
           <Task
             task={tarefaAberta}

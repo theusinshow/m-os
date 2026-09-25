@@ -4395,3 +4395,46 @@ está em andamento" leem listas. Foco pessoal e cronômetro de horas
 (`TrackingService`) continuam separados: o timer ativo do Tempo é local por
 desenho. Teste: `piloto_planejamento::inicios_offline_convergem_*` nas duas
 ordens de chegada, inclusive parar no outro aparelho.
+
+## ADR-077 — Captura offline no bolso: fila no aparelho, chave do cliente, casca só sem rede
+
+**Data:** 2026-09-24. **Status:** aceito e implementado (F3.3 do [MOS-OVERHAUL-PLAN](MOS-OVERHAUL-PLAN.md)).
+
+### Contexto
+
+A PWA depende do SQLite do servidor. Sem rede, capturar falhava com o texto
+ainda no campo; fechar o app perdia o texto; reabrir sem rede mostrava página
+de erro do navegador. Não se quer replicar o domínio no navegador.
+
+### Decisão
+
+1. **Escopo estreito:** só Captures ganham fila local. Outras escritas
+   continuam exigindo conexão até este contrato ser validado em uso.
+2. **Fila no aparelho** (`filaDeCaptura.ts`, `localStorage`): texto, chave
+   (UUID do cliente) e hora da captura com fuso, gravados ANTES de a tela dizer
+   "guardado". Se o armazenamento recusar, a tela não diz "guardado" e o texto
+   fica no campo. A fila anda ao abrir o app, ao voltar a ficar visível e no
+   evento `online` — não há segundo plano garantido no navegador.
+3. **Chave do cliente = id da Capture.** `CaptureService::create_keyed`
+   devolve a Capture existente no reenvio; corrida entre reenvios acha a linha
+   gravada. `captured_at` é a hora da captura, nunca no futuro.
+4. **Sessão expirada ou sem rede param a fila sem perder nada.** Recusa do
+   servidor (texto inválido) fica marcada no item e não trava os outros.
+5. **Service worker: rede primeiro, cópia só quando a rede falha.** Com rede,
+   nada é servido do cache (a razão original de não ter cache — versão velha
+   depois de deploy — continua valendo). Sem rede, a casca (página + assets com
+   hash) sai da última cópia boa; assets que a página atual não usa são
+   apagados. `/api/*` nunca é guardado. O worker passa a ser registrado na
+   abertura, e não só ao ativar notificações.
+6. Sem leitura do servidor, o topo diz "SEM CONEXÃO" (ou "N NO APARELHO") e o
+   cartão de sync mostra "—": ausência de leitura não vira "EM DIA".
+
+### Limites
+
+`localStorage` não tem a durabilidade de um SQLite nativo: o sistema pode
+limpar dados de sites, e modo privado pode recusar escrita. Troca de conta não
+existe no bolso (um servidor, uma pessoa); a fila é por origem. Testes:
+`filaDeCaptura.test.ts` (ordem, rede, sessão, recusa, cota, lista corrompida),
+`de_bolso::reenviar_a_mesma_captura_nao_duplica`, e E2E em Chromium headless
+(modo avião → capturar → reabrir offline → reconectar → um item, hora
+preservada).
