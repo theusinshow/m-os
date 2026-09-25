@@ -565,6 +565,40 @@ impl NewChecklistItem {
     }
 }
 
+/// Qual Task e o foco quando mais de uma tem inicio gravado.
+///
+/// Localmente isso nao acontece: comecar solta as outras na mesma transacao.
+/// Entre replicas acontece — o PC comeca A e o celular comeca B, os dois
+/// offline, e o merge por campo guarda os dois inicios. A politica (F3.2 do
+/// MOS-OVERHAUL-PLAN, ADR-076): **vence o inicio mais recente**, com o id como
+/// desempate. E funcao pura do estado ja convergido, entao toda replica chega
+/// ao mesmo foco sem gravar reparo nenhum — e sem uma escrita concorrente que o
+/// merge poderia ordenar contra uma retomada de verdade.
+pub fn foco_vencedor(tasks: &[Task]) -> Option<TaskId> {
+    tasks
+        .iter()
+        .filter_map(|task| task.started_at.map(|inicio| (inicio, task.id)))
+        .max_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| a.1.as_uuid().cmp(&b.1.as_uuid()))
+        })
+        .map(|(_, id)| id)
+}
+
+/// Aplica a politica de foco a uma leitura: as perdedoras aparecem paradas.
+///
+/// O inicio delas continua no banco — o historico nao se apaga —, e o proximo
+/// "comecar" ou "parar" local limpa de vez. Assim nenhuma tela mostra dois
+/// cronometros, e nenhuma mostra um que ninguem esta usando.
+pub fn normalizar_foco(tasks: &mut [Task]) {
+    let vencedor = foco_vencedor(tasks);
+    for task in tasks.iter_mut() {
+        if task.started_at.is_some() && Some(task.id) != vencedor {
+            task.started_at = None;
+        }
+    }
+}
+
 /// O que COMECAR uma Task mudou, com o bastante para desfazer.
 ///
 /// Comecar B com A em andamento sao tres mudancas: B ganha o instante, B vai

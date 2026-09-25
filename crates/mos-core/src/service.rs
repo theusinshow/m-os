@@ -1799,8 +1799,12 @@ impl WorkService {
         self.repository.task_detail(TaskId::parse(id)?)
     }
 
+    /// As Tasks com a politica de foco aplicada: se o sync trouxe dois inicios,
+    /// so o mais recente aparece em andamento (`foco_vencedor`).
     pub fn tasks(&self, include_archived: bool) -> Result<Vec<Task>, CoreError> {
-        self.repository.tasks(include_archived)
+        let mut tasks = self.repository.tasks(include_archived)?;
+        crate::normalizar_foco(&mut tasks);
+        Ok(tasks)
     }
 
     // ------------------------------------------------------------- checklist

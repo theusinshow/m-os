@@ -512,3 +512,11 @@ atualizou.
 
 O que esta fase **não** faz: estado canônico no servidor, revisão-base por campo
 e confirmação de aplicação. Isso é a fase 2, e o spec já está escrito.
+
+
+## Foco entre réplicas (ADR-076)
+
+Dois aparelhos podem começar Tasks diferentes offline. O merge guarda os dois
+`startedAt`; o foco é o mais recente (`mos_core::foco_vencedor`), derivado na
+leitura, e parar solta qualquer início que tenha sobrado. Nenhuma réplica grava
+reparo ao aplicar operações remotas.

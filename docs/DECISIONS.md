@@ -4360,3 +4360,38 @@ cobertas. Desktop: delega ao core, sem mudança visível. iOS/PWA: encerramento
 e resgate por toque. Notifications: nenhum canal novo, sem cobrança por ritual.
 Hermes: não muda. Tests: `de_bolso::encerrar_o_dia_no_bolso_*` (proposta,
 mover, prazo intacto, retry) e `de_bolso::resgate_no_bolso_*` (lote parcial).
+
+## ADR-076 — Foco entre réplicas: vence o início mais recente, derivado na leitura
+
+**Data:** 2026-09-24. **Status:** aceito e implementado (F3.2 do [MOS-OVERHAUL-PLAN](MOS-OVERHAUL-PLAN.md)).
+
+### Contexto
+
+A troca de foco é atômica na réplica local (ADR-073), mas dois aparelhos que
+começam Tasks diferentes offline emitem `startedAt` para Tasks diferentes, e o
+merge por campo guarda os dois. A ADR-073 registrou que atomicidade local não é
+exclusividade global.
+
+### Decisão
+
+1. **Foco = o `started_at` mais recente**, com o id como desempate
+   (`mos_core::foco_vencedor`). É função pura do estado convergido: toda
+   réplica chega ao mesmo foco, em qualquer ordem de chegada, sem gravar.
+2. `WorkService::tasks` aplica a política (`normalizar_foco`): as perdedoras
+   aparecem paradas em toda leitura de lista (Home, Kanban, Piloto, PWA). O
+   início delas continua no banco — histórico, não cronômetro.
+3. **Parar solta tudo.** `set_task_started(_, None)` também limpa os inícios
+   que o sync deixou sobrando, na mesma transação e com emissão. Sem isso,
+   parar o foco ressuscitaria a perdedora correndo desde a hora antiga.
+4. Não há "reparo" gravado ao aplicar operações remotas: uma escrita dessas
+   concorreria, no merge por campo, com uma retomada legítima em outro
+   aparelho.
+
+### Consequências e limites
+
+Sem migration e sem mudança de protocolo. A leitura de uma Task isolada
+(`WorkService::task`) mostra o valor cru; as superfícies que decidem "o que
+está em andamento" leem listas. Foco pessoal e cronômetro de horas
+(`TrackingService`) continuam separados: o timer ativo do Tempo é local por
+desenho. Teste: `piloto_planejamento::inicios_offline_convergem_*` nas duas
+ordens de chegada, inclusive parar no outro aparelho.

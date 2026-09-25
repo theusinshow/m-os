@@ -523,3 +523,72 @@ fn titulo_num_aparelho_e_conclusao_no_outro_sobrevivem_juntos() {
         .is_err());
     assert_eq!(pc.pendentes(10).unwrap().len(), antes);
 }
+
+// ------------------------------------------------- F3.2: foco entre réplicas
+
+fn em_andamento(storage: &std::sync::Arc<SqliteStorage>) -> Vec<mos_core::TaskId> {
+    mos_core::WorkService::new(storage.clone())
+        .tasks(false)
+        .unwrap()
+        .into_iter()
+        .filter(|task| task.started_at.is_some())
+        .map(|task| task.id)
+        .collect()
+}
+
+#[test]
+fn inicios_offline_convergem_para_o_mais_recente_em_qualquer_ordem() {
+    use std::sync::Arc;
+    for pc_primeiro in [true, false] {
+        let hub = HubLocal::default();
+        let (_a, pc) = aparelho("PC");
+        let (_b, celular) = aparelho("Bolso");
+        let (pc, celular) = (Arc::new(pc), Arc::new(celular));
+        let a = pc
+            .create_task(NewTask::create("A", "", None).unwrap())
+            .unwrap();
+        let b = pc
+            .create_task(NewTask::create("B", "", None).unwrap())
+            .unwrap();
+        rodada(&pc, &hub);
+        rodada(&celular, &hub);
+
+        // Offline: o PC começa A às 10h; o celular começa B às 10h05.
+        pc.set_task_started(a.id, Some(datetime!(2026-09-24 10:00 UTC)))
+            .unwrap();
+        celular
+            .set_task_started(b.id, Some(datetime!(2026-09-24 10:05 UTC)))
+            .unwrap();
+        let (primeiro, segundo) = if pc_primeiro {
+            (&pc, &celular)
+        } else {
+            (&celular, &pc)
+        };
+        for _ in 0..2 {
+            rodada(primeiro, &hub);
+            rodada(segundo, &hub);
+        }
+
+        // As duas réplicas veem o mesmo foco: B, o mais recente. O início de A
+        // continua gravado — histórico, não cronômetro.
+        for device in [&pc, &celular] {
+            assert_eq!(
+                em_andamento(device),
+                vec![b.id],
+                "pc_primeiro={pc_primeiro}"
+            );
+            assert!(device.get_task(a.id).unwrap().started_at.is_some());
+        }
+
+        // Parar B no celular não ressuscita A em lugar nenhum.
+        celular.set_task_started(b.id, None).unwrap();
+        for _ in 0..2 {
+            rodada(&celular, &hub);
+            rodada(&pc, &hub);
+        }
+        for device in [&pc, &celular] {
+            assert!(em_andamento(device).is_empty(), "pc_primeiro={pc_primeiro}");
+            assert!(device.get_task(a.id).unwrap().started_at.is_none());
+        }
+    }
+}

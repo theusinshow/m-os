@@ -3857,6 +3857,35 @@ impl SqliteStorage {
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let antes = query_task(&transaction, id)?;
         let mut interrompidas = Vec::new();
+        // Parar tambem solta qualquer outro inicio que o sync tenha deixado
+        // ligado: "parei" quer dizer "nada em andamento". Sem isto, parar o
+        // foco faria a perdedora de um conflito offline reaparecer correndo
+        // desde a hora antiga (ADR-076).
+        if started_at.is_none() {
+            let sobrando: Vec<String> = {
+                let mut statement = transaction
+                    .prepare("SELECT id FROM tasks WHERE started_at IS NOT NULL AND id <> ?1")
+                    .map_err(map_sql_error)?;
+                let rows = statement
+                    .query_map([id.to_string()], |row| row.get(0))
+                    .map_err(map_sql_error)?;
+                rows.collect::<Result<Vec<_>, _>>().map_err(map_sql_error)?
+            };
+            for outra in sobrando {
+                transaction
+                    .execute(
+                        "UPDATE tasks SET started_at = NULL, updated_at = ?2 WHERE id = ?1",
+                        params![outra, now],
+                    )
+                    .map_err(map_sql_error)?;
+                self.emitir_update(
+                    &transaction,
+                    "task",
+                    TaskId::parse(&outra)?.as_uuid(),
+                    &[("startedAt", serde_json::Value::Null)],
+                )?;
+            }
+        }
         if started_at.is_some() {
             if antes.lifecycle_state != LifecycleState::Active || antes.state == TaskState::Done {
                 return Err(CoreError::new(

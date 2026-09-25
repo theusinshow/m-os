@@ -204,9 +204,9 @@ pub use weekly::{
     WeeklyReviewId,
 };
 pub use work::{
-    parse_checklist_lines, validate_pin_kind, validate_section_id, validate_span,
-    validate_widget_id, ChecklistItem, ChecklistItemId, EditTask, HiddenWidget, NewChecklistItem,
-    NewProject, NewTask, NewWorkspace, Project, ProjectId, RadialPin, RadialPinInput, SearchItem,
-    Task, TaskDetail, TaskId, TaskStartEffect, TaskStartUndone, TaskState, WidgetPlacement,
-    WidgetPlacementInput, Workspace, WorkspaceId, MAX_CHECKLIST_PASTE,
+    foco_vencedor, normalizar_foco, parse_checklist_lines, validate_pin_kind, validate_section_id,
+    validate_span, validate_widget_id, ChecklistItem, ChecklistItemId, EditTask, HiddenWidget,
+    NewChecklistItem, NewProject, NewTask, NewWorkspace, Project, ProjectId, RadialPin,
+    RadialPinInput, SearchItem, Task, TaskDetail, TaskId, TaskStartEffect, TaskStartUndone,
+    TaskState, WidgetPlacement, WidgetPlacementInput, Workspace, WorkspaceId, MAX_CHECKLIST_PASTE,
 };
