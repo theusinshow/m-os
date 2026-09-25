@@ -4549,3 +4549,46 @@ de desfazer, mesmos avisos. `daily.rs` do desktop reusa
 `agente_exec::completar_rascunho`. Testes: `tests/agente_exec.rs` (criar,
 começar e desfazer sem janela; capacidade ausente) e os 73 do crate desktop.
 A conferência na janela real com o gateway fica pendente.
+
+## ADR-081 — Busca por OR ranqueado, com os termos do Hermes e radical por prefixo
+
+**Data:** 2026-09-24. **Status:** aceito e implementado (F5 do [MOS-OVERHAUL-PLAN](MOS-OVERHAUL-PLAN.md)).
+
+### Contexto
+
+O FTS montava a consulta como AND de todas as palavras digitadas. Uma frase
+vaga ("aquele negócio das bases que o Victor pediu") exigia "aquele" e "pediu"
+no documento e voltava vazia. O Hermes já tinha termos melhores
+(`search_terms`, sem palavra vazia), mas a busca global não os usava — duas
+recuperações para a mesma pergunta.
+
+### Método
+
+Corpus escrito **antes** da mudança (`tests/busca_corpus.rs`): massa sintética
+de três projetos, doze Tasks com espera e checklist e sete Captures faladas;
+42 consultas entre exatas, flexão/acento, frases vagas, erro de digitação e
+"não encontrado". Métrica: resultado esperado no top 5.
+
+| | top 5 | exatas | não encontrado |
+| --- | --- | --- | --- |
+| Antes (AND estrito) | 27/42 | 14/14 | 2/2 |
+| Depois | 41/42 | 14/14 | 2/2 |
+
+### Decisão
+
+1. `to_fts_query` usa `mos_core::search_terms` — a mesma normalização do
+   Hermes — e junta por **OR**; o `bm25` que as consultas já usam põe em cima
+   quem casa mais termos.
+2. `mos_core::radical_de_busca`: palavra de 6+ letras perde as 3 últimas (no
+   mínimo 4 ficam) e casa por prefixo. Pega flexão ("reuniões"/"reunião") e
+   erro de digitação no fim ("jaboticatubba").
+3. Frase só de palavras vazias cai no formato antigo.
+4. Piso no teste: 40/42, exatas 100%, "não encontrado" 100%.
+
+### Limites
+
+Erro no meio da palavra ("alplan") continua sem achar; embeddings e trigramas
+só entram se um corpus real mostrar falha semântica que isto não resolve
+(plano §17). Motivo do resultado e trecho na interface ainda não foram
+implementados. O corpus é sintético: o próximo passo é acrescentar perguntas
+reais do uso.

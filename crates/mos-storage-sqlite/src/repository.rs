@@ -552,7 +552,30 @@ pub(crate) fn parse_time(value: &str) -> Result<OffsetDateTime, CoreError> {
     })
 }
 
+/// A frase da pessoa em consulta FTS5.
+///
+/// Usa os MESMOS termos que o Hermes (`mos_core::search_terms`: sem acento,
+/// sem palavra vazia) e junta por **OR**, com o radical de cada um como
+/// prefixo. Antes era AND de todas as palavras como vieram: "aquele negocio das
+/// bases que o Victor pediu" exigia "aquele" e "pediu" no documento e devolvia
+/// nada. Com OR, o `bm25` que as consultas ja usam para ordenar poe em cima quem
+/// casa mais termos — o exato continua primeiro (ADR-081, corpus em
+/// `tests/busca_corpus.rs`).
+///
+/// Frase so de palavras vazias ("a", "o que") cai no formato antigo: melhor
+/// procurar o que foi escrito que devolver a base inteira.
 pub(crate) fn to_fts_query(query: &str) -> String {
+    let termos = mos_core::search_terms(query);
+    if !termos.is_empty() {
+        return termos
+            .iter()
+            .map(|termo| {
+                let radical = mos_core::radical_de_busca(termo).replace('"', "\"\"");
+                format!("\"{radical}\"*")
+            })
+            .collect::<Vec<_>>()
+            .join(" OR ");
+    }
     query
         .split_whitespace()
         .filter_map(|token| {

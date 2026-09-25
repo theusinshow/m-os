@@ -69,9 +69,9 @@ pub use action::{
 };
 pub use agent::{
     candidates_block, here_block, normalize, now_block, parse_query, preamble, query_answer,
-    query_contract, rank_candidates, resolution_error, resolve, search_terms, short_id,
-    split_fenced, spoken_moment, system_context, task_context, Candidate, EntityKind, Here, Named,
-    PreambleInput, QueryRequest, Resolved, MAX_CANDIDATES, MAX_QUERY_HOPS,
+    query_contract, radical_de_busca, rank_candidates, resolution_error, resolve, search_terms,
+    short_id, split_fenced, spoken_moment, system_context, task_context, Candidate, EntityKind,
+    Here, Named, PreambleInput, QueryRequest, Resolved, MAX_CANDIDATES, MAX_QUERY_HOPS,
 };
 pub use app::{
     app_catalog, app_targeting_host, validate_launch_target, validate_source_url, AppCapabilities,

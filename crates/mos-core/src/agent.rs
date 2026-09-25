@@ -870,6 +870,25 @@ pub fn search_terms(text: &str) -> Vec<String> {
     termos
 }
 
+/// O radical de um termo, para casar por PREFIXO no indice.
+///
+/// Portugues flexiona no fim da palavra: "reuniao" e "reunioes", "prova" e
+/// "provas", "fundacao" e "fundacoes". Cortar as ultimas letras de uma palavra
+/// longa faz o prefixo pegar as duas formas — e, de quebra, perdoa o erro de
+/// digitacao que cai no fim ("memoriall", "jaboticatubba"). Palavra curta fica
+/// inteira: cortar "aco" ou "crea" viraria ruido.
+///
+/// Medido contra o corpus de `tests/busca_corpus.rs` (ADR-081); nao e um
+/// stemmer, e nao pretende ser.
+pub fn radical_de_busca(termo: &str) -> String {
+    let letras: Vec<char> = termo.chars().collect();
+    if letras.len() < 6 {
+        return termo.to_owned();
+    }
+    let corte = (letras.len() - 3).max(4);
+    letras[..corte].iter().collect()
+}
+
 // ------------------------------------------------------------------- consulta
 
 /// Uma busca que o modelo pediu.
