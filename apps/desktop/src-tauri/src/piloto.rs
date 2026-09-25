@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use mos_core::{
     AcaoDeResgate, CoreError, ErrorCode, Habitos, Panorama, PlanoDeResgate, PropostaDeEncerramento,
-    Retrato, SyncNoRetrato, Task, TaskState,
+    Retrato, SyncNoRetrato, Task,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
@@ -296,74 +296,22 @@ pub struct ResgatePedido {
     pub acoes: Vec<AcaoDeResgate>,
 }
 
-#[derive(Serialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ResgateResultado {
-    pub aplicadas: usize,
-    pub falharam: Vec<String>,
-}
-
 /// Aplica o que a pessoa confirmou no resgate. Cada acao e independente: uma
 /// que falha nao desfaz as outras, e o motivo volta na lista.
 #[tauri::command]
 pub fn piloto_resgate_aplicar<R: Runtime>(
     app: AppHandle<R>,
     pedido: ResgatePedido,
-) -> Result<ResgateResultado, CoreError> {
+) -> Result<mos_core::ResgateResultado, CoreError> {
     let state = app.try_state::<AppState>().ok_or_else(erro_abrindo)?;
-    let now = state.clock.now();
-    let mut resultado = ResgateResultado::default();
-    for acao in pedido.acoes {
-        let feito: Result<(), CoreError> = (|| {
-            match acao {
-                AcaoDeResgate::Planejar { task_id, para } => {
-                    state
-                        .work
-                        .plan_task(&task_id, Some(mos_core::Day::parse(&para)?), true)?;
-                }
-                AcaoDeResgate::Backlog { task_id } => {
-                    state.work.plan_task(&task_id, None, false)?;
-                }
-                AcaoDeResgate::Arquivar { task_id } => {
-                    state.work.set_task_archived(&task_id, true)?;
-                }
-                AcaoDeResgate::Concluir { task_id } => {
-                    state.work.set_task_state(&task_id, TaskState::Done)?;
-                }
-                AcaoDeResgate::Cobrar { task_id } => {
-                    // Cobrar hoje: o follow-up vira agora, e a Task volta ao topo da atencao.
-                    use mos_core::WorkRepository;
-                    let t = state.work.task(&task_id)?;
-                    let mut edit = mos_core::EditTask::from_task(&t);
-                    edit.follow_up_at = Some(now);
-                    state.storage.update_task(t.id, edit)?;
-                }
-                AcaoDeResgate::Processar { .. } => { /* abre na Inbox; nada a gravar */ }
-                AcaoDeResgate::ArquivarCapture { capture_id } => {
-                    state.captures.archive(&capture_id)?;
-                }
-                AcaoDeResgate::ConcluirLembrete { reminder_id } => {
-                    state
-                        .attention
-                        .complete(mos_core::ReminderId::parse(&reminder_id)?)?;
-                }
-                AcaoDeResgate::AdiarLembrete { reminder_id, para } => {
-                    let dia = mos_core::Day::parse(&para)?;
-                    let offset = crate::surface::now_local(&app).offset();
-                    let ate = dia.inicio_do_dia(offset) + time::Duration::hours(9);
-                    state
-                        .attention
-                        .snooze(mos_core::ReminderId::parse(&reminder_id)?, ate)?;
-                }
-                AcaoDeResgate::AbrirAcademico { .. } => {}
-            }
-            Ok(())
-        })();
-        match feito {
-            Ok(()) => resultado.aplicadas += 1,
-            Err(e) => resultado.falharam.push(e.message),
-        }
-    }
+    // A regra mora no core, a mesma que o bolso usa.
+    let resultado = mos_core::aplicar_resgate(
+        &state.work,
+        &state.captures,
+        &state.attention,
+        pedido.acoes,
+        crate::surface::now_local(&app),
+    );
     let _ = app.emit("data-changed", "resgate");
     avisar(&app);
     Ok(resultado)

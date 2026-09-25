@@ -174,12 +174,13 @@ pub use resource::{
     ResourceWorkspace,
 };
 pub use service::{
-    AcademicService, AppService, AttentionService, AudioOutcome, CaptureService,
+    aplicar_resgate, AcademicService, AppService, AttentionService, AudioOutcome, CaptureService,
     ConversationService, CreateAppInput, CreateCaptureInput, CreateProjectInput,
     CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DailyService, DataService,
-    GuardianSettle, MeetingOverview, MeetingService, MemoryService, MonitoringService,
-    ProposalClaim, Servicos, TrackingService, TrimOutcome, UpdateAppInput, UpdateProjectInput,
-    UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, VoiceService, WorkService,
+    FalhaDeResgate, GuardianSettle, MeetingOverview, MeetingService, MemoryService,
+    MonitoringService, ProposalClaim, ResgateResultado, Servicos, TrackingService, TrimOutcome,
+    UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput,
+    VoiceService, WorkService,
 };
 pub use stale::{
     atividade_do_project, compose_stale, project_activity, tolerancia, trabalho_aberto, Parada,

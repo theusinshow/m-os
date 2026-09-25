@@ -1460,3 +1460,164 @@ async fn o_piloto_do_bolso_recomenda_e_comecar_chega_no_pc() {
         .unwrap();
     assert_eq!(estado["saude"]["kind"], "em_dia", "{estado}");
 }
+
+/// F2.1: encerrar o dia pelo bolso. A proposta vem do mesmo motor do desktop;
+/// mover muda o dia planejado e NUNCA o prazo; repetir depois de um timeout nao
+/// adia de novo.
+#[tokio::test(flavor = "multi_thread")]
+async fn encerrar_o_dia_no_bolso_move_para_amanha_sem_tocar_o_prazo() {
+    let hub = servir_hub().await;
+    let pasta_web = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta_web.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    let fuso = time::UtcOffset::from_hms(-3, 0, 0).unwrap();
+    let agora = time::OffsetDateTime::now_utc().to_offset(fuso);
+    let hoje = mos_core::Day::from_local(agora);
+    let amanha = mos_core::dia_seguinte(&hoje);
+    let agora_txt = urlencoding(
+        &agora
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap(),
+    );
+    let prazo = "2026-12-01T17:00:00Z";
+
+    let task: serde_json::Value = cliente
+        .post(format!("http://{web}/api/tasks"))
+        .json(&serde_json::json!({ "titulo": "Revisar memorial", "prazo": prazo }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = task["id"].as_str().unwrap().to_owned();
+    let planejada = cliente
+        .post(format!("http://{web}/api/tasks/{id}/planejar"))
+        .json(&serde_json::json!({ "dia": hoje.as_str() }))
+        .send()
+        .await
+        .unwrap();
+    assert!(planejada.status().is_success());
+    let iniciado = cliente
+        .post(format!(
+            "http://{web}/api/piloto/iniciar-dia?agora={agora_txt}"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert!(iniciado.status().is_success());
+
+    let proposta: serde_json::Value = cliente
+        .get(format!(
+            "http://{web}/api/piloto/encerramento?agora={agora_txt}"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let mover: Vec<String> = proposta["mover"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["taskId"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(mover, vec![id.clone()], "{proposta}");
+    assert_eq!(proposta["mover"][0]["para"], amanha.as_str());
+
+    let pedido = serde_json::json!({ "mover": mover, "resolutions": proposta["resolutions"] });
+    for _ in 0..2 {
+        // A segunda volta e o retry depois de um timeout.
+        let resposta = cliente
+            .post(format!(
+                "http://{web}/api/piloto/encerrar-dia?agora={agora_txt}"
+            ))
+            .json(&pedido)
+            .send()
+            .await
+            .unwrap();
+        assert!(
+            resposta.status().is_success(),
+            "{}",
+            resposta.text().await.unwrap()
+        );
+    }
+
+    let depois: serde_json::Value = cliente
+        .get(format!("http://{web}/api/tasks/{id}"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(depois["scheduledFor"], amanha.as_str());
+    assert_eq!(depois["postponedCount"], 1, "retry nao e novo adiamento");
+    assert_eq!(
+        time::OffsetDateTime::parse(
+            depois["dueAt"].as_str().unwrap(),
+            &time::format_description::well_known::Rfc3339
+        )
+        .unwrap(),
+        time::OffsetDateTime::parse(prazo, &time::format_description::well_known::Rfc3339).unwrap(),
+        "o prazo nao se move"
+    );
+    let panorama: serde_json::Value = cliente
+        .get(format!("http://{web}/api/piloto?agora={agora_txt}"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(panorama["estadoDoDia"]["kind"], "ended");
+}
+
+/// F2.2: o lote do resgate aplica o que pode e diz QUAL item falhou, sem
+/// desfazer o resto.
+#[tokio::test(flavor = "multi_thread")]
+async fn resgate_no_bolso_aplica_o_lote_e_aponta_a_falha() {
+    let hub = servir_hub().await;
+    let pasta_web = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta_web.path(), hub).await;
+    let cliente = reqwest::Client::new();
+
+    let task: serde_json::Value = cliente
+        .post(format!("http://{web}/api/tasks"))
+        .json(&serde_json::json!({ "titulo": "Responder Victor" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = task["id"].as_str().unwrap().to_owned();
+    let inexistente = mos_core::TaskId::new().to_string();
+
+    let resultado: serde_json::Value = cliente
+        .post(format!("http://{web}/api/piloto/resgate-aplicar"))
+        .json(&serde_json::json!({ "acoes": [
+            { "acao": "planejar", "task_id": id, "para": "2026-09-30" },
+            { "acao": "concluir", "task_id": inexistente },
+        ] }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(resultado["aplicadas"], 1, "{resultado}");
+    assert_eq!(resultado["falhas"][0]["indice"], 1, "{resultado}");
+
+    let depois: serde_json::Value = cliente
+        .get(format!("http://{web}/api/tasks/{id}"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(depois["scheduledFor"], "2026-09-30");
+}

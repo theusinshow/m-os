@@ -50,6 +50,11 @@ impl Presenca {
         self.anterior.lock().ok().and_then(|slot| *slot)
     }
 
+    /// A presenca anterior desta visita, sem registrar uma leitura nova.
+    fn anterior(&self) -> Option<OffsetDateTime> {
+        self.anterior.lock().ok().and_then(|slot| *slot)
+    }
+
     fn concluir(&self, agora: OffsetDateTime) {
         if let Ok(mut slot) = self.anterior.lock() {
             *slot = Some(agora);
@@ -61,7 +66,11 @@ pub fn rotas() -> Router<Estado> {
     Router::new()
         .route("/api/piloto", get(panorama))
         .route("/api/piloto/iniciar-dia", post(iniciar_dia))
+        .route("/api/piloto/encerramento", get(proposta_de_encerramento))
+        .route("/api/piloto/encerrar-dia", post(encerrar_dia))
         .route("/api/piloto/resgate-concluir", post(resgate_concluir))
+        .route("/api/piloto/resgate", get(resgate))
+        .route("/api/piloto/resgate-aplicar", post(resgate_aplicar))
         .route("/api/tasks/{id}/comecar", post(comecar))
         .route("/api/tasks/{id}/parar", post(parar))
         .route("/api/tasks/{id}/planejar", post(planejar))
@@ -240,6 +249,106 @@ async fn iniciar_dia(
     })
     .await?;
     Ok(Json(serde_json::to_value(dia).unwrap_or_default()))
+}
+
+/// O que o encerramento propoe agora. Nao grava nada — a mesma funcao que o
+/// cartao do desktop le (`mos_core::propor_encerramento`).
+async fn proposta_de_encerramento(
+    State(estado): State<Estado>,
+    Query(pergunta): Query<QuandoPergunta>,
+) -> Resultado<Json<mos_core::PropostaDeEncerramento>> {
+    let agora = instante(&pergunta);
+    let leitura = tokio::task::spawn_blocking(move || ler(&estado, agora, None))
+        .await
+        .map_err(|c| {
+            crate::api::Erro(axum::http::StatusCode::INTERNAL_SERVER_ERROR, c.to_string())
+        })?
+        .map_err(de_core)?;
+    Ok(Json(mos_core::propor_encerramento(&leitura.retrato())))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Encerramento {
+    /// As Tasks a mover para amanha. Vem da proposta, editada ou nao.
+    #[serde(default)]
+    pub mover: Vec<String>,
+    #[serde(default)]
+    pub resolutions: Vec<mos_core::ObjectiveResolution>,
+    #[serde(default)]
+    pub mood: String,
+    #[serde(default)]
+    pub summary: String,
+}
+
+/// "Encerrar dia" no bolso: o mesmo `DailyService::end_planned` do desktop.
+///
+/// O dia e o do APARELHO (`agora` com o fuso do telefone), e nao o do
+/// servidor: encerrar as 23h em Sao Paulo nao pode fechar o dia seguinte em
+/// UTC. Mover muda o dia planejado; o prazo nao e tocado. Repetir depois de um
+/// timeout nao adia de novo — a transacao e idempotente (ADR-073).
+async fn encerrar_dia(
+    State(estado): State<Estado>,
+    Query(pergunta): Query<QuandoPergunta>,
+    Json(pedido): Json<Encerramento>,
+) -> Resultado<Json<serde_json::Value>> {
+    let agora = instante(&pergunta);
+    let dia = crate::api::escrever(&estado, move |estado| {
+        let hoje = mos_core::Day::from_local(agora);
+        let input = mos_core::EndDayInput {
+            resolutions: pedido.resolutions,
+            mood: pedido.mood,
+            summary: pedido.summary,
+        };
+        estado.daily.end_planned(&hoje, &input, &pedido.mover)
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(dia).unwrap_or_default()))
+}
+
+/// O plano guiado do Rescue Mode. `null` quando nao ha ausencia a resgatar.
+async fn resgate(
+    State(estado): State<Estado>,
+    Query(pergunta): Query<QuandoPergunta>,
+) -> Resultado<Json<Option<mos_core::PlanoDeResgate>>> {
+    let agora = instante(&pergunta);
+    let presenca = estado.presenca.anterior();
+    let leitura = tokio::task::spawn_blocking(move || ler(&estado, agora, presenca))
+        .await
+        .map_err(|c| {
+            crate::api::Erro(axum::http::StatusCode::INTERNAL_SERVER_ERROR, c.to_string())
+        })?
+        .map_err(de_core)?;
+    let retrato = leitura.retrato();
+    Ok(Json(
+        mos_core::detectar_ausencia(&retrato).map(|a| mos_core::plano_de_resgate(&retrato, &a)),
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct ResgatePedido {
+    pub acoes: Vec<mos_core::AcaoDeResgate>,
+}
+
+/// Aplica o lote confirmado. A regra e a do core (`aplicar_resgate`); cada
+/// falha volta com o indice da acao, e o resto do lote continua aplicado.
+async fn resgate_aplicar(
+    State(estado): State<Estado>,
+    Query(pergunta): Query<QuandoPergunta>,
+    Json(pedido): Json<ResgatePedido>,
+) -> Resultado<Json<mos_core::ResgateResultado>> {
+    let agora = instante(&pergunta);
+    let resultado = crate::api::escrever(&estado, move |estado| {
+        Ok(mos_core::aplicar_resgate(
+            &estado.work,
+            &estado.captures,
+            &estado.attention,
+            pedido.acoes,
+            agora,
+        ))
+    })
+    .await?;
+    Ok(Json(resultado))
 }
 
 async fn resgate_concluir(State(estado): State<Estado>) -> Resultado<Json<serde_json::Value>> {

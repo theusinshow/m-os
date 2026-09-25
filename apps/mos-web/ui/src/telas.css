@@ -1802,3 +1802,69 @@
 .piloto-item:disabled { opacity: 1; }
 .piloto-itens li[data-severidade="urgente"] .piloto-item { border-left-color: #d95546; }
 .piloto-itens li[data-severidade="alta"] .piloto-item { border-left-color: var(--signal); }
+
+/* Encerrar o dia e retomar depois de dias fora (F2.1/F2.2). Toque primeiro:
+   cada escolha tem a altura minima de um dedo. */
+.piloto-encerrar,
+.piloto-resgate {
+  border-left: 3px solid var(--signal);
+}
+
+.piloto-escolhas {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+}
+
+.piloto-escolhas label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--toque);
+  font: 400 15px/1.35 var(--font-product);
+}
+
+.piloto-escolhas input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--signal);
+}
+
+.piloto-resgate-item {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-2) 0;
+  font: 400 15px/1.35 var(--font-product);
+}
+
+.piloto-resgate-item[data-ignorado] > span:first-child {
+  color: var(--text-secondary);
+}
+
+.piloto-opcoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.piloto-opcao {
+  min-height: var(--toque);
+  padding: 0 var(--space-3);
+  color: var(--text-secondary);
+  font: 400 14px/1 var(--font-product);
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+}
+
+.piloto-opcao[aria-pressed="true"] {
+  color: var(--text);
+  background: var(--signal-wash);
+  border-color: var(--signal);
+}
+
+.piloto-rodape {
+  justify-content: flex-end;
+}

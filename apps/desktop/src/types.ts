@@ -2032,16 +2032,18 @@ export type Ausencia = {
   lembretesVencidos: number;
 };
 
+/** Campos em snake_case: o enum do core so renomeia a variante (`acao`), nao
+ *  os campos. O objeto vai e volta como o servidor mandou. */
 export type AcaoDeResgate =
-  | { acao: "planejar"; taskId: string; para: string }
-  | { acao: "backlog"; taskId: string }
-  | { acao: "arquivar"; taskId: string }
-  | { acao: "concluir"; taskId: string }
-  | { acao: "cobrar"; taskId: string }
-  | { acao: "processar"; captureId: string }
-  | { acao: "arquivar_capture"; captureId: string }
-  | { acao: "concluir_lembrete"; reminderId: string }
-  | { acao: "adiar_lembrete"; reminderId: string; para: string }
+  | { acao: "planejar"; task_id: string; para: string }
+  | { acao: "backlog"; task_id: string }
+  | { acao: "arquivar"; task_id: string }
+  | { acao: "concluir"; task_id: string }
+  | { acao: "cobrar"; task_id: string }
+  | { acao: "processar"; capture_id: string }
+  | { acao: "arquivar_capture"; capture_id: string }
+  | { acao: "concluir_lembrete"; reminder_id: string }
+  | { acao: "adiar_lembrete"; reminder_id: string; para: string }
   | { acao: "abrir_academico"; tipo: string; id: string };
 
 export type ItemDeResgate = {

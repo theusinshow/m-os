@@ -4323,3 +4323,40 @@ Regressões: `piloto_planejamento` (inversa em duas réplicas, recusa após
 edição posterior, réplica remota com outra Task em andamento, título×conclusão
 convergindo) e `proposta_idempotente` (clique duplo concorrente, retry após
 desfecho, reserva órfã após reabrir o banco).
+
+## ADR-075 — O dia fecha e recomeça no bolso pelo mesmo core
+
+**Data:** 2026-09-24. **Status:** aceito e implementado (F2.1/F2.2 do [MOS-OVERHAUL-PLAN](MOS-OVERHAUL-PLAN.md)).
+
+### Contexto
+
+A PWA começava o dia, mas não encerrava nem oferecia o Rescue Mode. Aplicar
+uma ação de resgate vivia no shell do desktop (`piloto_resgate_aplicar`), então
+levar o resgate ao bolso exigiria reescrever as regras em outro adapter. O
+retry de encerramento depois de um timeout respondia "Este dia não está mais
+aberto" — a tela dizia que falhou o que tinha dado certo.
+
+### Decisão
+
+1. `mos_core::aplicar_resgate` passa a ser a regra única do lote de resgate;
+   desktop e servidor chamam a mesma função. O resultado ganha `falhas`
+   (índice + motivo) além de `falharam`, para a tela apontar o item.
+2. `DailyService::end_planned` devolve o dia como ficou quando ele já foi
+   encerrado e não há sessão antiga aberta: retry é sucesso, não erro.
+3. Rotas novas no `mos-web`: `GET /api/piloto/encerramento`,
+   `POST /api/piloto/encerrar-dia`, `GET /api/piloto/resgate`,
+   `POST /api/piloto/resgate-aplicar`. O dia é o do aparelho (`agora` com fuso),
+   nunca o do servidor.
+4. A Home do bolso mostra "Encerrar o dia" enquanto o dia está aberto (e o item
+   `unfinished_day` da atenção abre o mesmo cartão) e um cartão de retomada
+   quando há ausência. "Agora não" não grava nada; nada é arquivado por
+   envelhecer; "Deixar" é resposta válida.
+
+### Eixos
+
+Core: `aplicar_resgate`, retry idempotente. Database: nenhuma migration.
+Sync: as mudanças são as mesmas operações de Task/objetivo/lembrete já
+cobertas. Desktop: delega ao core, sem mudança visível. iOS/PWA: encerramento
+e resgate por toque. Notifications: nenhum canal novo, sem cobrança por ritual.
+Hermes: não muda. Tests: `de_bolso::encerrar_o_dia_no_bolso_*` (proposta,
+mover, prazo intacto, retry) e `de_bolso::resgate_no_bolso_*` (lote parcial).

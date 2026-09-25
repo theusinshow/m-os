@@ -524,7 +524,7 @@ Não vou usar contagem de arquivos, linhas ou features como sinal de progresso. 
 
 ### Marco 2 — continuidade diária entre dispositivos
 
-- [ ] Começar, encerrar e retomar o dia no desktop e na PWA.
+- [x] Começar, encerrar e retomar o dia no desktop e na PWA.
 - [ ] Captura mobile pendente funciona sob o contrato offline definido.
 - [ ] Estado desatualizado, indisponível e sincronizado é compreensível.
 - [ ] Política de foco entre réplicas implementada e testada.
@@ -571,4 +571,7 @@ O objetivo de conclusão permanece o da missão: abrir o M/OS deve ajudar a deci
 | F1.2 | Feito | `ProposalStatus::Executing` + `claim_proposal`; desfecho recuperado em retry; reserva órfã fica incerta | `proposta_idempotente` |
 | F1.3 | Feito | `edit_objective` por intenção; `save_reminder` emite diff | `titulo_num_aparelho_e_conclusao_no_outro_sobrevivem_juntos` |
 
-Decisão registrada em ADR-074.
+| F2.1 | Feito | Encerrar o dia na PWA; retry depois de timeout devolve o dia encerrado | `de_bolso::encerrar_o_dia_no_bolso_move_para_amanha_sem_tocar_o_prazo` |
+| F2.2 | Feito | Rescue Mode na PWA; `aplicar_resgate` no core com falha por item | `de_bolso::resgate_no_bolso_aplica_o_lote_e_aponta_a_falha`; bancada 390px |
+
+Decisões registradas em ADR-074 (F1) e ADR-075 (F2).

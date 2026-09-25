@@ -104,6 +104,44 @@ export type Piloto = {
   resgate: { dias: number } | null;
 };
 
+/** A proposta de encerramento — `mos_core::PropostaDeEncerramento`. */
+export type PropostaDeEncerramento = {
+  day: string;
+  concluidas: number;
+  abertas: number;
+  vencidas: number;
+  resolutions: { objectiveId: string; status: string }[];
+  mover: { taskId: string; titulo: string; para: string; razao: string }[];
+  sugestao: string;
+};
+
+/** Campos em snake_case: o enum do core só renomeia a variante (`acao`). O
+ *  objeto vai e volta como o servidor mandou. */
+export type AcaoDeResgate =
+  | { acao: "planejar"; task_id: string; para: string }
+  | { acao: "backlog"; task_id: string }
+  | { acao: "arquivar"; task_id: string }
+  | { acao: "concluir"; task_id: string }
+  | { acao: "cobrar"; task_id: string }
+  | { acao: "processar"; capture_id: string }
+  | { acao: "arquivar_capture"; capture_id: string }
+  | { acao: "concluir_lembrete"; reminder_id: string }
+  | { acao: "adiar_lembrete"; reminder_id: string; para: string }
+  | { acao: "abrir_academico"; tipo: string; id: string };
+
+export type PlanoDeResgate = {
+  passos: {
+    passo: string;
+    titulo: string;
+    itens: { titulo: string; descricao: string; razoes: string[]; sugerida: AcaoDeResgate; alternativas: AcaoDeResgate[] }[];
+    restantes: number;
+  }[];
+  fecho: string;
+  importantesHoje: number;
+};
+
+export type ResgateResultado = { aplicadas: number; falharam: string[]; falhas: { indice: number; motivo: string }[] };
+
 /** Um projeto, só com o que a tela do bolso precisa saber dele. */
 /**
  * O que se consulta, e nao o que se faz — um `Resource` do M/OS.
@@ -629,6 +667,31 @@ export const api = {
   /** "Montar meu dia": a proposta automática, gravada como veio. */
   iniciarDia() {
     return pedir<unknown>(`/api/piloto/iniciar-dia?agora=${encodeURIComponent(comOffsetLocal(new Date()))}`, { method: "POST" });
+  },
+  /** A proposta de encerramento do dia. Não grava nada. */
+  propostaDeEncerramento() {
+    return pedir<PropostaDeEncerramento>(`/api/piloto/encerramento?agora=${encodeURIComponent(comOffsetLocal(new Date()))}`);
+  },
+  /** Encerra o dia: move o que foi marcado para amanhã (o prazo não muda). */
+  encerrarDia(mover: string[], resolutions: PropostaDeEncerramento["resolutions"]) {
+    return pedir<unknown>(`/api/piloto/encerrar-dia?agora=${encodeURIComponent(comOffsetLocal(new Date()))}`, {
+      method: "POST",
+      body: JSON.stringify({ mover, resolutions }),
+    });
+  },
+  /** O plano do Rescue Mode, ou `null` quando não há ausência a resgatar. */
+  resgate() {
+    return pedir<PlanoDeResgate | null>(`/api/piloto/resgate?agora=${encodeURIComponent(comOffsetLocal(new Date()))}`);
+  },
+  aplicarResgate(acoes: AcaoDeResgate[]) {
+    return pedir<ResgateResultado>(`/api/piloto/resgate-aplicar?agora=${encodeURIComponent(comOffsetLocal(new Date()))}`, {
+      method: "POST",
+      body: JSON.stringify({ acoes }),
+    });
+  },
+  /** Marca a visita como retomada: o resgate não volta até a próxima ausência. */
+  concluirResgate() {
+    return pedir<unknown>("/api/piloto/resgate-concluir", { method: "POST" });
   },
   comecarTask(id: string) {
     return pedir<Task>(`/api/tasks/${id}/comecar`, { method: "POST" });

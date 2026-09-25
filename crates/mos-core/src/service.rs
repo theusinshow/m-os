@@ -4025,6 +4025,12 @@ impl DailyService {
         tasks: &[String],
     ) -> Result<crate::DailyToday, CoreError> {
         let today = self.today(day)?;
+        // Retry depois de um timeout: o encerramento ja foi gravado. Devolver o
+        // dia como ficou e o desfecho certo — um erro ali faria a tela dizer
+        // que falhou o que deu certo, e convidaria a pessoa a repetir.
+        if today.status == crate::SessionStatus::Completed && today.stale.is_none() {
+            return Ok(today);
+        }
         let session = today.session.or(today.stale).ok_or_else(|| {
             CoreError::new(
                 crate::ErrorCode::InvalidTransition,
@@ -4683,4 +4689,96 @@ pub struct Servicos {
     pub meetings: MeetingService,
     pub attention: AttentionService,
     pub daily: DailyService,
+}
+
+/// O que aplicar um lote do resgate conseguiu.
+///
+/// `falharam` continua como lista de frases (e o que o cartao do desktop ja
+/// mostra); `falhas` diz QUAL acao do lote falhou, pelo indice, para a tela
+/// apontar o item em vez de listar motivos soltos (MOS-OVERHAUL-PLAN F2.2).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResgateResultado {
+    pub aplicadas: usize,
+    pub falharam: Vec<String>,
+    pub falhas: Vec<FalhaDeResgate>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FalhaDeResgate {
+    pub indice: usize,
+    pub motivo: String,
+}
+
+/// Aplica o que a pessoa confirmou no resgate.
+///
+/// Mora no core desde que o bolso ganhou o Rescue Mode: antes vivia no shell
+/// do desktop, e o celular teria de reescrever as mesmas regras — adiar conta
+/// adiamento, cobrar move o follow-up para agora, adiar lembrete cai as 9h do
+/// dia escolhido NO FUSO DE QUEM PEDIU (`now_local`).
+///
+/// Cada acao e independente: uma que falha nao desfaz as outras. Parcial e
+/// resultado legitimo e aparece como tal.
+pub fn aplicar_resgate(
+    work: &WorkService,
+    captures: &CaptureService,
+    attention: &AttentionService,
+    acoes: Vec<crate::AcaoDeResgate>,
+    now_local: time::OffsetDateTime,
+) -> ResgateResultado {
+    use crate::AcaoDeResgate as A;
+    let mut resultado = ResgateResultado::default();
+    for (indice, acao) in acoes.into_iter().enumerate() {
+        let feito: Result<(), CoreError> = (|| {
+            match acao {
+                A::Planejar { task_id, para } => {
+                    work.plan_task(&task_id, Some(crate::Day::parse(&para)?), true)?;
+                }
+                A::Backlog { task_id } => {
+                    work.plan_task(&task_id, None, false)?;
+                }
+                A::Arquivar { task_id } => {
+                    work.set_task_archived(&task_id, true)?;
+                }
+                A::Concluir { task_id } => {
+                    work.set_task_state(&task_id, TaskState::Done)?;
+                }
+                A::Cobrar { task_id } => {
+                    // Cobrar hoje: o follow-up vira agora, e a Task volta ao
+                    // topo da atencao. So o follow-up muda.
+                    let task = work.task(&task_id)?;
+                    let mut edit = crate::EditTask::from_task(&task);
+                    edit.follow_up_at = Some(now_local);
+                    work.repository.update_task(task.id, edit)?;
+                }
+                A::Processar { .. } | A::AbrirAcademico { .. } => {
+                    // Abrem uma tela; nada a gravar.
+                }
+                A::ArquivarCapture { capture_id } => {
+                    captures.archive(&capture_id)?;
+                }
+                A::ConcluirLembrete { reminder_id } => {
+                    attention.complete(crate::ReminderId::parse(&reminder_id)?)?;
+                }
+                A::AdiarLembrete { reminder_id, para } => {
+                    let dia = crate::Day::parse(&para)?;
+                    let ate = dia.inicio_do_dia(now_local.offset()) + time::Duration::hours(9);
+                    attention.snooze(crate::ReminderId::parse(&reminder_id)?, ate)?;
+                }
+            }
+            Ok(())
+        })();
+        match feito {
+            Ok(()) => resultado.aplicadas += 1,
+            Err(e) => {
+                resultado.falharam.push(e.message.clone());
+                resultado.falhas.push(FalhaDeResgate {
+                    indice,
+                    motivo: e.message,
+                });
+            }
+        }
+    }
+    resultado
 }

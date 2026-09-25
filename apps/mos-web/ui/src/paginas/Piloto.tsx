@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { api, type Piloto as Panorama } from "../api";
 import type { Pagina } from "../navegacao";
+import { EncerrarDia } from "./EncerrarDia";
+import { Resgate } from "./Resgate";
 
 /**
  * O piloto no bolso: o que faço agora, o dia por começar, o que precisa de
@@ -27,6 +29,10 @@ export function Piloto({
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [porque, setPorque] = useState(false);
   const [erro, setErro] = useState("");
+  const [encerrando, setEncerrando] = useState(false);
+  /** Resgate aberto (plano na tela) ou adiado nesta visita. "Agora não" não
+   *  grava nada: a retomada volta na próxima abertura, sem cobrança. */
+  const [resgate, setResgate] = useState<"fechado" | "aberto" | "adiado">("fechado");
   const [diaDispensado, setDiaDispensado] = useState(() => {
     try { return localStorage.getItem("mos-dia-dispensado") ?? ""; } catch { return ""; }
   });
@@ -52,6 +58,7 @@ export function Piloto({
   const mostrarDia = diaNaoIniciado && diaDispensado !== panorama.day;
   const agora = panorama.agora.agora;
   const atencao = panorama.atencao.filter((i) => i.tipo !== "day_not_started").slice(0, 3);
+  const diaAberto = panorama.estadoDoDia.kind === "active";
 
   function destino(item: Panorama["atencao"][number]): (() => void) | null {
     if (item.alvo.kind === "task") return () => aoAbrirTask(item.alvo.id);
@@ -59,12 +66,31 @@ export function Piloto({
     if (item.alvo.kind.startsWith("academic_")) return () => aoIr("academico");
     if (item.tipo === "unprocessed_capture") return () => aoIr("fazer");
     if (item.tipo === "unsynced_changes") return () => aoIr("mais");
+    if (item.tipo === "unfinished_day" && diaAberto) return () => setEncerrando(true);
     return null;
   }
 
   return (
     <section className="piloto" aria-label="O piloto">
       {erro ? <p role="alert" className="piloto-cartao">{erro}</p> : null}
+      {panorama.resgate && resgate === "aberto" ? (
+        <Resgate
+          dias={panorama.resgate.dias}
+          aoFechar={() => setResgate("adiado")}
+          aoAplicar={aoAtualizar}
+          aoRevisarInbox={() => aoIr("fazer")}
+        />
+      ) : panorama.resgate && resgate === "fechado" ? (
+        <div className="piloto-cartao">
+          <span className="piloto-rotulo">{panorama.resgate.dias} {panorama.resgate.dias === 1 ? "DIA" : "DIAS"} FORA</span>
+          <p className="piloto-frase">Retomar sem reorganizar tudo</p>
+          <p className="piloto-mudo">Poucas decisões, a sugestão já escolhida. O resto fica como está.</p>
+          <div className="piloto-acoes">
+            <button type="button" className="botao" onClick={() => setResgate("aberto")}>Retomar</button>
+            <button type="button" className="botao" data-variante="quieto" onClick={() => setResgate("adiado")}>Agora não</button>
+          </div>
+        </div>
+      ) : null}
       {mostrarDia ? (
         <div className="piloto-cartao piloto-dia">
           <span className="piloto-rotulo">{panorama.estadoDoDia.kind === "stale_open" ? `O DIA ${panorama.estadoDoDia.day} FICOU ABERTO` : "UMA PROPOSTA PARA HOJE"}</span>
@@ -111,6 +137,10 @@ export function Piloto({
         )}
       </div>
 
+      {encerrando && diaAberto ? (
+        <EncerrarDia aoFechar={() => setEncerrando(false)} aoEncerrar={aoAtualizar} />
+      ) : null}
+
       {atencao.length ? (
         <div className="piloto-cartao">
           <span className="piloto-rotulo">PRECISA DE ATENÇÃO</span>
@@ -124,6 +154,12 @@ export function Piloto({
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {diaAberto && !encerrando ? (
+        <div className="piloto-acoes piloto-rodape">
+          <button type="button" className="botao" data-variante="quieto" onClick={() => setEncerrando(true)}>Encerrar o dia</button>
         </div>
       ) : null}
     </section>
