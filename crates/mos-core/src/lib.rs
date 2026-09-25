@@ -30,6 +30,7 @@ mod ports;
 mod recurrence;
 mod resource;
 mod service;
+mod sinais;
 mod stale;
 mod tracking;
 mod voice;
@@ -182,6 +183,10 @@ pub use service::{
     MonitoringService, ProposalClaim, ResgateResultado, Servicos, TrackingService, TrimOutcome,
     UpdateAppInput, UpdateProjectInput, UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput,
     VoiceService, WorkService,
+};
+pub use sinais::{
+    mediana, SinaisDaInbox, SinaisDeAdiamento, SinaisDePropostas, SinaisDeReunioes, SinaisDeSync,
+    SinaisDeUso, SinaisDoDia,
 };
 pub use stale::{
     atividade_do_project, compose_stale, project_activity, tolerancia, trabalho_aberto, Parada,

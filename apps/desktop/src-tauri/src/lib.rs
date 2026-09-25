@@ -2967,6 +2967,7 @@ pub fn run() {
                     diagnostico::diagnostico_janela_viva,
                     diagnostico::diagnostico_registrar,
                     diagnostico::diagnostico_recente,
+                    piloto::sinais_de_uso,
                     diagnostico::diagnostico_caminho,
                     atualizacao::atualizacao_estado,
                     atualizacao::atualizacao_anotar_verificacao,

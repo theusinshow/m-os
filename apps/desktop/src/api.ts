@@ -1535,6 +1535,10 @@ export const api = {
    * fecha sozinho", "a janelinha aparece com 404") acontecem no logon, longe de
    * qualquer terminal aberto.
    */
+  /** Onde o M/OS ainda pede trabalho manual, nos últimos 14 dias (ADR-082). */
+  sinaisDeUso() {
+    return invoke<SinaisNaTela>("sinais_de_uso");
+  },
   diagnosticoRecente(limite = 40) {
     return invoke<Ocorrencia[]>("diagnostico_recente", { limite });
   },
@@ -1616,6 +1620,21 @@ export const api = {
       return "instalada" as const;
     }
   },
+};
+
+/** `mos_core::SinaisDeUso` + as frases do que pede atenção. Contagens e
+ *  idades, nunca conteúdo. */
+export type SinaisNaTela = {
+  leituras: string[];
+  sinais: {
+    janelaDias: number;
+    inbox: { pendentes: number; idadeMedianaHoras: number | null; maisDe7Dias: number };
+    propostas: { executadas: number; canceladas: number; recusadas: number; falharam: number; incertas: number };
+    reunioes: { prontas: number; pedemAtencao: number; ateProntaMedianaMinutos: number | null; tentativasExtras: number };
+    adiamentos: { lembretesAdiadosNaJanela: number; lembretesAdiados3x: number; tasksAdiadas3x: number };
+    sync: { fila: number; maisAntigaHoras: number | null };
+    dia: { diasIniciados: number; diasEncerrados: number };
+  };
 };
 
 export function appError(error: unknown): { message: string; retryable: boolean } {

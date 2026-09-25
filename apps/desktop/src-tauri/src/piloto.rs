@@ -317,6 +317,27 @@ pub fn piloto_resgate_aplicar<R: Runtime>(
     Ok(resultado)
 }
 
+// ------------------------------------------------------------ sinais de uso
+
+/// Onde o M/OS ainda pede trabalho manual, nos ultimos 14 dias (ADR-082).
+/// Local, sem conteudo; alimenta o painel de Diagnostico.
+#[tauri::command]
+pub fn sinais_de_uso<R: Runtime>(app: AppHandle<R>) -> Result<SinaisNaTela, CoreError> {
+    let state = app.try_state::<AppState>().ok_or_else(erro_abrindo)?;
+    let sinais = state.storage.sinais_de_uso(state.clock.now(), 14)?;
+    Ok(SinaisNaTela {
+        leituras: sinais.leituras(),
+        sinais,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SinaisNaTela {
+    pub sinais: mos_core::SinaisDeUso,
+    pub leituras: Vec<String>,
+}
+
 // ------------------------------------------------------------- task: comecar
 
 #[tauri::command]

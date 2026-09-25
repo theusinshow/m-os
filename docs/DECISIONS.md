@@ -4592,3 +4592,28 @@ só entram se um corpus real mostrar falha semântica que isto não resolve
 (plano §17). Motivo do resultado e trecho na interface ainda não foram
 implementados. O corpus é sintético: o próximo passo é acrescentar perguntas
 reais do uso.
+
+## ADR-082 — Sinais de uso locais, das tabelas que já existem
+
+**Data:** 2026-09-24. **Status:** aceito e implementado (F9 do [MOS-OVERHAUL-PLAN](MOS-OVERHAUL-PLAN.md)).
+
+### Decisão
+
+`mos_core::SinaisDeUso` responde as perguntas do plano §14 com agregados de
+tabelas existentes, sem evento novo nem migration: Inbox parada (pendentes,
+idade mediana, mais de 7 dias), desfecho das propostas do Hermes (executadas,
+canceladas, recusadas, falhas, incertas), reuniões (prontas, paradas, mediana
+job→pronta, tentativas extras), adiamentos (lembretes adiados, 3×; Tasks 3×),
+fila de sync (tamanho, idade) e o dia (começados, encerrados).
+`SinaisDeUso::leituras()` diz em frase só o que pede atenção.
+
+A leitura mora em `SqliteStorage::sinais_de_uso` e aparece fechada por padrão
+no Settings → Dados, ao lado do Diagnóstico. **Não é placar** de
+produtividade, não sai do aparelho e não lê coluna de conteúdo.
+
+### Limites
+
+"Captura → persistência" (p50/p95) e uso dos atalhos não estão nas tabelas;
+entram quando houver pergunta que só um evento novo responda (plano §14).
+"Parar → pronta" é aproximado pelo job (criado → concluído). O bolso ainda não
+mostra os sinais.

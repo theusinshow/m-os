@@ -128,3 +128,42 @@ fn acao_sem_capacidade_no_aparelho_diz_que_esta_indisponivel() {
     .unwrap_err();
     assert!(erro.message.contains("M-Finance"), "{}", erro.message);
 }
+
+// ------------------------------------------------ F9: sinais de uso (ADR-082)
+
+#[test]
+fn sinais_de_uso_contam_sem_ler_conteudo() {
+    use mos_core::{CaptureRepository, CaptureSource, NewCapture, NewTask, WorkRepository};
+    let dir = tempfile::tempdir().unwrap();
+    let backups = dir.path().join("backups");
+    std::fs::create_dir_all(&backups).unwrap();
+    let storage = SqliteStorage::open(dir.path().join("mos.db"), &backups).unwrap();
+    for texto in ["um", "dois", "tres"] {
+        storage
+            .create(NewCapture::create(texto, CaptureSource::Home).unwrap())
+            .unwrap();
+    }
+    let task = storage
+        .create_task(NewTask::create("Adiada demais", "", None).unwrap())
+        .unwrap();
+    for dia in ["2026-09-25", "2026-09-26", "2026-09-27"] {
+        storage
+            .plan_task(task.id, Some(mos_core::Day::parse(dia).unwrap()), true)
+            .unwrap();
+    }
+    let agora = time::OffsetDateTime::now_utc() + time::Duration::days(8);
+    let sinais = storage.sinais_de_uso(agora, 14).unwrap();
+    assert_eq!(sinais.inbox.pendentes, 3);
+    assert_eq!(sinais.inbox.mais_de_7_dias, 3);
+    assert_eq!(sinais.adiamentos.tasks_adiadas_3x, 1);
+    assert_eq!(sinais.propostas, mos_core::SinaisDePropostas::default());
+    let leituras = sinais.leituras();
+    assert!(
+        leituras.iter().any(|f| f.contains("3 capturas")),
+        "{leituras:?}"
+    );
+    assert!(
+        leituras.iter().any(|f| f.contains("1 Task")),
+        "{leituras:?}"
+    );
+}

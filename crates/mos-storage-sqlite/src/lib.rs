@@ -13,6 +13,7 @@ mod monitoring_repository;
 mod piloto_repository;
 mod repository;
 mod resource_repository;
+mod sinais_repository;
 mod sync_backfill;
 mod sync_cobertura;
 mod sync_emit;
