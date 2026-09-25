@@ -384,6 +384,168 @@ pub fn short_id(id: &str) -> &str {
     &id[..corte]
 }
 
+/// Uma decisao, compromisso ou pendencia de reuniao, para o contexto de um
+/// Project. A reuniao e a FONTE: o Hermes cita de onde veio.
+#[derive(Clone, Debug)]
+pub struct ItemDeReuniao {
+    pub reuniao_id: String,
+    pub reuniao: String,
+    pub quando: OffsetDateTime,
+    pub kind: crate::InsightKind,
+    pub texto: String,
+}
+
+/// Quantas linhas cada secao do contexto de Project leva.
+const LINHAS_POR_SECAO: usize = 8;
+
+/// O contexto de um Project para o Hermes (F4.2, ADR-085).
+///
+/// Responde "o que falta?" com o que a pessoa precisaria abrir tela por tela:
+/// o que anda, quem esta segurando o que, o que depende de outra coisa, o que
+/// vence, e o que as reunioes decidiram. Cada linha leva o id curto — o Hermes
+/// cita a fonte e a pessoa abre — e cada secao tem teto: o que passa dele e
+/// CONTADO, nunca despejado. Nenhuma pergunta recebe a base inteira.
+pub fn project_context(
+    project: &crate::Project,
+    tasks: &[crate::Task],
+    reunioes: &[ItemDeReuniao],
+) -> String {
+    use crate::TaskState;
+    let abertas: Vec<&crate::Task> = tasks
+        .iter()
+        .filter(|t| t.project_id == Some(project.id) && t.state != TaskState::Done)
+        .collect();
+    let titulo_de = |id: crate::TaskId| {
+        tasks
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| t.title.clone())
+            .unwrap_or_else(|| "Task fora deste Project".to_owned())
+    };
+    let linha = |t: &crate::Task| {
+        format!(
+            "- {} [{}] {}",
+            short_id(&t.id.to_string()),
+            t.state.as_str(),
+            t.title
+        )
+    };
+
+    let mut out = vec![format!("Project: {}", project.name)];
+    if !project.description.is_empty() {
+        out.push(format!("Descricao: {}", project.description));
+    }
+    let mut secao = |titulo: &str, linhas: Vec<String>| {
+        if linhas.is_empty() {
+            return;
+        }
+        out.push(format!("{titulo} ({}):", linhas.len()));
+        let resto = linhas.len().saturating_sub(LINHAS_POR_SECAO);
+        out.extend(linhas.into_iter().take(LINHAS_POR_SECAO));
+        if resto > 0 {
+            out.push(format!("(+{resto} nao listadas)"));
+        }
+    };
+
+    let mut ja = std::collections::HashSet::new();
+    let em_andamento: Vec<String> = abertas
+        .iter()
+        .filter(|t| t.started_at.is_some() || t.state == TaskState::Doing)
+        .inspect(|t| {
+            ja.insert(t.id);
+        })
+        .map(|t| linha(t))
+        .collect();
+    secao("Em andamento", em_andamento);
+
+    let aguardando: Vec<String> = abertas
+        .iter()
+        .filter(|t| !t.waiting_for.is_empty())
+        .inspect(|t| {
+            ja.insert(t.id);
+        })
+        .map(|t| {
+            let cobrar = t
+                .follow_up_at
+                .map(|f| format!(", cobrar {}", spoken_moment(f)))
+                .unwrap_or_default();
+            format!("{} — aguardando {}{cobrar}", linha(t), t.waiting_for)
+        })
+        .collect();
+    secao("Aguardando alguem", aguardando);
+
+    let bloqueadas: Vec<String> = abertas
+        .iter()
+        .filter_map(|t| t.blocked_by_task_id.map(|dep| (t, dep)))
+        .inspect(|(t, _)| {
+            ja.insert(t.id);
+        })
+        .map(|(t, dep)| format!("{} — depende de: {}", linha(t), titulo_de(dep)))
+        .collect();
+    secao("Bloqueadas", bloqueadas);
+
+    let mut com_prazo: Vec<&&crate::Task> = abertas.iter().filter(|t| t.due_at.is_some()).collect();
+    com_prazo.sort_by_key(|t| t.due_at);
+    let com_prazo: Vec<String> = com_prazo
+        .into_iter()
+        .inspect(|t| {
+            ja.insert(t.id);
+        })
+        .map(|t| {
+            format!(
+                "{} — vence {}",
+                linha(t),
+                spoken_moment(t.due_at.expect("filtrado"))
+            )
+        })
+        .collect();
+    secao("Com prazo", com_prazo);
+
+    let outras: Vec<String> = abertas
+        .iter()
+        .filter(|t| !ja.contains(&t.id))
+        .map(|t| linha(t))
+        .collect();
+    secao("Outras abertas", outras);
+
+    let mut das_reunioes: Vec<&ItemDeReuniao> = reunioes.iter().collect();
+    das_reunioes.sort_by_key(|r| std::cmp::Reverse(r.quando));
+    let rotulo = |kind: crate::InsightKind| match kind {
+        crate::InsightKind::Decision => "decisao",
+        crate::InsightKind::Commitment | crate::InsightKind::OtherAction => {
+            "compromisso de terceiro"
+        }
+        crate::InsightKind::MyAction => "acao sua",
+        crate::InsightKind::OpenQuestion => "pergunta aberta",
+        crate::InsightKind::Risk => "risco",
+        crate::InsightKind::Deadline => "prazo",
+        crate::InsightKind::FollowUp => "follow-up",
+        _ => "item",
+    };
+    let reunioes_linhas: Vec<String> = das_reunioes
+        .into_iter()
+        .map(|r| {
+            format!(
+                "- {}: {} (reuniao {} \"{}\", {})",
+                rotulo(r.kind),
+                r.texto,
+                short_id(&r.reuniao_id),
+                r.reuniao,
+                spoken_moment(r.quando)
+            )
+        })
+        .collect();
+    secao("Das reunioes deste Project", reunioes_linhas);
+
+    if abertas.is_empty() && reunioes.is_empty() {
+        out.push("Nada aberto neste Project.".to_owned());
+    }
+    out.join(
+        "
+",
+    )
+}
+
 /// Teto de candidatos no prompt.
 ///
 /// Doze e o numero que cabe sem empurrar a pergunta para fora da janela. O

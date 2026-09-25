@@ -225,3 +225,65 @@ fn lote_de_triagem_aplica_por_item_nao_duplica_e_desfaz() {
     assert!(s.work.tasks(false).unwrap().is_empty());
     assert_eq!(s.captures.inbox(10).unwrap().len(), 2);
 }
+
+// ------------------------------------------------ F4.2: contexto de Project
+
+#[test]
+fn contexto_de_project_responde_o_que_falta_com_fonte_e_teto() {
+    use mos_core::{EditTask, NewProject, NewTask, WorkRepository};
+    let dir = tempfile::tempdir().unwrap();
+    let backups = dir.path().join("backups");
+    std::fs::create_dir_all(&backups).unwrap();
+    let storage = SqliteStorage::open(dir.path().join("mos.db"), &backups).unwrap();
+    let jab = storage
+        .create_project(NewProject::create("Jaboticatuba", "Galpão", "").unwrap())
+        .unwrap();
+    let bases = storage
+        .create_task(NewTask::create("Enviar bases", "", Some(jab.id)).unwrap())
+        .unwrap();
+    let mut edit = EditTask::from_task(&bases);
+    edit.waiting_for = "Victor".into();
+    storage.update_task(bases.id, edit).unwrap();
+    let memorial = storage
+        .create_task(NewTask::create("Revisar memorial", "", Some(jab.id)).unwrap())
+        .unwrap();
+    let mut edit = EditTask::from_task(&memorial);
+    edit.blocked_by_task_id = Some(bases.id);
+    storage.update_task(memorial.id, edit).unwrap();
+    for n in 0..12 {
+        storage
+            .create_task(NewTask::create(&format!("Detalhe {n}"), "", Some(jab.id)).unwrap())
+            .unwrap();
+    }
+    let feita = storage
+        .create_task(NewTask::create("Já entregue", "", Some(jab.id)).unwrap())
+        .unwrap();
+    storage
+        .set_task_state(feita.id, mos_core::TaskState::Done)
+        .unwrap();
+    storage
+        .create_task(NewTask::create("De outro projeto", "", None).unwrap())
+        .unwrap();
+
+    let decisao = mos_core::ItemDeReuniao {
+        reuniao_id: "0199aaaa-bbbb-cccc-dddd-eeeeffff0000".into(),
+        reuniao: "Obra Jaboticatuba".into(),
+        quando: datetime!(2026-09-20 10:00 -03:00),
+        kind: mos_core::InsightKind::Decision,
+        texto: "fundação em estacas hélice".into(),
+    };
+    let tasks = storage.tasks(false).unwrap();
+    let contexto = mos_core::project_context(&jab, &tasks, &[decisao]);
+
+    assert!(contexto.contains("Aguardando alguem (1)"), "{contexto}");
+    assert!(contexto.contains("aguardando Victor"));
+    assert!(contexto.contains("depende de: Enviar bases"));
+    assert!(contexto.contains("decisao: fundação em estacas hélice (reuniao 0199aaaa"));
+    assert!(contexto.contains(&mos_core::short_id(&bases.id.to_string()).to_owned()));
+    assert!(
+        contexto.contains("(+4 nao listadas)"),
+        "teto por seção: {contexto}"
+    );
+    assert!(!contexto.contains("Já entregue"));
+    assert!(!contexto.contains("De outro projeto"));
+}

@@ -532,7 +532,7 @@ Não vou usar contagem de arquivos, linhas ou features como sinal de progresso. 
 ### Marco 3 — recuperar e agir pelo contexto
 
 - [x] Serviço compartilhado de ação Hermes (contexto segue em F4.2).
-- [ ] Consultas de Project, Waiting For e reunião com fontes.
+- [x] Consultas de Project, Waiting For e reunião com fontes.
 - [x] Busca medida contra corpus e melhorada sem regressão relevante.
 - [ ] Ferramentas novas possuem política, idempotência e inversa quando aplicável.
 
@@ -583,5 +583,6 @@ O objetivo de conclusão permanece o da missão: abrir o M/OS deve ajudar a deci
 | F9 | Parcial | Sinais de uso locais no Settings (Inbox, propostas, reuniões, adiamentos, sync, dia); sem evento novo | `agente_exec::sinais_de_uso_contam_sem_ler_conteudo`; `sinais` no core |
 | F8 | Parcial | Chave estável por item de atenção; dispensar até fato novo, desktop e bolso; dispensa local por aparelho | core + `de_bolso::dispensar_atencao_no_bolso_some_do_panorama` |
 | F6 | Parcial | Sugestão determinística por Capture (link, verbo, quando, projeto) com motivo; lote confirmado com resultado e desfazer por item; nada automático | `triagem` (core), `agente_exec::lote_de_triagem_*`, `de_bolso::triagem_no_bolso_*` |
+| F4.2 | Parcial | Contexto de Project no core com fonte e teto; descoberta por "quem está devendo" | `agente_exec::contexto_de_project_*` |
 
-Decisões registradas em ADR-074 (F1), ADR-075 (F2), ADR-076 (F3.2), ADR-077 (F3.3), ADR-078 (F3.1), ADR-079 (F3.4), ADR-080 (F4.1), ADR-081 (F5), ADR-082 (F9), ADR-083 (F8) e ADR-084 (F6).
+Decisões registradas em ADR-074 (F1), ADR-075 (F2), ADR-076 (F3.2), ADR-077 (F3.3), ADR-078 (F3.1), ADR-079 (F3.4), ADR-080 (F4.1), ADR-081 (F5), ADR-082 (F9), ADR-083 (F8), ADR-084 (F6) e ADR-085 (F4.2).

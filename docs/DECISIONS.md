@@ -4687,3 +4687,26 @@ processada. Pessoa/"aguardando" ainda não são extraídos do texto. Testes:
 `triagem` no core (link, nota, hesitação, quando+projeto),
 `agente_exec::lote_de_triagem_*` (aplica, não duplica, desfaz) e
 `de_bolso::triagem_no_bolso_*`.
+
+## ADR-085 — Contexto de Project com evidência, e "quem está devendo" na descoberta
+
+**Data:** 2026-09-24. **Status:** aceito e implementado (F4.2 do [MOS-OVERHAUL-PLAN](MOS-OVERHAUL-PLAN.md)).
+
+### Decisão
+
+1. `mos_core::project_context` substitui o bloco montado no shell: em
+   andamento, aguardando alguém (com follow-up), bloqueadas (com a
+   dependência), com prazo (ordenadas), outras abertas, e o que as reuniões do
+   Project decidiram/comprometeram — cada linha com id curto e a reunião como
+   fonte. Teto de 8 linhas por seção; o excedente é contado ("+4 não
+   listadas"), nunca despejado.
+2. A descoberta de candidatos do Hermes olha também `waiting_for`: "o que o
+   Victor ainda deve?" acha as Tasks esperando o Victor, que o índice FTS não
+   cobre.
+
+### Limites
+
+Não há benchmark de tokens/latência contra o gateway real; o teto por seção
+é o orçamento inicial. Pessoa continua texto (sem desambiguação de homônimos
+além do que o nome escrito distingue). Teste:
+`agente_exec::contexto_de_project_responde_o_que_falta_com_fonte_e_teto`.

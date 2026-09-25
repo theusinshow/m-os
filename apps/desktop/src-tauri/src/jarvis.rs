@@ -670,6 +670,32 @@ fn candidates_for_kinds<R: Runtime>(
             }
         }
     }
+    // "O que o Victor ainda deve?" — o nome costuma estar em QUEM a Task
+    // espera, e nao no titulo. O indice FTS nao cobre esse campo; a lista de
+    // Tasks abertas cobre (F4.2, ADR-085).
+    if kinds.is_empty() || kinds.contains(&mos_core::EntityKind::Task) {
+        if let Ok(tasks) = state.work.tasks(false) {
+            for task in tasks
+                .iter()
+                .filter(|t| !t.waiting_for.is_empty() && t.state != mos_core::TaskState::Done)
+            {
+                let quem = mos_core::normalize(&task.waiting_for);
+                for (index, termo) in termos.iter().enumerate() {
+                    if quem.contains(termo.as_str()) {
+                        hits.push((
+                            index,
+                            mos_core::Candidate {
+                                kind: mos_core::EntityKind::Task,
+                                id: task.id.to_string(),
+                                label: resumo(&task.title, 70),
+                                detail: format!("aguardando {}", task.waiting_for),
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+    }
     if kinds.is_empty() || kinds.contains(&mos_core::EntityKind::Reminder) {
         if let Ok(abertos) = state.attention.open() {
             for reminder in abertos {
@@ -910,43 +936,46 @@ pub fn assemble_context<R: Runtime>(
         let (entity, mut fields, body) = match context.entity.as_str() {
             "project" => {
                 let project = state.work.project(&context.id)?;
-                let tasks: Vec<_> = state
-                    .work
-                    .tasks(false)?
+                let tasks = state.work.tasks(false)?;
+                // As reunioes DESTE Project, com o que elas decidiram e
+                // comprometeram. Dispensado nao entra: a pessoa ja disse que
+                // aquilo nao era nada.
+                let mut das_reunioes = Vec::new();
+                for meeting in state
+                    .meetings
+                    .meetings(false)
+                    .unwrap_or_default()
                     .into_iter()
-                    .filter(|task| {
-                        task.project_id.map(|id| id.to_string()).as_deref() == Some(&context.id)
-                    })
-                    .collect();
-                let open: Vec<String> = tasks
-                    .iter()
-                    .filter(|task| task.state != mos_core::TaskState::Done)
-                    .map(|task| format!("- [{}] {}", task.state.as_str(), task.title))
-                    .collect();
-                let body = format!(
-                    "Project: {}\nDescricao: {}\nRepositorio: {}\nTasks abertas ({}):\n{}",
-                    project.name,
-                    if project.description.is_empty() {
-                        "(sem descricao)"
-                    } else {
-                        &project.description
-                    },
-                    if project.repository.is_empty() {
-                        "(nenhum)"
-                    } else {
-                        &project.repository
-                    },
-                    open.len(),
-                    if open.is_empty() {
-                        "(nenhuma)".to_owned()
-                    } else {
-                        open.join("\n")
+                    .filter(|m| m.project_id == Some(project.id))
+                {
+                    for insight in state
+                        .meetings
+                        .insights(&meeting.id.to_string())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|i| i.status != mos_core::InsightStatus::Dismissed)
+                    {
+                        das_reunioes.push(mos_core::ItemDeReuniao {
+                            reuniao_id: meeting.id.to_string(),
+                            reuniao: meeting.title.clone(),
+                            quando: meeting.started_at,
+                            kind: insight.kind,
+                            texto: insight.text,
+                        });
                     }
-                );
+                }
                 (
                     ContextEntity::Project,
-                    vec!["name", "description", "repository", "openTasks"],
-                    body,
+                    vec![
+                        "name",
+                        "description",
+                        "openTasks",
+                        "waitingFor",
+                        "blockedBy",
+                        "dueAt",
+                        "meetingInsights",
+                    ],
+                    mos_core::project_context(&project, &tasks, &das_reunioes),
                 )
             }
             "task" => {
