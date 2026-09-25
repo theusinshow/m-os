@@ -577,5 +577,6 @@ O objetivo de conclusão permanece o da missão: abrir o M/OS deve ajudar a deci
 | F3.2 | Feito | Foco = início mais recente, derivado na leitura; parar solta sobras | `piloto_planejamento::inicios_offline_convergem_para_o_mais_recente_em_qualquer_ordem` |
 | F3.3 | Feito | Fila de captura no aparelho, chave do cliente, SW rede-primeiro; "SEM CONEXÃO" em vez de "EM DIA" | `filaDeCaptura.test.ts`; `de_bolso::reenviar_a_mesma_captura_nao_duplica`; E2E Chromium offline |
 | F3.1 | Feito | Medido 2,76 s de captura presa na rodada; rede fora do portão, cadeado de rodada | `escrita_e_rodada::capturar_nao_espera_a_rede_da_rodada` |
+| F3.4 | Parcial | Disponibilidade declarada (arquivo em outro aparelho; origem da Task sem vazamento); vínculo Task→reunião e blobs ficam para decisão | ADR-079 |
 
-Decisões registradas em ADR-074 (F1), ADR-075 (F2), ADR-076 (F3.2), ADR-077 (F3.3) e ADR-078 (F3.1).
+Decisões registradas em ADR-074 (F1), ADR-075 (F2), ADR-076 (F3.2), ADR-077 (F3.3), ADR-078 (F3.1) e ADR-079 (F3.4).

@@ -2244,6 +2244,9 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, ingestions, cu
           </> : null}
           <Button variant={selected.url || arquivo ? "ghost" : "primary"} onClick={() => setMode("edit")} disabled={pendingAction !== null}>Editar</Button>
         </div>
+        {/* O registro viaja; o arquivo original, nao (ADR-079). Dizer onde ele
+            esta antes do clique, em vez de oferecer um botao que so falha. */}
+        {!arquivo && !selected.url && (selected.kind === "file" || selected.kind === "image") ? <p className="support-copy">O original deste arquivo ficou no aparelho em que foi guardado. Aqui chegam o título, a nota e as relações.</p> : null}
         {message ? <p className="settings-message" aria-live="polite">{message}</p> : null}
       </> : null}
     </Inspector>

@@ -98,7 +98,10 @@ export function TaskDrawer({
     setTitulo(task.title);
     setNota(task.description);
     void api.taskDetail(task.id).then(setDetalhe).catch(() => setDetalhe(null));
-    if (task.sourceCaptureId) void api.getCapture(task.sourceCaptureId).then(setOrigem);
+    // A origem da Task ANTERIOR nao pode ficar na tela da proxima, e uma
+    // Capture que nao esta neste aparelho vira ausencia, nao erro solto.
+    setOrigem(null);
+    if (task.sourceCaptureId) void api.getCapture(task.sourceCaptureId).then(setOrigem).catch(() => setOrigem(null));
     /* "Mais opções" abre já expandido quando há algo lá dentro. Progressive
        disclosure esconde o que está VAZIO; esconder o que está preenchido é
        esconder informação, e aí a pessoa não sabe que a Task tem um bloqueio. */

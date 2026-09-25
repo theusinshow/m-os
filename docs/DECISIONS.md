@@ -4477,3 +4477,40 @@ aplicação tem instante próprio e entra no merge por campo como qualquer outra
 com hub a 1,5 s; tudo que foi confirmado está no hub, uma vez) e o teste
 original de deadlock `escrever_durante_uma_rodada_nao_trava`, mais as suítes de
 duas réplicas, `mos-sync`, e as HTTP do `mos-web`.
+
+## ADR-079 — Conteúdo que não viaja se declara; transporte de blobs fica para decisão de infraestrutura
+
+**Data:** 2026-09-24. **Status:** parcial (F3.4 do [MOS-OVERHAUL-PLAN](MOS-OVERHAUL-PLAN.md)).
+
+### Contexto
+
+Tasks, Captures e Resources sincronizam; reuniões, insights, ingestões e
+arquivos originais são locais (`sync_cobertura.rs`). Auditoria do caminho
+"abrir a origem no outro aparelho":
+
+- A Task não tem vínculo próprio com a reunião: o elo é
+  `meeting_insights.created_task_id`, local. No outro aparelho a Task chega sem
+  rastro da reunião.
+- Arquivo ingerido vira Resource com `url` vazia; o caminho real está em
+  `ingestions.stored_path`, local. No outro aparelho o botão sumia sem explicar.
+- O `TaskDrawer` não limpava a origem ao trocar de Task e deixava a rejeição de
+  uma Capture ausente sem tratamento.
+
+### Decisão (o que entra agora)
+
+1. A origem é limpa a cada Task aberta; Capture ausente vira ausência, não
+   erro solto.
+2. Resource de arquivo/imagem sem original neste aparelho diz onde ele está
+   ("ficou no aparelho em que foi guardado") em vez de esconder o caminho.
+
+### O que fica para depois, e por quê
+
+- **Vínculo Task→reunião sincronizável** (e resumo/decisões viajando) exige
+  coluna nova em `tasks` ou tipo de relação novo, com migration e contrato de
+  sync. É a primeira entrega de F3.4 que vale fazer, mas precisa do desenho de
+  F4.2 (contexto com evidência) para não sincronizar um resumo que depois não
+  se sabe atualizar.
+- **Transporte de blobs** (áudio, arquivos): identidade por conteúdo, upload
+  retomável, retenção que não apaga a única cópia. Depende da escolha de onde
+  os bytes moram (VPS atual, armazenamento de objetos) e do custo — decisão do
+  dono, não do código.
