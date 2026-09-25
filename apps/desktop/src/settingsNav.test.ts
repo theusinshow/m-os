@@ -1,37 +1,42 @@
 import { describe, expect, it } from "vitest";
-import { SETTINGS_SECTIONS, secaoVisivel } from "./settingsNav";
+import { SETTINGS_GROUPS, SETTINGS_SECTIONS, secaoInicial } from "./settingsNav";
 
 describe("o catálogo", () => {
   it("põe Sincronização primeiro: é a única que se procura, e não se acha por acaso", () => {
     expect(SETTINGS_SECTIONS[0].id).toBe("sync");
   });
 
-  it("todo id é único — ele vira âncora e alvo de rolagem", () => {
+  it("todo id é único — ele vira alvo de navegação e chave salva", () => {
     const ids = SETTINGS_SECTIONS.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  it("o Hermes tem seção própria, e não um painel dentro de Conexões", () => {
+    expect(SETTINGS_SECTIONS.find((s) => s.id === "hermes")?.grupo).toBe("conexoes");
+  });
+
+  it("toda seção pertence a um grupo que existe, e toda seção diz para que serve", () => {
+    const grupos = new Set(SETTINGS_GROUPS.map((g) => g.id));
+    for (const secao of SETTINGS_SECTIONS) {
+      expect(grupos.has(secao.grupo)).toBe(true);
+      expect(secao.descricao.length).toBeGreaterThan(0);
+    }
+  });
 });
 
-describe("qual seção está visível", () => {
-  const posicoes = [
-    { id: "sync", top: 0 },
-    { id: "conexoes", top: 400 },
-    { id: "aparencia", top: 900 },
-  ];
-
-  it("é a primeira quando ainda não rolou", () => {
-    expect(secaoVisivel(posicoes, 0)).toBe("sync");
+describe("qual seção abre", () => {
+  it("o pedido explícito vence a seção lembrada", () => {
+    expect(secaoInicial("hermes", "dados")).toBe("hermes");
+    expect(secaoInicial("function_registry", null)).toBe("avancado");
+    expect(secaoInicial("updates_check", "sync")).toBe("inicio");
   });
 
-  it("um pouco ANTES do topo já conta, senão a marca fica um passo atrás do olho", () => {
-    expect(secaoVisivel(posicoes, 390)).toBe("conexoes");
+  it("sem pedido, volta à última seção vista", () => {
+    expect(secaoInicial(undefined, "saude")).toBe("saude");
   });
 
-  it("no fim da página é a última, mesmo que ela seja curta demais para encher a tela", () => {
-    expect(secaoVisivel(posicoes, 5000)).toBe("aparencia");
-  });
-
-  it("sem seções não quebra", () => {
-    expect(secaoVisivel([], 100)).toBe("");
+  it("seção lembrada que não existe mais cai na primeira", () => {
+    expect(secaoInicial(undefined, "conexoes")).toBe("sync");
+    expect(secaoInicial(undefined, null)).toBe("sync");
   });
 });

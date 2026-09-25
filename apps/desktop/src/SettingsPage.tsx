@@ -26,7 +26,7 @@ import type { FunctionIntentTarget } from "./functionIntents";
 import { functionCategoryLabels, functionConfirmationLabels, functionRiskLabels } from "./functionLabels";
 import { relativeTime } from "./relativeTime";
 import { usdDeMicros } from "./openaiUsage";
-import { SETTINGS_SECTIONS, secaoVisivel } from "./settingsNav";
+import { SETTINGS_GROUPS, SETTINGS_SECTIONS, secaoInicial, type AlvoDoSettings } from "./settingsNav";
 import type {
   AppStatus, BackupInspection, Capture, FunctionDefinition, ImportReport, Ocorrencia,
   AparelhoNaMalha, OpenAiUsageStatus, Project, RegisteredApp, Resource, SyncReport, SyncStatus, Task,
@@ -239,13 +239,32 @@ function HermesSettings() {
   async function abrirTunel() {
     setAbrindo(true);
     setMessageState("saving");
-    setMessage("Abrindo o tunel...");
+    setMessage("Abrindo o túnel...");
     try {
       setTunel(await hermes.tunnelOpen());
-      setMessageState("saved");
-      setMessage("Tunel aberto. Conectando ao Hermes...");
+      setMessageState("saving");
+      setMessage("Túnel aberto. Conectando ao Hermes...");
       await hermes.connect().catch(() => undefined);
-      setMessage("Tunel aberto.");
+      setStatus(await hermes.status().catch(() => null));
+      setMessageState("saved");
+      setMessage("Túnel aberto.");
+    } catch (error) {
+      setMessageState("error");
+      setMessage(appError(error).message);
+    }
+    setAbrindo(false);
+  }
+
+  /** Túnel de pé e Hermes caído: o gesto é reconectar, e não reabrir. */
+  async function reconectar() {
+    setAbrindo(true);
+    setMessageState("saving");
+    setMessage("Reconectando ao Hermes...");
+    try {
+      await hermes.connect();
+      setStatus(await hermes.status());
+      setMessageState("saved");
+      setMessage("Conectado.");
     } catch (error) {
       setMessageState("error");
       setMessage(appError(error).message);
@@ -291,43 +310,60 @@ function HermesSettings() {
   }
 
   const stateLabel = status?.state === "online" ? "Conectado" : status?.state === "connecting" ? "Conectando" : "Desconectado";
-  return <Panel label="HERMES">
-    <p className="support-copy">O M/OS é mais uma superfície do Hermes que já roda na sua VPS — a mesma que você usa pelo WhatsApp, numa conversa separada. O acesso é pelo túnel SSH: o M/OS não abre porta nenhuma, mas sabe abrir o túnel quando ele está fechado.</p>
-    {/* O botão só existe quando há o que fazer: com o túnel de pé ele seria um
-        alvo que não muda nada, e um botão assim ensina que os botões desta tela
-        não fazem diferença. Sem chave ele vira a frase que diz por quê — falhar
-        depois do toque seria pior que não oferecer. */}
-    {tunel && !tunel.aberto ? (
-      tunel.temChave ? (
+  const tunelFechado = tunel !== null && !tunel.aberto;
+  const caiu = tunel?.aberto && status?.state === "offline";
+  const estadoDoCartao = status?.state === "online" ? "ok" : tunelFechado || caiu ? "atencao" : "neutro";
+  return <>
+    {/* O cartão de estado vem PRIMEIRO, com a ação ao lado do problema: quem
+        abre esta seção quase sempre veio porque o Hermes parou de responder,
+        e o motivo mais comum é o túnel fechado sem querer. */}
+    <Panel label="ESTADO">
+      <div className="hermes-estado" data-estado={estadoDoCartao}>
+        <dl className="fact-grid">
+          <div><dt>HERMES</dt><dd>{stateLabel}</dd></div>
+          {/* Offline com o túnel aberto e Offline com ele fechado são dois
+              problemas diferentes, e a tela precisa dizer qual é. */}
+          <div><dt>TÚNEL SSH</dt><dd>{tunel === null ? "…" : tunel.aberto ? "Aberto" : <span className="fact-empty">Fechado</span>}</dd></div>
+          <div><dt>CREDENCIAL</dt><dd>{status?.hasCredentials ? "Configurada" : <span className="fact-empty">Não configurada</span>}</dd></div>
+        </dl>
         <div className="button-line">
-          <Button variant="secondary" disabled={abrindo} onClick={() => void abrirTunel()}>
-            {abrindo ? "Abrindo…" : "Abrir túnel"}
-          </Button>
+          {tunelFechado ? (
+            <Button variant="primary" disabled={abrindo || !tunel?.temChave} onClick={() => void abrirTunel()}>
+              {abrindo ? "Abrindo…" : "Abrir túnel"}
+            </Button>
+          ) : null}
+          {caiu ? (
+            <Button variant="primary" disabled={abrindo} onClick={() => void reconectar()}>
+              {abrindo ? "Reconectando…" : "Reconectar"}
+            </Button>
+          ) : null}
+          {status?.state === "online" ? <p className="support-copy">Tudo de pé. O túnel é conferido a cada 15 segundos.</p> : null}
         </div>
-      ) : (
-        <p className="support-copy">O túnel está fechado e não há chave SSH sem passphrase em <code>~/.ssh</code>. Sem ela o M/OS não tem como abri-lo.</p>
-      )
-    ) : null}
-    <form className="stack-form" onSubmit={save}>
-      <label><span>ENDEREÇO LOCAL</span><input className="mono-input" value={baseUrl} onChange={(event) => setBaseUrl(event.currentTarget.value)} placeholder="http://127.0.0.1:9119" /></label>
-      <label><span>USUÁRIO</span><input value={username} onChange={(event) => setUsername(event.currentTarget.value)} autoComplete="off" /></label>
-      <label><span>SENHA</span><input type="password" value={password} onChange={(event) => setPassword(event.currentTarget.value)} autoComplete="off" /></label>
-      <div className="form-actions">
-        <Button variant="ghost" onClick={() => void hermes.clearCredentials().then(() => hermes.status()).then(setStatus).catch(() => undefined)}>Remover credencial</Button>
-        <Button variant="primary" type="submit">Salvar</Button>
+        {tunelFechado && !tunel?.temChave ? (
+          <p className="support-copy">Não há chave SSH sem passphrase em <code>~/.ssh</code>, então o M/OS não consegue abrir o túnel sozinho. Abra-o pelo terminal ou gere uma chave.</p>
+        ) : null}
+        {status?.detail ? <p className="support-copy">{status.detail}</p> : null}
+        {message ? <StateMessage state={messageState} label={message} /> : null}
       </div>
-    </form>
-    <dl className="fact-grid">
-      <div><dt>ESTADO</dt><dd>{stateLabel}</dd></div>
-      <div><dt>CREDENCIAL</dt><dd>{status?.hasCredentials ? "Configurada" : <span className="fact-empty">Não configurada</span>}</dd></div>
-      {/* O túnel entra nos fatos, e não só no botão: Offline com o túnel aberto
-          e Offline com ele fechado são dois problemas diferentes, e a tela
-          dizia a mesma coisa nos dois casos. */}
-      <div><dt>TÚNEL</dt><dd>{tunel?.aberto ? "Aberto" : <span className="fact-empty">Fechado</span>}</dd></div>
-    </dl>
-    {status?.detail ? <p className="support-copy">{status.detail}</p> : null}
-    {message ? <StateMessage state={messageState} label={message} /> : null}
-  </Panel>;
+    </Panel>
+    <Panel label="CONEXÃO">
+      <p className="support-copy">O M/OS é mais uma superfície do Hermes que já roda na sua VPS — a mesma que você usa pelo WhatsApp, numa conversa separada. O acesso é pelo túnel SSH: o M/OS não abre porta nenhuma.</p>
+      {/* Aberto por padrão só quando falta a credencial: é o único caso em que
+          alguém PRECISA mexer aqui. No resto do tempo é detalhe. */}
+      <details className="disclosure" open={status !== null && !status.hasCredentials}>
+        <summary>Endereço e credencial</summary>
+        <form className="stack-form" onSubmit={save}>
+          <label><span>ENDEREÇO LOCAL</span><input className="mono-input" value={baseUrl} onChange={(event) => setBaseUrl(event.currentTarget.value)} placeholder="http://127.0.0.1:9119" /></label>
+          <label><span>USUÁRIO</span><input value={username} onChange={(event) => setUsername(event.currentTarget.value)} autoComplete="off" /></label>
+          <label><span>SENHA</span><input type="password" value={password} onChange={(event) => setPassword(event.currentTarget.value)} autoComplete="off" /></label>
+          <div className="form-actions">
+            <Button variant="ghost" onClick={() => void hermes.clearCredentials().then(() => hermes.status()).then(setStatus).catch(() => undefined)}>Remover credencial</Button>
+            <Button variant="primary" type="submit">Salvar</Button>
+          </div>
+        </form>
+      </details>
+    </Panel>
+  </>;
 }
 
 /**
@@ -951,84 +987,90 @@ export function SettingsPage({ theme, setTheme, status, capturesArchived, captur
     }
     setImporting(false);
   }
-  useEffect(() => {
-    if (intent?.target === "function_registry") window.requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-panel='FUNCTIONS']")?.scrollIntoView({ block: "start" }));
-  }, [intent?.key]);
   const archivedProjects = projects.filter((project) => project.lifecycleState === "archived");
   const archivedTasks = tasks.filter((task) => task.lifecycleState === "archived");
   const archivedApps = apps.filter((app) => app.lifecycleState === "archived");
   const archivedResources = resources.filter((resource) => resource.lifecycleState === "archived");
   const archivedWorkspaces = workspaces.filter((workspace) => workspace.lifecycleState === "archived");
   const functionsByCategory = functionCategories.map((category) => ({ category, items: functions.filter((item) => item.category === category) })).filter((group) => group.items.length);
-    const coluna = useRef<HTMLDivElement>(null);
-  const [visivel, setVisivel] = useState(SETTINGS_SECTIONS[0].id);
-
-  /* Mede a posicao das secoes a CADA rolagem, em vez de guardar na montagem: a
-     altura muda quando um `<details>` do Archive abre, e uma medida velha
-     apontaria para o lugar errado a partir do primeiro clique. */
+  /* Uma secao por vez. A escolhida fica lembrada neste computador: voltar ao
+     Settings e cair de novo na primeira seria refazer o caminho. */
+  const [secao, setSecao] = useState(() => secaoInicial(alvoDoSettings(intent?.target), lerSecaoSalva()));
   useEffect(() => {
-    const alvo = coluna.current;
-    if (!alvo) return;
-    const aoRolar = () => {
-      const posicoes = SETTINGS_SECTIONS.map((secao) => ({
-        id: secao.id,
-        top: document.getElementById(`settings-${secao.id}`)?.offsetTop ?? 0,
-      }));
-      setVisivel(secaoVisivel(posicoes, alvo.scrollTop));
-    };
-    aoRolar();
-    alvo.addEventListener("scroll", aoRolar, { passive: true });
-    return () => alvo.removeEventListener("scroll", aoRolar);
+    const alvo = alvoDoSettings(intent?.target);
+    if (alvo) setSecao(secaoInicial(alvo, null));
+  }, [intent?.key]);
+  const escolher = useCallback((id: string) => {
+    setSecao(id);
+    try { localStorage.setItem(CHAVE_SECAO, id); } catch { /* sem armazenamento: so nao lembra */ }
+    document.querySelector<HTMLElement>(".settings-content")?.scrollTo({ top: 0 });
   }, []);
-
-  const saltar = useCallback((id: string) => {
-    document.getElementById(`settings-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, []);
+  const atual = SETTINGS_SECTIONS.find((item) => item.id === secao) ?? SETTINGS_SECTIONS[0];
 
   /* A pagina itera o CATALOGO, e nao uma lista escrita aqui. Uma segunda copia
      da ordem envelheceria em silencio — foi o que aconteceu com o
      `arrange_widgets`, que existiu em Rust e em TypeScript ao mesmo tempo. */
   const conteudo: Record<string, ReactNode> = {
     sync: <><SyncSettings /><AutopilotSettings /></>,
-    conexoes: <><HermesSettings /><OpenAiUsageSettings /><UnivirtusSettings /><FinanceActionSettings /></>,
+    hermes: <HermesSettings />,
+    integracoes: <><OpenAiUsageSettings /><UnivirtusSettings /><FinanceActionSettings /></>,
     aparencia: <><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" aria-label="Tema claro" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form>{/* A voz mora no mesmo Panel porque ela e a mesma captura por outra
      porta — separa-la num painel proprio a transformaria numa feature
      ao lado, que e exatamente o que o §Voz do design system recusa. */}<form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setVoiceShortcut(voiceShortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="voice-shortcut">Atalho da voz</label><p>{status?.voiceShortcut}</p><p className="support-copy">Segure para falar, solte para guardar. Vale de qualquer lugar do Windows, e o microfone só abre enquanto a tecla está pressionada.</p></div><div className="inline-form"><input id="voice-shortcut" value={voiceShortcut} onChange={(event) => setVoiceShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="ATALHOS"><p className="support-copy">O M/OS é operável quase inteiro pelo teclado. Nada aqui precisa ser decorado — esta lista existe para quando você quiser.</p><dl className="shortcut-list">{SHORTCUTS.map((entry) => <div key={entry.keys}><dt>{entry.keys}</dt><dd>{entry.does}</dd></div>)}</dl></Panel></>,
     inicio: <><StartupSettings /><AtualizacaoPanel verificarAoAbrir={intent?.target === "updates_check"} /></>,
     reunioes: <><MeetingSettings /></>,
-    dados: <><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Project", project.name, () => api.deleteProject(project.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Workspace", workspace.name, () => api.deleteWorkspace(workspace.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("App", app.name, () => api.deleteRegisteredApp(app.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Task", task.title, () => api.deleteTask(task.id))}>Excluir</Button></div>)}</details></Panel><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel><DiagnosticoPanel /><SinaisPanel />{message ? <StateMessage state={messageState} label={message} /> : null}<dialog ref={deleteDialog} className="restore-dialog" onCancel={() => { deleteDialog.current?.close(); setPendingDelete(null); }}><span className="micro-label">EXCLUSÃO DEFINITIVA</span><h2>Excluir {pendingDelete?.noun.toLowerCase()} “{pendingDelete?.label}”?</h2><p>Isto apaga o registro do banco. Não há Desfazer: o único caminho de volta é restaurar um backup anterior a esta ação.</p><div className="form-actions"><Button variant="ghost" onClick={() => { deleteDialog.current?.close(); setPendingDelete(null); }}>Cancelar</Button><Button variant="danger" onClick={() => void confirmDelete()}>Excluir</Button></div></dialog><dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></>,
+    dados: <><Panel label="DADOS E PORTABILIDADE"><p className="support-copy">Backups e exports podem conter dados pessoais em texto claro.</p><div className="button-line"><Button variant="secondary" onClick={() => void backup()}>Criar backup</Button><Button variant="outline" onClick={() => void chooseRestore()}>Restaurar backup</Button><Button variant="outline" onClick={() => void exportData()}>Exportar JSON</Button></div></Panel><Panel label="ARCHIVE E TRASH"><details className="disclosure"><summary>Captures arquivadas <span>{capturesArchived.length}</span></summary>{capturesArchived.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Captures <span>{capturesTrashed.length}</span></summary>{capturesTrashed.map((capture) => <div className="restore-row" key={capture.id}><span>{capture.content}</span><Button variant="ghost" onClick={() => void api.restore(capture.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Capture", capture.content, () => api.deleteCapture(capture.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Projects arquivados <span>{archivedProjects.length}</span></summary>{archivedProjects.map((project) => <div className="restore-row" key={project.id}><span>{project.name}</span><Button variant="ghost" onClick={() => void api.setProjectArchived(project.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Project", project.name, () => api.deleteProject(project.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Workspaces arquivados <span>{archivedWorkspaces.length}</span></summary>{archivedWorkspaces.map((workspace) => <div className="restore-row" key={workspace.id}><span>{workspace.name}</span><Button variant="ghost" onClick={() => void api.setWorkspaceArchived(workspace.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Workspace", workspace.name, () => api.deleteWorkspace(workspace.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Apps arquivados <span>{archivedApps.length}</span></summary>{archivedApps.map((app) => <div className="restore-row" key={app.id}><span>{app.name}</span><Button variant="ghost" onClick={() => void api.setRegisteredAppArchived(app.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("App", app.name, () => api.deleteRegisteredApp(app.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Resources arquivados <span>{archivedResources.length}</span></summary>{archivedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.setResourceArchived(resource.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Lixeira de Resources <span>{trashedResources.length}</span></summary>{trashedResources.map((resource) => <div className="restore-row" key={resource.id}><span>{resource.title}</span><Button variant="ghost" onClick={() => void api.restoreResource(resource.id).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Resource", resource.title, () => api.deleteResource(resource.id))}>Excluir</Button></div>)}</details><details className="disclosure"><summary>Tasks arquivadas <span>{archivedTasks.length}</span></summary>{archivedTasks.map((task) => <div className="restore-row" key={task.id}><span>{task.title}</span><Button variant="ghost" onClick={() => void api.setTaskArchived(task.id, false).then(refresh)}>Restaurar</Button><Button variant="ghost" className="danger-text" onClick={() => askDelete("Task", task.title, () => api.deleteTask(task.id))}>Excluir</Button></div>)}</details></Panel></>,
+    saude: <><Panel label="INTEGRIDADE"><dl className="health-list"><div><dt>Banco</dt><dd>{status?.storage.integrity === "ok" ? "Íntegro" : status?.storage.integrity}</dd></div><div><dt>Schema</dt><dd>v{status?.storage.schemaVersion}</dd></div><div><dt>Durabilidade</dt><dd>{status?.storage.journalMode.toUpperCase()} / {status?.storage.synchronous}</dd></div><div><dt>Snapshot</dt><dd>{status?.snapshot}</dd></div></dl></Panel><DiagnosticoPanel /><SinaisPanel /></>,
+  };
+  const dialogos = <><dialog ref={deleteDialog} className="restore-dialog" onCancel={() => { deleteDialog.current?.close(); setPendingDelete(null); }}><span className="micro-label">EXCLUSÃO DEFINITIVA</span><h2>Excluir {pendingDelete?.noun.toLowerCase()} “{pendingDelete?.label}”?</h2><p>Isto apaga o registro do banco. Não há Desfazer: o único caminho de volta é restaurar um backup anterior a esta ação.</p><div className="form-actions"><Button variant="ghost" onClick={() => { deleteDialog.current?.close(); setPendingDelete(null); }}>Cancelar</Button><Button variant="danger" onClick={() => void confirmDelete()}>Excluir</Button></div></dialog><dialog ref={dialog} className="restore-dialog" onCancel={() => dialog.current?.close()}><span className="micro-label">RESTORE</span><h2>Substituir o dataset local?</h2><p>Um safety backup será criado primeiro. O arquivo contém {inspection?.captureCount} Captures e usa schema v{inspection?.schemaVersion}.</p><div className="form-actions"><Button variant="ghost" onClick={() => dialog.current?.close()}>Cancelar</Button><Button variant="danger" onClick={() => void confirmRestore()}>Restaurar</Button></div></dialog></>;
+  const conteudoResto: Record<string, ReactNode> = {
     avancado: <><Panel label="FUNCTIONS"><p className="support-copy">Registro local das capacidades internas ja existentes. Esta base nao executa automacoes, plugins ou Hermes.</p><div className="function-registry">{functionsByCategory.map((group) => <section key={group.category}><span className="micro-label">{functionCategoryLabels[group.category]}</span>{group.items.map((item) => <div className="function-row" key={item.id}><div><strong>{item.name}</strong><code>{item.id}</code><p>{item.description}</p></div><small>{functionRiskLabels[item.risk]} · {functionConfirmationLabels[item.confirmation]}</small></div>)}</section>)}</div></Panel><Panel label="CRONOCAD"><div className="setting-row"><div><strong>Importar horas do CronoCAD</strong><p>Traz projetos, sessões e pendências para o M/OS. As horas passam a pertencer aos Projects daqui, e o valor/hora de cada sessão é preservado como estava na época.</p><p className="support-copy">Vem tudo: sessões, pendências, programas monitorados, o histórico observado pelo sistema e a sua configuração de arredondamento — sem ela o valor cobrável aqui daria diferente do que o CronoCAD mostra. Roda uma vez, e o banco de origem é aberto somente para leitura. Compare o total com a tela dele antes de desinstalar.</p>{importReport ? <p className="support-copy" aria-live="polite">{importReport.projects} {importReport.projects === 1 ? "project" : "projects"} · {importReport.entries} {importReport.entries === 1 ? "sessão" : "sessões"} · {importReport.tasks} {importReport.tasks === 1 ? "task" : "tasks"} · <strong>{(importReport.trackedSeconds / 3600).toFixed(1)} h</strong>{importReport.activityEvents ? ` · ${importReport.activityEvents} eventos observados` : ""}{importReport.monitoredApps ? ` · ${importReport.monitoredApps} programas` : ""}{importReport.clients ? ` · ${importReport.clients} clientes` : ""}</p> : null}{importNote ? <p className="support-copy" aria-live="polite">{importNote}</p> : null}</div><div className="button-line"><Button variant="secondary" onClick={() => void importCronocad()} disabled={importing || Boolean(importedAt)}>{importing ? "Importando" : importedAt ? "Importado" : "Importar"}</Button></div></div></Panel></>,
   };
 
+  const paineis = { ...conteudo, ...conteudoResto };
+
   return <div className="page settings-page">
-    <PaneHeader segments={["M", "SETTINGS"]} meta="SISTEMA" />
+    <PaneHeader segments={["M", "SETTINGS", atual.title.toUpperCase()]} meta="SISTEMA" />
     <div className="settings-layout">
-      {/* Navegacao de PAGINA, e nao o rail do app: o rail troca de pagina, e
-          isto salta dentro de uma. Onze paineis numa coluna so, sem mapa,
-          faziam achar "Integridade" ser rolar e procurar. */}
+      {/* Navegacao de SECAO, e nao o rail do app: o rail troca de pagina, e
+          isto troca o que a pagina mostra. Agrupada, para nove itens nao
+          virarem uma lista sem forma. */}
       <nav className="settings-nav" aria-label="Seções das configurações">
-        {SETTINGS_SECTIONS.map((secao) => <a
-          key={secao.id}
-          href={`#settings-${secao.id}`}
-          aria-current={secao.id === visivel ? "true" : undefined}
-          data-selected={secao.id === visivel || undefined}
-          onClick={(event) => { event.preventDefault(); saltar(secao.id); }}
-        >{secao.title}</a>)}
+        {SETTINGS_GROUPS.map((grupo) => <div className="settings-nav-grupo" key={grupo.id}>
+          <span className="micro-label">{grupo.title}</span>
+          {SETTINGS_SECTIONS.filter((item) => item.grupo === grupo.id).map((item) => <button
+            type="button"
+            key={item.id}
+            aria-current={item.id === atual.id ? "page" : undefined}
+            data-selected={item.id === atual.id || undefined}
+            onClick={() => escolher(item.id)}
+          >{item.title}</button>)}
+        </div>)}
       </nav>
-      <div className="settings-content" ref={coluna}>
-        {SETTINGS_SECTIONS.map((secao) => <section
-          key={secao.id}
-          id={`settings-${secao.id}`}
-          className="settings-section"
-          aria-labelledby={`settings-${secao.id}-title`}
-        >
-          {/* `settings-section-title` nas SETE. Reunioes era a unica com
-              `micro-label`, e por isso parecia uma subsecao das outras seis. */}
-          <h2 id={`settings-${secao.id}-title`} className="settings-section-title">{secao.title}</h2>
-          {conteudo[secao.id]}
-        </section>)}
+      <div className="settings-content">
+        <section className="settings-section" aria-labelledby="settings-atual-title">
+          <header className="settings-section-head">
+            <h2 id="settings-atual-title" className="settings-section-title">{atual.title}</h2>
+            <p className="support-copy">{atual.descricao}</p>
+          </header>
+          {paineis[atual.id]}
+        </section>
         {message ? <StateMessage state={messageState} label={message} /> : null}
+        {dialogos}
       </div>
     </div>
   </div>;
+}
+
+const CHAVE_SECAO = "mos-settings-secao";
+
+function lerSecaoSalva(): string | null {
+  try { return localStorage.getItem(CHAVE_SECAO); } catch { return null; }
+}
+
+/** Os alvos de function que caem numa secao do Settings. */
+function alvoDoSettings(target: string | undefined): AlvoDoSettings {
+  return target === "function_registry" || target === "updates_check" || target === "hermes" || target === "sync"
+    ? target
+    : undefined;
 }

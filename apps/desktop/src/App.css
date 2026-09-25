@@ -11426,31 +11426,63 @@ button.daily-objective-title:focus-visible {
   top: var(--space-4);
   display: flex;
   flex-direction: column;
+  gap: var(--space-4);
+}
+/* Os grupos dao forma aos nove itens: Conexoes, Uso, Dados. */
+.settings-nav-grupo {
+  display: flex;
+  flex-direction: column;
   gap: 2px;
 }
-.settings-nav a {
+.settings-nav-grupo .micro-label {
+  padding: 0 var(--space-3) var(--space-1);
+  color: var(--text-system);
+}
+.settings-nav button {
   padding: var(--space-2) var(--space-3);
+  border: 0;
   border-radius: var(--radius);
   border-left: 2px solid transparent;
+  background: none;
   color: var(--text-secondary);
   font: var(--text-ui);
-  text-decoration: none;
+  text-align: left;
+  cursor: pointer;
 }
-.settings-nav a:hover { background: var(--surface-hover); color: var(--text); }
-.settings-nav a[data-selected] {
+.settings-nav button:hover { background: var(--surface-hover); color: var(--text); }
+.settings-nav button[data-selected] {
   color: var(--text);
   border-left-color: var(--signal-ink);
   background: var(--surface-raised);
 }
 .settings-content { min-width: 0; }
+.settings-section-head {
+  display: grid;
+  gap: var(--space-1);
+}
+.settings-section-head .support-copy { margin: 0; }
+
+/* O cartao de estado do Hermes: a acao mora ao lado do problema. A borda diz
+   o estado sem depender so da cor do texto. */
+.hermes-estado {
+  display: grid;
+  gap: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border-strong);
+}
+.hermes-estado[data-estado="ok"] { border-left-color: var(--success); }
+.hermes-estado[data-estado="atencao"] { border-left-color: var(--signal-ink); }
+.hermes-estado .button-line { align-items: center; }
+.hermes-estado .button-line .support-copy { margin: 0; }
 
 /* Numa janela estreita a navegacao vira uma linha acima do conteudo, em vez de
    espremer as duas colunas ate nenhuma servir. */
 @media (max-width: 900px) {
   .settings-layout { grid-template-columns: 1fr; }
-  .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; }
-  .settings-nav a { border-left: 0; border-bottom: 2px solid transparent; }
-  .settings-nav a[data-selected] { border-left: 0; border-bottom-color: var(--signal-ink); }
+  .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; gap: var(--space-3); }
+  .settings-nav-grupo { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .settings-nav button { border-left: 0; border-bottom: 2px solid transparent; }
+  .settings-nav button[data-selected] { border-left: 0; border-bottom-color: var(--signal-ink); }
 }
 
 /* ==========================================================================
