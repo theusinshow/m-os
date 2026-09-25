@@ -11475,6 +11475,28 @@ button.daily-objective-title:focus-visible {
 .hermes-estado .button-line { align-items: center; }
 .hermes-estado .button-line .support-copy { margin: 0; }
 
+/* Autonomia do Hermes (ADR-087): tres opcoes, uma frase cada. */
+.autonomia-opcoes {
+  display: grid;
+  gap: var(--space-2);
+}
+.autonomia-opcao {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.autonomia-opcao[data-selected] {
+  border-color: var(--signal-ink);
+  background: var(--surface-raised);
+}
+.autonomia-opcao input { margin-top: 3px; accent-color: var(--signal-ink); }
+.autonomia-opcao > span { display: grid; gap: 2px; }
+.autonomia-opcao .support-copy { margin: 0; }
+
 /* Numa janela estreita a navegacao vira uma linha acima do conteudo, em vez de
    espremer as duas colunas ate nenhuma servir. */
 @media (max-width: 900px) {

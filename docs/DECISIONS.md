@@ -4744,3 +4744,40 @@ Versões da análise (o resumo anterior é sobrescrito); teste do job liberado
 quando o transcritor aparece; desfazer do aceite em uma transação só.
 Testes: `lote_cria_tasks_com_prazo_e_espera_e_nao_duplica` (recibo e
 vínculos) e `reanalisar_nao_repropoe_o_que_ja_foi_decidido`.
+
+## ADR-087 — O Hermes como piloto do M/OS: manual, conduta e autonomia escolhida
+
+**Data:** 2026-09-24. **Status:** aceito e implementado.
+
+### Contexto
+
+Uso real: o Hermes perguntava "o que é M-Finance?" e respondia pedido claro
+com "quer que eu crie a task?". Duas causas: o prompt não trazia o que o M/OS
+tem (só substantivos soltos), e o contrato mandava toda ação virar cartão de
+confirmação. O dono pediu explicitamente que o Hermes "assuma o software".
+
+### Decisão
+
+1. `mos_core::hermes_perfil::manual_do_mos`: os módulos do M/OS em uma linha
+   cada, com o que está ligado NESTE aparelho (M-Finance, Academic, sync).
+2. `conduta(nivel)`: pedido claro se faz e se diz o que foi feito; pergunta só
+   o dado que falta ou a referência ambígua, uma coisa por vez.
+3. `NivelDeAutonomia` em Settings → Hermes, local ao aparelho
+   (`app_metadata`): **Perguntar sempre**; **Agir no que tem desfazer**
+   (padrão); **Agir em tudo do M/OS**. O M-Finance, efeito externo, pede
+   confirmação em qualquer nível.
+4. Quando a resposta termina com uma ação permitida pelo nível, o desktop a
+   executa pelo MESMO `action_resolve` do botão "Fazer" — reserva contra
+   execução dupla, serviços do domínio, auditoria — e a tela mostra o recibo
+   com Desfazer. O contrato de ações deixa de dizer "você não executa nada".
+
+### Por que agora é seguro
+
+A ADR-074 fechou o que bloqueava autonomia: inversa completa de começar Task,
+proposta que não executa duas vezes, recibo por ação. A lista de ações com
+desfazer é travada por teste.
+
+### Limites
+
+A autonomia vale no desktop; o bolso ainda não tem o chat do Hermes. Não
+houve teste contra o gateway real nesta entrega.

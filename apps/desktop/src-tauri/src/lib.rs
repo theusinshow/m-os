@@ -2615,6 +2615,8 @@ pub fn run() {
                     openai_usage::openai_usage_refresh,
                     hermes::hermes_status,
                     hermes_tunel::hermes_tunnel_status,
+                    hermes::hermes_autonomia,
+                    hermes::hermes_set_autonomia,
                     hermes_tunel::hermes_tunnel_open,
                     sync::sync_status,
                     sync::sync_health,

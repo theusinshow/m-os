@@ -1216,6 +1216,9 @@ pub struct PreambleInput<'a> {
     /// O que o piloto ve: a Task recomendada para agora e o que precisa de
     /// atencao, ja em texto. Vazio quando nao ha nada — e ai nao desce.
     pub attention: String,
+    /// O perfil de piloto do M/OS (ADR-087): o manual dos modulos e como agir
+    /// conforme a autonomia. Vazio desce so o contexto de sempre.
+    pub perfil: String,
 }
 
 /// Monta o prefixo do prompt, na ordem em que ele deve ser lido.
@@ -1228,6 +1231,9 @@ pub struct PreambleInput<'a> {
 pub fn preamble(input: PreambleInput<'_>) -> String {
     let mut blocos = vec![
         system_context(),
+        // O manual e a conduta vem logo depois de "quem voce e": antes do
+        // contexto do momento, porque mudam como todo o resto e lido.
+        input.perfil.clone(),
         now_block(input.now_local),
         here_block(input.here),
         // Depois de "onde voce esta" e antes do catalogo: o dia e contexto, e
@@ -1669,6 +1675,7 @@ mod tests {
             hops_left: MAX_QUERY_HOPS,
             today: (String::new(), Vec::new()),
             attention: String::new(),
+            perfil: String::new(),
         });
 
         let identidade = texto.find("[Quem você é]").expect("identidade");
@@ -1722,6 +1729,7 @@ mod tests {
             hops_left: MAX_QUERY_HOPS,
             today: (String::new(), Vec::new()),
             attention: String::new(),
+            perfil: String::new(),
         });
 
         // A Task chega ao modelo com id, e o lembrete e uma acao que existe.
@@ -1780,6 +1788,7 @@ mod tests {
             hops_left: 1,
             today: (String::new(), Vec::new()),
             attention: String::new(),
+            perfil: String::new(),
         });
         let sem_salto = preamble(PreambleInput {
             now_local: datetime!(2026-08-20 14:32:00 -03:00),
@@ -1789,6 +1798,7 @@ mod tests {
             hops_left: 0,
             today: (String::new(), Vec::new()),
             attention: String::new(),
+            perfil: String::new(),
         });
         assert!(com_salto.contains("mos-query"));
         assert!(!sem_salto.contains("mos-query"));
@@ -1847,6 +1857,7 @@ mod tests {
                 vec![("Planta de formas".into(), "principal".into(), false)],
             ),
             attention: String::new(),
+            perfil: String::new(),
         });
         let dia = prompt.find("Os objetivos de hoje").expect("o bloco desce");
         let acoes = prompt.find("Ações disponíveis").expect("o catalogo desce");

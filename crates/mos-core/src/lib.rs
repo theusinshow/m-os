@@ -17,6 +17,7 @@ mod daily;
 mod error;
 mod feriados;
 mod functions;
+pub mod hermes_perfil;
 mod ingestion;
 mod meeting;
 mod meeting_analysis;

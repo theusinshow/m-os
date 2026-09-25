@@ -177,6 +177,8 @@ export type TunelStatus = {
   temChave: boolean;
 };
 
+export type NivelDeAutonomia = "perguntar" | "reversivel" | "tudo";
+
 export const hermes = {
   status() {
     return invoke<HermesStatus>("hermes_status");
@@ -243,6 +245,18 @@ export const hermes = {
   },
   onEvent(handler: (event: TurnEvent) => void) {
     return listen<TurnEvent>("hermes-event", (event) => handler(event.payload));
+  },
+  /** Até onde o Hermes age sozinho (ADR-087). */
+  autonomia() {
+    return invoke<NivelDeAutonomia>("hermes_autonomia");
+  },
+  setAutonomia(nivel: NivelDeAutonomia) {
+    return invoke<void>("hermes_set_autonomia", { nivel });
+  },
+  /** Uma ação que o M/OS executou sozinho, pela autonomia. Mesmo formato do
+   *  clique em "Fazer": a mensagem atualizada, o recibo e o desfazer. */
+  onAcaoAutomatica(handler: (resolution: ActionResolution) => void) {
+    return listen<ActionResolution>("hermes-acao-automatica", (event) => handler(event.payload));
   },
   onState(handler: (status: HermesStatus) => void) {
     return listen<HermesStatus>("hermes-state", (event) => handler(event.payload));

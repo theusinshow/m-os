@@ -217,6 +217,42 @@ impl SqliteStorage {
         Ok(())
     }
 
+    // ------------------------------------------------------- autonomia Hermes
+
+    /// Ate onde o Hermes age sozinho (ADR-087). Local: e uma decisao sobre
+    /// ESTE aparelho, como o Autopilot.
+    pub fn autonomia_do_hermes(
+        &self,
+    ) -> Result<mos_core::hermes_perfil::NivelDeAutonomia, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let valor: Option<String> = connection
+            .query_row(
+                "SELECT value FROM app_metadata WHERE key = 'hermes.autonomia'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(map_sql_error)?;
+        Ok(valor
+            .as_deref()
+            .map(mos_core::hermes_perfil::NivelDeAutonomia::parse)
+            .unwrap_or_default())
+    }
+
+    pub fn set_autonomia_do_hermes(
+        &self,
+        nivel: mos_core::hermes_perfil::NivelDeAutonomia,
+    ) -> Result<(), CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        connection
+            .execute(
+                "INSERT INTO app_metadata (key, value) VALUES ('hermes.autonomia', ?1)                  ON CONFLICT(key) DO UPDATE SET value = ?1",
+                params![nivel.as_str()],
+            )
+            .map_err(map_sql_error)?;
+        Ok(())
+    }
+
     // ---------------------------------------------------------------- avisos
 
     /// Os avisos entregues desde um instante — o historico que a politica le.

@@ -17,7 +17,7 @@ import { api, appError, type SinaisNaTela } from "./api";
 import { alinhamento, type Alinhamento } from "./malha";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { finance } from "./finance";
-import { hermes, type HermesStatus, type TunelStatus } from "./hermes";
+import { hermes, type HermesStatus, type NivelDeAutonomia, type TunelStatus } from "./hermes";
 import { Button } from "./Button";
 import { AtualizacaoPanel } from "./AtualizacaoPanel";
 import { MeetingSettings } from "./MeetingSettings";
@@ -346,6 +346,7 @@ function HermesSettings() {
         {message ? <StateMessage state={messageState} label={message} /> : null}
       </div>
     </Panel>
+    <AutonomiaDoHermes />
     <Panel label="CONEXÃO">
       <p className="support-copy">O M/OS é mais uma superfície do Hermes que já roda na sua VPS — a mesma que você usa pelo WhatsApp, numa conversa separada. O acesso é pelo túnel SSH: o M/OS não abre porta nenhuma.</p>
       {/* Aberto por padrão só quando falta a credencial: é o único caso em que
@@ -364,6 +365,38 @@ function HermesSettings() {
       </details>
     </Panel>
   </>;
+}
+
+const NIVEIS: { id: NivelDeAutonomia; titulo: string; descricao: string }[] = [
+  { id: "perguntar", titulo: "Perguntar sempre", descricao: "Toda ação vira um cartão para você confirmar." },
+  { id: "reversivel", titulo: "Agir no que tem desfazer", descricao: "Cria, move, começa e organiza sozinho, com recibo e Desfazer. Pergunta no que não tem volta (encerrar o dia, adiar lembrete) e no M-Finance." },
+  { id: "tudo", titulo: "Agir em tudo do M/OS", descricao: "Executa toda ação dentro do M/OS na hora. Só o M-Finance, que fica fora, pede confirmação." },
+];
+
+/**
+ * Até onde o Hermes age sozinho (ADR-087). Salva ao escolher: é uma decisão de
+ * um toque, e um botão "Salvar" a mais seria cerimônia.
+ */
+function AutonomiaDoHermes() {
+  const [nivel, setNivel] = useState<NivelDeAutonomia | null>(null);
+  const [erro, setErro] = useState("");
+  useEffect(() => { void hermes.autonomia().then(setNivel).catch(() => setNivel("reversivel")); }, []);
+  function escolher(proximo: NivelDeAutonomia) {
+    const anterior = nivel;
+    setNivel(proximo);
+    setErro("");
+    void hermes.setAutonomia(proximo).catch((causa) => { setNivel(anterior); setErro(appError(causa).message); });
+  }
+  return <Panel label="AUTONOMIA">
+    <p className="support-copy">Quanto o Hermes pode fazer sem pedir licença. Tudo que ele faz aparece com recibo na conversa.</p>
+    <div className="autonomia-opcoes" role="radiogroup" aria-label="Autonomia do Hermes">
+      {NIVEIS.map((opcao) => <label key={opcao.id} className="autonomia-opcao" data-selected={nivel === opcao.id || undefined}>
+        <input type="radio" name="autonomia-hermes" checked={nivel === opcao.id} onChange={() => escolher(opcao.id)} />
+        <span><strong>{opcao.titulo}</strong><span className="support-copy">{opcao.descricao}</span></span>
+      </label>)}
+    </div>
+    {erro ? <StateMessage state="error" label={erro} /> : null}
+  </Panel>;
 }
 
 /**

@@ -135,7 +135,7 @@ export function HermesPage({ inbox, projects, tasks, receipt, openProject, openR
   openTask?: (id: string) => void;
   /** Mesma janela de recibo do resto do app. Tipada pela forma, e não importada
    *  de `App.tsx`, que já importa esta página. */
-  receipt?: (action: { message: string; run: () => Promise<unknown> }) => void;
+  receipt?: (action: { message: string; run?: () => Promise<unknown> }) => void;
 }) {
   const [status, setStatus] = useState<HermesStatus | null>(null);
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -228,6 +228,21 @@ export function HermesPage({ inbox, projects, tasks, receipt, openProject, openR
     void hermes.status().then(setStatus).catch(() => undefined);
     void reloadList();
   }, [reloadList]);
+
+  // A autonomia (ADR-087): o que o M/OS executou sozinho aparece com o mesmo
+  // recibo e o mesmo Desfazer do clique em "Fazer". A mensagem em si ja chega
+  // atualizada pelo `onMessage`.
+  useEffect(() => {
+    const assinatura = hermes.onAcaoAutomatica((resolution) => {
+      const step = resolution.undo;
+      if (resolution.receipt) {
+        receipt?.(step
+          ? { message: resolution.receipt, run: () => conversationApi.undoAction(step) }
+          : { message: resolution.receipt });
+      }
+    });
+    return () => { void assinatura.then((dispose) => dispose()); };
+  }, [receipt]);
 
   useEffect(() => {
     const subscriptions = [

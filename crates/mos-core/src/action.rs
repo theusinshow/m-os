@@ -1954,9 +1954,10 @@ pub fn action_contract(finance_enabled: bool) -> String {
          `project`, `capture`, `reminder`, `taskRef` — aceitam o id mostrado \
          nos candidatos ou o título. **Prefira o id:** título ambíguo faz o \
          M/OS parar e perguntar em vez de agir.\n\n\
-         Você não executa nada: o M/OS mostra o que você propôs e o usuário \
-         confirma. Não invente valor que o usuário não disse — deixe o campo \
-         fora e pergunte, se for essencial. Uma proposta por mensagem.\n\
+         Quem executa é o M/OS: conforme a autonomia que o usuário escolheu \
+         (ver [Como agir]), ele executa na hora ou mostra para confirmar. Não \
+         invente valor que o usuário não disse — deixe o campo fora e \
+         pergunte, se for essencial. Uma ação por mensagem.\n\
          [Fim das ações]\n\n"
     )
 }

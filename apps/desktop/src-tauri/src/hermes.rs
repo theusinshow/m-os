@@ -228,8 +228,79 @@ fn settle_turn<R: Runtime>(
     let service = app.state::<AppState>().conversations.clone();
     if let Ok(message) = service.finish_answer(&message_id, status, parts) {
         jarvis::announce_message(app, &message);
+        if status == MessageStatus::Complete {
+            executar_se_autorizado(app, &message);
+        }
     }
     query
+}
+
+/// O nivel de autonomia do Hermes, para o Settings.
+#[tauri::command]
+pub fn hermes_autonomia<R: Runtime>(app: AppHandle<R>) -> Result<String, mos_core::CoreError> {
+    Ok(app
+        .state::<AppState>()
+        .storage
+        .autonomia_do_hermes()?
+        .as_str()
+        .to_owned())
+}
+
+#[tauri::command]
+pub fn hermes_set_autonomia<R: Runtime>(
+    app: AppHandle<R>,
+    nivel: String,
+) -> Result<(), mos_core::CoreError> {
+    app.state::<AppState>()
+        .storage
+        .set_autonomia_do_hermes(mos_core::hermes_perfil::NivelDeAutonomia::parse(&nivel))
+}
+
+/// A autonomia do Hermes (ADR-087): a proposta que o nivel escolhido permite
+/// e executada na hora, pelo MESMO caminho do botao "Fazer" — reserva contra
+/// execucao dupla, servicos do dominio, auditoria na mensagem. A tela recebe a
+/// resolucao e mostra o recibo com Desfazer, igual ao clique.
+///
+/// O que o nivel nao permite continua como cartao pendente: nada muda para
+/// essas acoes.
+fn executar_se_autorizado<R: Runtime>(app: &AppHandle<R>, message: &mos_core::Message) {
+    let nivel = app
+        .state::<AppState>()
+        .storage
+        .autonomia_do_hermes()
+        .unwrap_or_default();
+    let agora = crate::surface::now_local(app);
+    let pendente = message.parts.iter().find_map(|part| match &part.body {
+        mos_core::PartBody::ActionProposal {
+            raw,
+            status: mos_core::ProposalStatus::Pending,
+            ..
+        } => Some(raw.clone()),
+        _ => None,
+    });
+    let Some(raw) = pendente else { return };
+    let Ok(args) = mos_core::parse_action_at(&raw, agora) else {
+        return;
+    };
+    if !mos_core::hermes_perfil::executa_sozinho(nivel, args.kind()) {
+        return;
+    }
+    let app = app.clone();
+    let message_id = message.id.to_string();
+    tauri::async_runtime::spawn(async move {
+        match jarvis::action_resolve(app.clone(), message_id, raw, true).await {
+            Ok(resolucao) => {
+                let _ = app.emit("hermes-acao-automatica", resolucao);
+            }
+            Err(erro) => {
+                crate::diagnostico::escrever(
+                    crate::diagnostico::Nivel::Aviso,
+                    "hermes",
+                    &format!("acao automatica nao executou: {}", erro.message),
+                );
+            }
+        }
+    });
 }
 
 /// Executa a busca que o modelo pediu e devolve o resultado a ele.
@@ -680,9 +751,8 @@ pub async fn hermes_send<R: Runtime>(
 
     // O preambulo desce em toda mensagem, antes do contexto: quem ele e, que
     // horas sao, onde o usuario esta, o que ele pode propor e o que o M/OS ja
-    // encontrou. O contrato de acoes continua dizendo explicitamente que o
-    // modelo nao executa nada — sem essa frase, um modelo prestativo tende a
-    // preencher campo que o usuario nao disse.
+    // encontrou. Quem executa e sempre o M/OS, conforme a autonomia escolhida;
+    // o contrato continua proibindo inventar campo que o usuario nao disse.
     //
     // Ele sai da maquina junto com o resto do prompt: nomes de acao e forma de
     // argumento vao para a VPS. Nao sao dados pessoais, mas sao um mapa do que o
@@ -705,6 +775,33 @@ pub async fn hermes_send<R: Runtime>(
                 .map(|entry| entry.can_write)
         })
         .unwrap_or(false);
+    // O perfil de piloto (ADR-087): o que o M/OS tem, o que esta ligado aqui e
+    // ate onde o Hermes age sozinho.
+    let perfil = {
+        let state = app.state::<AppState>();
+        let nivel = state.storage.autonomia_do_hermes().unwrap_or_default();
+        let disponivel = mos_core::hermes_perfil::Disponibilidade {
+            m_finance: finance_enabled,
+            academico: {
+                let agora = crate::surface::now_local(&app);
+                mos_core::AcademicService::new(state.storage.clone())
+                    .compromissos_entre(
+                        agora - time::Duration::days(14),
+                        agora + time::Duration::days(60),
+                        agora,
+                    )
+                    .map(|compromissos| !compromissos.is_empty())
+                    .unwrap_or(false)
+            },
+            reunioes: true,
+            sync: state.storage.sync_ligado(),
+        };
+        format!(
+            "{}{}",
+            mos_core::hermes_perfil::manual_do_mos(&disponivel),
+            mos_core::hermes_perfil::conduta(nivel)
+        )
+    };
     // A ordem do preambulo esta em `mos_core::preamble`, e o contexto ANEXADO
     // vem depois dele: o que o usuario escolheu mandar fica colado na pergunta,
     // que e onde ele espera que esteja.
@@ -718,6 +815,7 @@ pub async fn hermes_send<R: Runtime>(
             hops_left: hops,
             today: crate::daily::bloco_de_hoje(&app),
             attention: crate::piloto::bloco_de_atencao(&app),
+            perfil,
         }),
         assembled.block,
         text
