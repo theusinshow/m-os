@@ -2519,6 +2519,113 @@ fn quote_sql(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
+impl SqliteStorage {
+    /// Grava (ou limpa) o inicio numa transacao so, soltando o foco das outras
+    /// Tasks quando comeca. Devolve a Task, como ela estava ANTES e quem foi
+    /// interrompido — o efeito inteiro, que e o que o desfazer precisa.
+    #[allow(clippy::type_complexity)]
+    fn gravar_inicio(
+        &self,
+        id: TaskId,
+        started_at: Option<OffsetDateTime>,
+    ) -> Result<(Task, Task, Vec<(TaskId, OffsetDateTime)>), CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let inicio = started_at.map(format_time).transpose()?;
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let antes = query_task(&transaction, id)?;
+        let mut interrompidas = Vec::new();
+        // Parar tambem solta qualquer outro inicio que o sync tenha deixado
+        // ligado: "parei" quer dizer "nada em andamento". Sem isto, parar o
+        // foco faria a perdedora de um conflito offline reaparecer correndo
+        // desde a hora antiga (ADR-076).
+        if started_at.is_none() {
+            let sobrando: Vec<String> = {
+                let mut statement = transaction
+                    .prepare("SELECT id FROM tasks WHERE started_at IS NOT NULL AND id <> ?1")
+                    .map_err(map_sql_error)?;
+                let rows = statement
+                    .query_map([id.to_string()], |row| row.get(0))
+                    .map_err(map_sql_error)?;
+                rows.collect::<Result<Vec<_>, _>>().map_err(map_sql_error)?
+            };
+            for outra in sobrando {
+                transaction
+                    .execute(
+                        "UPDATE tasks SET started_at = NULL, updated_at = ?2 WHERE id = ?1",
+                        params![outra, now],
+                    )
+                    .map_err(map_sql_error)?;
+                self.emitir_update(
+                    &transaction,
+                    "task",
+                    TaskId::parse(&outra)?.as_uuid(),
+                    &[("startedAt", serde_json::Value::Null)],
+                )?;
+            }
+        }
+        if started_at.is_some() {
+            if antes.lifecycle_state != LifecycleState::Active || antes.state == TaskState::Done {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidTransition,
+                    "Só é possível começar uma Task ativa e ainda não concluída.",
+                    false,
+                ));
+            }
+            // Validar o alvo ANTES de soltar o foco. As duas mudanças e suas
+            // operações de sync pertencem ao mesmo commit, em qualquer shell.
+            let anteriores: Vec<(String, Option<String>)> = {
+                let mut statement = transaction
+                    .prepare("SELECT id, started_at FROM tasks WHERE started_at IS NOT NULL AND id <> ?1")
+                    .map_err(map_sql_error)?;
+                let rows = statement
+                    .query_map([id.to_string()], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .map_err(map_sql_error)?;
+                rows.collect::<Result<Vec<_>, _>>().map_err(map_sql_error)?
+            };
+            for (anterior, instante) in anteriores {
+                if let Some(instante) = instante.as_deref().and_then(|v| parse_time(v).ok()) {
+                    interrompidas.push((TaskId::parse(&anterior)?, instante));
+                }
+                transaction
+                    .execute(
+                        "UPDATE tasks SET started_at = NULL, updated_at = ?2 WHERE id = ?1",
+                        params![anterior, now],
+                    )
+                    .map_err(map_sql_error)?;
+                self.emitir_update(
+                    &transaction,
+                    "task",
+                    TaskId::parse(&anterior)?.as_uuid(),
+                    &[("startedAt", serde_json::Value::Null)],
+                )?;
+            }
+        }
+        let mut mudancas: Vec<(&str, serde_json::Value)> =
+            vec![("startedAt", serde_json::json!(inicio))];
+        // Comecar poe em `doing`; parar deixa onde esta.
+        let estado = if started_at.is_some()
+            && antes.state != TaskState::Doing
+            && antes.state != TaskState::Done
+        {
+            mudancas.push(("workState", serde_json::json!(TaskState::Doing.as_str())));
+            TaskState::Doing
+        } else {
+            antes.state
+        };
+        let changed = transaction
+            .execute(
+                "UPDATE tasks SET started_at = ?1, work_state = ?2, updated_at = ?3 WHERE id = ?4",
+                params![inicio, estado.as_str(), now, id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        ensure_changed(changed)?;
+        self.emitir_update(&transaction, "task", id.as_uuid(), &mudancas)?;
+        transaction.commit().map_err(map_sql_error)?;
+        Ok((query_task(&connection, id)?, antes, interrompidas))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3838,112 +3945,5 @@ mod tests {
         // Limpar devolve o slot ao desenho.
         let pins = storage.clear_radial_pin(None, 0).unwrap();
         assert!(pins.is_empty());
-    }
-}
-
-impl SqliteStorage {
-    /// Grava (ou limpa) o inicio numa transacao so, soltando o foco das outras
-    /// Tasks quando comeca. Devolve a Task, como ela estava ANTES e quem foi
-    /// interrompido — o efeito inteiro, que e o que o desfazer precisa.
-    #[allow(clippy::type_complexity)]
-    fn gravar_inicio(
-        &self,
-        id: TaskId,
-        started_at: Option<OffsetDateTime>,
-    ) -> Result<(Task, Task, Vec<(TaskId, OffsetDateTime)>), CoreError> {
-        let now = format_time(OffsetDateTime::now_utc())?;
-        let inicio = started_at.map(format_time).transpose()?;
-        let connection = self.escrita()?;
-        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
-        let antes = query_task(&transaction, id)?;
-        let mut interrompidas = Vec::new();
-        // Parar tambem solta qualquer outro inicio que o sync tenha deixado
-        // ligado: "parei" quer dizer "nada em andamento". Sem isto, parar o
-        // foco faria a perdedora de um conflito offline reaparecer correndo
-        // desde a hora antiga (ADR-076).
-        if started_at.is_none() {
-            let sobrando: Vec<String> = {
-                let mut statement = transaction
-                    .prepare("SELECT id FROM tasks WHERE started_at IS NOT NULL AND id <> ?1")
-                    .map_err(map_sql_error)?;
-                let rows = statement
-                    .query_map([id.to_string()], |row| row.get(0))
-                    .map_err(map_sql_error)?;
-                rows.collect::<Result<Vec<_>, _>>().map_err(map_sql_error)?
-            };
-            for outra in sobrando {
-                transaction
-                    .execute(
-                        "UPDATE tasks SET started_at = NULL, updated_at = ?2 WHERE id = ?1",
-                        params![outra, now],
-                    )
-                    .map_err(map_sql_error)?;
-                self.emitir_update(
-                    &transaction,
-                    "task",
-                    TaskId::parse(&outra)?.as_uuid(),
-                    &[("startedAt", serde_json::Value::Null)],
-                )?;
-            }
-        }
-        if started_at.is_some() {
-            if antes.lifecycle_state != LifecycleState::Active || antes.state == TaskState::Done {
-                return Err(CoreError::new(
-                    ErrorCode::InvalidTransition,
-                    "Só é possível começar uma Task ativa e ainda não concluída.",
-                    false,
-                ));
-            }
-            // Validar o alvo ANTES de soltar o foco. As duas mudanças e suas
-            // operações de sync pertencem ao mesmo commit, em qualquer shell.
-            let anteriores: Vec<(String, Option<String>)> = {
-                let mut statement = transaction
-                    .prepare("SELECT id, started_at FROM tasks WHERE started_at IS NOT NULL AND id <> ?1")
-                    .map_err(map_sql_error)?;
-                let rows = statement
-                    .query_map([id.to_string()], |row| Ok((row.get(0)?, row.get(1)?)))
-                    .map_err(map_sql_error)?;
-                rows.collect::<Result<Vec<_>, _>>().map_err(map_sql_error)?
-            };
-            for (anterior, instante) in anteriores {
-                if let Some(instante) = instante.as_deref().and_then(|v| parse_time(v).ok()) {
-                    interrompidas.push((TaskId::parse(&anterior)?, instante));
-                }
-                transaction
-                    .execute(
-                        "UPDATE tasks SET started_at = NULL, updated_at = ?2 WHERE id = ?1",
-                        params![anterior, now],
-                    )
-                    .map_err(map_sql_error)?;
-                self.emitir_update(
-                    &transaction,
-                    "task",
-                    TaskId::parse(&anterior)?.as_uuid(),
-                    &[("startedAt", serde_json::Value::Null)],
-                )?;
-            }
-        }
-        let mut mudancas: Vec<(&str, serde_json::Value)> =
-            vec![("startedAt", serde_json::json!(inicio))];
-        // Comecar poe em `doing`; parar deixa onde esta.
-        let estado = if started_at.is_some()
-            && antes.state != TaskState::Doing
-            && antes.state != TaskState::Done
-        {
-            mudancas.push(("workState", serde_json::json!(TaskState::Doing.as_str())));
-            TaskState::Doing
-        } else {
-            antes.state
-        };
-        let changed = transaction
-            .execute(
-                "UPDATE tasks SET started_at = ?1, work_state = ?2, updated_at = ?3 WHERE id = ?4",
-                params![inicio, estado.as_str(), now, id.to_string()],
-            )
-            .map_err(map_sql_error)?;
-        ensure_changed(changed)?;
-        self.emitir_update(&transaction, "task", id.as_uuid(), &mudancas)?;
-        transaction.commit().map_err(map_sql_error)?;
-        Ok((query_task(&connection, id)?, antes, interrompidas))
     }
 }

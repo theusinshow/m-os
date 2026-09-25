@@ -474,7 +474,7 @@ pub fn rank_candidates(hits: Vec<(usize, Candidate)>, kinds: &[EntityKind]) -> V
         }
     }
     // Ordenação estável mantém a ordem original entre empates.
-    found.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+    found.sort_by_key(|item| std::cmp::Reverse(item.1.len()));
     found
         .into_iter()
         .take(MAX_CANDIDATES)

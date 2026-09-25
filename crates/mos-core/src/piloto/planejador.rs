@@ -143,7 +143,7 @@ pub fn propor_dia(r: &Retrato<'_>) -> PropostaDoDia {
             ObjectiveStatus::Pending | ObjectiveStatus::CarriedOver
         )
     }) {
-        if carregados.len() >= 1 + SUGGESTED_SECONDARIES {
+        if carregados.len() > SUGGESTED_SECONDARIES {
             break;
         }
         if !objetivos_ja_propostos.insert(obj.id) {
@@ -350,11 +350,12 @@ pub fn propor_encerramento(r: &Retrato<'_>) -> PropostaDeEncerramento {
     };
 
     if let Some(daily) = r.daily {
-        let objectives = if daily.session.is_none() && daily.stale.is_some() {
-            p.day = daily.stale.as_ref().unwrap().day.to_string();
-            &daily.stale_objectives
-        } else {
-            &daily.objectives
+        let objectives = match (&daily.session, &daily.stale) {
+            (None, Some(stale)) => {
+                p.day = stale.day.to_string();
+                &daily.stale_objectives
+            }
+            _ => &daily.objectives,
         };
         p.concluidas = objectives
             .iter()
@@ -437,8 +438,10 @@ mod tests {
 
     #[test]
     fn dia_encerrado_preserva_intencoes_livres_sem_inundar_a_proposta() {
-        let mut c = Cenario::default();
-        c.daily = Some(nao_iniciado(crate::Day::from_local(agora())));
+        let mut c = Cenario {
+            daily: Some(nao_iniciado(crate::Day::from_local(agora()))),
+            ..Default::default()
+        };
         c.previous_objectives
             .push(objetivo("Já fiz", ObjectiveStatus::Completed));
         c.previous_objectives
