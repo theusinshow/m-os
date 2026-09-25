@@ -1,5 +1,11 @@
 # PLATFORMS — O M/OS é multi-device por definição
 
+> Estado conferido em 2026-09-24: desktop Tauri e `apps/mos-web` (Axum + PWA)
+> são os consumidores existentes. Não há `apps/ios` ou bridge nativa iOS no
+> checkout. A réplica da PWA fica no servidor; a escrita depende de HTTP.
+> O contrato multi-device abaixo continua válido, mas não prova paridade já
+> entregue. Inventário e lacunas: [MOS-AUDIT](MOS-AUDIT.md).
+
 > A partir de 2026-08-21, **não existe mais "feature do desktop que talvez seja
 > portada depois"**. Existe feature do M/OS, com manifestações apropriadas em
 > cada plataforma. Este documento é o contrato dessa afirmação.

@@ -4,6 +4,14 @@
 **Data:** 2026-08-20
 **Decisão:** ADR-051. Antecedentes: ADR-024, ADR-027, ADR-028, `SPEC-ACOES-ENTRE-APPS.md`.
 
+> Atualização de 2026-09-24: a busca de candidatos filtra tipos antes do teto
+> global e considera o índice de transcrições. Uma Task anexada entrega também
+> checklist, subtasks, espera, follow-up, bloqueio e referências, com limites
+> explícitos. Ranking e formato vivem em `mos-core::agent`; a execução das
+> ações continua no adapter desktop `jarvis.rs`. Não há paridade de Hermes na
+> PWA, busca vetorial ou ferramenta genérica de Person/Calendar Event.
+> Cobertura real e pendências: [MOS-AUDIT](MOS-AUDIT.md).
+
 ---
 
 ## 1. O que mudou, em uma frase

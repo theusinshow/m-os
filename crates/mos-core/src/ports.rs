@@ -9,7 +9,8 @@ use crate::{
     NewProject, NewRegisteredApp, NewReminder, NewSemester, NewSubject, NewTask, NewVoiceNote,
     NewWorkspace, ProcessingState, Project, ProjectId, RegisteredApp, Reminder, Resource,
     ResourceId, SearchItem, Semester, SemesterId, StudySession, StudySessionId, Subject, SubjectId,
-    Task, TaskId, TaskState, VoiceNote, VoiceNoteId, Workspace, WorkspaceId,
+    Task, TaskId, TaskStartEffect, TaskStartUndone, TaskState, VoiceNote, VoiceNoteId, Workspace,
+    WorkspaceId,
 };
 
 #[derive(Clone, Debug)]
@@ -234,6 +235,28 @@ pub trait WorkRepository: Send + Sync {
         id: TaskId,
         started_at: Option<time::OffsetDateTime>,
     ) -> Result<Task, CoreError>;
+    /// Comeca a Task e devolve TUDO o que o inicio mudou — foco solto de
+    /// outras Tasks inclusive. Mesma transacao do `set_task_started`; existe
+    /// porque desfazer precisa do efeito inteiro, e nao so da Task alvo.
+    fn start_task_recorded(
+        &self,
+        id: TaskId,
+        started_at: time::OffsetDateTime,
+    ) -> Result<TaskStartEffect, CoreError>;
+    /// A inversa atomica de `start_task_recorded`.
+    ///
+    /// So reverte o que continua como o inicio deixou: se a Task alvo ganhou
+    /// outro instante ou saiu de `doing`, recusa com `Conflict` e nao toca em
+    /// nada. Devolve o foco as interrompidas so quando nenhuma outra Task esta
+    /// em andamento — o trabalho mais recente vence.
+    fn undo_task_start(
+        &self,
+        id: TaskId,
+        started_at: time::OffsetDateTime,
+        previous_state: TaskState,
+        previous_started_at: Option<time::OffsetDateTime>,
+        interrupted: &[(TaskId, time::OffsetDateTime)],
+    ) -> Result<TaskStartUndone, CoreError>;
 
     // ------------------------------------------------------------- checklist
     //
@@ -1213,11 +1236,14 @@ pub trait DailyRepository: Send + Sync {
         objective: crate::NewDailyObjective,
     ) -> Result<crate::DailyObjective, CoreError>;
 
-    /// Grava o que mudou num objetivo. Devolve o que FICOU gravado, e nao o que
-    /// foi mandado — mesma regra do `save_reminder` e do `save_meeting`.
-    fn save_objective(
+    /// Aplica UM gesto a um objetivo, lendo e validando a linha dentro da
+    /// transacao. Grava e emite so os campos que de fato mudaram; um gesto que
+    /// nao muda nada nao deixa operacao na outbox. Devolve o que FICOU gravado.
+    fn edit_objective(
         &self,
-        objective: &crate::DailyObjective,
+        id: crate::DailyObjectiveId,
+        edit: &crate::ObjectiveEdit,
+        now: time::OffsetDateTime,
     ) -> Result<crate::DailyObjective, CoreError>;
 
     /// Promove um objetivo a principal, rebaixando o anterior na mesma
@@ -1255,6 +1281,18 @@ pub trait DailyRepository: Send + Sync {
         session: crate::DailySessionId,
         resolutions: &[(crate::DailyObjectiveId, crate::ObjectiveStatus)],
         reflection: Option<crate::NewDailyReflection>,
+        now: time::OffsetDateTime,
+    ) -> Result<crate::DailySession, CoreError> {
+        self.end_day_planned(session, resolutions, reflection, None, now)
+    }
+
+    /// Inclui reagendamento e pausa das Tasks na mesma transação do encerramento.
+    fn end_day_planned(
+        &self,
+        session: crate::DailySessionId,
+        resolutions: &[(crate::DailyObjectiveId, crate::ObjectiveStatus)],
+        reflection: Option<crate::NewDailyReflection>,
+        planning: Option<(&[crate::TaskId], &crate::Day)>,
         now: time::OffsetDateTime,
     ) -> Result<crate::DailySession, CoreError>;
 

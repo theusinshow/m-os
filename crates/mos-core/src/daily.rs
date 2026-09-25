@@ -266,6 +266,9 @@ pub struct DailySession {
 
 #[derive(Clone, Debug)]
 pub struct NewDailySession {
+    /// Comando de criação, não coluna: planejar as Tasks vinculadas no mesmo
+    /// commit da sessão. Usado pelo início automático do Piloto.
+    pub plan_linked_tasks: bool,
     pub id: DailySessionId,
     pub day: Day,
     pub note: String,
@@ -275,6 +278,7 @@ pub struct NewDailySession {
 impl NewDailySession {
     pub fn create(day: Day, note: &str, now: OffsetDateTime) -> Result<Self, CoreError> {
         Ok(Self {
+            plan_linked_tasks: false,
             id: DailySessionId::new(),
             day,
             note: clamp(note, MAX_NOTE),
@@ -487,6 +491,50 @@ pub struct DailyObjective {
     pub updated_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339::option")]
     pub completed_at: Option<OffsetDateTime>,
+}
+
+/// Um gesto sobre um objetivo: o que a pessoa quis mudar, e so isso.
+///
+/// Existe porque o `save_objective` antigo gravava e emitia o objetivo INTEIRO
+/// a cada gesto. Editar o titulo no PC enquanto o celular concluia o mesmo
+/// objetivo terminava com uma das duas decisoes apagada — o snapshot levava o
+/// status antigo junto com o titulo novo (MOS-OVERHAUL-PLAN F1.3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ObjectiveEdit {
+    Text { title: String, description: String },
+    Status(ObjectiveStatus),
+    Priority(ObjectivePriority),
+}
+
+impl DailyObjective {
+    /// O objetivo depois do gesto. Pura: o repositorio chama DENTRO da
+    /// transacao, sobre a linha lida ali, e so grava o que difere.
+    ///
+    /// `completed_at` e exclusivo de `completed`: entrar carimba, sair limpa.
+    /// Reafirmar `completed` nao recarimba — concluir de novo nao muda a hora
+    /// em que foi concluido.
+    pub fn apply(&self, edit: &ObjectiveEdit, now: OffsetDateTime) -> DailyObjective {
+        let mut next = self.clone();
+        match edit {
+            ObjectiveEdit::Text { title, description } => {
+                next.title = title.clone();
+                next.description = description.clone();
+            }
+            ObjectiveEdit::Status(status) => {
+                next.status = *status;
+                next.completed_at = if *status == ObjectiveStatus::Completed {
+                    self.completed_at
+                        .filter(|_| self.status == ObjectiveStatus::Completed)
+                        .or(Some(now))
+                } else {
+                    None
+                };
+            }
+            ObjectiveEdit::Priority(priority) => next.priority = *priority,
+        }
+        next.updated_at = now;
+        next
+    }
 }
 
 #[derive(Clone, Debug)]

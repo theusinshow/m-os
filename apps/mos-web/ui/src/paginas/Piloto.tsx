@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, type Piloto as Panorama } from "../api";
+import type { Pagina } from "../navegacao";
 
 /**
  * O piloto no bolso: o que faço agora, o dia por começar, o que precisa de
@@ -14,13 +15,18 @@ export function Piloto({
   panorama,
   aoAbrirTask,
   aoAtualizar,
+  aoIr,
+  aoAbrirLembrete,
 }: {
   panorama: Panorama | null;
   aoAbrirTask: (id: string) => void;
   aoAtualizar: () => Promise<void>;
+  aoIr: (pagina: Pagina) => void;
+  aoAbrirLembrete: (id: string) => void;
 }) {
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [porque, setPorque] = useState(false);
+  const [erro, setErro] = useState("");
   const [diaDispensado, setDiaDispensado] = useState(() => {
     try { return localStorage.getItem("mos-dia-dispensado") ?? ""; } catch { return ""; }
   });
@@ -29,9 +35,17 @@ export function Piloto({
   async function correr(chave: string, acao: () => Promise<unknown>) {
     if (ocupado) return;
     setOcupado(chave);
-    try { await acao(); } catch { /* o panorama conta na próxima leitura */ }
-    setOcupado(null);
-    await aoAtualizar();
+    setErro("");
+    try {
+      await acao();
+      try { await aoAtualizar(); } catch {
+        setErro("Ação salva. Não foi possível atualizar o painel; atualize a página.");
+      }
+    } catch {
+      setErro("Não foi possível completar a ação. Confira a conexão e tente novamente.");
+    } finally {
+      setOcupado(null);
+    }
   }
 
   const diaNaoIniciado = panorama.estadoDoDia.kind === "not_started" || panorama.estadoDoDia.kind === "stale_open";
@@ -39,12 +53,22 @@ export function Piloto({
   const agora = panorama.agora.agora;
   const atencao = panorama.atencao.filter((i) => i.tipo !== "day_not_started").slice(0, 3);
 
+  function destino(item: Panorama["atencao"][number]): (() => void) | null {
+    if (item.alvo.kind === "task") return () => aoAbrirTask(item.alvo.id);
+    if (item.alvo.kind === "reminder") return () => aoAbrirLembrete(item.alvo.id);
+    if (item.alvo.kind.startsWith("academic_")) return () => aoIr("academico");
+    if (item.tipo === "unprocessed_capture") return () => aoIr("fazer");
+    if (item.tipo === "unsynced_changes") return () => aoIr("mais");
+    return null;
+  }
+
   return (
     <section className="piloto" aria-label="O piloto">
+      {erro ? <p role="alert" className="piloto-cartao">{erro}</p> : null}
       {mostrarDia ? (
         <div className="piloto-cartao piloto-dia">
-          <span className="piloto-rotulo">SEU DIA AINDA NÃO FOI INICIADO</span>
-          <p className="piloto-frase">Posso montar tudo automaticamente.</p>
+          <span className="piloto-rotulo">{panorama.estadoDoDia.kind === "stale_open" ? `O DIA ${panorama.estadoDoDia.day} FICOU ABERTO` : "UMA PROPOSTA PARA HOJE"}</span>
+          <p className="piloto-frase">Hoje importa</p>
           {panorama.proposta ? (
             <ul className="piloto-lista">
               {panorama.proposta.principal ? <li>□ {panorama.proposta.principal.draft.title}</li> : null}
@@ -53,8 +77,8 @@ export function Piloto({
             </ul>
           ) : null}
           <div className="piloto-acoes">
-            <button type="button" className="botao" disabled={ocupado === "dia"} onClick={() => void correr("dia", () => api.iniciarDia())}>
-              {ocupado === "dia" ? "Montando..." : "Montar meu dia"}
+            <button type="button" className="botao" disabled={ocupado !== null} onClick={() => void correr("dia", () => api.iniciarDia())}>
+              {ocupado === "dia" ? "Preparando..." : "Começar meu dia"}
             </button>
             <button type="button" className="botao" data-variante="quieto" onClick={() => { setDiaDispensado(panorama.day); try { localStorage.setItem("mos-dia-dispensado", panorama.day); } catch { /* sem armazenamento */ } }}>Agora não</button>
           </div>
@@ -72,11 +96,11 @@ export function Piloto({
             <div className="piloto-acoes">
               {agora.comecada ? (
                 <>
-                  <button type="button" className="botao" disabled={ocupado === agora.taskId} onClick={() => void correr(agora.taskId, () => api.mudarEstado(agora.taskId, "done"))}>✓ Concluir</button>
-                  <button type="button" className="botao" data-variante="quieto" disabled={ocupado === agora.taskId} onClick={() => void correr(agora.taskId, () => api.pararTask(agora.taskId))}>Continuar depois</button>
+                  <button type="button" className="botao" disabled={ocupado !== null} onClick={() => void correr(agora.taskId, () => api.mudarEstado(agora.taskId, "done"))}>✓ Concluir</button>
+                  <button type="button" className="botao" data-variante="quieto" disabled={ocupado !== null} onClick={() => void correr(agora.taskId, () => api.pararTask(agora.taskId))}>Continuar depois</button>
                 </>
               ) : (
-                <button type="button" className="botao" disabled={ocupado === agora.taskId} onClick={() => void correr(agora.taskId, () => api.comecarTask(agora.taskId))}>Começar</button>
+                <button type="button" className="botao" disabled={ocupado !== null} onClick={() => void correr(agora.taskId, () => api.comecarTask(agora.taskId))}>Começar</button>
               )}
               <button type="button" className="piloto-porque" aria-expanded={porque} onClick={() => setPorque(!porque)}>Por quê?</button>
             </div>
@@ -93,7 +117,7 @@ export function Piloto({
           <ul className="piloto-itens">
             {atencao.map((item) => (
               <li key={`${item.tipo}:${item.alvo.id}:${item.titulo}`} data-severidade={item.severidade}>
-                <button type="button" className="piloto-item" onClick={() => { if (item.alvo.kind === "task") aoAbrirTask(item.alvo.id); }} disabled={item.alvo.kind !== "task"}>
+                <button type="button" className="piloto-item" onClick={() => destino(item)?.()} disabled={!destino(item)}>
                   <span>{item.titulo}</span>
                   <span className="piloto-mudo">{item.descricao || item.razoes[0]}</span>
                 </button>

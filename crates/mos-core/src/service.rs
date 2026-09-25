@@ -1900,6 +1900,36 @@ impl WorkService {
             .set_task_started(TaskId::parse(id)?, Some(now))
     }
 
+    /// Comeca e devolve o efeito inteiro, para quem oferece desfazer.
+    pub fn start_task_recorded(
+        &self,
+        id: &str,
+        now: time::OffsetDateTime,
+    ) -> Result<crate::TaskStartEffect, CoreError> {
+        self.repository.start_task_recorded(TaskId::parse(id)?, now)
+    }
+
+    /// A inversa de `start_task_recorded`, a partir do passo gravado no
+    /// recibo. Ver `WorkRepository::undo_task_start`.
+    pub fn undo_task_start(
+        &self,
+        step: &crate::UndoTaskStart,
+    ) -> Result<crate::TaskStartUndone, CoreError> {
+        let parse = |valor: &str| crate::parse_moment(valor);
+        let interrompidas = step
+            .interrupted
+            .iter()
+            .map(|foco| Ok((TaskId::parse(&foco.id)?, parse(&foco.started_at)?)))
+            .collect::<Result<Vec<_>, CoreError>>()?;
+        self.repository.undo_task_start(
+            TaskId::parse(&step.id)?,
+            parse(&step.started_at)?,
+            TaskState::parse(&step.previous_state)?,
+            step.previous_started_at.as_deref().map(parse).transpose()?,
+            &interrompidas,
+        )
+    }
+
     /// "Continuar depois": limpa o instante sem mexer no estado.
     pub fn stop_task(&self, id: &str) -> Result<Task, CoreError> {
         self.repository.set_task_started(TaskId::parse(id)?, None)
@@ -1941,11 +1971,93 @@ impl WorkService {
 #[derive(Clone)]
 pub struct ConversationService {
     repository: Arc<dyn ConversationRepository>,
+    /// Serializa a reserva de propostas. Ler "pendente" e gravar "executando"
+    /// precisa ser um passo so, senao dois cliques leem pendente juntos.
+    reserva: Arc<std::sync::Mutex<()>>,
+}
+
+/// O que a reserva de uma proposta decidiu.
+#[derive(Clone, Debug)]
+pub enum ProposalClaim {
+    /// Estava pendente e agora e sua: execute e grave o desfecho.
+    Claimed,
+    /// Ja tinha desfecho. Devolve a parte como esta — o resultado de uma
+    /// operacao ja aplicada se RECUPERA, nao se repete.
+    Settled(PartBody),
+    /// Ja reservada por outra chamada, ou orfa de uma queda no meio.
+    InFlight,
 }
 
 impl ConversationService {
     pub fn new(repository: Arc<dyn ConversationRepository>) -> Self {
-        Self { repository }
+        Self {
+            repository,
+            reserva: Arc::new(std::sync::Mutex::new(())),
+        }
+    }
+
+    /// Reserva a proposta `raw` da mensagem para execucao.
+    ///
+    /// A chave e (mensagem, proposta crua): estavel, persistida, e independente
+    /// do texto mostrado no cartao. So quem recebe `Claimed` executa.
+    /// `approved = false` so cancela o que ainda esta pendente.
+    pub fn claim_proposal(
+        &self,
+        message_id: &str,
+        raw: &str,
+        approved: bool,
+    ) -> Result<ProposalClaim, CoreError> {
+        let _vez = self.reserva.lock().map_err(|_| {
+            CoreError::new(
+                crate::ErrorCode::Io,
+                "Reserva de proposta envenenada.",
+                true,
+            )
+        })?;
+        let message = self.message(message_id)?;
+        let atual = message.parts.iter().find_map(|part| match &part.body {
+            PartBody::ActionProposal {
+                raw: found, status, ..
+            } if found == raw => Some((*status, part.body.clone())),
+            _ => None,
+        });
+        let Some((status, body)) = atual else {
+            return Err(CoreError::new(
+                crate::ErrorCode::NotFound,
+                "Proposta não encontrada nesta mensagem.",
+                false,
+            ));
+        };
+        match status {
+            crate::ProposalStatus::Pending => {}
+            crate::ProposalStatus::Executing => return Ok(ProposalClaim::InFlight),
+            _ => return Ok(ProposalClaim::Settled(body)),
+        }
+        if !approved {
+            return Ok(ProposalClaim::Claimed);
+        }
+        let parts = message
+            .parts
+            .into_iter()
+            .map(|part| match part.body {
+                PartBody::ActionProposal {
+                    raw: found,
+                    preview,
+                    outcome,
+                    audit,
+                    ..
+                } if found == raw => PartBody::ActionProposal {
+                    raw: found,
+                    preview,
+                    status: crate::ProposalStatus::Executing,
+                    outcome,
+                    audit,
+                },
+                body => body,
+            })
+            .collect();
+        self.attach_parts(message_id, message.status, parts)?;
+        Ok(ProposalClaim::Claimed)
     }
 
     pub fn create(&self) -> Result<Conversation, CoreError> {
@@ -3734,8 +3846,27 @@ impl DailyService {
         day: crate::Day,
         input: &crate::StartDayInput,
     ) -> Result<crate::DailyToday, CoreError> {
+        self.start_with_planning(day, input, false)
+    }
+
+    /// O dia e o planejamento de suas Tasks são uma única decisão persistida.
+    pub fn start_planned(
+        &self,
+        day: crate::Day,
+        input: &crate::StartDayInput,
+    ) -> Result<crate::DailyToday, CoreError> {
+        self.start_with_planning(day, input, true)
+    }
+
+    fn start_with_planning(
+        &self,
+        day: crate::Day,
+        input: &crate::StartDayInput,
+        plan_linked_tasks: bool,
+    ) -> Result<crate::DailyToday, CoreError> {
         let now = self.clock.now();
-        let session = crate::NewDailySession::create(day.clone(), &input.note, now)?;
+        let mut session = crate::NewDailySession::create(day.clone(), &input.note, now)?;
+        session.plan_linked_tasks = plan_linked_tasks;
 
         let mut objectives = Vec::new();
         if let Some(main) = &input.main {
@@ -3786,6 +3917,8 @@ impl DailyService {
         description: &str,
     ) -> Result<crate::DailyObjective, CoreError> {
         let current = self.repository.objective(id)?;
+        // A validacao do texto e a mesma da criacao; o resto do objetivo nao
+        // entra no gesto.
         let draft = crate::NewDailyObjective::create(
             current.session_id,
             title,
@@ -3795,13 +3928,14 @@ impl DailyService {
             current.position,
             current.created_at,
         )?;
-        let next = crate::DailyObjective {
-            title: draft.title,
-            description: draft.description,
-            updated_at: self.clock.now(),
-            ..current
-        };
-        self.repository.save_objective(&next)
+        self.repository.edit_objective(
+            id,
+            &crate::ObjectiveEdit::Text {
+                title: draft.title,
+                description: draft.description,
+            },
+            self.clock.now(),
+        )
     }
 
     /// Concluir, carregar, largar ou devolver a pendente.
@@ -3815,15 +3949,8 @@ impl DailyService {
         id: crate::DailyObjectiveId,
         status: crate::ObjectiveStatus,
     ) -> Result<crate::DailyObjective, CoreError> {
-        let current = self.repository.objective(id)?;
-        let now = self.clock.now();
-        let next = crate::DailyObjective {
-            status,
-            completed_at: (status == crate::ObjectiveStatus::Completed).then_some(now),
-            updated_at: now,
-            ..current
-        };
-        self.repository.save_objective(&next)
+        self.repository
+            .edit_objective(id, &crate::ObjectiveEdit::Status(status), self.clock.now())
     }
 
     pub fn set_main(
@@ -3843,13 +3970,11 @@ impl DailyService {
         &self,
         id: crate::DailyObjectiveId,
     ) -> Result<crate::DailyObjective, CoreError> {
-        let current = self.repository.objective(id)?;
-        let next = crate::DailyObjective {
-            priority: crate::ObjectivePriority::Secondary,
-            updated_at: self.clock.now(),
-            ..current
-        };
-        self.repository.save_objective(&next)
+        self.repository.edit_objective(
+            id,
+            &crate::ObjectiveEdit::Priority(crate::ObjectivePriority::Secondary),
+            self.clock.now(),
+        )
     }
 
     pub fn remove_objective(&self, id: crate::DailyObjectiveId) -> Result<(), CoreError> {
@@ -3889,6 +4014,39 @@ impl DailyService {
             .map(|reflection| reflection.for_session(session));
         self.repository
             .end_day(session, &resolutions, reflection, self.clock.now())
+    }
+
+    /// Fecha hoje (ou a sessão antiga ainda aberta) e leva as Tasks escolhidas
+    /// para amanhã. A persistência grava todo o conjunto ou não grava nada.
+    pub fn end_planned(
+        &self,
+        day: &crate::Day,
+        input: &crate::EndDayInput,
+        tasks: &[String],
+    ) -> Result<crate::DailyToday, CoreError> {
+        let today = self.today(day)?;
+        let session = today.session.or(today.stale).ok_or_else(|| {
+            CoreError::new(
+                crate::ErrorCode::InvalidTransition,
+                "Não há dia aberto para encerrar.",
+                false,
+            )
+        })?;
+        let tasks = tasks
+            .iter()
+            .map(|id| crate::TaskId::parse(id))
+            .collect::<Result<Vec<_>, _>>()?;
+        let tomorrow = crate::dia_seguinte(day);
+        let resolutions = input.parsed_resolutions()?;
+        let reflection = input.reflection()?.map(|r| r.for_session(session.id));
+        self.repository.end_day_planned(
+            session.id,
+            &resolutions,
+            reflection,
+            Some((&tasks, &tomorrow)),
+            self.clock.now(),
+        )?;
+        self.today(day)
     }
 
     pub fn reopen(&self, session: crate::DailySessionId) -> Result<crate::DailySession, CoreError> {

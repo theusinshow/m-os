@@ -16,7 +16,8 @@
  * O que continua arrumável é tudo que vem abaixo dele.
  */
 import { useState } from "react";
-import { api } from "./api";
+import { api, appError } from "./api";
+import { StateMessage } from "./Surface";
 import { Button } from "./Button";
 import { ATENCAO_NA_HOME, fraseDeAusencia, fraseDeHoje, linhaDoItem, linhasDeAusencia, minutosCurto, rotuloDaAcao, seloDeSeveridade } from "./piloto";
 import type { AcaoRecomendada, Candidata, Panorama } from "./types";
@@ -47,14 +48,21 @@ export function HomePiloto({ panorama, acoes, resgateDispensado, dispensarResgat
 }) {
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [porque, setPorque] = useState(false);
+  const [erro, setErro] = useState("");
   if (!panorama) return null;
 
   async function correr(chave: string, acao: () => Promise<unknown>) {
     if (ocupado) return;
     setOcupado(chave);
-    try { await acao(); } catch { /* o panorama conta */ }
-    setOcupado(null);
-    acoes.atualizar();
+    setErro("");
+    try {
+      await acao();
+      acoes.atualizar();
+    } catch (e) {
+      setErro(appError(e).message);
+    } finally {
+      setOcupado(null);
+    }
   }
 
   function executar(acao: AcaoRecomendada) {
@@ -87,6 +95,7 @@ export function HomePiloto({ panorama, acoes, resgateDispensado, dispensarResgat
     <header className="piloto-cabecalho">
       <p className="piloto-saudacao">{panorama.saudacao}</p>
     </header>
+    {erro ? <StateMessage state="error" label="Não foi possível completar a ação. Tente novamente." detail={erro} /> : null}
 
     {mostrarResgate ? <div className="piloto-cartao piloto-resgate" role="region" aria-label="Rescue Mode">
       <span className="micro-label">VOCÊ ESTEVE FORA</span>
@@ -99,8 +108,8 @@ export function HomePiloto({ panorama, acoes, resgateDispensado, dispensarResgat
     </div> : null}
 
     {mostrarDia ? <div className="piloto-cartao piloto-dia" role="region" aria-label="Dia não iniciado">
-      <span className="micro-label">{estadoDoDia.kind === "stale_open" ? `O DIA ${estadoDoDia.day} FICOU ABERTO` : "SEU DIA AINDA NÃO FOI INICIADO"}</span>
-      <p className="piloto-titulo">Posso montar tudo automaticamente.</p>
+      <span className="micro-label">{estadoDoDia.kind === "stale_open" ? `O DIA ${estadoDoDia.day} FICOU ABERTO` : "UMA PROPOSTA PARA HOJE"}</span>
+      <p className="piloto-titulo">Hoje importa</p>
       {panorama.proposta ? <ul className="piloto-linhas">
         {panorama.proposta.principal ? <li>□ {panorama.proposta.principal.draft.title}{panorama.proposta.principal.estimativa ? <span className="piloto-mudo"> {panorama.proposta.principal.estimativa}</span> : null}</li> : null}
         {panorama.proposta.secundarios.map((s) => <li key={s.draft.title}>□ {s.draft.title}{s.estimativa ? <span className="piloto-mudo"> {s.estimativa}</span> : null}</li>)}
@@ -108,7 +117,7 @@ export function HomePiloto({ panorama, acoes, resgateDispensado, dispensarResgat
         {!panorama.proposta.principal && panorama.proposta.agenda.length === 0 ? <li className="piloto-mudo">Nada planejado ainda — o dia começa vazio e você acrescenta o que quiser.</li> : null}
       </ul> : null}
       <div className="piloto-acoes">
-        <Button variant="primary" disabled={ocupado === "dia"} onClick={() => void correr("dia", () => api.pilotoIniciarDia())}>{ocupado === "dia" ? "Montando..." : "Montar meu dia"}</Button>
+        <Button variant="primary" disabled={ocupado !== null} onClick={() => void correr("dia", () => api.pilotoIniciarDia())}>{ocupado === "dia" ? "Preparando..." : "Começar meu dia"}</Button>
         <Button variant="secondary" onClick={acoes.iniciarDiaManual}>Escolher eu mesmo</Button>
         <Button variant="ghost" onClick={dispensarDia}>Agora não</Button>
       </div>
@@ -129,7 +138,7 @@ export function HomePiloto({ panorama, acoes, resgateDispensado, dispensarResgat
           <span className="micro-label">HOJE</span>
           {estadoDoDia.kind === "ended" ? <p className="piloto-vazio">Dia encerrado · {estadoDoDia.feitos} de {estadoDoDia.total} {estadoDoDia.total === 1 ? "concluído" : "concluídos"}.</p> : hoje.concluidas + hoje.restantes === 0 ? <p className="piloto-vazio">{diaNaoIniciado ? "Nada planejado para hoje." : "Nenhum objetivo no dia."}</p> : <>
             <p className="piloto-placar"><strong>✓ {feitas.feitas}</strong><span>□ {feitas.restantes}</span></p>
-            <div className="piloto-barra" role="progressbar" aria-valuenow={hoje.progresso} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${hoje.progresso}%` }} /></div>
+            <div className="piloto-barra" role="progressbar" aria-label="Progresso dos objetivos de hoje" aria-valuenow={hoje.progresso} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${hoje.progresso}%` }} /></div>
           </>}
           {estadoDoDia.kind === "active" ? <div className="piloto-acoes"><Button variant="ghost" size="sm" onClick={acoes.encerrarDia}>Encerrar dia</Button></div> : null}
         </div>
@@ -172,7 +181,7 @@ function AgoraCard({ candidata, ocupado, porque, setPorque, abrir, comecar, conc
   concluir: (id: string) => void;
   parar: (id: string) => void;
 }) {
-  const busy = ocupado === candidata.taskId;
+  const busy = ocupado !== null;
   return <div className="piloto-agora-corpo" data-comecada={candidata.comecada || undefined}>
     <button type="button" className="piloto-agora-titulo" onClick={() => abrir(candidata.taskId)}>{candidata.titulo}</button>
     <p className="piloto-mudo">{[candidata.projeto, candidata.estimativa, candidata.prioridade === "urgent" ? "urgente" : candidata.prioridade === "high" ? "prioridade alta" : ""].filter(Boolean).join(" · ")}</p>
@@ -190,13 +199,20 @@ function AgoraCard({ candidata, ocupado, porque, setPorque, abrir, comecar, conc
 /** O indicador global da Task ativa. Vive no cabeçalho, em toda página. */
 export function TaskAtivaChip({ ativa, abrir, atualizar }: { ativa: Panorama["taskAtiva"]; abrir: (id: string) => void; atualizar: () => void }) {
   const [ocupado, setOcupado] = useState(false);
+  const [erro, setErro] = useState("");
   if (!ativa) return null;
   async function acao(fn: () => Promise<unknown>) {
     if (ocupado) return;
     setOcupado(true);
-    try { await fn(); } catch { /* o panorama conta */ }
-    setOcupado(false);
-    atualizar();
+    setErro("");
+    try {
+      await fn();
+      atualizar();
+    } catch (e) {
+      setErro(appError(e).message);
+    } finally {
+      setOcupado(false);
+    }
   }
   return <span className="task-ativa" title="Task ativa">
     <span className="task-ativa-ponto" aria-hidden="true">●</span>
@@ -204,5 +220,6 @@ export function TaskAtivaChip({ ativa, abrir, atualizar }: { ativa: Panorama["ta
     <span className="page-meta">{minutosCurto(ativa.minutos)}</span>
     <button type="button" className="task-ativa-botao" disabled={ocupado} title="Concluir" onClick={() => void acao(() => api.setTaskState(ativa.taskId, "done"))}>✓</button>
     <button type="button" className="task-ativa-botao" disabled={ocupado} title="Pausar" onClick={() => void acao(() => api.taskStop(ativa.taskId))}>‖</button>
+    {erro ? <span role="alert" title={erro}>Não foi possível salvar. Tente novamente.</span> : null}
   </span>;
 }

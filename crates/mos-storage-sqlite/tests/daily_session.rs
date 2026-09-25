@@ -88,6 +88,154 @@ fn comecar(
 // ------------------------------------------------------------------ criacao
 
 #[test]
+fn encerramento_e_reagendamento_caem_juntos_e_retry_nao_adianta_de_novo() {
+    use mos_sync::OutboxRepository;
+    let (_dir, storage) = com_sync();
+    let session = comecar(&storage, "2026-08-21", "Entregar", &[], agora());
+    let objective = storage.objectives(session).unwrap()[0].id;
+    let task = storage
+        .create_task(NewTask::create("Trabalho", "", None).unwrap())
+        .unwrap();
+    let mut edit = mos_core::EditTask::from_task(&task);
+    edit.due_at = Some(agora());
+    storage.update_task(task.id, edit).unwrap();
+    storage.set_task_started(task.id, Some(agora())).unwrap();
+    let tomorrow = dia("2026-08-22");
+    let before = storage.pendentes(100).unwrap().len();
+    // A falha ocorre DEPOIS de tentar reagendar a Task, ainda na transação.
+    assert!(storage
+        .end_day_planned(
+            session,
+            &[(DailyObjectiveId::new(), ObjectiveStatus::CarriedOver)],
+            None,
+            Some((&[task.id], &tomorrow)),
+            agora()
+        )
+        .is_err());
+    let unchanged = storage.get_task(task.id).unwrap();
+    assert!(unchanged.scheduled_for.is_none());
+    assert!(unchanged.started_at.is_some());
+    assert_eq!(unchanged.postponed_count, 0);
+    assert_eq!(
+        storage.session(session).unwrap().status,
+        SessionStatus::Active
+    );
+    assert_eq!(storage.pendentes(100).unwrap().len(), before);
+
+    storage
+        .end_day_planned(
+            session,
+            &[(objective, ObjectiveStatus::CarriedOver)],
+            None,
+            Some((&[task.id, task.id], &tomorrow)),
+            agora(),
+        )
+        .unwrap();
+    let moved = storage.get_task(task.id).unwrap();
+    assert_eq!(moved.scheduled_for, Some(tomorrow.clone()));
+    assert_eq!(moved.due_at, Some(agora()));
+    assert!(moved.started_at.is_none());
+    assert_eq!(moved.postponed_count, 1);
+    assert_eq!(
+        storage.session(session).unwrap().status,
+        SessionStatus::Completed
+    );
+    let after = storage.pendentes(100).unwrap().len();
+    assert!(storage
+        .end_day_planned(session, &[], None, Some((&[task.id], &tomorrow)), agora())
+        .is_err());
+    assert_eq!(storage.get_task(task.id).unwrap().postponed_count, 1);
+    assert_eq!(storage.pendentes(100).unwrap().len(), after);
+}
+
+#[test]
+fn inicio_automatico_planeja_e_carrega_na_mesma_transacao() {
+    use mos_sync::OutboxRepository;
+    let (_dir, storage) = com_sync();
+    let ontem = comecar(&storage, "2026-08-20", "De ontem", &[], agora());
+    let origem = storage.objectives(ontem).unwrap()[0].id;
+    let task = storage
+        .create_task(NewTask::create("Trabalho", "", None).unwrap())
+        .unwrap();
+    let prazo = agora() + Duration::days(3);
+    let mut edit = mos_core::EditTask::from_task(&task);
+    edit.due_at = Some(prazo);
+    storage.update_task(task.id, edit).unwrap();
+    let mut sessao = NewDailySession::create(dia("2026-08-21"), "", agora()).unwrap();
+    sessao.plan_linked_tasks = true;
+    let sid = sessao.id;
+    let valido = NewDailyObjective::create(
+        sid,
+        "De ontem",
+        "",
+        Some(ObjectiveLink::new(LinkKind::Task, &task.id.to_string()).unwrap()),
+        ObjectivePriority::Main,
+        0,
+        agora(),
+    )
+    .unwrap()
+    .carried_from(origem);
+    let invalido = NewDailyObjective::create(
+        sid,
+        "Task que sumiu",
+        "",
+        Some(ObjectiveLink::new(LinkKind::Task, &mos_core::TaskId::new().to_string()).unwrap()),
+        ObjectivePriority::Secondary,
+        1,
+        agora(),
+    )
+    .unwrap();
+    let fila = storage.pendentes(100).unwrap().len();
+    assert!(storage
+        .start_day(sessao.clone(), vec![valido.clone(), invalido], agora())
+        .is_err());
+    assert!(storage.session_on(&dia("2026-08-21")).unwrap().is_none());
+    assert_eq!(
+        storage.session(ontem).unwrap().status,
+        SessionStatus::Active
+    );
+    assert_eq!(
+        storage.objective(origem).unwrap().status,
+        ObjectiveStatus::Pending
+    );
+    assert!(storage.get_task(task.id).unwrap().scheduled_for.is_none());
+    assert_eq!(storage.pendentes(100).unwrap().len(), fila);
+
+    storage.start_day(sessao, vec![valido], agora()).unwrap();
+    assert_eq!(
+        storage.objective(origem).unwrap().status,
+        ObjectiveStatus::CarriedOver
+    );
+    let planejada = storage.get_task(task.id).unwrap();
+    assert_eq!(planejada.scheduled_for, Some(dia("2026-08-21")));
+    assert_eq!(planejada.due_at, Some(prazo));
+    assert_eq!(
+        storage.session(ontem).unwrap().status,
+        SessionStatus::Completed
+    );
+}
+
+#[test]
+fn reordenar_objetivo_alheio_nao_emite_operacao() {
+    use mos_sync::OutboxRepository;
+    let (_dir, storage) = com_sync();
+    let ontem = comecar(&storage, "2026-08-20", "Ontem", &[], agora());
+    let hoje = comecar(&storage, "2026-08-21", "Hoje", &[], agora());
+    let alheio = storage.objectives(ontem).unwrap()[0].id;
+    let ids: Vec<_> = storage
+        .pendentes(100)
+        .unwrap()
+        .iter()
+        .map(|op| op.id)
+        .collect();
+    storage.confirmar(&ids).unwrap();
+    storage
+        .reorder_objectives(hoje, &[alheio], agora())
+        .unwrap();
+    assert!(storage.pendentes(100).unwrap().is_empty());
+}
+
+#[test]
 fn comecar_o_dia_grava_a_sessao_e_os_objetivos_juntos() {
     let (_dir, storage) = banco();
     let id = comecar(

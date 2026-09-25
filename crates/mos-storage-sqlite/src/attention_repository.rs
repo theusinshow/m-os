@@ -16,7 +16,7 @@ use mos_core::{
     Priority, Reminder, ReminderId, ReminderSource, ReminderStatus, ReminderTarget, Trigger,
     VisualLevel,
 };
-use rusqlite::{params, Row};
+use rusqlite::{params, OptionalExtension, Row};
 use time::OffsetDateTime;
 
 use crate::{
@@ -305,6 +305,18 @@ impl AttentionRepository for SqliteStorage {
         };
 
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        // A linha como estava, para emitir so o que o gesto mudou. Snooze no
+        // celular e titulo no PC sao decisoes diferentes; um snapshot inteiro
+        // faria a segunda apagar a primeira no merge por campo (F1.3).
+        let anterior = transaction
+            .query_row(
+                &format!("SELECT {REMINDER_COLUMNS} FROM reminders WHERE id = ?1"),
+                params![reminder.id.to_string()],
+                read_reminder,
+            )
+            .optional()
+            .map_err(map_sql_error)?
+            .transpose()?;
         let changed = transaction
             .execute(
                 "UPDATE reminders SET title = ?2, body = ?3, target_type = ?4, target_id = ?5, \
@@ -359,12 +371,29 @@ impl AttentionRepository for SqliteStorage {
         //
         // `snooze_count` viaja porque adiar e ACAO DA PESSOA: ela adiou o
         // lembrete, e nao o aparelho.
-        self.emitir_update(
-            &transaction,
-            "reminder",
-            reminder.id.as_uuid(),
-            &campos_do_lembrete(reminder, target_type.as_deref(), target_id.as_deref())?,
-        )?;
+        let depois = campos_do_lembrete(reminder, target_type.as_deref(), target_id.as_deref())?;
+        let mudancas: Vec<(&'static str, serde_json::Value)> = match &anterior {
+            Some(velho) => {
+                let (tipo, alvo) = match velho.target {
+                    Some(target) => {
+                        let (kind, id) = target.as_columns();
+                        (Some(kind.to_owned()), Some(id))
+                    }
+                    None => (None, None),
+                };
+                let antes = campos_do_lembrete(velho, tipo.as_deref(), alvo.as_deref())?;
+                depois
+                    .into_iter()
+                    .zip(antes)
+                    .filter(|((_, novo), (_, velho))| novo != velho)
+                    .map(|(campo, _)| campo)
+                    .collect()
+            }
+            None => depois,
+        };
+        if !mudancas.is_empty() {
+            self.emitir_update(&transaction, "reminder", reminder.id.as_uuid(), &mudancas)?;
+        }
         transaction.commit().map_err(map_sql_error)?;
 
         drop(connection);

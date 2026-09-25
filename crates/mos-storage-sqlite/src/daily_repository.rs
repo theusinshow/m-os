@@ -26,10 +26,10 @@
 use mos_core::{
     CoreError, DailyObjective, DailyObjectiveId, DailyReflection, DailyRepository, DailySession,
     DailySessionId, Day, DayMood, ErrorCode, NewDailyObjective, NewDailyReflection,
-    NewDailySession, NewWeeklyReview, ObjectiveLink, ObjectivePriority, ObjectiveStatus,
-    SearchRequest, SessionStatus, Week, WeeklyReview, WeeklyReviewId,
+    NewDailySession, NewWeeklyReview, ObjectiveEdit, ObjectiveLink, ObjectivePriority,
+    ObjectiveStatus, SearchRequest, SessionStatus, Week, WeeklyReview, WeeklyReviewId,
 };
-use rusqlite::{params, Connection, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 use time::OffsetDateTime;
 
 use crate::{
@@ -253,7 +253,29 @@ fn insert_objective(
                 .map(|(name, value)| (name.to_owned(), value))
                 .collect(),
         },
-    )
+    )?;
+    // O carimbo da origem só existe se o novo objetivo também existir.
+    // Nunca reabre um objetivo já concluído nem reescreve outro dia futuro.
+    if let Some(origin) = objective.carried_from {
+        let changed = transaction
+            .execute(
+                "UPDATE daily_objectives SET status = 'carried_over', updated_at = ?2
+             WHERE id = ?1 AND status = 'pending' AND session_id IN (
+                 SELECT id FROM daily_sessions WHERE day < (
+                     SELECT day FROM daily_sessions WHERE id = ?3))",
+                params![origin.to_string(), now, objective.session_id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        if changed > 0 {
+            storage.emitir_update(
+                transaction,
+                KIND_OBJECTIVE,
+                origin.as_uuid(),
+                &[("status", serde_json::json!("carried_over"))],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// Rebaixa o principal atual de uma sessao, se houver outro.
@@ -576,6 +598,27 @@ impl DailyRepository for SqliteStorage {
 
         for objective in &objectives {
             insert_objective(self, &transaction, objective)?;
+            if session.plan_linked_tasks {
+                if let Some(task) = objective.link.as_ref().and_then(|link| link.task_id()) {
+                    let changed = transaction
+                        .execute(
+                            "UPDATE tasks SET scheduled_for = ?2, updated_at = ?3
+                         WHERE id = ?1 AND lifecycle_state = 'active' AND work_state <> 'done'",
+                            params![task.to_string(), session.day.as_str(), momento],
+                        )
+                        .map_err(map_sql_error)?;
+                    if changed == 0 {
+                        return Err(CoreError::new(ErrorCode::InvalidTransition,
+                            "Uma Task da proposta não está mais disponível. Atualize o dia e tente novamente.", true));
+                    }
+                    self.emitir_update(
+                        &transaction,
+                        "task",
+                        task.as_uuid(),
+                        &[("scheduledFor", serde_json::json!(session.day.as_str()))],
+                    )?;
+                }
+            }
         }
 
         transaction.commit().map_err(map_sql_error)?;
@@ -599,60 +642,69 @@ impl DailyRepository for SqliteStorage {
         DailyRepository::objective(self, id)
     }
 
-    fn save_objective(&self, objective: &DailyObjective) -> Result<DailyObjective, CoreError> {
-        let (kind, id) = match &objective.link {
-            Some(link) => {
-                let (kind, value) = link.as_columns();
-                (Some(kind.to_owned()), Some(value.to_owned()))
-            }
-            None => (None, None),
-        };
+    fn edit_objective(
+        &self,
+        id: DailyObjectiveId,
+        edit: &ObjectiveEdit,
+        now: OffsetDateTime,
+    ) -> Result<DailyObjective, CoreError> {
         let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        // A linha e lida AQUI, dentro da transacao: um snapshot lido antes,
+        // fora dela, poderia carregar um campo que o sync acabou de mudar.
+        let atual = transaction
+            .query_row(
+                &format!("SELECT {OBJECTIVE_COLUMNS} FROM daily_objectives WHERE id = ?1"),
+                params![id.to_string()],
+                read_objective,
+            )
+            .optional()
+            .map_err(map_sql_error)?
+            .ok_or_else(|| not_found("Objetivo do dia nao encontrado."))??;
+        let proximo = atual.apply(edit, now);
 
-        if objective.priority == ObjectivePriority::Main {
+        // So o que difere viaja, e so o que difere e gravado.
+        let antes = objective_fields(&atual)?;
+        let mudancas: Vec<(&'static str, serde_json::Value)> = objective_fields(&proximo)?
+            .into_iter()
+            .zip(antes)
+            .filter(|((_, novo), (_, velho))| novo != velho)
+            .map(|(campo, _)| campo)
+            .collect();
+        if mudancas.is_empty() {
+            return Ok(atual);
+        }
+
+        if proximo.priority == ObjectivePriority::Main && atual.priority != ObjectivePriority::Main
+        {
             demote_main(
                 self,
                 &transaction,
-                objective.session_id,
-                Some(objective.id),
-                &format_time(objective.updated_at)?,
+                proximo.session_id,
+                Some(id),
+                &format_time(now)?,
             )?;
         }
-
-        let changed = transaction
+        transaction
             .execute(
-                "UPDATE daily_objectives SET title = ?2, description = ?3, link_kind = ?4, \
-                 link_id = ?5, priority = ?6, status = ?7, position = ?8, updated_at = ?9, \
-                 completed_at = ?10 WHERE id = ?1",
+                "UPDATE daily_objectives SET title = ?2, description = ?3, priority = ?4, \
+                 status = ?5, updated_at = ?6, completed_at = ?7 WHERE id = ?1",
                 params![
-                    objective.id.to_string(),
-                    objective.title,
-                    objective.description,
-                    kind,
-                    id,
-                    objective.priority.as_str(),
-                    objective.status.as_str(),
-                    objective.position,
-                    format_time(objective.updated_at)?,
-                    objective.completed_at.map(format_time).transpose()?,
+                    id.to_string(),
+                    proximo.title,
+                    proximo.description,
+                    proximo.priority.as_str(),
+                    proximo.status.as_str(),
+                    format_time(now)?,
+                    proximo.completed_at.map(format_time).transpose()?,
                 ],
             )
             .map_err(map_sql_error)?;
-        if changed == 0 {
-            return Err(not_found("Objetivo do dia nao encontrado."));
-        }
-
-        self.emitir_update(
-            &transaction,
-            KIND_OBJECTIVE,
-            objective.id.as_uuid(),
-            &objective_fields(objective)?,
-        )?;
+        self.emitir_update(&transaction, KIND_OBJECTIVE, id.as_uuid(), &mudancas)?;
         transaction.commit().map_err(map_sql_error)?;
 
         drop(connection);
-        DailyRepository::objective(self, objective.id)
+        DailyRepository::objective(self, id)
     }
 
     fn set_main_objective(
@@ -729,7 +781,7 @@ impl DailyRepository for SqliteStorage {
         for (position, id) in order.iter().enumerate() {
             // O `session_id` entra no WHERE: um id de outra sessao mandado por
             // engano nao pode reordenar o dia de outra pessoa.
-            transaction
+            let changed = transaction
                 .execute(
                     "UPDATE daily_objectives SET position = ?3, updated_at = ?4 \
                      WHERE id = ?1 AND session_id = ?2",
@@ -741,6 +793,9 @@ impl DailyRepository for SqliteStorage {
                     ],
                 )
                 .map_err(map_sql_error)?;
+            if changed == 0 {
+                continue;
+            }
             self.emitir_update(
                 &transaction,
                 KIND_OBJECTIVE,
@@ -753,16 +808,68 @@ impl DailyRepository for SqliteStorage {
         DailyRepository::objectives(self, session)
     }
 
-    fn end_day(
+    fn end_day_planned(
         &self,
         session: DailySessionId,
         resolutions: &[(DailyObjectiveId, ObjectiveStatus)],
         reflection: Option<NewDailyReflection>,
+        planning: Option<(&[mos_core::TaskId], &Day)>,
         now: OffsetDateTime,
     ) -> Result<DailySession, CoreError> {
         let momento = format_time(now)?;
         let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+
+        if let Some((tasks, day)) = planning {
+            let active: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM daily_sessions WHERE id = ?1 AND status = 'active')",
+                params![session.to_string()], |row| row.get(0),
+            ).map_err(map_sql_error)?;
+            if !active {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidTransition,
+                    "Este dia não está mais aberto. Atualize o painel.",
+                    true,
+                ));
+            }
+            for task in tasks {
+                let before: Option<(Option<String>, i64, Option<String>)> = transaction
+                    .query_row(
+                        "SELECT scheduled_for, postponed_count, started_at FROM tasks
+                     WHERE id = ?1 AND lifecycle_state = 'active' AND work_state <> 'done'",
+                        params![task.to_string()],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    )
+                    .optional()
+                    .map_err(map_sql_error)?;
+                let Some((scheduled, count, started)) = before else {
+                    return Err(not_found(
+                        "Uma Task do encerramento não está mais disponível.",
+                    ));
+                };
+                let changed_day = scheduled.as_deref() != Some(day.as_str());
+                if !changed_day && started.is_none() {
+                    continue;
+                }
+                let count = count.saturating_add(i64::from(changed_day));
+                transaction
+                    .execute(
+                        "UPDATE tasks SET scheduled_for = ?2, postponed_count = ?3,
+                     started_at = NULL, updated_at = ?4 WHERE id = ?1",
+                        params![task.to_string(), day.as_str(), count, momento],
+                    )
+                    .map_err(map_sql_error)?;
+                let mut fields = Vec::new();
+                if changed_day {
+                    fields.push(("scheduledFor", serde_json::json!(day.as_str())));
+                    fields.push(("postponedCount", serde_json::json!(count)));
+                }
+                if started.is_some() {
+                    fields.push(("startedAt", serde_json::Value::Null));
+                }
+                self.emitir_update(&transaction, "task", task.as_uuid(), &fields)?;
+            }
+        }
 
         for (id, status) in resolutions {
             let stamp = (*status == ObjectiveStatus::Completed).then_some(momento.as_str());

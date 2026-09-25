@@ -73,6 +73,7 @@ pub struct Leitura {
     pub academic: Vec<mos_core::Compromisso>,
     pub agenda: Vec<mos_core::CalendarItem>,
     pub daily: Option<mos_core::DailyToday>,
+    pub previous_objectives: Vec<mos_core::DailyObjective>,
     pub sync: SyncNoRetrato,
     pub ultima_presenca: Option<time::OffsetDateTime>,
     pub habitos: Habitos,
@@ -90,6 +91,7 @@ impl Leitura {
             academic: &self.academic,
             agenda: &self.agenda,
             daily: self.daily.as_ref(),
+            previous_objectives: &self.previous_objectives,
             sync: &self.sync,
             ultima_presenca: self.ultima_presenca,
             habitos: &self.habitos,
@@ -121,7 +123,12 @@ pub fn ler<R: Runtime>(app: &AppHandle<R>) -> Result<Leitura, CoreError> {
     let inicio = hoje.inicio_do_dia(offset);
     let agenda =
         crate::calendar::janela(app, inicio, inicio + time::Duration::days(2)).unwrap_or_default();
-    let daily = state.daily.today(&hoje).ok();
+    let daily = Some(state.daily.today(&hoje)?);
+    let previous_objectives = state
+        .daily
+        .previous(&hoje)?
+        .map(|(_, objectives)| objectives)
+        .unwrap_or_default();
     let sync = sync_no_retrato(app);
     let ultima_presenca = app
         .try_state::<PilotoRuntime>()
@@ -163,6 +170,7 @@ pub fn ler<R: Runtime>(app: &AppHandle<R>) -> Result<Leitura, CoreError> {
         academic,
         agenda,
         daily,
+        previous_objectives,
         sync,
         ultima_presenca,
         habitos,
@@ -238,52 +246,11 @@ pub fn piloto_iniciar_dia<R: Runtime>(
 ) -> Result<mos_core::DailyToday, CoreError> {
     let leitura = ler(&app)?;
     let proposta = mos_core::propor_dia(&leitura.retrato());
-    // Ontem aberto encerra antes, carregando o pendente: e o que a proposta ja
-    // assumiu ao propor os carry-overs.
-    if let Some(stale) = leitura.daily.as_ref().and_then(|d| d.stale.as_ref()) {
-        let state = app.state::<AppState>();
-        let resolutions = leitura
-            .daily
-            .as_ref()
-            .map(|d| {
-                d.stale_objectives
-                    .iter()
-                    .filter(|o| o.status == mos_core::ObjectiveStatus::Pending)
-                    .map(|o| mos_core::ObjectiveResolution {
-                        objective_id: o.id.to_string(),
-                        status: "carried_over".into(),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let _ = state.daily.end_session(
-            stale.id,
-            &mos_core::EndDayInput {
-                resolutions,
-                mood: String::new(),
-                summary: String::new(),
-            },
-        );
-    }
-    // As Tasks propostas ficam planejadas para hoje: e o que faz o "Hoje" da
-    // Home e o aviso de "planejada e nao comecada" terem chao.
     let hoje = mos_core::Day::from_local(leitura.now_local);
-    {
-        let state = app.state::<AppState>();
-        for draft in proposta
-            .input
-            .main
-            .iter()
-            .chain(proposta.input.secondaries.iter())
-        {
-            if draft.link_kind == "task" {
-                let _ = state
-                    .work
-                    .plan_task(&draft.link_id, Some(hoje.clone()), false);
-            }
-        }
-    }
-    let dia = crate::daily::iniciar(&app, &proposta.input)?;
+    let dia = app
+        .state::<AppState>()
+        .daily
+        .start_planned(hoje, &proposta.input)?;
     avisar(&app);
     Ok(dia)
 }
@@ -311,31 +278,13 @@ pub fn piloto_encerrar_dia<R: Runtime>(
     pedido: EncerramentoPedido,
 ) -> Result<mos_core::DailyToday, CoreError> {
     let state = app.try_state::<AppState>().ok_or_else(erro_abrindo)?;
-    let now_local = crate::surface::now_local(&app);
-    let amanha = mos_core::dia_seguinte(&mos_core::Day::from_local(now_local));
-    for id in &pedido.mover {
-        state.work.plan_task(id, Some(amanha.clone()), true)?;
-        // Parar o cronometro de quem ficou "comecada": amanha e outro dia.
-        if let Ok(t) = state.work.task(id) {
-            if t.started_at.is_some() {
-                let _ = state.work.stop_task(id);
-            }
-        }
-    }
     let hoje = crate::daily::hoje(&app);
     let input = mos_core::EndDayInput {
         resolutions: pedido.resolutions,
         mood: pedido.mood,
         summary: pedido.summary,
     };
-    let dia = match state.daily.today(&hoje)?.stale {
-        // Sem sessao de hoje e com ontem aberto: e ontem que se encerra.
-        Some(stale) if state.daily.today(&hoje)?.status == mos_core::SessionStatus::NotStarted => {
-            state.daily.end_session(stale.id, &input)?;
-            state.daily.today(&hoje)?
-        }
-        _ => state.daily.end(&hoje, &input)?,
-    };
+    let dia = state.daily.end_planned(&hoje, &input, &pedido.mover)?;
     let _ = app.emit("data-changed", "daily");
     avisar(&app);
     Ok(dia)
@@ -425,12 +374,7 @@ pub fn piloto_resgate_aplicar<R: Runtime>(
 #[tauri::command]
 pub fn task_start<R: Runtime>(app: AppHandle<R>, id: String) -> Result<Task, CoreError> {
     let state = app.try_state::<AppState>().ok_or_else(erro_abrindo)?;
-    // Uma ativa por vez: comecar outra para a anterior, sem concluir.
-    for t in state.work.tasks(false)? {
-        if t.started_at.is_some() && t.id.to_string() != id {
-            let _ = state.work.stop_task(&t.id.to_string());
-        }
-    }
+    // A troca de foco é atômica no repositório, inclusive via Hermes e web.
     let task = state.work.start_task(&id, state.clock.now())?;
     let _ = app.emit("data-changed", "task");
     Ok(task)

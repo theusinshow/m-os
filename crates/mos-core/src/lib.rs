@@ -63,13 +63,14 @@ pub mod univirtus {
 }
 pub use action::{
     action_contract, parse_action, parse_action_at, preview_of, ActionArgs, ActionAudit,
-    ActionEffect, ActionKind, ActionLine, ActionPreview, TargetRef, TouchedEntity, UndoStep,
+    ActionEffect, ActionKind, ActionLine, ActionPreview, InterruptedFocus, TargetRef,
+    TouchedEntity, UndoStep, UndoTaskStart,
 };
 pub use agent::{
     candidates_block, here_block, normalize, now_block, parse_query, preamble, query_answer,
-    query_contract, resolution_error, resolve, search_terms, short_id, split_fenced, spoken_moment,
-    system_context, Candidate, EntityKind, Here, Named, PreambleInput, QueryRequest, Resolved,
-    MAX_CANDIDATES, MAX_QUERY_HOPS,
+    query_contract, rank_candidates, resolution_error, resolve, search_terms, short_id,
+    split_fenced, spoken_moment, system_context, task_context, Candidate, EntityKind, Here, Named,
+    PreambleInput, QueryRequest, Resolved, MAX_CANDIDATES, MAX_QUERY_HOPS,
 };
 pub use app::{
     app_catalog, app_targeting_host, validate_launch_target, validate_source_url, AppCapabilities,
@@ -98,9 +99,9 @@ pub use daily::{
     completes_with_task, compose_context, summarize, CarryOver, ContextInput, DailyContext,
     DailyObjective, DailyObjectiveId, DailyReflection, DailySession, DailySessionId,
     DailySessionSummary, DailyToday, Day, DayMood, EndDayInput, LinkKind, NewDailyObjective,
-    NewDailyReflection, NewDailySession, ObjectiveDraft, ObjectiveLink, ObjectivePriority,
-    ObjectiveResolution, ObjectiveStatus, ProjectSuggestion, SessionStatus, StartDayInput,
-    TaskSuggestion, SUGGESTED_SECONDARIES,
+    NewDailyReflection, NewDailySession, ObjectiveDraft, ObjectiveEdit, ObjectiveLink,
+    ObjectivePriority, ObjectiveResolution, ObjectiveStatus, ProjectSuggestion, SessionStatus,
+    StartDayInput, TaskSuggestion, SUGGESTED_SECONDARIES,
 };
 pub use error::{CoreError, ErrorCode};
 pub use feriados::{nacionais, nacionais_entre, pascoa, EscopoDoFeriado, Feriado, PesoDoFeriado};
@@ -176,9 +177,9 @@ pub use service::{
     AcademicService, AppService, AttentionService, AudioOutcome, CaptureService,
     ConversationService, CreateAppInput, CreateCaptureInput, CreateProjectInput,
     CreateResourceInput, CreateTaskInput, CreateWorkspaceInput, DailyService, DataService,
-    GuardianSettle, MeetingOverview, MeetingService, MemoryService, MonitoringService, Servicos,
-    TrackingService, TrimOutcome, UpdateAppInput, UpdateProjectInput, UpdateResourceInput,
-    UpdateTaskInput, UpdateWorkspaceInput, VoiceService, WorkService,
+    GuardianSettle, MeetingOverview, MeetingService, MemoryService, MonitoringService,
+    ProposalClaim, Servicos, TrackingService, TrimOutcome, UpdateAppInput, UpdateProjectInput,
+    UpdateResourceInput, UpdateTaskInput, UpdateWorkspaceInput, VoiceService, WorkService,
 };
 pub use stale::{
     atividade_do_project, compose_stale, project_activity, tolerancia, trabalho_aberto, Parada,
@@ -205,6 +206,6 @@ pub use work::{
     parse_checklist_lines, validate_pin_kind, validate_section_id, validate_span,
     validate_widget_id, ChecklistItem, ChecklistItemId, EditTask, HiddenWidget, NewChecklistItem,
     NewProject, NewTask, NewWorkspace, Project, ProjectId, RadialPin, RadialPinInput, SearchItem,
-    Task, TaskDetail, TaskId, TaskState, WidgetPlacement, WidgetPlacementInput, Workspace,
-    WorkspaceId, MAX_CHECKLIST_PASTE,
+    Task, TaskDetail, TaskId, TaskStartEffect, TaskStartUndone, TaskState, WidgetPlacement,
+    WidgetPlacementInput, Workspace, WorkspaceId, MAX_CHECKLIST_PASTE,
 };

@@ -77,7 +77,7 @@ const loadMotionFeatures = () => import("./motionFeatures").then((module) => mod
 /* `apps` continua sendo uma pagina, e so deixou de ser um destino do rail
    (ADR-038). Ela e alcancada pelo Command, pelo widget APPS da Home e pelos
    Workspaces — a pagina existe, o icone no rail e que saiu. */
-type UndoAction = { message: string; run: () => Promise<unknown> };
+type UndoAction = { message: string; run?: () => Promise<unknown> };
 
 /**
  * O que a Home precisa saber sobre o dia.
@@ -3131,12 +3131,28 @@ function DesktopApp() {
       })
       .catch(() => undefined);
   }, [currentWorkspace, drawerTask, page, projects, selectedProjectId]);
-  useEffect(() => { const handler = (event: globalThis.KeyboardEvent) => { if (event.ctrlKey && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); } if (event.ctrlKey && event.key.toLowerCase() === "z" && undo) { event.preventDefault(); void undo.run().then(() => { setUndo(null); return refresh(); }); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, [refresh, undo]);
+  useEffect(() => { const handler = (event: globalThis.KeyboardEvent) => { if (event.ctrlKey && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); } if (event.ctrlKey && event.key.toLowerCase() === "z" && undo) { event.preventDefault(); runUndo(undo); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, [refresh, undo]);
 
   // ~5s: tempo de ler e decidir desfazer, sem virar mobilia na tela.
   function closeCommand() {
     setCommandClosing(true);
     window.setTimeout(() => { setCommandOpen(false); setCommandClosing(false); }, 90);
+  }
+  /* Desfazer tambem pode falhar ou sair parcial — a Task mudou depois, outra
+   * ja esta em andamento. Antes a rejeicao era engolida e o recibo ficava na
+   * tela como se nada tivesse acontecido; agora a falha e a nota viram o
+   * proprio recibo, sem botao, porque nao ha mais o que desfazer ali. */
+  function runUndo(action: UndoAction) {
+    if (!action.run) return;
+    void action.run().then(
+      (nota) => {
+        const texto = typeof nota === "string" ? nota.trim() : "";
+        if (texto) showReceipt({ message: texto });
+        else setUndo(null);
+        return refresh();
+      },
+      (error: unknown) => showReceipt({ message: `Não foi possível desfazer: ${appError(error).message}` }),
+    );
   }
   function showReceipt(action: UndoAction) { setUndo(action); if (undoTimer.current) window.clearTimeout(undoTimer.current); undoTimer.current = window.setTimeout(() => setUndo(null), 5_000); }
   /* Posicao de leitura por pagina.
@@ -3552,7 +3568,7 @@ function DesktopApp() {
       onRecibo={(message, run) => showReceipt({ message, run })}
       refresh={refresh}
       onOcupacao={setDropOcupado}
-    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openMeeting={(id) => { setFocusedMeetingId(id); navigate("reunioes"); }} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} openDailySession={(sessionId) => { void api.dailySession(sessionId).then((carregada) => setFluxoDoDia({ tipo: "sessao", carregada })).catch(() => undefined); }} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} tasks={tasks} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} openTask={setDrawerTask} remind={() => setComposer({ title: drawerTask.title, target: { type: "task", id: drawerTask.id }, targetLabel: "TASK" })} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}<Argos pose={argosPose} presenca={argosPresenca} canto={argosCanto} onAbrir={() => setAttentionOpen(true)} onAbrirHermes={() => navigate("hermes")} /><LazyMotion features={loadMotionFeatures} strict><AnimatePresence>{undo ? <m.div className="receipt" role="status" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}><span>{undo.message}</span><button onClick={() => void undo.run().then(() => { setUndo(null); return refresh(); })}>DESFAZER · CTRL Z</button></m.div> : null}</AnimatePresence></LazyMotion></div>;
+    />}{commandOpen ? <CommandSurface closing={commandClosing} close={closeCommand} openMeeting={(id) => { setFocusedMeetingId(id); navigate("reunioes"); }} openCapture={setViewedCapture} openTask={setDrawerTask} openProject={openProject} openWorkspace={openWorkspace} openApp={openRegisteredApp} openResource={openResource} openDailySession={(sessionId) => { void api.dailySession(sessionId).then((carregada) => setFluxoDoDia({ tipo: "sessao", carregada })).catch(() => undefined); }} routeFunction={routeFunction} /> : null}{viewedCapture ? <CaptureViewer capture={viewedCapture} close={() => setViewedCapture(null)} /> : null}{drawerTask ? <TaskDrawer key={drawerTask.id} task={drawerTask} projects={projects} tasks={tasks} close={() => setDrawerTask(null)} refresh={refresh} receipt={showReceipt} openCapture={(capture) => { setDrawerTask(null); setViewedCapture(capture); }} openTask={setDrawerTask} remind={() => setComposer({ title: drawerTask.title, target: { type: "task", id: drawerTask.id }, targetLabel: "TASK" })} /> : null}{slotEmEscolha !== null ? <LequeSeletor slot={slotEmEscolha} workspaceId={currentWorkspaceId || null} apps={apps} onGravado={setRadialPins} onFechar={() => setSlotEmEscolha(null)} /> : null}<Argos pose={argosPose} presenca={argosPresenca} canto={argosCanto} onAbrir={() => setAttentionOpen(true)} onAbrirHermes={() => navigate("hermes")} /><LazyMotion features={loadMotionFeatures} strict><AnimatePresence>{undo ? <m.div className="receipt" role="status" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: MOTION_DURATIONS.enter, ease: MOTION_EASINGS.enter }}><span>{undo.message}</span>{undo.run ? <button onClick={() => runUndo(undo)}>DESFAZER · CTRL Z</button> : null}</m.div> : null}</AnimatePresence></LazyMotion></div>;
 }
 
 /**

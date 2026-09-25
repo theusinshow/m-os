@@ -1,5 +1,12 @@
 # PILOTO — o M/OS que procura a pessoa
 
+> Revisão de 2026-09-24 (ADR-073): a proposta carrega também intenções do último
+> dia encerrado, limitada a quatro objetivos viáveis. Tasks planejadas para o
+> futuro saem de Agora, salvo início explícito; o prazo permanece na atenção.
+> Início planejado e encerramento com reagendamento são transacionais com a
+> outbox. Pulse designa a evolução deste mesmo motor. Cobertura e limites por
+> plataforma: [MOS-AUDIT](MOS-AUDIT.md).
+
 **Estado:** implementado · 2026-09-15 · ADR-068, ADR-069, ADR-070
 
 Implementação: `crates/mos-core/src/piloto/` (motores, puros), `apps/desktop/src-tauri/src/piloto.rs`

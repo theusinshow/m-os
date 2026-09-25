@@ -4118,6 +4118,38 @@ select:disabled {
   cursor: default;
 }
 
+/* A lista de um <select> nao e desenhada pela pagina: quem a pinta e o sistema,
+   e ele so sabe o que `color-scheme` e as regras de `option` contarem. Sem isso
+   o WebView abre uma lista com o fundo claro do padrao e por cima a tinta clara
+   do tema escuro — a lista aparece e ninguem consegue ler. O bloco abaixo e o
+   padrao de TODO select do app: o campo fechado ja seguia o sistema, o que
+   faltava era a lista aberta seguir tambem. */
+select {
+  color-scheme: dark;
+}
+
+[data-theme='light'] select {
+  color-scheme: light;
+}
+
+/* `--surface-raised` e nao `--canvas`: a lista flutua sobre a tela, e a escada
+   de superficies diz que o que flutua sobe um degrau. */
+select option {
+  color: var(--text);
+  background-color: var(--surface-raised);
+}
+
+/* O item corrente e o unico que pode se destacar: e o mesmo que o campo ja
+   mostra fechado, entao o realce apenas confirma onde o olho ja estava. */
+select option:checked {
+  color: var(--text);
+  background-color: var(--surface-active);
+}
+
+select option:disabled {
+  color: var(--text-system);
+}
+
 /* Erro tem cor, ao contrario de warning: e o unico estado alem do sinal que
    pode usar cromatica, e vem sempre acompanhado de frase. */
 input[aria-invalid="true"],
@@ -6506,6 +6538,13 @@ input[type="checkbox"]:disabled {
   font: var(--text-micro);
   letter-spacing: var(--tracking-micro);
   text-transform: uppercase;
+}
+
+/* Proposta reservada sem desfecho gravado (F1.2): nem erro, nem sucesso. */
+.hermes-action-incerta {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--text-small);
 }
 
 /* Botao de superficie, para o que NAO e cartao de proposta: abrir uma entidade

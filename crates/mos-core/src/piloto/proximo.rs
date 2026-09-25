@@ -64,6 +64,12 @@ pub fn pontuar(r: &Retrato<'_>, task: &Task) -> Option<Candidata> {
     }
 
     let hoje = r.hoje();
+    // Planejar para depois é uma decisão, não apenas um peso. O prazo continua
+    // visível na atenção; a recomendação respeita a escolha até aquele dia.
+    // Um início explícito posterior ao planejamento permite continuar agora.
+    if task.scheduled_for.as_ref().is_some_and(|day| day > &hoje) && task.started_at.is_none() {
+        return None;
+    }
     let now = r.now_local;
     let mut pontos = 0i32;
     let mut razoes = Vec::new();
@@ -163,7 +169,7 @@ pub fn pontuar(r: &Retrato<'_>, task: &Task) -> Option<Candidata> {
         }
     }
 
-    pontos += (task.postponed_count as i32 * 3).min(15);
+    pontos += task.postponed_count.min(5) as i32 * 3;
     if task.postponed_count >= 3 {
         razoes.push(format!("já adiada {} vezes", task.postponed_count));
     }
@@ -278,6 +284,30 @@ mod tests {
         assert_eq!(rec.agora.unwrap().titulo, "vencida");
         assert_eq!(rec.seguintes[0].titulo, "planejada");
         assert_eq!(rec.seguintes[1].titulo, "solta");
+    }
+
+    #[test]
+    fn adiar_respeita_o_dia_sem_esconder_o_prazo_da_atencao() {
+        let mut c = Cenario::default();
+        let mut adiada = task("Amanhã");
+        adiada.state = TaskState::Doing;
+        adiada.due_at = Some(agora() - Duration::days(1));
+        adiada.scheduled_for = Some(super::super::dia_seguinte(&c.retrato().hoje()));
+        c.tasks.push(adiada);
+        assert!(recomendar(&c.retrato()).agora.is_none());
+        assert!(!super::super::atencao::compor_atencao(&c.retrato()).is_empty());
+        c.now += Duration::days(1);
+        assert_eq!(recomendar(&c.retrato()).agora.unwrap().titulo, "Amanhã");
+    }
+
+    #[test]
+    fn comecar_explicitamente_permite_antecipar_o_planejamento() {
+        let mut c = Cenario::default();
+        let mut t = task("Comecei antes");
+        t.scheduled_for = Some(super::super::dia_seguinte(&c.retrato().hoje()));
+        t.started_at = Some(agora());
+        c.tasks.push(t);
+        assert!(recomendar(&c.retrato()).agora.unwrap().comecada);
     }
 
     #[test]

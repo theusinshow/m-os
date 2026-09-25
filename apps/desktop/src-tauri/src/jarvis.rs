@@ -685,13 +685,18 @@ async fn run_action<R: Runtime>(
         }
         mos_core::ActionArgs::TaskStart { task } => {
             let target = resolve_task(&state, task)?;
-            let updated = crate::piloto::task_start(app.clone(), target.id.to_string())?;
+            // O efeito INTEIRO volta do repositorio — inclusive quem perdeu o
+            // foco —, e e isso que o recibo guarda para desfazer.
+            let effect = state
+                .work
+                .start_task_recorded(&target.id.to_string(), state.clock.now())?;
+            let _ = app.emit("data-changed", "task");
+            let updated = effect.task.clone();
             Ok(mos_core::ActionEffect::new(
                 format!("Começada: {}", updated.title),
-                Some(mos_core::UndoStep::RestoreTaskState {
-                    id: updated.id.to_string(),
-                    state: target.state.as_str().to_owned(),
-                }),
+                Some(mos_core::UndoStep::UndoTaskStart(
+                    mos_core::UndoTaskStart::from_effect(&effect),
+                )),
             )
             .touching("task", updated.id.to_string(), updated.title))
         }
@@ -1136,13 +1141,21 @@ fn moment_for_day(day: &str) -> Result<time::OffsetDateTime, CoreError> {
 /// Vive num comando proprio, e nao dentro de `action_resolve`, porque o desfazer
 /// acontece depois — na janela do recibo, quando o usuario le o que aconteceu e
 /// decide que nao era aquilo.
+///
+/// Devolve uma nota quando o desfazer foi PARCIAL — o que ficou como estava e
+/// por que. Vazia quando tudo voltou.
 #[tauri::command]
 pub async fn action_undo<R: Runtime>(
     app: AppHandle<R>,
     step: mos_core::UndoStep,
-) -> Result<(), CoreError> {
+) -> Result<String, CoreError> {
     let services = app.state::<AppState>();
+    let mut nota = String::new();
     match step {
+        mos_core::UndoStep::UndoTaskStart(passo) => {
+            let desfeito = services.work.undo_task_start(&passo)?;
+            nota = desfeito.notes.join(" ");
+        }
         mos_core::UndoStep::ArchiveCapture { id } => {
             services.captures.archive(&id)?;
         }
@@ -1293,7 +1306,7 @@ pub async fn action_undo<R: Runtime>(
         }
     }
     let _ = app.emit("data-changed", "undo");
-    Ok(())
+    Ok(nota)
 }
 
 /// Acha uma entidade a partir do que o modelo escreveu.
@@ -1539,6 +1552,36 @@ pub async fn action_resolve<R: Runtime>(
     approved: bool,
 ) -> Result<ActionResolution, CoreError> {
     let service = app.state::<AppState>().conversations.clone();
+    // A reserva vem ANTES de qualquer efeito (MOS-OVERHAUL-PLAN F1.2). Clique
+    // duplo, retry depois de timeout e reenvio depois de reiniciar chegam aqui
+    // e recebem o desfecho gravado — nunca uma segunda execucao.
+    match service.claim_proposal(&message_id, &raw, approved)? {
+        mos_core::ProposalClaim::Claimed => {}
+        mos_core::ProposalClaim::Settled(body) => {
+            let message = service.message(&message_id)?;
+            let (receipt, undo) = match body {
+                PartBody::ActionProposal {
+                    status: ProposalStatus::Executed,
+                    outcome,
+                    audit,
+                    ..
+                } => (outcome, audit.and_then(|audit| audit.undo)),
+                _ => (String::new(), None),
+            };
+            return Ok(ActionResolution {
+                receipt,
+                message,
+                undo,
+            });
+        }
+        mos_core::ProposalClaim::InFlight => {
+            return Err(CoreError::new(
+                mos_core::ErrorCode::Conflict,
+                "Esta proposta já foi enviada para execução e o resultado ainda não foi confirmado. Confira se o efeito aconteceu antes de pedir de novo.",
+                false,
+            ));
+        }
+    }
     let message = service.message(&message_id)?;
 
     let (status, outcome, undo, audit) = if !approved {
@@ -1686,15 +1729,6 @@ pub fn project_history(
 /// fora os poucos acertos do termo que realmente identifica a entidade.
 const HITS_POR_TERMO: usize = 8;
 
-/// Um candidato e quantos termos da frase bateram nele.
-struct Pontuado {
-    candidate: mos_core::Candidate,
-    /// Quantos termos distintos acertaram esta entidade.
-    termos: usize,
-    /// Ordem em que apareceu. Desempata sem sortear.
-    ordem: usize,
-}
-
 /// Encurta um texto para caber numa linha do prompt.
 ///
 /// O corte e por caractere e nao por byte: cortar no meio de um `ç` produziria
@@ -1723,103 +1757,100 @@ fn resumo(texto: &str, teto: usize) -> String {
 /// bateram vira o ranking. A entidade que aparece em quatro buscas diferentes e
 /// mais provavelmente a citada do que a que apareceu em uma.
 pub fn candidates_for<R: Runtime>(app: &AppHandle<R>, text: &str) -> Vec<mos_core::Candidate> {
+    candidates_for_kinds(app, text, &[])
+}
+
+fn candidates_for_kinds<R: Runtime>(
+    app: &AppHandle<R>,
+    text: &str,
+    kinds: &[mos_core::EntityKind],
+) -> Vec<mos_core::Candidate> {
     let termos = mos_core::search_terms(text);
     if termos.is_empty() {
         return Vec::new();
     }
     let state = app.state::<AppState>();
-    let mut encontrados: Vec<Pontuado> = Vec::new();
-
-    let registrar =
-        |candidate: mos_core::Candidate, encontrados: &mut Vec<Pontuado>| match encontrados
-            .iter_mut()
-            .find(|existente| existente.candidate.id == candidate.id)
-        {
-            Some(existente) => existente.termos += 1,
-            None => {
-                let ordem = encontrados.len();
-                encontrados.push(Pontuado {
-                    candidate,
-                    termos: 1,
-                    ordem,
-                });
-            }
-        };
-
-    for termo in &termos {
-        // Arquivados ficam de fora: agir sobre o que ja saiu de vista e
-        // exatamente o tipo de surpresa que a confirmacao existe para evitar.
+    let mut hits = Vec::new();
+    for (index, termo) in termos.iter().enumerate() {
         if let Ok(items) = state.work.search(termo, false) {
-            for item in items.into_iter().take(HITS_POR_TERMO) {
-                if let Some(candidate) = candidate_of(&item) {
-                    registrar(candidate, &mut encontrados);
-                }
-            }
+            hits.extend(
+                items
+                    .iter()
+                    .filter_map(candidate_of)
+                    .filter(|c| kinds.is_empty() || kinds.contains(&c.kind))
+                    .take(HITS_POR_TERMO)
+                    .map(|c| (index, c)),
+            );
         }
-        if let Ok(resources) = state.memory.search(termo, false, HITS_POR_TERMO) {
-            for resource in resources {
-                registrar(
-                    mos_core::Candidate {
-                        kind: mos_core::EntityKind::Resource,
-                        id: resource.id.to_string(),
-                        label: resumo(&resource.title, 70),
-                        detail: resource.kind.as_str().to_owned(),
-                    },
-                    &mut encontrados,
-                );
-            }
-        }
-        if let Ok(meetings) = state.meetings.search(termo, HITS_POR_TERMO) {
-            for meeting in meetings {
-                registrar(
-                    mos_core::Candidate {
-                        kind: mos_core::EntityKind::Meeting,
-                        id: meeting.id.to_string(),
-                        label: resumo(&meeting.title, 70),
-                        detail: mos_core::spoken_moment(meeting.started_at),
-                    },
-                    &mut encontrados,
-                );
-            }
-        }
-    }
-
-    // Os lembretes abertos entram por comparacao direta, e nao por FTS: eles
-    // nao tem indice de busca, e sao poucos por definicao — um usuario com
-    // duzentos lembretes abertos tem um problema que nao e de indice.
-    if let Ok(abertos) = state.attention.open() {
-        for reminder in abertos {
-            let alvo = mos_core::normalize(&reminder.title);
-            for termo in &termos {
-                if alvo.contains(termo.as_str()) {
-                    registrar(
+        if kinds.is_empty() || kinds.contains(&mos_core::EntityKind::Resource) {
+            if let Ok(resources) = state.memory.search(termo, false, HITS_POR_TERMO) {
+                hits.extend(resources.into_iter().map(|r| {
+                    (
+                        index,
                         mos_core::Candidate {
-                            kind: mos_core::EntityKind::Reminder,
-                            id: reminder.id.to_string(),
-                            label: resumo(&reminder.title, 70),
-                            detail: reminder
-                                .next_due_at
-                                .map(mos_core::spoken_moment)
-                                .unwrap_or_else(|| reminder.status.as_str().to_owned()),
+                            kind: mos_core::EntityKind::Resource,
+                            id: r.id.to_string(),
+                            label: resumo(&r.title, 70),
+                            detail: r.kind.as_str().to_owned(),
                         },
-                        &mut encontrados,
-                    );
+                    )
+                }));
+            }
+        }
+        if kinds.is_empty() || kinds.contains(&mos_core::EntityKind::Meeting) {
+            if let Ok(meetings) = state.meetings.search(termo, HITS_POR_TERMO) {
+                hits.extend(meetings.into_iter().map(|m| {
+                    (
+                        index,
+                        mos_core::Candidate {
+                            kind: mos_core::EntityKind::Meeting,
+                            id: m.id.to_string(),
+                            label: resumo(&m.title, 70),
+                            detail: mos_core::spoken_moment(m.started_at),
+                        },
+                    )
+                }));
+            }
+            // Uma lembrança pode estar só no que foi dito, não no título.
+            if let Ok(transcripts) = state.meetings.search_transcripts(termo, HITS_POR_TERMO) {
+                hits.extend(transcripts.into_iter().map(|(m, _)| {
+                    (
+                        index,
+                        mos_core::Candidate {
+                            kind: mos_core::EntityKind::Meeting,
+                            id: m.id.to_string(),
+                            label: resumo(&m.title, 70),
+                            detail: mos_core::spoken_moment(m.started_at),
+                        },
+                    )
+                }));
+            }
+        }
+    }
+    if kinds.is_empty() || kinds.contains(&mos_core::EntityKind::Reminder) {
+        if let Ok(abertos) = state.attention.open() {
+            for reminder in abertos {
+                let alvo = mos_core::normalize(&reminder.title);
+                for (index, termo) in termos.iter().enumerate() {
+                    if alvo.contains(termo.as_str()) {
+                        hits.push((
+                            index,
+                            mos_core::Candidate {
+                                kind: mos_core::EntityKind::Reminder,
+                                id: reminder.id.to_string(),
+                                label: resumo(&reminder.title, 70),
+                                detail: reminder
+                                    .next_due_at
+                                    .map(mos_core::spoken_moment)
+                                    .unwrap_or_else(|| reminder.status.as_str().to_owned()),
+                            },
+                        ));
+                    }
                 }
             }
         }
     }
-
-    encontrados.sort_by(|esquerda, direita| {
-        direita
-            .termos
-            .cmp(&esquerda.termos)
-            .then(esquerda.ordem.cmp(&direita.ordem))
-    });
-    encontrados
-        .into_iter()
-        .take(mos_core::MAX_CANDIDATES)
-        .map(|pontuado| pontuado.candidate)
-        .collect()
+    mos_core::rank_candidates(hits, kinds)
 }
 
 /// Projeta um resultado de busca em candidato.
@@ -1987,14 +2018,7 @@ pub fn run_query<R: Runtime>(
     app: &AppHandle<R>,
     request: &mos_core::QueryRequest,
 ) -> Vec<mos_core::Candidate> {
-    let achados = candidates_for(app, &request.search);
-    if request.kinds.is_empty() {
-        return achados;
-    }
-    achados
-        .into_iter()
-        .filter(|candidate| request.kinds.contains(&candidate.kind))
-        .collect()
+    candidates_for_kinds(app, &request.search, &request.kinds)
 }
 
 /// O bloco de contexto e o registro do que ele contem.
@@ -2083,20 +2107,24 @@ pub fn assemble_context<R: Runtime>(
                 )
             }
             "task" => {
-                let task = state.work.task(&context.id)?;
-                let body = format!(
-                    "Task: {}\nEstado: {}\nDescricao: {}",
-                    task.title,
-                    task.state.as_str(),
-                    if task.description.is_empty() {
-                        "(sem descricao)"
-                    } else {
-                        &task.description
-                    }
-                );
+                let detail = state.work.task_detail(&context.id)?;
+                let body = mos_core::task_context(&detail);
                 (
                     ContextEntity::Task,
-                    vec!["title", "state", "description"],
+                    vec![
+                        "title",
+                        "state",
+                        "description",
+                        "priority",
+                        "dueAt",
+                        "scheduledFor",
+                        "waitingFor",
+                        "followUpAt",
+                        "checklist",
+                        "subtasks",
+                        "blockedBy",
+                        "references",
+                    ],
                     body,
                 )
             }

@@ -4226,3 +4226,100 @@ quem liga o auto-stop, 20 segundos e encerra. Cada sugestão, "continuar", conta
 são constantes nomeadas, e a primeira semana de uso real decide se mudam. O que esta ADR **não**
 consegue: perceber o fim de uma reunião presencial com a mesma confiança (não há app para largar o
 microfone) — por isso ali o Guardian só pergunta.
+
+## ADR-073 — Continuidade do dia pertence à transação e Pulse evolui o Piloto
+
+**Data:** 2026-09-24. **Status:** aceito e implementado neste corte.
+
+### Contexto
+
+A auditoria encontrou um motor de atenção já compartilhado, mas operações de
+início/fim do dia e troca de foco ainda eram sequências de chamadas no shell.
+Uma falha intermediária podia deixar planejamento parcial. Reordenações que
+não alteravam linhas emitiam operações para outra réplica. O carry-over só
+considerava sessão antiga aberta, perdendo intenções depois de encerrá-la.
+
+### Decisão
+
+1. Pulse é a evolução conceitual de `mos-core::piloto`; não terá motor, banco
+   ou scheduler concorrente. Propostas continuam derivadas, com razões.
+2. `DailyService::start_planned` e `end_planned` expressam os gestos completos.
+   A persistência inclui Tasks, objetivos, sessão e outbox numa transação.
+   Início manual continua sem obrigação de planejar Tasks vinculadas.
+3. Carry-over inclui intenções anteriores pendentes/carried-over, com teto de
+   quatro e a mesma elegibilidade de Agora. Planejamento futuro é respeitado;
+   prazo continua visível na atenção e não é modificado por reagendamento.
+4. Troca de foco valida o alvo antes de parar outras Tasks, no mesmo commit.
+   Emissão depende de mutação efetiva; retries do mesmo dia não contam de novo.
+5. Ranking de candidatos e formato do contexto Task ficam em `mos-core`.
+   Adapters leem dados; filtro por tipo precede o teto global. Transcrição
+   participa da descoberta sem enviar o documento inteiro automaticamente.
+6. Falhas de escrita precisam de feedback; falha de refresh preserva a última
+   leitura e informa que pode estar desatualizada.
+
+### Consequências e limites
+
+Não há migration nem mudança de protocolo. Desktop e servidor PWA compartilham
+as operações, embora o bolso ainda não exponha encerramento assistido. O foco
+único é garantido na transação local, não em partidas concorrentes offline de
+dois dispositivos. Não se atribui confiança automática a toda ação Hermes:
+Undo incompleto e cobertura parcial continuam bloqueando autonomia genérica.
+
+Regressões cobrem rollback após escrita intermediária, retry/duplicata,
+reordenação com ID alheio e duas réplicas. Inventário, validação e pendências
+estão em [MOS-AUDIT](MOS-AUDIT.md).
+
+## ADR-074 — Confiança antes de autonomia: inversa completa, proposta reservada e edição por intenção
+
+**Data:** 2026-09-24. **Status:** aceito e implementado (F1 do [MOS-OVERHAUL-PLAN](MOS-OVERHAUL-PLAN.md)).
+
+### Contexto
+
+A ADR-073 deixou três pendências P1 que bloqueiam qualquer ampliação de
+autonomia do Hermes: o Undo de começar uma Task devolvia só a coluna (o
+cronômetro de B seguia correndo e A continuava parada); `action_resolve`
+executava sem conferir se a proposta já tinha desfecho, então clique duplo ou
+retry depois de timeout repetiam o efeito; e `save_objective` gravava e emitia
+o objetivo inteiro, de modo que título num aparelho e conclusão no outro
+terminavam com uma das duas decisões apagada.
+
+### Decisão
+
+1. **Inversa completa de TaskStart.** `WorkRepository::start_task_recorded`
+   devolve o efeito inteiro (`TaskStartEffect`: instante gravado, estado e
+   início anteriores, Tasks interrompidas com seus instantes). O recibo guarda
+   `UndoStep::UndoTaskStart`. `undo_task_start` roda numa transação: recusa com
+   `Conflict` — sem reverter nada — se a Task mudou depois (outro instante,
+   outra coluna, fora de uso); devolve o foco às interrompidas só se nenhuma
+   outra Task estiver em andamento. Resultado parcial volta como nota legível.
+   Repetir o desfazer é recusado pela mesma guarda.
+2. **Proposta reservada antes do efeito.** Novo `ProposalStatus::Executing`.
+   `ConversationService::claim_proposal` lê e grava a reserva sob um mutex do
+   serviço, com a chave (mensagem, proposta crua). Só quem recebe `Claimed`
+   executa; proposta com desfecho devolve o desfecho gravado (recibo e undo);
+   reserva sem desfecho responde "resultado não confirmado" e não repete. Uma
+   queda entre efeito e registro deixa a proposta em `executing` — estado
+   incerto, mostrado assim no cartão, nunca "pendente".
+3. **Edição de objetivo por intenção.** `save_objective` saiu do port.
+   `edit_objective(id, ObjectiveEdit, now)` lê a linha dentro da transação,
+   aplica a regra pura `DailyObjective::apply` e grava/emite só os campos que
+   diferem. Gesto sem mudança não deixa operação na outbox. `save_reminder`
+   passou a emitir o diff contra a linha anterior, como `update_task` já fazia.
+4. Falha ou nota do desfazer aparece no próprio recibo; antes a rejeição era
+   engolida.
+
+### Consequências e limites
+
+Sem migration e sem mudança de protocolo: o passo novo e o status novo vivem
+no JSON das partes, e partes antigas continuam legíveis. A reserva protege o
+processo único do desktop (single-instance); efeito e registro ainda são duas
+transações, e por isso a queda entre elas vira estado incerto, não garantia de
+"exatamente uma vez". Efeitos externos (Finance) continuam sem chave idempotente
+do provedor. As demais variantes de `UndoStep` seguem como estavam; as que
+sobrescrevem estado sem guarda (`RestoreTaskState`, `RestoreTaskPlan`) ficam
+registradas como pendência antes de qualquer autoexecução.
+
+Regressões: `piloto_planejamento` (inversa em duas réplicas, recusa após
+edição posterior, réplica remota com outra Task em andamento, título×conclusão
+convergindo) e `proposta_idempotente` (clique duplo concorrente, retry após
+desfecho, reserva órfã após reabrir o banco).

@@ -157,6 +157,13 @@ impl MessageStatus {
 #[serde(rename_all = "snake_case")]
 pub enum ProposalStatus {
     Pending,
+    /// Reservada para execucao, e o desfecho ainda nao foi gravado.
+    ///
+    /// Gravado ANTES do efeito. Enquanto dura, um segundo clique nao executa
+    /// de novo; se o app cair no meio, a proposta fica aqui — e isso e
+    /// "resultado incerto", nao "pendente": repetir as cegas poderia criar o
+    /// mesmo efeito duas vezes (MOS-OVERHAUL-PLAN F1.2).
+    Executing,
     Executed,
     Cancelled,
     Refused,

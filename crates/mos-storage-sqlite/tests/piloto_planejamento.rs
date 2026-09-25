@@ -126,6 +126,90 @@ fn planejar_emite_so_o_dia_e_adiar_conta() {
     let ops = pc.pendentes(10).unwrap();
     let c = campos(&ops[0]);
     assert_eq!(c.get("postponedCount"), Some(&serde_json::json!(1)));
+    pc.confirmar(&[ops[0].id]).unwrap();
+    let repetida = pc
+        .plan_task(task.id, adiada.scheduled_for.clone(), true)
+        .unwrap();
+    assert_eq!(repetida.postponed_count, 1, "retry não é um novo adiamento");
+    assert!(pc.pendentes(10).unwrap().is_empty());
+}
+
+#[test]
+fn trocar_foco_valida_antes_de_parar_e_sincroniza_as_duas_pontas() {
+    let hub = HubLocal::default();
+    let (_a, pc) = aparelho("PC");
+    let (_b, celular) = aparelho("Bolso");
+    let a = pc
+        .create_task(NewTask::create("Primeira", "", None).unwrap())
+        .unwrap();
+    let b = pc
+        .create_task(NewTask::create("Próxima", "", None).unwrap())
+        .unwrap();
+    let inicio = datetime!(2026-09-24 12:00 UTC);
+    pc.set_task_started(a.id, Some(inicio)).unwrap();
+    assert!(pc
+        .set_task_started(mos_core::TaskId::new(), Some(inicio))
+        .is_err());
+    assert_eq!(pc.get_task(a.id).unwrap().started_at, Some(inicio));
+    pc.set_task_state(b.id, TaskState::Done).unwrap();
+    assert!(pc.set_task_started(b.id, Some(inicio)).is_err());
+    assert_eq!(pc.get_task(a.id).unwrap().started_at, Some(inicio));
+    pc.set_task_state(b.id, TaskState::Backlog).unwrap();
+    pc.set_task_started(b.id, Some(inicio)).unwrap();
+    rodada(&pc, &hub);
+    rodada(&celular, &hub);
+    for device in [&pc, &celular] {
+        assert!(device.get_task(a.id).unwrap().started_at.is_none());
+        assert_eq!(device.get_task(b.id).unwrap().started_at, Some(inicio));
+    }
+}
+
+#[test]
+fn reordenacao_de_outra_task_nao_emite_mudanca_fantasma() {
+    let hub = HubLocal::default();
+    let (_a, pc) = aparelho("PC");
+    let (_b, celular) = aparelho("Bolso");
+    let a = pc
+        .create_task(NewTask::create("A", "", None).unwrap())
+        .unwrap();
+    let b = pc
+        .create_task(NewTask::create("B", "", None).unwrap())
+        .unwrap();
+    let item = mos_core::NewChecklistItem::create(b.id, "Pertence a B").unwrap();
+    let item_id = item.id;
+    pc.add_checklist_item(item).unwrap();
+    rodada(&pc, &hub);
+    rodada(&celular, &hub);
+    pc.reorder_checklist(a.id, &[mos_core::ChecklistItemId::new(), item_id])
+        .unwrap();
+    assert!(!pc
+        .pendentes(20)
+        .unwrap()
+        .iter()
+        .any(|op| op.entity.id == item_id.as_uuid()));
+    rodada(&pc, &hub);
+    rodada(&celular, &hub);
+    for device in [&pc, &celular] {
+        assert_eq!(device.task_detail(b.id).unwrap().checklist[0].position, 0);
+    }
+}
+
+#[test]
+fn contexto_do_hermes_contem_os_passos_e_a_espera_reais() {
+    let (_a, pc) = aparelho("PC");
+    let task = pc
+        .create_task(NewTask::create("Caixa 02", "Memorial", None).unwrap())
+        .unwrap();
+    let mut edit = mos_core::EditTask::from_task(&task);
+    edit.waiting_for = "Victor enviar bases".into();
+    edit.follow_up_at = Some(datetime!(2026-09-25 12:00 UTC));
+    pc.update_task(task.id, edit).unwrap();
+    pc.add_checklist_item(mos_core::NewChecklistItem::create(task.id, "Conferir cotas").unwrap())
+        .unwrap();
+    let context = mos_core::task_context(&pc.task_detail(task.id).unwrap());
+    assert!(context.contains("- [ ] Conferir cotas"));
+    assert!(context.contains("Aguardando: Victor enviar bases"));
+    assert!(context.contains("Follow-up:"));
 }
 
 #[test]
@@ -239,4 +323,203 @@ fn a_saude_sobe_no_hub_caido_e_zera_quando_volta() {
         !eu.last_sync_at.is_empty(),
         "o dispositivo carimba a ultima sincronizacao"
     );
+}
+
+// ---------------------------------------------------------------- F1.1: Undo
+
+fn desfazer(
+    storage: &SqliteStorage,
+    efeito: &mos_core::TaskStartEffect,
+) -> Result<mos_core::TaskStartUndone, mos_core::CoreError> {
+    storage.undo_task_start(
+        efeito.task.id,
+        efeito.started_at,
+        efeito.previous_state,
+        efeito.previous_started_at,
+        &efeito.interrupted,
+    )
+}
+
+#[test]
+fn desfazer_inicio_devolve_o_foco_e_converge_nas_duas_replicas() {
+    let hub = HubLocal::default();
+    let (_a, pc) = aparelho("PC");
+    let (_b, celular) = aparelho("Bolso");
+    let a = pc
+        .create_task(NewTask::create("A", "", None).unwrap())
+        .unwrap();
+    let b = pc
+        .create_task(NewTask::create("B", "", None).unwrap())
+        .unwrap();
+    let inicio_a = datetime!(2026-09-24 09:00 UTC);
+    pc.set_task_started(a.id, Some(inicio_a)).unwrap();
+
+    let efeito = pc
+        .start_task_recorded(b.id, datetime!(2026-09-24 10:00 UTC))
+        .unwrap();
+    assert_eq!(efeito.previous_state, b.state);
+    assert_eq!(efeito.interrupted, vec![(a.id, inicio_a)]);
+
+    let desfeito = desfazer(&pc, &efeito).unwrap();
+    assert!(desfeito.notes.is_empty(), "{:?}", desfeito.notes);
+    assert_eq!(desfeito.resumed, vec![a.id]);
+
+    rodada(&pc, &hub);
+    rodada(&celular, &hub);
+    for device in [&pc, &celular] {
+        let b = device.get_task(b.id).unwrap();
+        assert!(b.started_at.is_none(), "B volta a não ter começado");
+        assert_eq!(b.state, efeito.previous_state, "B volta à coluna de antes");
+        assert_eq!(device.get_task(a.id).unwrap().started_at, Some(inicio_a));
+    }
+
+    // Repetir o desfazer não corrompe nada: B já não tem o instante gravado.
+    let repetido = desfazer(&pc, &efeito).unwrap_err();
+    assert_eq!(repetido.code, mos_core::ErrorCode::Conflict);
+    assert_eq!(pc.get_task(a.id).unwrap().started_at, Some(inicio_a));
+}
+
+#[test]
+fn desfazer_inicio_nao_sobrescreve_o_que_veio_depois() {
+    let (_a, pc) = aparelho("PC");
+    let a = pc
+        .create_task(NewTask::create("A", "", None).unwrap())
+        .unwrap();
+    let b = pc
+        .create_task(NewTask::create("B", "", None).unwrap())
+        .unwrap();
+    pc.set_task_started(a.id, Some(datetime!(2026-09-24 09:00 UTC)))
+        .unwrap();
+    let efeito = pc
+        .start_task_recorded(b.id, datetime!(2026-09-24 10:00 UTC))
+        .unwrap();
+
+    // Concluir B depois de começar é uma decisão nova: o desfazer recusa.
+    pc.set_task_state(b.id, TaskState::Done).unwrap();
+    let recusa = desfazer(&pc, &efeito).unwrap_err();
+    assert_eq!(recusa.code, mos_core::ErrorCode::Conflict);
+    assert_eq!(pc.get_task(b.id).unwrap().state, TaskState::Done);
+    assert!(pc.get_task(a.id).unwrap().started_at.is_none());
+}
+
+#[test]
+fn desfazer_inicio_nao_religa_foco_quando_outra_replica_comecou_algo() {
+    let hub = HubLocal::default();
+    let (_a, pc) = aparelho("PC");
+    let (_b, celular) = aparelho("Bolso");
+    let a = pc
+        .create_task(NewTask::create("A", "", None).unwrap())
+        .unwrap();
+    let b = pc
+        .create_task(NewTask::create("B", "", None).unwrap())
+        .unwrap();
+    let c = pc
+        .create_task(NewTask::create("C", "", None).unwrap())
+        .unwrap();
+    pc.set_task_started(a.id, Some(datetime!(2026-09-24 09:00 UTC)))
+        .unwrap();
+    rodada(&pc, &hub);
+    rodada(&celular, &hub);
+
+    // Offline: o PC troca A por B; o celular começa C.
+    let efeito = pc
+        .start_task_recorded(b.id, datetime!(2026-09-24 10:00 UTC))
+        .unwrap();
+    celular
+        .set_task_started(c.id, Some(datetime!(2026-09-24 10:05 UTC)))
+        .unwrap();
+    rodada(&celular, &hub);
+    rodada(&pc, &hub);
+    assert!(pc.get_task(c.id).unwrap().started_at.is_some());
+
+    // Desfazer B no PC: B volta, mas A NÃO religa — C já está em andamento.
+    let desfeito = desfazer(&pc, &efeito).unwrap();
+    assert!(desfeito.resumed.is_empty());
+    assert_eq!(desfeito.notes.len(), 1, "{:?}", desfeito.notes);
+    assert!(desfeito.notes[0].contains("outra Task"));
+    assert!(pc.get_task(b.id).unwrap().started_at.is_none());
+    assert!(pc.get_task(a.id).unwrap().started_at.is_none());
+}
+
+// ------------------------------------------------------ F1.3: edição por campo
+
+#[test]
+fn titulo_num_aparelho_e_conclusao_no_outro_sobrevivem_juntos() {
+    use mos_core::{
+        DailyRepository, NewDailyObjective, NewDailySession, ObjectiveEdit, ObjectivePriority,
+        ObjectiveStatus,
+    };
+    let hub = HubLocal::default();
+    let (_a, pc) = aparelho("PC");
+    let (_b, celular) = aparelho("Bolso");
+    let quando = datetime!(2026-09-24 09:00 UTC);
+    let sessao = NewDailySession::create(Day::parse("2026-09-24").unwrap(), "", quando).unwrap();
+    let objetivo = NewDailyObjective::create(
+        sessao.id,
+        "Revisar memorial",
+        "",
+        None,
+        ObjectivePriority::Main,
+        0,
+        quando,
+    )
+    .unwrap();
+    let id = objetivo.id;
+    pc.start_day(sessao, vec![objetivo], quando).unwrap();
+    rodada(&pc, &hub);
+    rodada(&celular, &hub);
+
+    // Offline: o PC reescreve o título; o celular conclui.
+    pc.edit_objective(
+        id,
+        &ObjectiveEdit::Text {
+            title: "Revisar memorial da Caixa 02".into(),
+            description: String::new(),
+        },
+        datetime!(2026-09-24 10:00 UTC),
+    )
+    .unwrap();
+    celular
+        .edit_objective(
+            id,
+            &ObjectiveEdit::Status(ObjectiveStatus::Completed),
+            datetime!(2026-09-24 10:01 UTC),
+        )
+        .unwrap();
+
+    // Cada gesto emitiu só o próprio campo.
+    let do_pc = pc.pendentes(10).unwrap();
+    assert_eq!(do_pc.len(), 1);
+    assert!(campos(&do_pc[0]).contains_key("title"));
+    assert!(!campos(&do_pc[0]).contains_key("status"));
+
+    for _ in 0..2 {
+        rodada(&pc, &hub);
+        rodada(&celular, &hub);
+    }
+    for device in [&pc, &celular] {
+        let visto = device.objective(id).unwrap();
+        assert_eq!(visto.title, "Revisar memorial da Caixa 02");
+        assert_eq!(visto.status, ObjectiveStatus::Completed);
+        assert!(visto.completed_at.is_some());
+    }
+
+    // Um gesto que não muda nada não deixa operação na outbox.
+    let antes = pc.pendentes(10).unwrap().len();
+    pc.edit_objective(
+        id,
+        &ObjectiveEdit::Status(ObjectiveStatus::Completed),
+        datetime!(2026-09-24 11:00 UTC),
+    )
+    .unwrap();
+    assert_eq!(pc.pendentes(10).unwrap().len(), antes);
+    // Objetivo inexistente: recusado, e nada na outbox.
+    assert!(pc
+        .edit_objective(
+            mos_core::DailyObjectiveId::new(),
+            &ObjectiveEdit::Priority(ObjectivePriority::Secondary),
+            datetime!(2026-09-24 11:00 UTC),
+        )
+        .is_err());
+    assert_eq!(pc.pendentes(10).unwrap().len(), antes);
 }

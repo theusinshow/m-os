@@ -83,6 +83,13 @@ export function ActionCard({ part, messageId, onResolved, aoAbrir }: {
             {trabalhando ? "Executando…" : part.preview.risk === "high" ? "Confirmar" : "Fazer"}
           </button>
         </div>
+      ) : part.status === "executing" ? (
+        /* Reservada e sem desfecho gravado: em curso agora, ou o app caiu no
+         * meio. Não há "tentar de novo" aqui de propósito — repetir às cegas
+         * pode criar o mesmo efeito duas vezes. */
+        <p className="hermes-action-incerta" role="status">
+          Resultado ainda não confirmado. Confira se a ação aconteceu antes de pedir de novo.
+        </p>
       ) : (
         <AgentResult resumo={part.outcome} entities={entidades} aoAbrir={aoAbrir} />
       )}

@@ -80,7 +80,7 @@ export type PartBody =
       bytes: number;
     };
 
-export type ProposalStatus = "pending" | "executed" | "cancelled" | "refused" | "failed";
+export type ProposalStatus = "pending" | "executing" | "executed" | "cancelled" | "refused" | "failed";
 
 /** Uma entidade que a ação alcançou, já resolvida em id. */
 export type TouchedEntity = { kind: string; id: string; label: string };
@@ -293,9 +293,10 @@ export const conversations = {
   resolveAction(messageId: string, raw: string, approved: boolean) {
     return invoke<ActionResolution>("action_resolve", { messageId, raw, approved });
   },
-  /** Desfaz o que a proposta fez, dentro da janela do recibo. */
+  /** Desfaz o que a proposta fez, dentro da janela do recibo. Devolve uma nota
+   *  quando o desfazer foi parcial — o que ficou e por quê. */
   undoAction(step: UndoStep) {
-    return invoke<void>("action_undo", { step });
+    return invoke<string>("action_undo", { step });
   },
 };
 
@@ -311,6 +312,16 @@ export type UndoStep =
   | { step: "archiveProject"; id: string }
   | { step: "archiveResource"; id: string }
   | { step: "restoreTaskState"; id: string; state: string }
+  /** O inverso inteiro de começar: instante, coluna e o foco de quem foi
+   *  interrompido. Recusa se a Task mudou depois de começar. */
+  | {
+      step: "undoTaskStart";
+      id: string;
+      startedAt: string;
+      previousState: string;
+      previousStartedAt: string | null;
+      interrupted: { id: string; startedAt: string }[];
+    }
   /** O Project que a Task tinha antes. `null` significa nenhum — tirar uma Task
    *  de um Project é uma mudança tão real quanto movê-la para outro. */
   | { step: "restoreTaskProject"; id: string; projectId: string | null }

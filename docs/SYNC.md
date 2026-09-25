@@ -2,6 +2,14 @@
 
 Implementação: `crates/mos-sync`. Tabelas: migration `0027_sync_foundation.sql`.
 
+> Estado conferido em 2026-09-24: o hub e o transporte HTTP já existem.
+> `mos-storage-sqlite/src/sync_cobertura.rs` é o registro executável da
+> cobertura: 30 tabelas sincronizáveis, incluindo relações. Reuniões, áudio,
+> ingestões e Voice Notes são locais; Tasks produzidas por elas viajam.
+> A PWA acessa uma réplica no servidor, não um SQLite no iPhone. A auditoria
+> corrigiu emissões sem UPDATE efetivo e tornou início/encerramento planejado
+> transacionais com a outbox. Veja [MOS-AUDIT](MOS-AUDIT.md) e ADR-073.
+
 ---
 
 ## 1. A premissa

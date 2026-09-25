@@ -139,6 +139,9 @@ pub struct Retrato<'a> {
     /// Itens de calendario de hoje e amanha, em ordem.
     pub agenda: &'a [CalendarItem],
     pub daily: Option<&'a DailyToday>,
+    /// Objetivos da última sessão, inclusive quando ela já foi encerrada.
+    /// Encerrar o dia não pode apagar o carry-over da proposta seguinte.
+    pub previous_objectives: &'a [crate::DailyObjective],
     pub sync: &'a SyncNoRetrato,
     /// A ultima vez que a pessoa esteve no M/OS antes desta abertura.
     pub ultima_presenca: Option<OffsetDateTime>,
@@ -357,6 +360,7 @@ pub(crate) mod fixtures {
         pub academic: Vec<Compromisso>,
         pub agenda: Vec<CalendarItem>,
         pub daily: Option<DailyToday>,
+        pub previous_objectives: Vec<crate::DailyObjective>,
         pub sync: SyncNoRetrato,
         pub ultima_presenca: Option<OffsetDateTime>,
         pub habitos: Habitos,
@@ -374,6 +378,7 @@ pub(crate) mod fixtures {
                 academic: Vec::new(),
                 agenda: Vec::new(),
                 daily: None,
+                previous_objectives: Vec::new(),
                 sync: SyncNoRetrato::EmDia,
                 ultima_presenca: Some(agora() - time::Duration::hours(12)),
                 habitos: Habitos::default(),
@@ -393,6 +398,7 @@ pub(crate) mod fixtures {
                 academic: &self.academic,
                 agenda: &self.agenda,
                 daily: self.daily.as_ref(),
+                previous_objectives: &self.previous_objectives,
                 sync: &self.sync,
                 ultima_presenca: self.ultima_presenca,
                 habitos: &self.habitos,

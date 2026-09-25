@@ -205,36 +205,8 @@ pub fn iniciar<R: Runtime>(
     };
     let day = hoje(app);
     let hoje_resolvido = app.state::<AppState>().daily.start(day, &resolvido)?;
-    // O carry-over so vira `carried_over` quando o objetivo novo REALMENTE
-    // nasce. Marcar antes deixaria o de ontem carregado e o de hoje inexistente
-    // se a criacao falhasse — e ninguem saberia onde o objetivo foi parar.
-    marcar_carregados(app, &resolvido)?;
     avisar(app);
     Ok(hoje_resolvido)
-}
-
-/// Marca como `carried_over` os objetivos de ontem que viraram objetivo de hoje.
-///
-/// Falha aqui NAO derruba o inicio do dia: o dia de hoje ja existe e esta certo,
-/// e o pior que acontece e o de ontem continuar pendente — o que faz ele
-/// reaparecer no carry-over de amanha. Perder o dia inteiro por causa de um
-/// carimbo em um registro passado seria a troca errada.
-fn marcar_carregados<R: Runtime>(
-    app: &AppHandle<R>,
-    input: &StartDayInput,
-) -> Result<(), CoreError> {
-    let state = app.state::<AppState>();
-    let origens = input
-        .main
-        .iter()
-        .chain(input.secondaries.iter())
-        .filter_map(|draft| DailyObjectiveId::parse(&draft.carried_from).ok());
-    for origem in origens {
-        let _ = state
-            .daily
-            .set_objective_status(origem, ObjectiveStatus::CarriedOver);
-    }
-    Ok(())
 }
 
 #[tauri::command]
@@ -257,12 +229,6 @@ pub fn daily_add_objective<R: Runtime>(
         app.state::<AppState>()
             .daily
             .add_objective(&hoje(&app), &draft, priority)?;
-    if let Ok(origem) = DailyObjectiveId::parse(&draft.carried_from) {
-        let _ = app
-            .state::<AppState>()
-            .daily
-            .set_objective_status(origem, ObjectiveStatus::CarriedOver);
-    }
     avisar(&app);
     Ok(hoje_resolvido)
 }

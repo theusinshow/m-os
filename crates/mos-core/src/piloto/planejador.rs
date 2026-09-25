@@ -131,43 +131,56 @@ pub fn propor_dia(r: &Retrato<'_>) -> PropostaDoDia {
     // escala escolheria, porque a pessoa JA decidiu que aquilo importava.
     let mut carregados: Vec<ObjetivoProposto> = Vec::new();
     let mut tasks_ja_propostas = std::collections::HashSet::new();
-    if let Some(daily) = r.daily {
-        for obj in daily
-            .stale_objectives
-            .iter()
-            .filter(|o| o.status == ObjectiveStatus::Pending)
-        {
-            let (link_kind, link_id) = obj
-                .link
-                .as_ref()
-                .map(|l| {
-                    let (k, i) = l.as_columns();
-                    (k.to_owned(), i.to_owned())
-                })
-                .unwrap_or_default();
-            if let Some(tid) = obj.link.as_ref().and_then(|l| l.task_id()) {
-                // A Task ja foi concluida por fora? Entao o objetivo nao volta.
-                if r.tasks
-                    .iter()
-                    .any(|t| t.id == tid && t.state == crate::TaskState::Done)
-                {
-                    continue;
-                }
-                tasks_ja_propostas.insert(tid);
-            }
-            carregados.push(ObjetivoProposto {
-                draft: ObjectiveDraft {
-                    title: obj.title.clone(),
-                    description: obj.description.clone(),
-                    link_kind,
-                    link_id,
-                    carried_from: obj.id.to_string(),
-                },
-                razoes: vec!["ficou de um dia anterior".into()],
-                estimativa: String::new(),
-                projeto: String::new(),
-            });
+    let mut objetivos_ja_propostos = std::collections::HashSet::new();
+    let anteriores = r
+        .daily
+        .into_iter()
+        .flat_map(|d| d.stale_objectives.iter())
+        .chain(r.previous_objectives.iter());
+    for obj in anteriores.filter(|o| {
+        matches!(
+            o.status,
+            ObjectiveStatus::Pending | ObjectiveStatus::CarriedOver
+        )
+    }) {
+        if carregados.len() >= 1 + SUGGESTED_SECONDARIES {
+            break;
         }
+        if !objetivos_ja_propostos.insert(obj.id) {
+            continue;
+        }
+        let (link_kind, link_id) = obj
+            .link
+            .as_ref()
+            .map(|l| {
+                let (k, i) = l.as_columns();
+                (k.to_owned(), i.to_owned())
+            })
+            .unwrap_or_default();
+        if let Some(tid) = obj.link.as_ref().and_then(|l| l.task_id()) {
+            // Carry-over não ressuscita tarefa concluída/arquivada, nem
+            // ignora um adiamento ou bloqueio decidido desde ontem.
+            if !r
+                .tasks
+                .iter()
+                .any(|t| t.id == tid && pontuar(r, t).is_some())
+                || !tasks_ja_propostas.insert(tid)
+            {
+                continue;
+            }
+        }
+        carregados.push(ObjetivoProposto {
+            draft: ObjectiveDraft {
+                title: obj.title.clone(),
+                description: obj.description.clone(),
+                link_kind,
+                link_id,
+                carried_from: obj.id.to_string(),
+            },
+            razoes: vec!["ficou de um dia anterior".into()],
+            estimativa: String::new(),
+            projeto: String::new(),
+        });
     }
 
     // Depois a escala: as Tasks que mais pesam hoje.
@@ -337,9 +350,17 @@ pub fn propor_encerramento(r: &Retrato<'_>) -> PropostaDeEncerramento {
     };
 
     if let Some(daily) = r.daily {
-        let (feitos, _) = daily.progress();
-        p.concluidas = feitos;
-        for obj in &daily.objectives {
+        let objectives = if daily.session.is_none() && daily.stale.is_some() {
+            p.day = daily.stale.as_ref().unwrap().day.to_string();
+            &daily.stale_objectives
+        } else {
+            &daily.objectives
+        };
+        p.concluidas = objectives
+            .iter()
+            .filter(|o| o.status == ObjectiveStatus::Completed)
+            .count();
+        for obj in objectives {
             if obj.status == ObjectiveStatus::Pending {
                 p.abertas += 1;
                 p.resolutions.push(ObjectiveResolution {
@@ -396,6 +417,71 @@ mod tests {
     use super::*;
     use crate::CalendarKind;
     use time::Duration;
+
+    fn objetivo(title: &str, status: ObjectiveStatus) -> crate::DailyObjective {
+        crate::DailyObjective {
+            id: crate::DailyObjectiveId::new(),
+            session_id: crate::DailySessionId::new(),
+            title: title.into(),
+            description: String::new(),
+            link: None,
+            priority: crate::ObjectivePriority::Secondary,
+            status,
+            position: 0,
+            carried_from: None,
+            created_at: agora(),
+            updated_at: agora(),
+            completed_at: None,
+        }
+    }
+
+    #[test]
+    fn dia_encerrado_preserva_intencoes_livres_sem_inundar_a_proposta() {
+        let mut c = Cenario::default();
+        c.daily = Some(nao_iniciado(crate::Day::from_local(agora())));
+        c.previous_objectives
+            .push(objetivo("Já fiz", ObjectiveStatus::Completed));
+        c.previous_objectives
+            .push(objetivo("Deixei para lá", ObjectiveStatus::Dropped));
+        for i in 0..12 {
+            c.previous_objectives.push(objetivo(
+                &format!("Intenção {i}"),
+                ObjectiveStatus::CarriedOver,
+            ));
+        }
+        let p = propor_dia(&c.retrato());
+        assert_eq!(p.principal.as_ref().unwrap().draft.title, "Intenção 0");
+        assert_eq!(p.secundarios.len(), SUGGESTED_SECONDARIES);
+        assert_eq!(
+            c.previous_objectives.len(),
+            14,
+            "o excedente continua no histórico"
+        );
+        assert_eq!(
+            p.input.main.unwrap().carried_from,
+            c.previous_objectives[2].id.to_string()
+        );
+    }
+
+    #[test]
+    fn encerrar_ontem_resolve_os_objetivos_de_ontem() {
+        let mut c = Cenario::default();
+        let hoje = crate::Day::from_local(agora());
+        let mut d = nao_iniciado(hoje.clone());
+        d.stale = sessao_ativa(hoje.previous()).session;
+        d.stale_objectives
+            .push(objetivo("Pendente", ObjectiveStatus::Pending));
+        d.stale_objectives
+            .push(objetivo("Feito", ObjectiveStatus::Completed));
+        c.daily = Some(d);
+        let p = propor_encerramento(&c.retrato());
+        assert_eq!(p.day, "2026-09-14");
+        assert_eq!((p.concluidas, p.abertas), (1, 1));
+        assert_eq!(
+            p.resolutions[0].objective_id,
+            c.daily.as_ref().unwrap().stale_objectives[0].id.to_string()
+        );
+    }
 
     #[test]
     fn a_proposta_tem_principal_secundarios_e_agenda() {

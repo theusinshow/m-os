@@ -95,6 +95,7 @@ export function App() {
   const [estado, setEstado] = useState<EstadoDoAparelho | null>(null);
   const [panorama, setPanorama] = useState<Panorama | null>(null);
   const [piloto, setPiloto] = useState<PanoramaDoPiloto | null>(null);
+  const [erroLeitura, setErroLeitura] = useState(false);
   const [agenda, setAgenda] = useState<ItemDaAgenda[]>([]);
   const [vistaDaAgenda, setVistaDaAgenda] = useState<VistaDaAgenda>("lista");
   /** O que a agenda mostra. Deste aparelho, como o arranjo da Home. */
@@ -145,6 +146,8 @@ export function App() {
         return;
       }
     }
+    let leituraFalhou = proximoEstado === null;
+    const falhou = () => { leituraFalhou = true; return null; };
     const [
       proximaInbox,
       proximasTasks,
@@ -157,12 +160,12 @@ export function App() {
       proximoDia,
       proximoPiloto,
     ] = await Promise.all([
-      api.inbox().catch(() => [] as Capture[]),
-      api.tasks().catch(() => [] as ItemDeTask[]),
-      api.lembretes().catch(() => [] as ItemDeLembrete[]),
+      api.inbox().catch(falhou),
+      api.tasks().catch(falhou),
+      api.lembretes().catch(falhou),
       // Nulo em vez de erro: um servidor sem a rota ainda serve a Home inteira,
       // só sem os dois cartões novos.
-      api.panorama().catch(() => null),
+      api.panorama().catch(falhou),
       // A janela depende da vista. A lista quer de ontem a uma semana — para
       // tras um dia porque "o que eu fiz ontem" e pergunta de manha, e para a
       // frente sete porque prova marcada para daqui a duas semanas nao muda o
@@ -170,32 +173,33 @@ export function App() {
       // na semana que o servidor mandou e mentiria sobre o resto.
       api
         .agenda(...janelaDaAgenda(vistaDaAgenda))
-        .catch(() => [] as ItemDaAgenda[]),
-      api.academico().catch(() => [] as CompromissoDaLista[]),
+        .catch(falhou),
+      api.academico().catch(falhou),
       // O historico vem junto, e nao so quando a aba abre: sao 50 linhas, uma
       // ida a rede a menos, e a aba passa a abrir cheia em vez de piscar vazia.
-      api.lembretesResolvidos().catch(() => [] as ItemDeLembrete[]),
+      api.lembretesResolvidos().catch(falhou),
       // Os projetos mudam raramente e sao poucos: vem junto para a tela poder
       // escrever o NOME do projeto de uma task em vez do id, que nao e nome de
       // nada.
-      api.projetos().catch(() => [] as Projeto[]),
+      api.projetos().catch(falhou),
       // Nulo quando o servidor e antigo demais para ter a rota. A Home continua
       // inteira sem os tres cartoes do dia.
-      api.dia().catch(() => null),
+      api.dia().catch(falhou),
       // Nulo quando o servidor ainda não tem o piloto; a Home segue inteira.
-      api.piloto().catch(() => null),
+      api.piloto().catch(falhou),
     ]);
     if (proximoEstado) setEstado(proximoEstado);
-    setCapturas(proximaInbox);
-    setTasks(proximasTasks);
-    setLembretes(proximosLembretes);
-    setPanorama(proximoPanorama);
-    setAgenda(proximaAgenda);
-    setAcademico(proximoAcademico);
-    setResolvidos(proximosResolvidos);
-    setProjetos(proximosProjetos);
-    setODia(proximoDia);
-    setPiloto(proximoPiloto);
+    if (proximaInbox !== null) setCapturas(proximaInbox);
+    if (proximasTasks !== null) setTasks(proximasTasks);
+    if (proximosLembretes !== null) setLembretes(proximosLembretes);
+    if (proximoPanorama !== null) setPanorama(proximoPanorama);
+    if (proximaAgenda !== null) setAgenda(proximaAgenda);
+    if (proximoAcademico !== null) setAcademico(proximoAcademico);
+    if (proximosResolvidos !== null) setResolvidos(proximosResolvidos);
+    if (proximosProjetos !== null) setProjetos(proximosProjetos);
+    if (proximoDia !== null) setODia(proximoDia);
+    if (proximoPiloto !== null) setPiloto(proximoPiloto);
+    setErroLeitura(leituraFalhou);
     setCarregando(false);
     // A situação das notificações é recalculada junto: ela muda por fora do app
     // — instalar na tela de início, mexer em Ajustes —, e uma tela que só olha
@@ -203,7 +207,7 @@ export function App() {
     // O ícone acompanha a tela: quem resolveu um lembrete no PC vê o número
     // cair ao abrir o app aqui. Enquanto ele está fechado, quem escreve o badge
     // é o service worker, no push — ver `sw.js`.
-    void marcarIcone(proximosLembretes.filter(pedeAtencao).length);
+    if (proximosLembretes !== null) void marcarIcone(proximosLembretes.filter(pedeAtencao).length);
     setAvisos(await situacao(proximoEstado?.chavePush ?? null));
   }, [vistaDaAgenda]);
 
@@ -660,9 +664,10 @@ export function App() {
           entrada rodar. Sem ela o React reaproveita o nó e a página nova aparece
           sem transição nenhuma, como um corte. */}
       <main className="conteudo" key={pagina}>
+        {erroLeitura ? <p role="alert" className="piloto-cartao">Não foi possível atualizar todos os dados. As informações podem estar desatualizadas. <button type="button" className="botao" data-variante="quieto" onClick={() => void atualizar()}>Tentar novamente</button></p> : null}
         {pagina === "home" ? (
           <>
-          {arrumando ? null : <Piloto panorama={piloto} aoAbrirTask={(id) => { setTaskAberta(id); setPagina("fazer"); }} aoAtualizar={atualizar} />}
+          {arrumando ? null : <Piloto panorama={piloto} aoAbrirTask={(id) => { setTaskAberta(id); setPagina("fazer"); }} aoAtualizar={atualizar} aoIr={setPagina} aoAbrirLembrete={(id) => { setLembreteAberto(id); setPagina("lembretes"); }} />}
           <Home
             estado={estado}
             dados={dados}

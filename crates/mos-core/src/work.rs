@@ -565,6 +565,36 @@ impl NewChecklistItem {
     }
 }
 
+/// O que COMECAR uma Task mudou, com o bastante para desfazer.
+///
+/// Comecar B com A em andamento sao tres mudancas: B ganha o instante, B vai
+/// para `doing` e A perde o foco. O desfazer antigo so devolvia o estado de B —
+/// A ficava parada e B continuava com o cronometro. Uma inversa incompleta nao
+/// e inversa, e sem ela a IA nao pode agir sozinha (MOS-OVERHAUL-PLAN F1.1).
+#[derive(Clone, Debug)]
+pub struct TaskStartEffect {
+    pub task: Task,
+    /// O instante que ESTE inicio gravou. E a guarda do desfazer: se B tiver
+    /// outro instante depois, alguem mexeu nela, e a reversao nao sobrescreve.
+    pub started_at: OffsetDateTime,
+    pub previous_state: TaskState,
+    pub previous_started_at: Option<OffsetDateTime>,
+    /// As Tasks que perderam o foco, com o instante que tinham.
+    pub interrupted: Vec<(TaskId, OffsetDateTime)>,
+}
+
+/// O que o desfazer de um inicio conseguiu devolver.
+///
+/// Parcial e resultado legitimo: se outra Task foi comecada depois, devolver o
+/// foco a A deixaria duas em andamento. Nesse caso A fica parada e a nota diz
+/// por que — o trabalho mais recente vence.
+#[derive(Clone, Debug)]
+pub struct TaskStartUndone {
+    pub task: Task,
+    pub resumed: Vec<TaskId>,
+    pub notes: Vec<String>,
+}
+
 /// A Task com tudo que a folha de detalhe mostra, numa ida so ao banco.
 ///
 /// # Por que uma estrutura, e nao cinco chamadas

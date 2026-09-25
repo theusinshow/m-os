@@ -36,6 +36,7 @@ export function EncerrarDia({ close, concluido, detalhar }: { close: () => void;
   async function encerrar() {
     if (!proposta || salvando) return;
     setSalvando(true);
+    setErro("");
     try {
       const dia = await api.pilotoEncerrarDia({ mover: [...mover], resolutions: proposta.resolutions });
       concluido(dia);
@@ -54,7 +55,7 @@ export function EncerrarDia({ close, concluido, detalhar }: { close: () => void;
         <button type="button" className="icon-button" aria-label="Fechar" onClick={close}><Icon name="close" /></button>
       </header>
       <div className="daily-flow-body">
-        {erro ? <StateMessage state="error" label="Não deu para ler o dia." detail={erro} /> : null}
+        {erro ? <StateMessage state="error" label={proposta ? "Não foi possível encerrar o dia. Tente novamente." : "Não deu para ler o dia."} detail={erro} /> : null}
         {!proposta && !erro ? <StateMessage state="loading" label="Lendo o dia..." /> : null}
         {proposta ? <>
           <ul className="piloto-linhas encerrar-placar">

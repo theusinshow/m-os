@@ -1,8 +1,9 @@
 # M/OS
 
-M/OS e um sistema pessoal desktop-first para capturar, organizar e reencontrar
-contexto com baixa friccao. A implementacao atual e a candidata local `v0.2.0`
-para Windows, da captura e acao organizada ate Resources reencontraveis.
+M/OS é um sistema pessoal multi-device para capturar, agir e reencontrar
+contexto com baixa fricção. O workspace está em `v0.6.0`: desktop Tauri e
+superfície web/PWA de bolso usam o mesmo domínio Rust e sincronizam por um hub.
+O inventário e os limites verificados estão em [MOS-AUDIT](docs/MOS-AUDIT.md).
 
 ## Estado atual
 
@@ -39,9 +40,14 @@ para Windows, da captura e acao organizada ate Resources reencontraveis.
   cota em JSON, declarado em `faixaFontes` no `settings.json` (ver
   `DECISIONS.md`, ADR-059 a ADR-063);
 - design system proprio com temas dark e light;
-- nenhuma rede no caminho de captura ou consulta.
+- captura e consulta locais no desktop; serviços externos processam depois quando necessários.
 
-Cloud, sincronizacao e iOS nao fazem parte deste marco.
+O sync já existe (`mos-sync`, `mos-sync-http`, `mos-sync-server`). O iPhone é
+atendido pela PWA em `apps/mos-web`; não há cliente iOS nativo neste checkout.
+A PWA usa a réplica SQLite do servidor, portanto não tem a mesma capacidade
+de escrita offline do desktop. Áudio e dados derivados de reuniões continuam
+locais; Tasks extraídas viajam. Consulte [PLATFORMS](docs/PLATFORMS.md) e
+[SYNC](docs/SYNC.md) para distinguir contrato, implementação e limites.
 
 ## Executar
 

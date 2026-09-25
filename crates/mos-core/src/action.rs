@@ -1739,6 +1739,11 @@ pub enum UndoStep {
         id: String,
         state: String,
     },
+    /// O inverso COMPLETO de comecar uma Task: o instante e o estado que ela
+    /// tinha, e o foco devolvido a quem foi interrompido. Substitui o
+    /// `RestoreTaskState` que o inicio usava — aquele so voltava a coluna, e
+    /// deixava o cronometro correndo e a Task anterior parada.
+    UndoTaskStart(UndoTaskStart),
     /// O Project que a Task tinha antes. `None` significa "nenhum", e por isso
     /// e um passo com campo opcional em vez de dois passos diferentes: tirar a
     /// Task de um Project e uma mudanca tao real quanto move-la para outro, e
@@ -1862,6 +1867,52 @@ pub enum UndoStep {
         task_id: String,
         reminder_id: Option<String>,
     },
+}
+
+/// Os dados do `UndoStep::UndoTaskStart`. Instantes em RFC3339, como o resto
+/// do recibo, porque o passo viaja como JSON ate a interface e volta.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UndoTaskStart {
+    pub id: String,
+    /// O instante que o inicio gravou — a guarda contra edicao posterior.
+    pub started_at: String,
+    pub previous_state: String,
+    #[serde(default)]
+    pub previous_started_at: Option<String>,
+    #[serde(default)]
+    pub interrupted: Vec<InterruptedFocus>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterruptedFocus {
+    pub id: String,
+    pub started_at: String,
+}
+
+impl UndoTaskStart {
+    pub fn from_effect(effect: &crate::TaskStartEffect) -> Self {
+        let texto = |instante: time::OffsetDateTime| {
+            instante
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap_or_default()
+        };
+        Self {
+            id: effect.task.id.to_string(),
+            started_at: texto(effect.started_at),
+            previous_state: effect.previous_state.as_str().to_owned(),
+            previous_started_at: effect.previous_started_at.map(texto),
+            interrupted: effect
+                .interrupted
+                .iter()
+                .map(|(id, instante)| InterruptedFocus {
+                    id: id.to_string(),
+                    started_at: texto(*instante),
+                })
+                .collect(),
+        }
+    }
 }
 
 /// O contrato que desce no prompt.

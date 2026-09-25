@@ -90,6 +90,7 @@ struct Leitura {
     academic: Vec<mos_core::Compromisso>,
     agenda: Vec<mos_core::CalendarItem>,
     daily: Option<mos_core::DailyToday>,
+    previous_objectives: Vec<mos_core::DailyObjective>,
     sync: SyncNoRetrato,
     ultima_presenca: Option<OffsetDateTime>,
     habitos: Habitos,
@@ -106,6 +107,7 @@ impl Leitura {
             academic: &self.academic,
             agenda: &self.agenda,
             daily: self.daily.as_ref(),
+            previous_objectives: &self.previous_objectives,
             sync: &self.sync,
             ultima_presenca: self.ultima_presenca,
             habitos: &self.habitos,
@@ -177,7 +179,12 @@ fn ler(
     let agenda =
         crate::api::compor_agenda(estado, inicio, inicio + time::Duration::days(2), now_local)
             .unwrap_or_default();
-    let daily = estado.daily.today(&hoje).ok();
+    let daily = Some(estado.daily.today(&hoje)?);
+    let previous_objectives = estado
+        .daily
+        .previous(&hoje)?
+        .map(|(_, objectives)| objectives)
+        .unwrap_or_default();
     let mut inicios = estado
         .storage
         .inicios_de_sessao(14, offset)
@@ -191,6 +198,7 @@ fn ler(
         academic,
         agenda,
         daily,
+        previous_objectives,
         sync: sync_no_retrato(estado),
         ultima_presenca,
         habitos: Habitos {
@@ -227,55 +235,7 @@ async fn iniciar_dia(
         let leitura = ler(estado, agora, None)?;
         let proposta = mos_core::propor_dia(&leitura.retrato());
         let hoje = mos_core::Day::from_local(agora);
-        if let Some(stale) = leitura.daily.as_ref().and_then(|d| d.stale.as_ref()) {
-            let resolutions = leitura
-                .daily
-                .as_ref()
-                .map(|d| {
-                    d.stale_objectives
-                        .iter()
-                        .filter(|o| o.status == mos_core::ObjectiveStatus::Pending)
-                        .map(|o| mos_core::ObjectiveResolution {
-                            objective_id: o.id.to_string(),
-                            status: "carried_over".into(),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            let _ = estado.daily.end_session(
-                stale.id,
-                &mos_core::EndDayInput {
-                    resolutions,
-                    mood: String::new(),
-                    summary: String::new(),
-                },
-            );
-        }
-        for draft in proposta
-            .input
-            .main
-            .iter()
-            .chain(proposta.input.secondaries.iter())
-        {
-            if draft.link_kind == "task" {
-                let _ = estado
-                    .work
-                    .plan_task(&draft.link_id, Some(hoje.clone()), false);
-            }
-        }
-        let dia = estado.daily.start(hoje, &proposta.input)?;
-        for draft in proposta
-            .input
-            .main
-            .iter()
-            .chain(proposta.input.secondaries.iter())
-        {
-            if let Ok(origem) = mos_core::DailyObjectiveId::parse(&draft.carried_from) {
-                let _ = estado
-                    .daily
-                    .set_objective_status(origem, mos_core::ObjectiveStatus::CarriedOver);
-            }
-        }
+        let dia = estado.daily.start_planned(hoje, &proposta.input)?;
         Ok(dia)
     })
     .await?;
@@ -292,11 +252,6 @@ async fn comecar(
     Path(id): Path<String>,
 ) -> Resultado<Json<serde_json::Value>> {
     let task = crate::api::escrever(&estado, move |estado| {
-        for t in estado.work.tasks(false)? {
-            if t.started_at.is_some() && t.id.to_string() != id {
-                let _ = estado.work.stop_task(&t.id.to_string());
-            }
-        }
         estado.work.start_task(&id, OffsetDateTime::now_utc())
     })
     .await?;

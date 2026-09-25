@@ -392,6 +392,96 @@ pub fn short_id(id: &str) -> &str {
 /// crescer.
 pub const MAX_CANDIDATES: usize = 12;
 
+/// Contexto operacional da Task. O shell lê; o mesmo formato pode ser usado
+/// pelo desktop e pelo bolso sem inventar outro serviço de domínio.
+pub fn task_context(detail: &crate::TaskDetail) -> String {
+    let task = &detail.task;
+    let mut lines = vec![
+        format!("Task: {}", task.title),
+        format!("Estado: {}", task.state.as_str()),
+        format!("Descricao: {}", task.description),
+        format!("Prioridade: {}", task.priority.as_str()),
+    ];
+    if let Some(due) = task.due_at {
+        lines.push(format!("Prazo: {}", spoken_moment(due)));
+    }
+    if let Some(day) = &task.scheduled_for {
+        lines.push(format!("Planejada para: {day}"));
+    }
+    if !task.waiting_for.is_empty() {
+        lines.push(format!("Aguardando: {}", task.waiting_for));
+    }
+    if let Some(follow) = task.follow_up_at {
+        lines.push(format!("Follow-up: {}", spoken_moment(follow)));
+    }
+    if let Some(blocker) = &detail.blocked_by {
+        lines.push(format!(
+            "Dependência: {} [{}]",
+            blocker.title,
+            blocker.state.as_str()
+        ));
+    }
+    lines.push(format!(
+        "Checklist ({}/{}):",
+        task.checklist_done, task.checklist_total
+    ));
+    for item in detail.checklist.iter().take(20) {
+        lines.push(format!(
+            "- [{}] {}",
+            if item.completed_at.is_some() {
+                "x"
+            } else {
+                " "
+            },
+            item.label
+        ));
+    }
+    if detail.checklist.len() > 20 {
+        lines.push("(checklist limitado a 20 passos)".into());
+    }
+    for child in detail.subtasks.iter().take(10) {
+        lines.push(format!(
+            "Subtask {} [{}]: {}",
+            child.id,
+            child.state.as_str(),
+            child.title
+        ));
+    }
+    if detail.subtasks.len() > 10 {
+        lines.push("(subtasks limitadas a 10)".into());
+    }
+    for resource in detail.references.iter().take(10) {
+        lines.push(format!("Referência {}: {}", resource.id, resource.title));
+    }
+    lines.join("\n")
+}
+
+/// Ranking compartilhado: um voto por termo e entidade, filtro ANTES do teto.
+/// Título e transcrição acertando a mesma palavra não são dois sinais distintos.
+pub fn rank_candidates(hits: Vec<(usize, Candidate)>, kinds: &[EntityKind]) -> Vec<Candidate> {
+    let mut found: Vec<(Candidate, std::collections::HashSet<usize>)> = Vec::new();
+    for (term, candidate) in hits {
+        if !kinds.is_empty() && !kinds.contains(&candidate.kind) {
+            continue;
+        }
+        if let Some((_, terms)) = found
+            .iter_mut()
+            .find(|(c, _)| c.kind == candidate.kind && c.id == candidate.id)
+        {
+            terms.insert(term);
+        } else {
+            found.push((candidate, [term].into_iter().collect()));
+        }
+    }
+    // Ordenação estável mantém a ordem original entre empates.
+    found.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+    found
+        .into_iter()
+        .take(MAX_CANDIDATES)
+        .map(|(candidate, _)| candidate)
+        .collect()
+}
+
 /// O bloco que diz o que existe no M/OS para esta mensagem.
 ///
 /// Vazio quando nada foi encontrado — e a ausencia e informacao: um bloco
@@ -985,6 +1075,35 @@ mod tests {
             label: label.to_owned(),
             detail: String::new(),
         }
+    }
+
+    #[test]
+    fn busca_filtra_o_tipo_antes_do_teto_e_conta_termos_distintos() {
+        let mut hits: Vec<_> = (0..20)
+            .map(|i| (0, candidato(EntityKind::Task, &format!("t{i}"), "Victor")))
+            .collect();
+        let meeting = candidato(EntityKind::Meeting, "meeting", "Reunião das bases");
+        hits.push((0, meeting.clone()));
+        assert_eq!(
+            rank_candidates(hits, &[EntityKind::Meeting]),
+            vec![meeting.clone()]
+        );
+        let task = candidato(EntityKind::Task, "task", "Enviar bases");
+        let ranked = rank_candidates(
+            vec![
+                (0, meeting.clone()),
+                (0, meeting.clone()),
+                (0, meeting),
+                (0, task.clone()),
+                (1, task.clone()),
+            ],
+            &[],
+        );
+        assert_eq!(
+            ranked[0], task,
+            "dois termos ganham de três cópias do mesmo termo"
+        );
+        assert_eq!(ranked.len(), 2);
     }
 
     /// O bloco de identidade tem uma frase que nao pode sair: a que impede a

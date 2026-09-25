@@ -18,8 +18,8 @@ import type { EstadoDeSaude, ItemDeAtencao, Panorama, SaudeDoSync } from "./type
  * numa página, nos dois temas (`?tema=light`).
  *
  * Como a `bancada.tsx`, ela responde por FORMA. As escritas não vão a lugar
- * nenhum: os botões chamam `invoke` num navegador sem Tauri e falham em
- * silêncio, o que é exatamente o que se quer numa vitrine.
+ * nenhum: os botões chamam `invoke` num navegador sem Tauri e apresentam
+ * o feedback de falha. A bancada também permite conferir esse estado.
  */
 
 const AGORA = new Date();

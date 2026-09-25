@@ -5,7 +5,8 @@ use mos_core::{
     ChecklistItem, ChecklistItemId, CoreError, Day, EditTask, ErrorCode, HiddenWidget,
     LifecycleState, NewChecklistItem, NewProject, NewReminder, NewTask, NewWorkspace, Priority,
     Project, ProjectId, RegisteredApp, Reminder, Resource, ResourceId, SearchItem, SearchRequest,
-    Task, TaskDetail, TaskId, TaskState, WorkRepository, Workspace, WorkspaceId,
+    Task, TaskDetail, TaskId, TaskStartEffect, TaskStartUndone, TaskState, WorkRepository,
+    Workspace, WorkspaceId,
 };
 use rusqlite::{params, OptionalExtension, Row, Transaction};
 use time::OffsetDateTime;
@@ -1472,13 +1473,16 @@ impl WorkRepository for SqliteStorage {
             // reordenaria o checklist alheio em silencio. Zero linhas alteradas
             // e a resposta certa, e nao um erro — a lista pode ter mudado
             // debaixo de quem arrastou.
-            transaction
+            let changed = transaction
                 .execute(
                     "UPDATE task_checklist_items SET position = ?1, updated_at = ?2
-                      WHERE id = ?3 AND task_id = ?4",
+                      WHERE id = ?3 AND task_id = ?4 AND lifecycle_state = 'active'",
                     params![posicao, now, id.to_string(), task_id.to_string()],
                 )
                 .map_err(map_sql_error)?;
+            if changed == 0 {
+                continue;
+            }
             self.emitir_update(
                 &transaction,
                 "task_checklist_item",
@@ -1579,6 +1583,10 @@ impl WorkRepository for SqliteStorage {
         let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
         let antes = query_task(&transaction, id)?;
+        // Repetir o mesmo pedido (retry ou duplo clique) não é outro adiamento.
+        if antes.scheduled_for == scheduled_for {
+            return Ok(antes);
+        }
         let adiamentos = antes.postponed_count as i64 + if adiando { 1 } else { 0 };
         let changed = transaction
             .execute(
@@ -1606,33 +1614,133 @@ impl WorkRepository for SqliteStorage {
         id: TaskId,
         started_at: Option<OffsetDateTime>,
     ) -> Result<Task, CoreError> {
+        match started_at {
+            Some(inicio) => Ok(self.start_task_recorded(id, inicio)?.task),
+            None => self.gravar_inicio(id, None).map(|(task, _, _)| task),
+        }
+    }
+
+    fn start_task_recorded(
+        &self,
+        id: TaskId,
+        started_at: OffsetDateTime,
+    ) -> Result<TaskStartEffect, CoreError> {
+        let (task, antes, interrompidas) = self.gravar_inicio(id, Some(started_at))?;
+        Ok(TaskStartEffect {
+            // O instante como o BANCO o guardou, e nao o que entrou: a guarda
+            // do desfazer compara com o que for lido depois.
+            started_at: task.started_at.unwrap_or(started_at),
+            task,
+            previous_state: antes.state,
+            previous_started_at: antes.started_at,
+            interrupted: interrompidas,
+        })
+    }
+
+    fn undo_task_start(
+        &self,
+        id: TaskId,
+        started_at: OffsetDateTime,
+        previous_state: TaskState,
+        previous_started_at: Option<OffsetDateTime>,
+        interrupted: &[(TaskId, OffsetDateTime)],
+    ) -> Result<TaskStartUndone, CoreError> {
         let now = format_time(OffsetDateTime::now_utc())?;
-        let inicio = started_at.map(format_time).transpose()?;
         let connection = self.escrita()?;
         let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
-        let antes = query_task(&transaction, id)?;
-        let mut mudancas: Vec<(&str, serde_json::Value)> =
-            vec![("startedAt", serde_json::json!(inicio))];
-        // Comecar poe em `doing`; parar deixa onde esta.
-        let estado = if started_at.is_some()
-            && antes.state != TaskState::Doing
-            && antes.state != TaskState::Done
+        let atual = query_task(&transaction, id)?;
+        // A guarda: so reverte o que continua como o inicio deixou. Outro
+        // instante, outra coluna ou Task fora de uso significam que alguem agiu
+        // depois — e sobrescrever essa decisao seria o desfazer destrutivo que
+        // o plano proibe. Recusa inteira, sem reverter metade.
+        if atual.started_at != Some(started_at)
+            || atual.state != TaskState::Doing
+            || atual.lifecycle_state != LifecycleState::Active
         {
-            mudancas.push(("workState", serde_json::json!(TaskState::Doing.as_str())));
-            TaskState::Doing
-        } else {
-            antes.state
-        };
-        let changed = transaction
+            return Err(CoreError::new(
+                ErrorCode::Conflict,
+                format!(
+                    "{} mudou depois de começar; nada foi desfeito para não apagar o que veio depois.",
+                    atual.title
+                ),
+                false,
+            ));
+        }
+        let inicio_antigo = previous_started_at.map(format_time).transpose()?;
+        let mut mudancas: Vec<(&str, serde_json::Value)> =
+            vec![("startedAt", serde_json::json!(inicio_antigo))];
+        if previous_state != TaskState::Doing {
+            mudancas.push(("workState", serde_json::json!(previous_state.as_str())));
+        }
+        transaction
             .execute(
                 "UPDATE tasks SET started_at = ?1, work_state = ?2, updated_at = ?3 WHERE id = ?4",
-                params![inicio, estado.as_str(), now, id.to_string()],
+                params![inicio_antigo, previous_state.as_str(), now, id.to_string()],
             )
             .map_err(map_sql_error)?;
-        ensure_changed(changed)?;
         self.emitir_update(&transaction, "task", id.as_uuid(), &mudancas)?;
+
+        let mut resumed = Vec::new();
+        let mut notes = Vec::new();
+        for (anterior, instante) in interrupted {
+            if *anterior == id {
+                continue;
+            }
+            let alvo = match query_task(&transaction, *anterior) {
+                Ok(task) => task,
+                Err(_) => {
+                    notes.push("Uma Task interrompida não existe mais; o foco não voltou.".into());
+                    continue;
+                }
+            };
+            // Devolver o foco so vale se ninguem estiver em andamento — nem a
+            // propria alvo, que pode ter voltado a um inicio anterior. Duas
+            // Tasks com cronometro e o estado que a troca atomica impede.
+            let em_andamento: i64 = transaction
+                .query_row(
+                    "SELECT COUNT(*) FROM tasks WHERE started_at IS NOT NULL",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(map_sql_error)?;
+            if em_andamento > 0 {
+                notes.push(format!(
+                    "{} continua parada: outra Task já está em andamento.",
+                    alvo.title
+                ));
+                continue;
+            }
+            if alvo.started_at.is_some()
+                || alvo.lifecycle_state != LifecycleState::Active
+                || alvo.state == TaskState::Done
+            {
+                notes.push(format!(
+                    "{} mudou depois da troca; o foco não voltou para ela.",
+                    alvo.title
+                ));
+                continue;
+            }
+            let instante_texto = format_time(*instante)?;
+            transaction
+                .execute(
+                    "UPDATE tasks SET started_at = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![instante_texto, now, anterior.to_string()],
+                )
+                .map_err(map_sql_error)?;
+            self.emitir_update(
+                &transaction,
+                "task",
+                anterior.as_uuid(),
+                &[("startedAt", serde_json::json!(instante_texto))],
+            )?;
+            resumed.push(*anterior);
+        }
         transaction.commit().map_err(map_sql_error)?;
-        query_task(&connection, id)
+        Ok(TaskStartUndone {
+            task: query_task(&connection, id)?,
+            resumed,
+            notes,
+        })
     }
 
     fn set_task_lifecycle(&self, id: TaskId, lifecycle: LifecycleState) -> Result<Task, CoreError> {
@@ -3730,5 +3838,83 @@ mod tests {
         // Limpar devolve o slot ao desenho.
         let pins = storage.clear_radial_pin(None, 0).unwrap();
         assert!(pins.is_empty());
+    }
+}
+
+impl SqliteStorage {
+    /// Grava (ou limpa) o inicio numa transacao so, soltando o foco das outras
+    /// Tasks quando comeca. Devolve a Task, como ela estava ANTES e quem foi
+    /// interrompido — o efeito inteiro, que e o que o desfazer precisa.
+    #[allow(clippy::type_complexity)]
+    fn gravar_inicio(
+        &self,
+        id: TaskId,
+        started_at: Option<OffsetDateTime>,
+    ) -> Result<(Task, Task, Vec<(TaskId, OffsetDateTime)>), CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let inicio = started_at.map(format_time).transpose()?;
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let antes = query_task(&transaction, id)?;
+        let mut interrompidas = Vec::new();
+        if started_at.is_some() {
+            if antes.lifecycle_state != LifecycleState::Active || antes.state == TaskState::Done {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidTransition,
+                    "Só é possível começar uma Task ativa e ainda não concluída.",
+                    false,
+                ));
+            }
+            // Validar o alvo ANTES de soltar o foco. As duas mudanças e suas
+            // operações de sync pertencem ao mesmo commit, em qualquer shell.
+            let anteriores: Vec<(String, Option<String>)> = {
+                let mut statement = transaction
+                    .prepare("SELECT id, started_at FROM tasks WHERE started_at IS NOT NULL AND id <> ?1")
+                    .map_err(map_sql_error)?;
+                let rows = statement
+                    .query_map([id.to_string()], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .map_err(map_sql_error)?;
+                rows.collect::<Result<Vec<_>, _>>().map_err(map_sql_error)?
+            };
+            for (anterior, instante) in anteriores {
+                if let Some(instante) = instante.as_deref().and_then(|v| parse_time(v).ok()) {
+                    interrompidas.push((TaskId::parse(&anterior)?, instante));
+                }
+                transaction
+                    .execute(
+                        "UPDATE tasks SET started_at = NULL, updated_at = ?2 WHERE id = ?1",
+                        params![anterior, now],
+                    )
+                    .map_err(map_sql_error)?;
+                self.emitir_update(
+                    &transaction,
+                    "task",
+                    TaskId::parse(&anterior)?.as_uuid(),
+                    &[("startedAt", serde_json::Value::Null)],
+                )?;
+            }
+        }
+        let mut mudancas: Vec<(&str, serde_json::Value)> =
+            vec![("startedAt", serde_json::json!(inicio))];
+        // Comecar poe em `doing`; parar deixa onde esta.
+        let estado = if started_at.is_some()
+            && antes.state != TaskState::Doing
+            && antes.state != TaskState::Done
+        {
+            mudancas.push(("workState", serde_json::json!(TaskState::Doing.as_str())));
+            TaskState::Doing
+        } else {
+            antes.state
+        };
+        let changed = transaction
+            .execute(
+                "UPDATE tasks SET started_at = ?1, work_state = ?2, updated_at = ?3 WHERE id = ?4",
+                params![inicio, estado.as_str(), now, id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        ensure_changed(changed)?;
+        self.emitir_update(&transaction, "task", id.as_uuid(), &mudancas)?;
+        transaction.commit().map_err(map_sql_error)?;
+        Ok((query_task(&connection, id)?, antes, interrompidas))
     }
 }

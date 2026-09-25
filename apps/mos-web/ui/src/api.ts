@@ -88,7 +88,7 @@ export type ODia = {
 export type Piloto = {
   day: string;
   saudacao: string;
-  estadoDoDia: { kind: "not_started" | "stale_open" | "active" | "ended" };
+  estadoDoDia: { kind: "not_started" | "active" | "ended" } | { kind: "stale_open"; day: string };
   hoje: { concluidas: number; restantes: number; progresso: number };
   agora: {
     agora: { taskId: string; titulo: string; projeto: string; estimativa: string; comecada: boolean; razoes: string[] } | null;
