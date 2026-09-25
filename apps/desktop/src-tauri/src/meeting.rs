@@ -1027,6 +1027,7 @@ fn receipt(accepted: mos_core::AcceptedInsight) -> AcceptReceipt {
             insight_id: accepted.insight.id.to_string(),
             task_id: accepted.task_id.to_string(),
             reminder_id: accepted.reminder_id.map(|id| id.to_string()),
+            task_created: accepted.task_created,
         },
         insight: accepted.insight,
     }

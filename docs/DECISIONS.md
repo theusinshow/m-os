@@ -4710,3 +4710,37 @@ Não há benchmark de tokens/latência contra o gateway real; o teto por seção
 é o orçamento inicial. Pessoa continua texto (sem desambiguação de homônimos
 além do que o nome escrito distingue). Teste:
 `agente_exec::contexto_de_project_responde_o_que_falta_com_fonte_e_teto`.
+
+## ADR-086 — Reunião: desfazer não arquiva Task alheia, e reanalisar respeita o que foi decidido
+
+**Data:** 2026-09-24. **Status:** aceito e implementado (F7 do [MOS-OVERHAUL-PLAN](MOS-OVERHAUL-PLAN.md)).
+
+### Contexto
+
+A auditoria da matriz de reuniões (plano §12) achou 6 de 10 cenários
+cobertos por teste, 3 parciais e 1 lacuna com defeito real:
+
+- **Defeito:** aceitar um item que se ligava a uma Task **já existente** gerava
+  um recibo cujo desfazer arquivava essa Task — trabalho que a pessoa tinha
+  antes da reunião.
+- Reabrir o item não soltava `created_task_id`/`created_reminder_id`: o item
+  reaberto continuava apontando para a Task arquivada.
+- Reanalisar apagava também os itens **dispensados** e podia oferecer de novo
+  o que já tinha sido aceito ou recusado.
+
+### Decisão
+
+1. `AcceptedInsight.task_created` e `UndoMeetingInsight.task_created`
+   (`serde(default = true)`, recibos antigos mantêm o comportamento de antes):
+   o desfazer só arquiva a Task que o aceite criou.
+2. Voltar um item a `proposed` limpa os vínculos.
+3. Reanálise substitui só o que estava `proposed`; itens novos que repetem uma
+   decisão (mesmo tipo e texto normalizado de um aceito ou dispensado) não
+   voltam como proposta.
+
+### Pendências registradas
+
+Versões da análise (o resumo anterior é sobrescrito); teste do job liberado
+quando o transcritor aparece; desfazer do aceite em uma transação só.
+Testes: `lote_cria_tasks_com_prazo_e_espera_e_nao_duplica` (recibo e
+vínculos) e `reanalisar_nao_repropoe_o_que_ja_foi_decidido`.

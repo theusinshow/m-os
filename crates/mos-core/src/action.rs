@@ -1851,6 +1851,11 @@ pub enum UndoStep {
         insight_id: String,
         task_id: String,
         reminder_id: Option<String>,
+        /// `false` quando o aceite ligou a uma Task que ja existia: o desfazer
+        /// solta o vinculo e NAO arquiva a Task da pessoa. Recibos gravados
+        /// antes deste campo leem `true`, o comportamento de entao.
+        #[serde(default = "verdadeiro")]
+        task_created: bool,
     },
     /// O inverso de uma acao que a VOZ executou sozinha.
     ///
@@ -1913,6 +1918,10 @@ impl UndoTaskStart {
                 .collect(),
         }
     }
+}
+
+fn verdadeiro() -> bool {
+    true
 }
 
 /// O contrato que desce no prompt.

@@ -961,6 +961,7 @@ pub fn desfazer_acao(ctx: &Contexto<'_>, step: crate::UndoStep) -> Result<String
             insight_id,
             task_id,
             reminder_id,
+            task_created,
         } => {
             // A ordem e deliberada: primeiro tirar da vista o que TOCA. Um
             // lembrete que dispara enquanto o desfazer roda avisaria sobre uma
@@ -971,7 +972,11 @@ pub fn desfazer_acao(ctx: &Contexto<'_>, step: crate::UndoStep) -> Result<String
                     crate::Transition::Cancel,
                 )?;
             }
-            state.work.set_task_archived(&task_id, true)?;
+            // So arquiva a Task que o ACEITE criou. Uma Task que ja existia e
+            // foi apenas ligada ao item continua da pessoa (ADR-086).
+            if task_created {
+                state.work.set_task_archived(&task_id, true)?;
+            }
             // Por ultimo o item volta a ser oferecido — e isso e o ponto: quem
             // desfez provavelmente quer refazer diferente.
             state.meetings.reopen_insight(&insight_id)?;

@@ -338,7 +338,7 @@ export type UndoStep =
    * ação só — desfazer pela metade deixaria um lembrete tocando para uma Task
    * que já saiu da tela.
    */
-  | { step: "undoMeetingInsight"; insightId: string; taskId: string; reminderId: string | null };
+  | { step: "undoMeetingInsight"; insightId: string; taskId: string; reminderId: string | null; taskCreated?: boolean };
 
 export type ActionResolution = {
   message: Message;

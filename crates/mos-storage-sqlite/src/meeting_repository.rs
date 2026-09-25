@@ -705,17 +705,48 @@ impl MeetingRepository for SqliteStorage {
             )
             .map_err(map_sql_error)?;
 
-        // Reanalisar NAO desfaz o que a pessoa aceitou. Um item ja `accepted`
+        // Reanalisar NAO desfaz o que a pessoa decidiu. Um item ja `accepted`
         // tem Task no M/OS, e apaga-lo deixaria a Task orfa da reuniao que a
         // originou — que e justamente a proveniencia que esta feature existe
-        // para preservar.
+        // para preservar. Um item `dismissed` e uma resposta: apaga-lo faria a
+        // reanalise oferecer de novo o que a pessoa ja recusou (ADR-086). So o
+        // que ainda estava em aberto e substituido.
+        let decididos: std::collections::HashSet<(String, String)> = {
+            let mut statement = transaction
+                .prepare(
+                    "SELECT kind, text FROM meeting_insights \
+                     WHERE meeting_id = ?1 AND status IN ('accepted', 'dismissed')",
+                )
+                .map_err(map_sql_error)?;
+            let linhas = statement
+                .query_map(params![key], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(map_sql_error)?;
+            let mut chaves = std::collections::HashSet::new();
+            for linha in linhas {
+                let (kind, text) = linha.map_err(map_sql_error)?;
+                chaves.insert((kind, mos_core::meeting_text::normalized_key(&text)));
+            }
+            chaves
+        };
         transaction
             .execute(
-                "DELETE FROM meeting_insights WHERE meeting_id = ?1 AND status <> 'accepted' \
+                "DELETE FROM meeting_insights WHERE meeting_id = ?1 AND status = 'proposed' \
                  AND origin = 'spoken'",
                 params![key],
             )
             .map_err(map_sql_error)?;
+        // O que repete uma decisao ja tomada nao volta como proposta.
+        let insights: Vec<MeetingInsight> = insights
+            .into_iter()
+            .filter(|insight| {
+                !decididos.contains(&(
+                    insight.kind.as_str().to_owned(),
+                    mos_core::meeting_text::normalized_key(&insight.text),
+                ))
+            })
+            .collect();
 
         let kept: i64 = transaction
             .query_row(
@@ -885,11 +916,16 @@ impl MeetingRepository for SqliteStorage {
         status: InsightStatus,
     ) -> Result<MeetingInsight, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
+        // Voltar a `proposed` solta os vinculos: o item reaberto nao pode
+        // continuar apontando para a Task que o desfazer acabou de arquivar.
+        let sql = if status == InsightStatus::Proposed {
+            "UPDATE meeting_insights SET status = ?2, created_task_id = NULL, \
+             created_reminder_id = NULL WHERE id = ?1"
+        } else {
+            "UPDATE meeting_insights SET status = ?2 WHERE id = ?1"
+        };
         connection
-            .execute(
-                "UPDATE meeting_insights SET status = ?2 WHERE id = ?1",
-                params![insight_id.to_string(), status.as_str()],
-            )
+            .execute(sql, params![insight_id.to_string(), status.as_str()])
             .map_err(map_sql_error)?;
         single_insight(&connection, insight_id)
     }
@@ -976,6 +1012,7 @@ impl MeetingRepository for SqliteStorage {
             insight: self.insight(insight_id)?,
             task_id,
             reminder_id,
+            task_created: true,
         })
     }
 
@@ -1449,7 +1486,7 @@ impl MeetingRepository for SqliteStorage {
     ) -> Result<Vec<mos_core::AcceptedInsight>, CoreError> {
         let mut connection = self.escrita()?;
         let transaction = connection.transaction().map_err(map_sql_error)?;
-        let mut accepted: Vec<(InsightId, TaskId, Option<ReminderId>)> = Vec::new();
+        let mut accepted: Vec<(InsightId, TaskId, Option<ReminderId>, bool)> = Vec::new();
 
         for item in items {
             let insight_id = item.accept.insight_id;
@@ -1475,6 +1512,7 @@ impl MeetingRepository for SqliteStorage {
                 ));
             }
 
+            let task_created = item.link_existing.is_none();
             let (task_id, reminder_id) = match item.link_existing {
                 // Ja existe uma Task igual: liga, e nao cria outra.
                 Some(existing) => (existing, None),
@@ -1519,7 +1557,7 @@ impl MeetingRepository for SqliteStorage {
                     ],
                 )
                 .map_err(map_sql_error)?;
-            accepted.push((insight_id, task_id, reminder_id));
+            accepted.push((insight_id, task_id, reminder_id, task_created));
         }
 
         transaction.commit().map_err(map_sql_error)?;
@@ -1527,11 +1565,12 @@ impl MeetingRepository for SqliteStorage {
 
         accepted
             .into_iter()
-            .map(|(insight_id, task_id, reminder_id)| {
+            .map(|(insight_id, task_id, reminder_id, task_created)| {
                 Ok(mos_core::AcceptedInsight {
                     insight: self.insight(insight_id)?,
                     task_id,
                     reminder_id,
+                    task_created,
                 })
             })
             .collect()
@@ -2238,6 +2277,71 @@ mod tests {
             !read.iter().any(|item| item.text == "So uma decisao"),
             "o item nao aceito e substituido"
         );
+    }
+
+    /// ADR-086: reanalisar nao oferece de novo o que a pessoa ja decidiu —
+    /// nem o que aceitou, nem o que dispensou.
+    #[test]
+    fn reanalisar_nao_repropoe_o_que_ja_foi_decidido() {
+        let (_dir, storage) = storage();
+        let meeting = start_meeting(&storage, "NexoDoc");
+        let aceito = insight(
+            &meeting,
+            InsightKind::MyAction,
+            "Enviar as bases",
+            Vec::new(),
+        );
+        let dispensado = insight(
+            &meeting,
+            InsightKind::Decision,
+            "Trocar o fornecedor",
+            Vec::new(),
+        );
+        storage
+            .replace_analysis(analysis(&meeting), vec![aceito.clone(), dispensado.clone()])
+            .unwrap();
+        let task = storage
+            .create_task(NewTask::create("Enviar as bases", "", None).unwrap())
+            .unwrap();
+        storage
+            .link_insight_result(aceito.id, Some(task.id), None)
+            .unwrap();
+        storage
+            .set_insight_status(dispensado.id, InsightStatus::Dismissed)
+            .unwrap();
+
+        // A reanalise le a mesma reuniao e ve as mesmas duas coisas, com
+        // grafia um pouco diferente, e uma nova.
+        storage
+            .replace_analysis(
+                analysis(&meeting),
+                vec![
+                    insight(
+                        &meeting,
+                        InsightKind::MyAction,
+                        "enviar as bases.",
+                        Vec::new(),
+                    ),
+                    insight(
+                        &meeting,
+                        InsightKind::Decision,
+                        "Trocar o Fornecedor",
+                        Vec::new(),
+                    ),
+                    insight(&meeting, InsightKind::Risk, "Prazo apertado", Vec::new()),
+                ],
+            )
+            .unwrap();
+        let read = storage.insights(meeting.id).unwrap();
+        let propostos: Vec<&str> = read
+            .iter()
+            .filter(|i| i.status == InsightStatus::Proposed)
+            .map(|i| i.text.as_str())
+            .collect();
+        assert_eq!(propostos, vec!["Prazo apertado"], "{read:#?}");
+        assert!(read
+            .iter()
+            .any(|i| i.id == dispensado.id && i.status == InsightStatus::Dismissed));
     }
 
     #[test]
@@ -3934,6 +4038,14 @@ mod v2_tests {
             })
             .unwrap();
         assert_eq!(ligado.task_id, aceitos[0].task_id);
+        // ADR-086: o recibo sabe que a Task NAO nasceu deste aceite — o
+        // desfazer nao pode arquivar a Task que a pessoa ja tinha.
+        assert!(!ligado.task_created);
+        assert!(aceitos.iter().all(|a| a.task_created));
+        // E reabrir solta os vinculos: o item volta sem apontar para Task.
+        let reaberto = service.reopen_insight(&novos[0].id.to_string()).unwrap();
+        assert_eq!(reaberto.status, InsightStatus::Proposed);
+        assert!(reaberto.created_task_id.is_none());
         let abertas = storage
             .tasks(false)
             .unwrap()

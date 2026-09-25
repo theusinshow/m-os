@@ -1538,6 +1538,10 @@ pub struct AcceptedInsight {
     pub insight: MeetingInsight,
     pub task_id: TaskId,
     pub reminder_id: Option<ReminderId>,
+    /// `false` quando o aceite LIGOU o item a uma Task que ja existia. O
+    /// desfazer precisa saber: arquivar uma Task que a pessoa ja tinha antes
+    /// da reuniao seria apagar trabalho dela (F7, ADR-086).
+    pub task_created: bool,
 }
 
 /// O preview de um item, antes de ele virar Task.
