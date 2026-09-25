@@ -545,7 +545,7 @@ Não vou usar contagem de arquivos, linhas ou features como sinal de progresso. 
 
 ### Marco 5 — produto validado e distribuível
 
-- [ ] Testes automáticos e builds dos consumidores aprovados.
+- [x] Testes automáticos e builds dos consumidores aprovados.
 - [ ] Fluxos nativos e mobile inspecionados em ambiente real disponível.
 - [ ] Backup, upgrade e recuperação verificados.
 - [ ] Integrações testadas ou limitações claramente registradas.
@@ -585,5 +585,7 @@ O objetivo de conclusão permanece o da missão: abrir o M/OS deve ajudar a deci
 | F6 | Parcial | Sugestão determinística por Capture (link, verbo, quando, projeto) com motivo; lote confirmado com resultado e desfazer por item; nada automático | `triagem` (core), `agente_exec::lote_de_triagem_*`, `de_bolso::triagem_no_bolso_*` |
 | F4.2 | Parcial | Contexto de Project no core com fonte e teto; descoberta por "quem está devendo" | `agente_exec::contexto_de_project_*` |
 | F7 | Parcial | Matriz auditada (6/10 cobertos); corrigido desfazer que arquivava Task alheia, vínculos órfãos e reanálise que repropunha decidido | `lote_cria_tasks_*`, `reanalisar_nao_repropoe_*` |
+| F4.3 | Não iniciado como entrega própria | Catálogo de ações mantido (nenhuma ferramenta nova de escrita, por decisão do §9); consultas de Project/espera cobertas por F4.2; execução pelo bolso aguarda a conversa Hermes na PWA | ADR-080, ADR-085 |
+| F10 | Parcial | Suíte `cargo test --workspace` (53 suítes, 0 falhas), clippy/fmt limpos, 422 + 88 testes TS, builds desktop e PWA; nenhuma migration nesta rodada (schema v42, compatível com o instalado); app de dev sobe e renderiza. Clique/digitação na janela real, gateway, push físico e release **pendentes com o dono** | ver §22 |
 
 Decisões registradas em ADR-074 (F1), ADR-075 (F2), ADR-076 (F3.2), ADR-077 (F3.3), ADR-078 (F3.1), ADR-079 (F3.4), ADR-080 (F4.1), ADR-081 (F5), ADR-082 (F9), ADR-083 (F8), ADR-084 (F6), ADR-085 (F4.2) e ADR-086 (F7).
