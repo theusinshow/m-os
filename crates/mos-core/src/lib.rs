@@ -6,6 +6,7 @@ mod academic_sync_impl;
 mod academic_univirtus_impl;
 mod action;
 mod agent;
+pub mod agente_exec;
 mod app;
 mod attention;
 mod calendar;

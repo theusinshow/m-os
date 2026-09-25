@@ -49,65 +49,13 @@ fn avisar<R: Runtime>(app: &AppHandle<R>) {
     let _ = app.emit("data-changed", "daily");
 }
 
-/// O rotulo de uma entidade vinculada.
-///
-/// Existe porque um objetivo pode nascer sem titulo quando ele E uma Task ou um
-/// Project: a pessoa escolheu a Task no seletor, e digitar o titulo de novo
-/// seria trabalho que o sistema ja tem como fazer. Falha vira `None`, e ai o
-/// dominio recusa o objetivo sem titulo — melhor que gravar "(sem titulo)".
-fn rotulo_do_vinculo<R: Runtime>(app: &AppHandle<R>, link: &ObjectiveLink) -> Option<String> {
-    let state = app.state::<AppState>();
-    match link.kind {
-        LinkKind::Task => state.work.task(&link.id).ok().map(|task| task.title),
-        LinkKind::Project => state
-            .work
-            .project(&link.id)
-            .ok()
-            .map(|project| project.name),
-        LinkKind::Capture => state
-            .captures
-            .get(&link.id)
-            .ok()
-            .map(|capture| capture.content),
-        LinkKind::Resource => state
-            .memory
-            .resource(&link.id)
-            .ok()
-            .map(|resource| resource.title),
-        LinkKind::Meeting => state
-            .meetings
-            .meeting(&link.id)
-            .ok()
-            .map(|meeting| meeting.title),
-    }
-}
-
-/// Completa o titulo de um rascunho a partir do vinculo, quando ele veio vazio.
+/// Completa o titulo de um rascunho a partir do vinculo. A regra mora no core
+/// (`agente_exec::completar_rascunho`), a mesma que o agente usa.
 fn completar<R: Runtime>(
     app: &AppHandle<R>,
     draft: &ObjectiveDraft,
 ) -> Result<ObjectiveDraft, CoreError> {
-    if !draft.title.trim().is_empty() {
-        return Ok(draft.clone());
-    }
-    let Some(link) = draft.link()? else {
-        return Err(CoreError::new(
-            ErrorCode::InvalidInput,
-            "O objetivo precisa de um titulo.",
-            false,
-        ));
-    };
-    let Some(titulo) = rotulo_do_vinculo(app, &link) else {
-        return Err(CoreError::new(
-            ErrorCode::InvalidInput,
-            "Nao achei o que este objetivo aponta. Escreva um titulo.",
-            false,
-        ));
-    };
-    Ok(ObjectiveDraft {
-        title: titulo,
-        ..draft.clone()
-    })
+    mos_core::agente_exec::completar_rascunho(&app.state::<AppState>().servicos(), draft)
 }
 
 // ------------------------------------------------------------------ leitura
@@ -386,41 +334,6 @@ pub fn bloco_de_hoje<R: Runtime>(app: &AppHandle<R>) -> (String, Vec<(String, St
         })
         .collect();
     (day.to_string(), objetivos)
-}
-
-/// Resolve a referencia a um objetivo do dia, como o Hermes a escreveu.
-///
-/// Procura **so entre os objetivos de hoje**, e nao no historico inteiro. "Meu
-/// segundo objetivo" e sobre hoje por definicao, e alcancar um objetivo de tres
-/// semanas atras por semelhanca de titulo seria agir sobre o dia errado — sem
-/// que nada na tela mostrasse isso.
-pub fn resolver_objetivo<R: Runtime>(
-    app: &AppHandle<R>,
-    referencia: &str,
-) -> Result<mos_core::DailyObjective, CoreError> {
-    let hoje_resolvido = app.state::<AppState>().daily.today(&hoje(app))?;
-    if hoje_resolvido.objectives.is_empty() {
-        return Err(CoreError::new(
-            ErrorCode::InvalidInput,
-            "O dia ainda nao comecou, entao nao ha objetivo para mudar.",
-            false,
-        ));
-    }
-    let achado = mos_core::resolve(
-        &hoje_resolvido.objectives,
-        referencia,
-        |objetivo| objetivo.id.to_string(),
-        |objetivo| objetivo.title.clone(),
-    );
-    match mos_core::resolution_error(
-        &achado,
-        mos_core::EntityKind::DailyObjective,
-        referencia,
-        |objetivo: &mos_core::DailyObjective| objetivo.title.clone(),
-    ) {
-        Some(erro) => Err(erro),
-        None => Ok(achado.one().expect("sem erro ha exatamente um").clone()),
-    }
 }
 
 // ------------------------------------------------------------------- semana

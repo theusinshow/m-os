@@ -531,7 +531,7 @@ Não vou usar contagem de arquivos, linhas ou features como sinal de progresso. 
 
 ### Marco 3 — recuperar e agir pelo contexto
 
-- [ ] Serviço compartilhado de contexto/ação Hermes.
+- [x] Serviço compartilhado de ação Hermes (contexto segue em F4.2).
 - [ ] Consultas de Project, Waiting For e reunião com fontes.
 - [ ] Busca medida contra corpus e melhorada sem regressão relevante.
 - [ ] Ferramentas novas possuem política, idempotência e inversa quando aplicável.
@@ -578,5 +578,6 @@ O objetivo de conclusão permanece o da missão: abrir o M/OS deve ajudar a deci
 | F3.3 | Feito | Fila de captura no aparelho, chave do cliente, SW rede-primeiro; "SEM CONEXÃO" em vez de "EM DIA" | `filaDeCaptura.test.ts`; `de_bolso::reenviar_a_mesma_captura_nao_duplica`; E2E Chromium offline |
 | F3.1 | Feito | Medido 2,76 s de captura presa na rodada; rede fora do portão, cadeado de rodada | `escrita_e_rodada::capturar_nao_espera_a_rede_da_rodada` |
 | F3.4 | Parcial | Disponibilidade declarada (arquivo em outro aparelho; origem da Task sem vazamento); vínculo Task→reunião e blobs ficam para decisão | ADR-079 |
+| F4.1 | Feito | Executor do Hermes em `mos_core::agente_exec`; desktop vira adapter; rota HTTP adiada para F4.3 | `tests/agente_exec.rs`; 73 testes do desktop |
 
-Decisões registradas em ADR-074 (F1), ADR-075 (F2), ADR-076 (F3.2), ADR-077 (F3.3), ADR-078 (F3.1) e ADR-079 (F3.4).
+Decisões registradas em ADR-074 (F1), ADR-075 (F2), ADR-076 (F3.2), ADR-077 (F3.3), ADR-078 (F3.1), ADR-079 (F3.4) e ADR-080 (F4.1).

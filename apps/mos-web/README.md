@@ -230,27 +230,24 @@ O acoplamento tem forma conhecida, e foi medido:
 | o que ele pede do hospedeiro | quantas vezes | resolvido? |
 |---|---|---|
 | os oito serviços (`app.state::<AppState>()`) | por toda parte | **sim** — `mos_core::Servicos` |
-| `app.emit(...)` para avisar a janela | 7 | falta |
-| `attention::poke` (acorda o agendador) | 2 | falta |
-| `surface::now_local` (o fuso do usuário) | 1 | falta |
-| `daily::hoje/iniciar/encerrar/resolver_objetivo` | 6 | falta — `daily.rs` também é do desktop |
-| `finance::execute_create_bill` | 1 | **já é portável** — não usa `AppHandle` |
+| `app.emit(...)` para avisar a janela | 7 | **sim** — `Capacidades::avisar` |
+| `attention::poke` (acorda o agendador) | 2 | **sim** — `Capacidades::lembretes_mudaram` |
+| `surface::now_local` (o fuso do usuário) | 1 | **sim** — `Contexto::agora_local` |
+| `daily::hoje/iniciar/encerrar/resolver_objetivo` | 6 | **sim** — `agente_exec::iniciar_dia`, `resolver_objetivo` |
+| `finance::execute_create_bill` | 1 | fica no adapter do desktop (efeito externo, assíncrono) |
 
-### O que já está feito
+### Feito (ADR-080, 2026-09-24)
 
-`mos_core::Servicos` reúne os oito serviços num tipo só, e `AppState::servicos()`
-o produz. Era o maior dos acoplamentos, e o único espalhado por todo o arquivo.
+O executor mora em `mos_core::agente_exec`: `executar_acao` e `desfazer_acao`
+recebem `Servicos`, um `Capacidades` do aparelho e o "agora" no fuso de quem
+pediu. O desktop virou adapter: implementa `Capacidades` com `AppHandle` e
+intercepta só a ponte do M-Finance. No servidor, a mesma chamada com
+`SemCapacidades` responde "indisponível neste aparelho" para o que não existe
+aqui. Prova: `crates/mos-storage-sqlite/tests/agente_exec.rs`, sem Tauri.
 
-### O que falta, e a forma que ele tem
+### O que ainda falta para o Hermes no bolso
 
-Um trait `Ambiente` com três métodos — `agora_local`, `avisar`,
-`cutucar_lembretes` —, implementado pelo desktop com `AppHandle` e pelo `mos-web`
-com fuso configurado e avisos silenciosos. Mais portar `daily.rs` (~450 linhas),
-que hoje é a única razão de `run_action` ainda precisar de uma janela.
-
-### Por que parou aqui
-
-Mover 500 linhas de código que funciona — agendador de lembretes e sessão do dia
-— sem poder abrir o desktop e clicar é como se quebra algo em silêncio. A
-fronteira acima está medida e o caminho é mecânico; o que falta é executá-lo com
-o app na mão para conferir.
+A rota HTTP de execução entra junto da conversa Hermes na PWA (F4.3), para
+herdar a reserva de proposta por conversa (ADR-074) em vez de inventar um
+segundo registro de idempotência. Conferir o fluxo no app desktop real, com o
+gateway, continua pendente — os testes cobrem o executor, não a janela.

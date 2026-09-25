@@ -4514,3 +4514,38 @@ arquivos originais são locais (`sync_cobertura.rs`). Auditoria do caminho
   retomável, retenção que não apaga a única cópia. Depende da escolha de onde
   os bytes moram (VPS atual, armazenamento de objetos) e do custo — decisão do
   dono, não do código.
+
+## ADR-080 — O executor do Hermes mora no core; o aparelho só declara capacidades
+
+**Data:** 2026-09-24. **Status:** aceito e implementado (F4.1 do [MOS-OVERHAUL-PLAN](MOS-OVERHAUL-PLAN.md)).
+
+### Contexto
+
+O executor das ações do agente (`run_action`, `action_undo`, os resolvedores de
+referência) vivia em `jarvis.rs`, preso ao `AppHandle`. O bolso não tinha como
+executar a mesma ação sem reescrever as regras — violação da regra 3 do
+`AGENTS.md` esperando para acontecer.
+
+### Decisão
+
+1. `mos_core::agente_exec::{executar_acao, desfazer_acao}` recebem um
+   `Contexto`: `Servicos`, `Capacidades` do aparelho e o "agora" em UTC e no
+   fuso de quem pediu. Os resolvedores, o início do dia e a resolução de
+   objetivo foram junto.
+2. `Capacidades` tem dois métodos com padrão vazio: `avisar` (interface
+   recarrega) e `lembretes_mudaram` (agendador recalcula). O desktop implementa
+   com `AppHandle`; servidor e testes usam `SemCapacidades`.
+3. Efeito externo fica no adapter que tem a ponte: o desktop intercepta
+   `MFinanceCreateBill` antes do core; num aparelho sem a ponte, o core
+   responde que a ação é indisponível ali — nunca finge sucesso.
+4. A rota HTTP de execução **não** entra agora: ela vem com a conversa Hermes
+   na PWA (F4.3) e herda a reserva de proposta por conversa (ADR-074), em vez
+   de criar outra tabela de idempotência.
+
+### Consequências
+
+Nenhuma mudança de comportamento no desktop: mesmas mensagens, mesmos passos
+de desfazer, mesmos avisos. `daily.rs` do desktop reusa
+`agente_exec::completar_rascunho`. Testes: `tests/agente_exec.rs` (criar,
+começar e desfazer sem janela; capacidade ausente) e os 73 do crate desktop.
+A conferência na janela real com o gateway fica pendente.
