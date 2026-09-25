@@ -4,7 +4,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { EstadoDaAtualizacao } from "./atualizacao";
 import type { Ocorrencia } from "./types";
-import type { OpenAiUsageStatus } from "./types";
+import type { OpenAiUsageStatus, ResultadoDaTriagem, SugestaoDeTriagem } from "./types";
 import type { AnalysisConsent, AudioTest, InsightPreview, Meeting, MeetingAnalysis, MeetingBookmark, MeetingInsight,
   MeetingOverview, MeetingPreferences, MeetingTick, ProjectInference, TranscriberStatus, TranscriptSegment, TrimOutcome,
   VoiceAction, VoiceNote, VoiceStopped, VoiceTick,
@@ -1510,6 +1510,14 @@ export const api = {
   /** `minutos` segue `OpcaoDeAdiar`: -1 hoje a noite, -2 amanha. */
   autopilotAdiar(chave: string, minutos: number) {
     return invoke<void>("autopilot_adiar", { chave, minutos });
+  },
+  /** Sugestões de triagem para a Inbox. Só leitura (ADR-084). */
+  inboxSugestoes() {
+    return invoke<SugestaoDeTriagem[]>("inbox_sugestoes");
+  },
+  /** Aplica o que a pessoa confirmou; um resultado por item. */
+  inboxAplicar(itens: SugestaoDeTriagem[]) {
+    return invoke<ResultadoDaTriagem[]>("inbox_aplicar", { itens });
   },
   /** Dispensa um item de atenção. Sem `adiarHoras`: até haver fato novo. */
   pilotoDispensar(chave: string, adiarHoras?: number) {

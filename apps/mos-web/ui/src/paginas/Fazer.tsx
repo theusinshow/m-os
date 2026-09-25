@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from "react";
-import type { Capture, Task } from "../api";
+import type { Capture, SugestaoDeTriagem, Task } from "../api";
 import { Esqueleto } from "../componentes/Esqueleto";
 import { Vazio } from "../componentes/Vazio";
 import { Progresso } from "./Checklist";
@@ -39,6 +39,8 @@ export function Fazer({
   aoAbrir,
   aoLembrar,
   aoTriar,
+  sugestoes = [],
+  aoAplicarSugestao,
   carregando,
 }: {
   capturas: Capture[];
@@ -49,6 +51,9 @@ export function Fazer({
   aoAbrir: (task: Task) => void;
   aoLembrar: (task: Task, jaTem: boolean) => void;
   aoTriar: (captura: Capture, como: "task" | "referencia" | "arquivar") => void;
+  /** Sugestões do core, por Capture (ADR-084). Nada é aplicado sozinho. */
+  sugestoes?: SugestaoDeTriagem[];
+  aoAplicarSugestao?: (sugestao: SugestaoDeTriagem) => void;
   /** O primeiro carregamento ainda não voltou. */
   carregando?: boolean;
 }) {
@@ -87,6 +92,8 @@ export function Fazer({
                 // aparecer não parece animada — parece lenta.
                 estilo={escada(indice)}
                 aoTriar={(como) => aoTriar(captura, como)}
+                sugestao={sugestoes.find((s) => s.captureId === captura.id)}
+                aoAplicarSugestao={aoAplicarSugestao}
               />
             ))}
           </ul>
@@ -188,14 +195,30 @@ export function Fazer({
  * Então a linha mostra o domínio, e a ação de virar referência vem PRIMEIRO
  * quando há link. O sistema continua não adivinhando: ele oferece.
  */
+/** O rótulo curto da sugestão, para caber num botão de dedo. */
+function rotuloCurto(s: SugestaoDeTriagem): string {
+  switch (s.acao.acao) {
+    case "referencia": return "Guardar referência";
+    case "task": return "Virar task";
+    case "task_com_lembrete": {
+      const quando = new Date(s.acao.quando).toLocaleString("pt-BR", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+      return `Task + lembrete ${quando}`;
+    }
+  }
+}
+
 function Captura({
   captura,
   estilo,
   aoTriar,
+  sugestao,
+  aoAplicarSugestao,
 }: {
   captura: Capture;
   estilo: CSSProperties;
   aoTriar: (como: "task" | "referencia" | "arquivar") => void;
+  sugestao?: SugestaoDeTriagem;
+  aoAplicarSugestao?: (sugestao: SugestaoDeTriagem) => void;
 }) {
   const [aberta, setAberta] = useState(false);
   const link = enderecoEm(captura.content);
@@ -218,6 +241,13 @@ function Captura({
         // referência, ou não ser nada. Uma quarta opção aqui seria uma decisão
         // a mais no momento em que a pessoa só quer esvaziar a inbox.
         <div className="triagem">
+          {/* A sugestão do core vem primeiro e diz por quê. Tocar aplica; as
+              saídas de sempre continuam logo ao lado. */}
+          {sugestao && aoAplicarSugestao && sugestao.acao.acao !== "referencia" ? (
+            <button type="button" data-sugestao onClick={() => aoAplicarSugestao(sugestao)} title={sugestao.razoes.join(" · ")}>
+              {rotuloCurto(sugestao)}
+            </button>
+          ) : null}
           {link ? (
             <>
               <button type="button" onClick={() => aoTriar("referencia")}>

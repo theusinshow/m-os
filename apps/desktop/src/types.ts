@@ -2034,6 +2034,19 @@ export type Ausencia = {
   lembretesVencidos: number;
 };
 
+/** A sugestão de triagem de uma Capture (`mos_core::triagem`, ADR-084). */
+export type SugestaoDeTriagem = {
+  captureId: string;
+  acao:
+    | { acao: "referencia"; url: string; titulo: string }
+    | { acao: "task"; titulo: string; project_id: string | null }
+    | { acao: "task_com_lembrete"; titulo: string; project_id: string | null; quando: string };
+  confianca: "high" | "medium" | "low";
+  razoes: string[];
+};
+
+export type ResultadoDaTriagem = { captureId: string; ok: boolean; mensagem: string; undo: unknown | null };
+
 /** Campos em snake_case: o enum do core so renomeia a variante (`acao`), nao
  *  os campos. O objeto vai e volta como o servidor mandou. */
 export type AcaoDeResgate =

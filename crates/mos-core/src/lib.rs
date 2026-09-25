@@ -33,6 +33,7 @@ mod service;
 mod sinais;
 mod stale;
 mod tracking;
+pub mod triagem;
 mod voice;
 mod voice_when;
 mod weekly;

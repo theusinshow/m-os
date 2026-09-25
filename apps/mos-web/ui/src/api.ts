@@ -140,6 +140,19 @@ export type PlanoDeResgate = {
   importantesHoje: number;
 };
 
+/** A sugestão de triagem de uma Capture (`mos_core::triagem`, ADR-084). */
+export type SugestaoDeTriagem = {
+  captureId: string;
+  acao:
+    | { acao: "referencia"; url: string; titulo: string }
+    | { acao: "task"; titulo: string; project_id: string | null }
+    | { acao: "task_com_lembrete"; titulo: string; project_id: string | null; quando: string };
+  confianca: "high" | "medium" | "low";
+  razoes: string[];
+};
+
+export type ResultadoDaTriagem = { captureId: string; ok: boolean; mensagem: string };
+
 export type ResgateResultado = { aplicadas: number; falharam: string[]; falhas: { indice: number; motivo: string }[] };
 
 /** Um projeto, só com o que a tela do bolso precisa saber dele. */
@@ -701,6 +714,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ acoes }),
     });
+  },
+  /** Sugestões de triagem da Inbox — só leitura (ADR-084). */
+  sugestoesDaInbox() {
+    return pedir<SugestaoDeTriagem[]>(`/api/inbox/sugestoes?agora=${encodeURIComponent(comOffsetLocal(new Date()))}`);
+  },
+  /** Aplica o que a pessoa confirmou; um resultado por item. */
+  aplicarSugestoes(itens: SugestaoDeTriagem[]) {
+    return pedir<ResultadoDaTriagem[]>("/api/inbox/aplicar", { method: "POST", body: JSON.stringify({ itens }) });
   },
   /** Dispensa um item de atenção até haver fato novo (ADR-083). */
   dispensarAtencao(chave: string) {

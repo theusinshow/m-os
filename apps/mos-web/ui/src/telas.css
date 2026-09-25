@@ -1887,3 +1887,10 @@
   background: none;
   border: 0;
 }
+
+/* A sugestão do core vem primeiro na triagem (ADR-084): marcada, não gritada. */
+.triagem button[data-sugestao] {
+  color: var(--text);
+  background: var(--signal-wash);
+  border-color: var(--signal);
+}

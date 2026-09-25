@@ -538,7 +538,7 @@ Não vou usar contagem de arquivos, linhas ou features como sinal de progresso. 
 
 ### Marco 4 — organizar sem trabalho administrativo constante
 
-- [ ] Triagem de Capture com fallback, revisão e correção.
+- [x] Triagem de Capture com fallback, revisão e correção.
 - [ ] Reuniões processadas e reprocessadas sem duplicar ações.
 - [x] Pulse apresenta poucas atenções úteis e respeita dispensa.
 - [x] Métricas mostram onde ainda existe intervenção manual excessiva.
@@ -582,5 +582,6 @@ O objetivo de conclusão permanece o da missão: abrir o M/OS deve ajudar a deci
 | F5 | Parcial | Corpus de 42 consultas; top 5 de 27 para 41 sem regressão exata; mesma normalização do Hermes. Motivo/trecho na UI pendente | `tests/busca_corpus.rs` |
 | F9 | Parcial | Sinais de uso locais no Settings (Inbox, propostas, reuniões, adiamentos, sync, dia); sem evento novo | `agente_exec::sinais_de_uso_contam_sem_ler_conteudo`; `sinais` no core |
 | F8 | Parcial | Chave estável por item de atenção; dispensar até fato novo, desktop e bolso; dispensa local por aparelho | core + `de_bolso::dispensar_atencao_no_bolso_some_do_panorama` |
+| F6 | Parcial | Sugestão determinística por Capture (link, verbo, quando, projeto) com motivo; lote confirmado com resultado e desfazer por item; nada automático | `triagem` (core), `agente_exec::lote_de_triagem_*`, `de_bolso::triagem_no_bolso_*` |
 
-Decisões registradas em ADR-074 (F1), ADR-075 (F2), ADR-076 (F3.2), ADR-077 (F3.3), ADR-078 (F3.1), ADR-079 (F3.4), ADR-080 (F4.1), ADR-081 (F5), ADR-082 (F9) e ADR-083 (F8).
+Decisões registradas em ADR-074 (F1), ADR-075 (F2), ADR-076 (F3.2), ADR-077 (F3.3), ADR-078 (F3.1), ADR-079 (F3.4), ADR-080 (F4.1), ADR-081 (F5), ADR-082 (F9), ADR-083 (F8) e ADR-084 (F6).

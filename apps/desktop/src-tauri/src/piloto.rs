@@ -325,6 +325,50 @@ pub fn piloto_resgate_aplicar<R: Runtime>(
     Ok(resultado)
 }
 
+// ----------------------------------------------------------------- triagem
+
+fn dicas_de_projeto(state: &AppState) -> Vec<mos_core::ProjectHint> {
+    state
+        .work
+        .projects(false)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| mos_core::ProjectHint {
+            id: p.id,
+            name: p.name,
+        })
+        .collect()
+}
+
+/// Sugestoes para a Inbox (ADR-084): so leitura, nada e aplicado.
+#[tauri::command]
+pub fn inbox_sugestoes<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<Vec<mos_core::triagem::SugestaoDeTriagem>, CoreError> {
+    let state = app.try_state::<AppState>().ok_or_else(erro_abrindo)?;
+    let agora = crate::surface::now_local(&app);
+    let projetos = dicas_de_projeto(&state);
+    Ok(state
+        .captures
+        .inbox(200)?
+        .iter()
+        .filter_map(|c| mos_core::triagem::sugerir(c, agora, &projetos))
+        .collect())
+}
+
+/// Aplica o que a pessoa confirmou. Um resultado por item.
+#[tauri::command]
+pub fn inbox_aplicar<R: Runtime>(
+    app: AppHandle<R>,
+    itens: Vec<mos_core::triagem::SugestaoDeTriagem>,
+) -> Result<Vec<mos_core::triagem::ResultadoDaTriagem>, CoreError> {
+    let state = app.try_state::<AppState>().ok_or_else(erro_abrindo)?;
+    let resultado = mos_core::triagem::aplicar(&state.servicos(), itens);
+    crate::attention::poke(&app);
+    let _ = app.emit("data-changed", "inbox");
+    Ok(resultado)
+}
+
 // ------------------------------------------------------- dispensar atencao
 
 /// Dispensa um item de atencao (ADR-083). `adiar_horas` ausente = ate haver

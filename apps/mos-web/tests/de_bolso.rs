@@ -1743,3 +1743,52 @@ async fn dispensar_atencao_no_bolso_some_do_panorama() {
         .unwrap();
     assert!(!recusa.status().is_success());
 }
+
+/// F6: a Inbox do bolso recebe a mesma sugestão do desktop, e aplicar devolve
+/// resultado por item.
+#[tokio::test(flavor = "multi_thread")]
+async fn triagem_no_bolso_sugere_e_aplica_por_item() {
+    let hub = servir_hub().await;
+    let pasta_web = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta_web.path(), hub).await;
+    let cliente = reqwest::Client::new();
+    for texto in ["ligar para a prefeitura amanhã às 10h", "ideia solta"] {
+        cliente
+            .post(format!("http://{web}/api/capturar"))
+            .json(&serde_json::json!({ "texto": texto }))
+            .send()
+            .await
+            .unwrap();
+    }
+    let sugestoes: serde_json::Value = cliente
+        .get(format!("http://{web}/api/inbox/sugestoes"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let lista = sugestoes.as_array().unwrap();
+    assert_eq!(lista.len(), 1, "{sugestoes}");
+    assert_eq!(lista[0]["acao"]["acao"], "task_com_lembrete");
+
+    let resultado: serde_json::Value = cliente
+        .post(format!("http://{web}/api/inbox/aplicar"))
+        .json(&serde_json::json!({ "itens": lista }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(resultado[0]["ok"], true, "{resultado}");
+    let inbox: serde_json::Value = cliente
+        .get(format!("http://{web}/api/inbox"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(inbox.as_array().unwrap().len(), 1, "só a ideia sobra");
+}

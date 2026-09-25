@@ -34,6 +34,8 @@ pub fn rotas() -> Router<Estado> {
     Router::new()
         .route("/api/capturar", post(capturar))
         .route("/api/inbox", get(inbox))
+        .route("/api/inbox/sugestoes", get(inbox_sugestoes))
+        .route("/api/inbox/aplicar", post(inbox_aplicar))
         .route("/api/capturas/{id}/task", post(capturar_para_task))
         .route(
             "/api/capturas/{id}/referencia",
@@ -384,6 +386,73 @@ async fn capturar(
 async fn inbox(State(estado): State<Estado>) -> Resultado<Json<serde_json::Value>> {
     let itens = estado.captures.inbox(LIMITE).map_err(de_core)?;
     Ok(Json(serde_json::to_value(itens).unwrap_or_default()))
+}
+
+#[derive(Deserialize)]
+pub struct Agora {
+    pub agora: Option<String>,
+}
+
+/// Sugestoes para a Inbox (ADR-084) — a mesma leitura do desktop. So leitura.
+async fn inbox_sugestoes(
+    State(estado): State<Estado>,
+    Query(pergunta): Query<Agora>,
+) -> Resultado<Json<Vec<mos_core::triagem::SugestaoDeTriagem>>> {
+    let agora = pergunta
+        .agora
+        .as_deref()
+        .and_then(|t| {
+            time::OffsetDateTime::parse(t, &time::format_description::well_known::Rfc3339).ok()
+        })
+        .unwrap_or_else(time::OffsetDateTime::now_utc);
+    let projetos: Vec<mos_core::ProjectHint> = estado
+        .work
+        .projects(false)
+        .map_err(de_core)?
+        .into_iter()
+        .map(|p| mos_core::ProjectHint {
+            id: p.id,
+            name: p.name,
+        })
+        .collect();
+    let itens = estado
+        .captures
+        .inbox(LIMITE)
+        .map_err(de_core)?
+        .iter()
+        .filter_map(|c| mos_core::triagem::sugerir(c, agora, &projetos))
+        .collect();
+    Ok(Json(itens))
+}
+
+#[derive(Deserialize)]
+pub struct Aplicar {
+    pub itens: Vec<mos_core::triagem::SugestaoDeTriagem>,
+}
+
+/// Aplica o que a pessoa confirmou, com resultado por item.
+async fn inbox_aplicar(
+    State(estado): State<Estado>,
+    Json(pedido): Json<Aplicar>,
+) -> Resultado<Json<Vec<mos_core::triagem::ResultadoDaTriagem>>> {
+    let resultado = escrever(&estado, move |estado| {
+        let servicos = mos_core::Servicos {
+            captures: (*estado.captures).clone(),
+            work: (*estado.work).clone(),
+            memory: (*estado.memoria).clone(),
+            conversations: mos_core::ConversationService::new(estado.storage.clone()),
+            tracking: (*estado.tracking).clone(),
+            meetings: mos_core::MeetingService::new(
+                estado.storage.clone(),
+                std::sync::Arc::new(mos_core::SystemClock),
+            ),
+            attention: (*estado.attention).clone(),
+            daily: (*estado.daily).clone(),
+        };
+        Ok(mos_core::triagem::aplicar(&servicos, pedido.itens))
+    })
+    .await?;
+    Ok(Json(resultado))
 }
 
 async fn tasks(State(estado): State<Estado>) -> Resultado<Json<serde_json::Value>> {
@@ -878,17 +947,8 @@ async fn arquivar_captura(
 /// pessoa pedir — que e a diferenca entre o app entender o que voce colou e o
 /// app tratar tudo como texto.
 fn endereco_em(texto: &str) -> Option<String> {
-    texto.split_whitespace().find_map(|bruto| {
-        // A pontuacao que cerca o link sai dos DOIS lados. Um link colado no
-        // fim de uma frase leva o ponto junto — e endereco com ponto no fim
-        // abre pagina que nao existe. Entre parenteses, ele nem seria
-        // reconhecido, porque a palavra comeca em `(`.
-        let palavra = bruto
-            .trim_start_matches(['(', '[', '<', '"', '\''])
-            .trim_end_matches(['.', ',', ';', ':', ')', ']', '>', '"', '\'']);
-        (palavra.starts_with("http://") || palavra.starts_with("https://"))
-            .then(|| palavra.to_owned())
-    })
+    // A regra mora no core desde a triagem (ADR-084): uma copia so.
+    mos_core::triagem::endereco_em(texto)
 }
 
 /// Um titulo a partir do conteudo cru.
@@ -897,12 +957,7 @@ fn endereco_em(texto: &str) -> Option<String> {
 /// ilegivel em qualquer lista. Corta na primeira quebra de linha, e depois em
 /// 80 — o suficiente para uma frase e pouco para um texto.
 fn titulo_curto(conteudo: &str) -> String {
-    let primeira = conteudo.lines().next().unwrap_or("").trim();
-    if primeira.chars().count() <= 80 {
-        return primeira.to_owned();
-    }
-    let cortado: String = primeira.chars().take(79).collect();
-    format!("{}…", cortado.trim_end())
+    mos_core::triagem::titulo_curto(conteudo)
 }
 
 // -------------------------------------------------------------- lembretes

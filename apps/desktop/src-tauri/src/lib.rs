@@ -2969,6 +2969,8 @@ pub fn run() {
                     diagnostico::diagnostico_recente,
                     piloto::sinais_de_uso,
                     piloto::piloto_dispensar,
+                    piloto::inbox_sugestoes,
+                    piloto::inbox_aplicar,
                     diagnostico::diagnostico_caminho,
                     atualizacao::atualizacao_estado,
                     atualizacao::atualizacao_anotar_verificacao,

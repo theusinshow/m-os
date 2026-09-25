@@ -167,3 +167,61 @@ fn sinais_de_uso_contam_sem_ler_conteudo() {
         "{leituras:?}"
     );
 }
+
+// ------------------------------------------------ F6: triagem (ADR-084)
+
+#[test]
+fn lote_de_triagem_aplica_por_item_nao_duplica_e_desfaz() {
+    use mos_core::triagem::{aplicar, sugerir};
+    let dir = tempfile::tempdir().unwrap();
+    let s = servicos(&dir);
+    let agora_local =
+        time::OffsetDateTime::now_utc().to_offset(time::UtcOffset::from_hms(-3, 0, 0).unwrap());
+    for texto in [
+        "manual do Allplan https://allplan.com/doc",
+        "enviar as bases amanhã às 9h",
+        "ideia solta sobre o muro",
+    ] {
+        s.captures
+            .create(mos_core::CreateCaptureInput {
+                content: texto.into(),
+                source: mos_core::CaptureSource::QuickCapture,
+            })
+            .unwrap();
+    }
+    let inbox = s.captures.inbox(10).unwrap();
+    let sugestoes: Vec<_> = inbox
+        .iter()
+        .filter_map(|c| sugerir(c, agora_local, &[]))
+        .collect();
+    assert_eq!(sugestoes.len(), 2, "a ideia solta fica sem sugestão");
+
+    let resultado = aplicar(&s, sugestoes.clone());
+    assert!(resultado.iter().all(|r| r.ok), "{resultado:?}");
+    assert_eq!(
+        s.captures.inbox(10).unwrap().len(),
+        1,
+        "só a ideia sobra na Inbox"
+    );
+    let tasks = s.work.tasks(false).unwrap();
+    assert_eq!(tasks.len(), 1);
+
+    // Repetir o lote (retry, outro aparelho) não duplica: cada item volta
+    // recusado, com motivo.
+    let repetido = aplicar(&s, sugestoes);
+    assert_eq!(s.work.tasks(false).unwrap().len(), 1);
+    assert!(repetido.iter().any(|r| !r.ok));
+
+    // Desfazer a Task com lembrete devolve a Capture à Inbox.
+    let ctx = mos_core::agente_exec::Contexto {
+        servicos: &s,
+        capacidades: &mos_core::agente_exec::SemCapacidades,
+        agora: time::OffsetDateTime::now_utc(),
+        agora_local,
+    };
+    for passo in resultado.into_iter().filter_map(|r| r.undo) {
+        mos_core::agente_exec::desfazer_acao(&ctx, passo).unwrap();
+    }
+    assert!(s.work.tasks(false).unwrap().is_empty());
+    assert_eq!(s.captures.inbox(10).unwrap().len(), 2);
+}

@@ -14,7 +14,8 @@ import { SyncChip, SyncHealth } from "./SyncHealth";
 import { RescueMode } from "./RescueMode";
 import { EncerrarDia } from "./EncerrarDia";
 import { AutopilotToast, useAutopilotAvisos } from "./AutopilotToast";
-import type { AvisoDoAutopilot, Meeting, Panorama, SaudeDoSync } from "./types";
+import type { AvisoDoAutopilot, Meeting, Panorama, ResultadoDaTriagem, SaudeDoSync, SugestaoDeTriagem } from "./types";
+import { desfazerLote, LoteDeSugestoes, SugestaoDaCapture } from "./TriagemInbox";
 import { arrangeHome, fillBand, HOME_SECTIONS, HOME_SIZES, HOME_WIDGETS, moveInArrangement, placementsFor, touchedSections, type ArrangedWidget, type HomeWidgetRole, type HomeWidgetSpan, type PlacedWidget } from "./homeLayout";
 import { resolveFunctionTarget, type FunctionIntentTarget } from "./functionIntents";
 import { hermes, type HermesConnectionState } from "./hermes";
@@ -907,6 +908,22 @@ function InboxPage({ captures, projects, refresh, receipt, openTask, openResourc
     } catch (nextError) { setError(appError(nextError).message); }
   }
 
+  // Sugestões de triagem (ADR-084): lidas quando a Inbox muda, nunca aplicadas
+  // sozinhas.
+  const [sugestoes, setSugestoes] = useState<SugestaoDeTriagem[]>([]);
+  const [loteAberto, setLoteAberto] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    void api.inboxSugestoes().then((s) => { if (vivo) setSugestoes(s); }).catch(() => { if (vivo) setSugestoes([]); });
+    return () => { vivo = false; };
+  }, [captures]);
+  const sugestaoDe = (id: string) => sugestoes.find((s) => s.captureId === id);
+  function aposAplicar(resultados: ResultadoDaTriagem[]) {
+    const feitos = resultados.filter((r) => r.ok);
+    if (feitos.length) receipt({ message: feitos.length === 1 ? feitos[0].mensagem : `${feitos.length} capturas organizadas.`, run: () => desfazerLote(feitos) });
+    void refresh();
+  }
+
   function selectCapture(capture: Capture) {
     setSelectedId(capture.id);
     setTaskForm(false);
@@ -939,8 +956,9 @@ function InboxPage({ captures, projects, refresh, receipt, openTask, openResourc
       <PaneHeader
         segments={["M", "INBOX"]}
         meta={`${captures.length} ${captures.length === 1 ? "ITEM" : "ITENS"}`}
-        actions={<Button variant="ghost" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button>}
+        actions={<>{sugestoes.length ? <Button variant="ghost" size="sm" onClick={() => setLoteAberto(true)}>{sugestoes.length} {sugestoes.length === 1 ? "SUGESTÃO" : "SUGESTÕES"}</Button> : null}<Button variant="ghost" size="sm" onClick={() => void api.showQuickCapture()}>Capturar</Button></>}
       />
+      {loteAberto ? <LoteDeSugestoes sugestoes={sugestoes} conteudoDe={(id) => captures.find((c) => c.id === id)?.content ?? ""} fechar={() => setLoteAberto(false)} aplicado={aposAplicar} /> : null}
       <PendingVoice />
       <AnimatedList className="row-list">{captures.map((capture) => <AnimatedListItem key={capture.id} itemKey={capture.id}><DataRow
         primary={capture.content}
@@ -962,13 +980,9 @@ function InboxPage({ captures, projects, refresh, receipt, openTask, openResourc
     </section>
     {selected ? <Inspector ref={inspector} label="Detalhe da Capture" open={narrowPane === "detail"} onBack={returnToInboxList} onEscape={returnToInboxList}><header className="detail-header"><div><span className="micro-label">CAPTURE</span><h1>{selected.content}</h1><div className="chip-line"><span className="chip">{sourceLabel(selected.source)}</span><span className="chip">{relativeTime(selected.capturedAt)}</span></div></div><ActionMenu trigger={<Icon name="more" />} items={[{ label: "Arquivar", onSelect: () => void mutate("archive") }, { label: "Mover para a Lixeira", danger: true, onSelect: () => void mutate("trash") }]} /></header>
       {error ? <p className="inline-error" role="alert">! {error}</p> : null}
-      {/* Moldura pronta, conteudo honesto. A interpretacao do Hermes e a fase 3
-          da integracao; ate la este bloco diz o que e, em vez de fabricar uma
-          interpretacao falsa para a tela parecer completa. */}
-      <section className="hermes-block" aria-label="Interpretação do Hermes">
-        <span className="micro-label">HERMES</span>
-        <p className="hermes-empty">Interpretação automática ainda não está ligada. Classifique manualmente abaixo — nada se perde.</p>
-      </section>
+      {/* A leitura determinística do core (ADR-084): diz o que sugere e por
+          quê, e só aplica quando a pessoa pede. Sem sugestão, diz isso. */}
+      <SugestaoDaCapture key={selected.id} sugestao={sugestaoDe(selected.id)} aplicado={aposAplicar} />
       {taskForm ? <CaptureTaskForm capture={selected} projects={projects} cancel={() => setTaskForm(false)} onCreated={(task) => { setTaskForm(false); void refresh(); openTask(task); }} /> : resourceForm ? <ResourceForm capture={selected} cancel={() => setResourceForm(false)} saved={(resource) => { setResourceForm(false); void refresh(); openResource(resource); }} /> : <div ref={detailActions} className="detail-actions"><Button variant="primary" onClick={() => { setTaskForm(true); setResourceForm(false); }}>Criar Task</Button><Button variant="secondary" onClick={() => { setTaskForm(false); setResourceForm(true); }}>Salvar Resource</Button><Button variant="secondary" data-function-action="capture.mark_processed" onClick={() => void mutate("processed")}>Marcar processada</Button></div>}
     </Inspector> : null}
   </div>;

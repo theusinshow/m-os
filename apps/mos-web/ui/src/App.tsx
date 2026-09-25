@@ -21,6 +21,7 @@ import {
   type ODia,
   type Projeto,
   type Task as ItemDeTask,
+  type SugestaoDeTriagem,
 } from "./api";
 import { ativar, marcarIcone, situacao, type Situacao } from "./notificacoes";
 import { esvaziar, guardar, novaChave, pendentes as lerPendentes, remover, type Pendente } from "./filaDeCaptura";
@@ -80,6 +81,8 @@ export function App() {
   const [capturas, setCapturas] = useState<Capture[]>([]);
   /** Capturas guardadas no aparelho que o M/OS ainda não recebeu (F3.3). */
   const [naFila, setNaFila] = useState<Pendente[]>(() => lerPendentes());
+  /** Sugestões de triagem do core (ADR-084). */
+  const [sugestoes, setSugestoes] = useState<SugestaoDeTriagem[]>([]);
   const [tasks, setTasks] = useState<ItemDeTask[]>([]);
   const [lembretes, setLembretes] = useState<ItemDeLembrete[]>([]);
   const [resolvidos, setResolvidos] = useState<ItemDeLembrete[]>([]);
@@ -194,7 +197,11 @@ export function App() {
       api.piloto().catch(falhou),
     ]);
     if (proximoEstado) setEstado(proximoEstado);
-    if (proximaInbox !== null) setCapturas(proximaInbox);
+    if (proximaInbox !== null) {
+      setCapturas(proximaInbox);
+      // Sugestão é camada por cima: falhar aqui não apaga a Inbox.
+      void api.sugestoesDaInbox().then(setSugestoes).catch(() => setSugestoes([]));
+    }
     if (proximasTasks !== null) setTasks(proximasTasks);
     if (proximosLembretes !== null) setLembretes(proximosLembretes);
     if (proximoPanorama !== null) setPanorama(proximoPanorama);
@@ -582,6 +589,19 @@ export function App() {
    * A confirmacao diz o que a coisa VIROU, e nao "pronto": a pessoa acabou de
    * classificar algo, e saber em que ela caiu e o que fecha a decisao.
    */
+  async function aplicarSugestao(sugestao: SugestaoDeTriagem) {
+    setOcupado(true);
+    try {
+      const [resultado] = await api.aplicarSugestoes([sugestao]);
+      if (resultado?.ok) contar(resultado.mensagem);
+      else contar(resultado?.mensagem ?? "Não foi possível aplicar.", true);
+      await atualizar();
+    } catch (causa) {
+      reclamar(causa);
+    }
+    setOcupado(false);
+  }
+
   async function triar(
     captura: Capture,
     como: "task" | "referencia" | "arquivar",
@@ -777,6 +797,8 @@ export function App() {
             aoCapturar={() => setPagina("capturar")}
             aoAbrir={(task) => setTaskAberta(task.id)}
             aoTriar={(captura, como) => void triar(captura, como)}
+            sugestoes={sugestoes}
+            aoAplicarSugestao={(sugestao) => void aplicarSugestao(sugestao)}
             carregando={carregando}
             aoAlternar={(task) => void alternar(task)}
             aoLembrar={(task, jaTem) =>

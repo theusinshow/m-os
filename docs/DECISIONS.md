@@ -4650,3 +4650,40 @@ Fazer a decisão viajar pede tipo novo de sync — fica para quando o uso mostra
 que dispensar no PC e ver de novo no celular incomoda. Testes: core
 (`dispensar_some_ate_haver_fato_novo_e_adiar_volta_na_hora`) e HTTP
 (`dispensar_atencao_no_bolso_some_do_panorama`).
+
+## ADR-084 — Triagem sugerida da Inbox: a leitura da voz para o texto, nada aplicado sozinho
+
+**Data:** 2026-09-24. **Status:** aceito e implementado (F6 do [MOS-OVERHAUL-PLAN](MOS-OVERHAUL-PLAN.md)).
+
+### Contexto
+
+Captura digitada não recebia leitura nenhuma. A voz já tinha
+`mos_core::understand` — verbo, quando, projeto citado, hesitação e grau de
+confiança, sem LLM —, e o bloco "HERMES" da Inbox dizia "interpretação
+automática ainda não está ligada". Não havia triagem em lote.
+
+### Decisão
+
+1. `mos_core::triagem::sugerir(capture, agora, projetos)`: link vira
+   referência; verbo + quando futuro vira Task com lembrete; verbo vira Task.
+   Hesitação e nota solta ficam **sem** sugestão — não inventar ação para
+   cada captura. Toda sugestão diz por quê.
+2. `triagem::aplicar(servicos, itens)`: só o que a pessoa confirmou, item a
+   item, com resultado e passo de desfazer por item. Reusa as transações que
+   já existiam (`create_task_from_capture_with_reminder`, `create_resource`);
+   repetir o lote não duplica, porque a Capture já convertida é recusada.
+3. Desktop: o detalhe da Capture mostra a sugestão e o motivo, com "Aplicar";
+   o cabeçalho da Inbox abre a revisão em lote (confiança alta vem marcada).
+   Bolso: a sugestão é o primeiro botão da triagem. Mesma regra, mesmas rotas
+   de serviço (`inbox_sugestoes`/`inbox_aplicar`, `/api/inbox/*`).
+4. `endereco_em` e `titulo_curto` do `mos-web` passam a ser os do core.
+
+### Limites
+
+Nada é aplicado sem confirmação: a promoção a automático exige medir, pelos
+sinais de uso (ADR-082), quantas sugestões são aceitas, corrigidas ou
+desfeitas. Desfazer uma referência arquiva o Resource mas deixa a Capture
+processada. Pessoa/"aguardando" ainda não são extraídos do texto. Testes:
+`triagem` no core (link, nota, hesitação, quando+projeto),
+`agente_exec::lote_de_triagem_*` (aplica, não duplica, desfaz) e
+`de_bolso::triagem_no_bolso_*`.
