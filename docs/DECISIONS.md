@@ -4438,3 +4438,42 @@ existe no bolso (um servidor, uma pessoa); a fila é por origem. Testes:
 `de_bolso::reenviar_a_mesma_captura_nao_duplica`, e E2E em Chromium headless
 (modo avião → capturar → reabrir offline → reconectar → um item, hora
 preservada).
+
+## ADR-078 — A rede sai do portão: capturar não espera a rodada de sync
+
+**Data:** 2026-09-24. **Status:** aceito e implementado (F3.1 do [MOS-OVERHAUL-PLAN](MOS-OVERHAUL-PLAN.md)).
+
+### Contexto
+
+O portão de escrita (`SqliteStorage::portao`) resolveu o abraço mortal entre
+conexão e relógio segurando o portão pela rodada inteira — inclusive durante
+o push e o pull HTTP. Medido com o hub levando 1,5 s por ida: **uma captura
+feita no meio da rodada esperou 2,76 s**. Com timeout de rede, esperaria o
+timeout.
+
+### Decisão
+
+1. O motor (`mos_sync::sincronizar`) passa a ser a composição de fases
+   públicas: `preparar_envio` → push → `registrar_envio` → pull →
+   `aplicar_recebido`. Quem chama a função inteira não percebe diferença.
+2. `sincronizar_agora` segura o portão só nas fases que tocam o banco; a
+   aplicação do lote segura portão e relógio, nessa ordem, como antes. **Push
+   e pull correm sem cadeado de escrita.**
+3. Um cadeado novo, `rodada`, serializa rodadas (o portão já não faz isso).
+   Nenhuma escrita o pega; a ordem total é rodada → portão → relógio →
+   conexão, e a escrita continua portão → conexão → relógio. Sem ciclo novo.
+
+### Por que não perde nem confirma errado
+
+Operações lidas para envio já estão emitidas e são imutáveis; o ack confirma
+por id, então uma operação emitida durante o push nunca é confirmada por ele.
+O lote puxado é aplicado sobre o estado de sombra do momento da aplicação, com
+o relógio observando cada instante remoto; uma escrita local entre o pull e a
+aplicação tem instante próprio e entra no merge por campo como qualquer outra.
+
+### Evidência
+
+`escrita_e_rodada::capturar_nao_espera_a_rede_da_rodada` (captura < 700 ms
+com hub a 1,5 s; tudo que foi confirmado está no hub, uma vez) e o teste
+original de deadlock `escrever_durante_uma_rodada_nao_trava`, mais as suítes de
+duas réplicas, `mos-sync`, e as HTTP do `mos-web`.

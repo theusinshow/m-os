@@ -137,6 +137,11 @@ pub struct SqliteStorage {
     /// participar do ciclo. Fazer a inbox esperar por uma rodada de rede seria
     /// pagar em tela travada por um risco que ela nao corre.
     portao: Mutex<()>,
+    /// Uma rodada de sincronizacao por vez. Existe desde que a rede saiu do
+    /// portao (ADR-078): o portao ja nao serializa rodadas, e duas rodadas
+    /// intercaladas avancariam o cursor uma sobre a outra. Escrita nenhuma o
+    /// pega, entao ele nao participa de ciclo.
+    rodada: Mutex<()>,
     connection: Mutex<Connection>,
     backup_lock: Mutex<()>,
     database_path: PathBuf,
@@ -212,6 +217,7 @@ impl SqliteStorage {
 
         Ok(Self {
             portao: Mutex::new(()),
+            rodada: Mutex::new(()),
             connection: Mutex::new(connection),
             backup_lock: Mutex::new(()),
             database_path,

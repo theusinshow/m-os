@@ -35,8 +35,8 @@ mod saude;
 pub use clock::{Hlc, HlcClock};
 pub use device::{Device, DeviceId, Platform};
 pub use engine::{
-    carregar_relogio, erro_de_contrato, instante_de, sincronizar, Deposito, Lote, Projecao, Rodada,
-    Transport,
+    aplicar_recebido, carregar_relogio, erro_de_contrato, instante_de, preparar_envio,
+    registrar_envio, sincronizar, Deposito, Lote, Projecao, Rodada, Transport,
 };
 pub use merge::{aplicar, CampoResolvido, Conflito, EstadoDaEntidade, Reconciliacao};
 pub use op::{EntityKind, EntityRef, Op, OpBody};

@@ -159,3 +159,91 @@ fn escrever_durante_uma_rodada_nao_trava() {
         ),
     }
 }
+
+// ------------------------------------------------ F3.1: rede fora do portão
+
+/// Um hub que DEMORA — o celular no 3G, o servidor atrás de um timeout.
+struct HubTravado {
+    atraso: Duration,
+    log: Mutex<Vec<Op>>,
+}
+
+impl Transport for &HubTravado {
+    fn push(&self, _contrato: u32, ops: &[Op]) -> Resultado<Vec<Uuid>> {
+        std::thread::sleep(self.atraso);
+        let mut log = self.log.lock().unwrap();
+        for op in ops {
+            if !log.iter().any(|existente| existente.id == op.id) {
+                log.push(op.clone());
+            }
+        }
+        Ok(ops.iter().map(|op| op.id).collect())
+    }
+
+    fn pull(&self, _contrato: u32, cursor: &str, limite: usize) -> Resultado<Lote> {
+        std::thread::sleep(self.atraso);
+        let log = self.log.lock().unwrap();
+        let de: usize = cursor.parse().unwrap_or(0);
+        let ate = (de + limite).min(log.len());
+        Ok(Lote {
+            ops: log[de.min(log.len())..ate].to_vec(),
+            proximo_cursor: ate.to_string(),
+            tem_mais: ate < log.len(),
+        })
+    }
+}
+
+/// Capturar não espera a rede. Com o hub levando 1,5 s por ida, uma captura
+/// no meio da rodada precisa voltar em uma fração disso — antes, ela esperava
+/// a rodada inteira. E nada se perde: a captura feita durante o envio sobe na
+/// rodada seguinte, e o ack atrasado não confirma o que ele não levou.
+#[test]
+fn capturar_nao_espera_a_rede_da_rodada() {
+    let dir = tempfile::tempdir().unwrap();
+    let backups = dir.path().join("backups");
+    std::fs::create_dir_all(&backups).unwrap();
+    let storage = Arc::new(SqliteStorage::open(dir.path().join("mos.db"), &backups).unwrap());
+    let device = storage.este_dispositivo("PC", "windows", "0.6.0").unwrap();
+    storage.habilitar_sync(device.id).unwrap();
+    storage
+        .create(NewCapture::create("semente", CaptureSource::Home).unwrap())
+        .unwrap();
+    let hub = Arc::new(HubTravado {
+        atraso: Duration::from_millis(1500),
+        log: Mutex::new(Vec::new()),
+    });
+
+    let rodada = {
+        let storage = Arc::clone(&storage);
+        let hub = Arc::clone(&hub);
+        std::thread::spawn(move || {
+            let agora = (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as i64;
+            storage
+                .sincronizar_agora(&hub.as_ref(), agora, 100)
+                .unwrap()
+        })
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    let inicio = std::time::Instant::now();
+    storage
+        .create(NewCapture::create("no meio da rodada", CaptureSource::QuickCapture).unwrap())
+        .unwrap();
+    let esperou = inicio.elapsed();
+    let primeira = rodada.join().unwrap();
+    assert!(
+        esperou < Duration::from_millis(700),
+        "a captura esperou {esperou:?} pela rede da rodada"
+    );
+    assert!(primeira.erro.is_none(), "{:?}", primeira.erro);
+    assert_eq!(primeira.enviadas, 2);
+
+    // Nada se perde e nada e confirmado sem ter ido: a captura do meio subiu
+    // numa passada seguinte da mesma rodada, e a fila so zera porque TODAS as
+    // operacoes estao no hub — o ack de um push nao confirma o que ele nao
+    // levou.
+    use mos_sync::OutboxRepository;
+    assert_eq!(storage.quantidade_pendente().unwrap(), 0);
+    let no_hub = hub.log.lock().unwrap().len();
+    assert_eq!(no_hub, 2, "semente e captura do meio, cada uma uma vez");
+    assert_eq!(storage.inbox(10).unwrap().len(), 2);
+}

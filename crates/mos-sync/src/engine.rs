@@ -129,91 +129,137 @@ pub fn sincronizar(
     limite: usize,
 ) -> Rodada {
     let mut rodada = Rodada::default();
+    if let Some(pendentes) = preparar_envio(deposito, limite, &mut rodada) {
+        let resposta = transporte.push(CONTRACT_VERSION, &pendentes);
+        registrar_envio(deposito, &pendentes, resposta, &mut rodada);
+    }
+    if rodada.erro.is_none() {
+        let cursor = deposito.relogio.cursor().unwrap_or_default();
+        let lote = transporte.pull(CONTRACT_VERSION, &cursor, limite);
+        aplicar_recebido(deposito, relogio, projecao, lote, agora_ms, &mut rodada);
+    }
+    rodada.pendentes = deposito.outbox.quantidade_pendente().unwrap_or(0);
+    rodada
+}
 
-    // ---- empurra ----------------------------------------------------------
+// ---------------------------------------------------------------- as fases
+//
+// A rodada em quatro pedacos, para quem precisa soltar os cadeados enquanto a
+// rede anda (F3.1 do MOS-OVERHAUL-PLAN, ADR-078). A ordem e sempre esta:
+// `preparar_envio` → push → `registrar_envio` → pull → `aplicar_recebido`.
+// So as fases com nome tocam o deposito; o push e o pull sao do transporte, e
+// podem demorar o quanto a rede quiser sem prender escrita nenhuma.
+//
+// Por que e seguro: as operacoes lidas em `preparar_envio` ja estao emitidas e
+// sao imutaveis; o ack confirma POR ID, entao uma operacao emitida durante o
+// push nunca e confirmada por ele. E o lote puxado e aplicado sobre o estado
+// de sombra do momento da aplicacao, com o relogio observando cada instante
+// remoto — uma escrita local que caiu entre o pull e a aplicacao tem instante
+// proprio e entra no merge por campo como qualquer outra.
+
+/// Le o lote a enviar. `None` quando nao ha nada, ou quando a leitura falhou
+/// (a falha fica na rodada).
+pub fn preparar_envio(
+    deposito: &Deposito<'_>,
+    limite: usize,
+    rodada: &mut Rodada,
+) -> Option<Vec<Op>> {
     match deposito.outbox.pendentes(limite) {
-        Ok(pendentes) if !pendentes.is_empty() => {
-            match transporte.push(CONTRACT_VERSION, &pendentes) {
-                Ok(aceitas) => {
-                    rodada.enviadas = aceitas.len();
-                    if let Err(causa) = deposito.outbox.confirmar(&aceitas) {
-                        rodada.erro = Some(causa.mensagem);
-                    }
-                }
-                Err(causa) => {
-                    // Falha de envio marca cada operacao, e nao a fila inteira:
-                    // e a contagem por operacao que alimenta o backoff e o
-                    // diagnostico de "esta travada ha quanto tempo".
-                    for op in &pendentes {
-                        let _ = deposito.outbox.falhou(op.id, &causa.mensagem);
-                    }
-                    rodada.erro_retriavel = causa.retriavel;
-                    rodada.erro = Some(causa.mensagem);
-                }
+        Ok(pendentes) if !pendentes.is_empty() => Some(pendentes),
+        Ok(_) => None,
+        Err(causa) => {
+            rodada.erro_retriavel = causa.retriavel;
+            rodada.erro = Some(causa.mensagem);
+            None
+        }
+    }
+}
+
+/// Registra a resposta do push: confirma o que o outro lado aceitou, ou marca
+/// a falha em cada operacao enviada.
+pub fn registrar_envio(
+    deposito: &Deposito<'_>,
+    enviadas: &[Op],
+    resposta: Resultado<Vec<uuid::Uuid>>,
+    rodada: &mut Rodada,
+) {
+    match resposta {
+        Ok(aceitas) => {
+            rodada.enviadas = aceitas.len();
+            if let Err(causa) = deposito.outbox.confirmar(&aceitas) {
+                rodada.erro = Some(causa.mensagem);
             }
         }
-        Ok(_) => {}
         Err(causa) => {
+            // Falha de envio marca cada operacao, e nao a fila inteira:
+            // e a contagem por operacao que alimenta o backoff e o
+            // diagnostico de "esta travada ha quanto tempo".
+            for op in enviadas {
+                let _ = deposito.outbox.falhou(op.id, &causa.mensagem);
+            }
             rodada.erro_retriavel = causa.retriavel;
             rodada.erro = Some(causa.mensagem);
         }
     }
+}
 
-    // ---- puxa -------------------------------------------------------------
-    if rodada.erro.is_none() {
-        let cursor = deposito.relogio.cursor().unwrap_or_default();
-        match transporte.pull(CONTRACT_VERSION, &cursor, limite) {
-            Ok(lote) => {
-                rodada.recebidas = lote.ops.len();
-                rodada.tem_mais = lote.tem_mais;
+/// Reconcilia o que o pull trouxe, avanca o cursor e guarda o relogio.
+pub fn aplicar_recebido(
+    deposito: &Deposito<'_>,
+    relogio: &mut HlcClock,
+    projecao: &mut dyn Projecao,
+    lote: Resultado<Lote>,
+    agora_ms: i64,
+    rodada: &mut Rodada,
+) {
+    let lote = match lote {
+        Ok(lote) => lote,
+        Err(causa) => {
+            rodada.erro_retriavel = causa.retriavel;
+            rodada.erro = Some(causa.mensagem);
+            return;
+        }
+    };
+    rodada.recebidas = lote.ops.len();
+    rodada.tem_mais = lote.tem_mais;
 
-                // Agrupa por entidade: reconciliar uma entidade de cada vez e o
-                // que permite gravar estado e conflito juntos, sem meio-termo.
-                let mut por_entidade: BTreeMap<(String, uuid::Uuid), Vec<Op>> = BTreeMap::new();
-                for op in &lote.ops {
-                    // Absorve o instante remoto ANTES de qualquer coisa: depois
-                    // disto, tudo que este dispositivo emitir vem depois do que
-                    // ele acabou de ver.
-                    relogio.observar(op.at, agora_ms);
-                    por_entidade
-                        .entry((op.entity.kind.as_str().to_owned(), op.entity.id))
-                        .or_default()
-                        .push(op.clone());
-                }
+    // Agrupa por entidade: reconciliar uma entidade de cada vez e o
+    // que permite gravar estado e conflito juntos, sem meio-termo.
+    let mut por_entidade: BTreeMap<(String, uuid::Uuid), Vec<Op>> = BTreeMap::new();
+    for op in &lote.ops {
+        // Absorve o instante remoto ANTES de qualquer coisa: depois
+        // disto, tudo que este dispositivo emitir vem depois do que
+        // ele acabou de ver.
+        relogio.observar(op.at, agora_ms);
+        por_entidade
+            .entry((op.entity.kind.as_str().to_owned(), op.entity.id))
+            .or_default()
+            .push(op.clone());
+    }
 
-                for ((kind, id), ops) in por_entidade {
-                    // Conta ANTES do que pode falhar: o `break` do erro esta
-                    // logo abaixo, e o que ja chegou permanece chegado.
-                    *rodada.recebidas_por_tipo.entry(kind.clone()).or_insert(0) += 1;
-                    let base = projecao.estado_de(&ops[0]);
-                    let resultado = aplicar(base, &ops);
-                    rodada.conflitos += resultado.conflitos.len();
-                    if !resultado.conflitos.is_empty() {
-                        let _ = deposito
-                            .conflitos
-                            .registrar(&kind, id, &resultado.conflitos);
-                    }
-                    if let Err(causa) = projecao.guardar(&ops[0], &resultado.estado) {
-                        rodada.erro_retriavel = causa.retriavel;
-                        rodada.erro = Some(causa.mensagem);
-                        break;
-                    }
-                }
-
-                if rodada.erro.is_none() && !lote.proximo_cursor.is_empty() {
-                    let _ = deposito.relogio.guardar_cursor(&lote.proximo_cursor);
-                }
-                let _ = deposito.relogio.guardar(relogio.ultimo());
-            }
-            Err(causa) => {
-                rodada.erro_retriavel = causa.retriavel;
-                rodada.erro = Some(causa.mensagem);
-            }
+    for ((kind, id), ops) in por_entidade {
+        // Conta ANTES do que pode falhar: o `break` do erro esta
+        // logo abaixo, e o que ja chegou permanece chegado.
+        *rodada.recebidas_por_tipo.entry(kind.clone()).or_insert(0) += 1;
+        let base = projecao.estado_de(&ops[0]);
+        let resultado = aplicar(base, &ops);
+        rodada.conflitos += resultado.conflitos.len();
+        if !resultado.conflitos.is_empty() {
+            let _ = deposito
+                .conflitos
+                .registrar(&kind, id, &resultado.conflitos);
+        }
+        if let Err(causa) = projecao.guardar(&ops[0], &resultado.estado) {
+            rodada.erro_retriavel = causa.retriavel;
+            rodada.erro = Some(causa.mensagem);
+            break;
         }
     }
 
-    rodada.pendentes = deposito.outbox.quantidade_pendente().unwrap_or(0);
-    rodada
+    if rodada.erro.is_none() && !lote.proximo_cursor.is_empty() {
+        let _ = deposito.relogio.guardar_cursor(&lote.proximo_cursor);
+    }
+    let _ = deposito.relogio.guardar(relogio.ultimo());
 }
 
 /// Restaura o relogio do disco, ou comeca um novo.

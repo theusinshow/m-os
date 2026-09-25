@@ -1384,19 +1384,18 @@ impl SqliteStorage {
         agora_ms: i64,
         limite: usize,
     ) -> Result<mos_sync::Rodada, CoreError> {
-        // O PORTAO ANTES DO RELOGIO, e o "antes" e o conserto inteiro.
-        //
-        // Esta rodada vai pedir a conexao muitas vezes la dentro, pela projecao,
-        // enquanto segura o relogio. Uma escrita que chegasse no meio disso
-        // estaria com a conexao na mao esperando o relogio, e as duas esperariam
-        // uma pela outra para sempre. Ver `SqliteStorage::portao`.
-        let _portao = self.portao()?;
-        let mut slot = self.sync.lock().map_err(crate::map_lock_error)?;
-        let Some(relogio) = slot.as_mut() else {
-            return Err(crate::sync_emit::erro_de_sync(
-                "A sincronizacao ainda nao foi ligada neste dispositivo.",
-            ));
-        };
+        // Uma rodada por vez. Este cadeado NENHUMA escrita pega, entao ele nao
+        // entra em ciclo nenhum: ordem e sempre rodada → portao → relogio →
+        // conexao, e uma escrita so conhece portao → conexao → relogio.
+        let _uma_por_vez = self.rodada.lock().map_err(crate::map_lock_error)?;
+        {
+            let slot = self.sync.lock().map_err(crate::map_lock_error)?;
+            if slot.is_none() {
+                return Err(crate::sync_emit::erro_de_sync(
+                    "A sincronizacao ainda nao foi ligada neste dispositivo.",
+                ));
+            }
+        }
         let mut projecao = ProjecaoSqlite::nova(self);
         let deposito = mos_sync::Deposito {
             outbox: self,
@@ -1413,17 +1412,58 @@ impl SqliteStorage {
         // certo com a impressao errada: parecia que tinha acabado. Quem sabe se
         // acabou e o proprio motor — `pendentes` de um lado, `tem_mais` do
         // outro.
+        //
+        // # A rede fica FORA do portao (F3.1, ADR-078)
+        //
+        // O portao continua sendo o que impede o abraco mortal: toda fase que
+        // toca o banco o segura, e a aplicacao do lote segura portao e relogio
+        // juntos, nessa ordem. O que mudou e que o push e o pull — a parte que
+        // pode levar segundos num 3G ou num timeout — correm SEM ele. Antes, uma
+        // captura no meio da rodada esperava a rodada inteira (2,7 s medidos
+        // com o hub a 1,5 s por ida). Ver `mos_sync::preparar_envio` para o
+        // porque de isto nao perder nem confirmar operacao errada.
         let mut rodada = mos_sync::Rodada::default();
         let mut passadas = 0;
         loop {
-            let passada = mos_sync::sincronizar(
-                &deposito,
-                transporte,
-                relogio,
-                &mut projecao,
-                agora_ms,
-                limite,
-            );
+            let mut passada = mos_sync::Rodada::default();
+            let pendentes = {
+                let _portao = self.portao()?;
+                mos_sync::preparar_envio(&deposito, limite, &mut passada)
+            };
+            if let Some(pendentes) = pendentes {
+                let resposta = transporte.push(mos_sync::CONTRACT_VERSION, &pendentes);
+                let _portao = self.portao()?;
+                mos_sync::registrar_envio(&deposito, &pendentes, resposta, &mut passada);
+            }
+            if passada.erro.is_none() {
+                let cursor = {
+                    let _portao = self.portao()?;
+                    mos_sync::ClockRepository::cursor(self).unwrap_or_default()
+                };
+                let lote = transporte.pull(mos_sync::CONTRACT_VERSION, &cursor, limite);
+                // O PORTAO ANTES DO RELOGIO, e o "antes" e o conserto inteiro:
+                // a projecao pede a conexao muitas vezes enquanto o relogio
+                // esta preso. Ver `SqliteStorage::portao`.
+                let _portao = self.portao()?;
+                let mut slot = self.sync.lock().map_err(crate::map_lock_error)?;
+                let Some(relogio) = slot.as_mut() else {
+                    return Err(crate::sync_emit::erro_de_sync(
+                        "A sincronizacao foi desligada no meio da rodada.",
+                    ));
+                };
+                mos_sync::aplicar_recebido(
+                    &deposito,
+                    relogio,
+                    &mut projecao,
+                    lote,
+                    agora_ms,
+                    &mut passada,
+                );
+            }
+            passada.pendentes = {
+                let _portao = self.portao()?;
+                mos_sync::OutboxRepository::quantidade_pendente(self).unwrap_or(0)
+            };
             passadas += 1;
             rodada.enviadas += passada.enviadas;
             rodada.recebidas += passada.recebidas;
@@ -1455,13 +1495,16 @@ impl SqliteStorage {
             }
             if passadas >= MAX_PASSADAS {
                 rodada.erro = Some(format!(
-                    "Parei em {MAX_PASSADAS} passadas com {} ainda na fila. \
-                     Sincronize de novo.",
+                    "Parei em {MAX_PASSADAS} passadas com {} ainda na fila.                      Sincronize de novo.",
                     passada.pendentes
                 ));
                 break;
             }
         }
+
+        // O resto da rodada mexe no banco com o relogio: volta para dentro.
+        let _portao = self.portao()?;
+        let _relogio = self.sync.lock().map_err(crate::map_lock_error)?;
 
         // O que nao virou linha por dependencia ainda ausente, agora vira.
         //
