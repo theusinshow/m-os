@@ -1511,6 +1511,10 @@ export const api = {
   autopilotAdiar(chave: string, minutos: number) {
     return invoke<void>("autopilot_adiar", { chave, minutos });
   },
+  /** Dispensa um item de atenção. Sem `adiarHoras`: até haver fato novo. */
+  pilotoDispensar(chave: string, adiarHoras?: number) {
+    return invoke<void>("piloto_dispensar", { chave, adiarHoras: adiarHoras ?? null });
+  },
   autopilotResolver(chave: string) {
     return invoke<void>("autopilot_resolver", { chave });
   },

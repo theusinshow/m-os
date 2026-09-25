@@ -13073,6 +13073,17 @@ button.daily-objective-title:focus-visible {
 
 .piloto-itens li:first-child { border-top: 0; }
 
+/* Dispensar um item (ADR-083): presente, mas quieto ate o ponteiro chegar. */
+.piloto-dispensar {
+  flex: none;
+  color: var(--text-disabled);
+}
+
+.piloto-itens li:hover .piloto-dispensar,
+.piloto-dispensar:focus-visible {
+  color: var(--text-secondary);
+}
+
 .piloto-marca {
   flex: none;
   width: 3px;

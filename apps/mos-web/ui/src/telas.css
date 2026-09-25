@@ -1868,3 +1868,22 @@
 .piloto-rodape {
   justify-content: flex-end;
 }
+
+/* Dispensar um item de atenção (ADR-083): alvo de dedo inteiro, discreto. */
+.piloto-item-linha {
+  display: flex;
+  align-items: stretch;
+}
+
+.piloto-item-linha .piloto-item {
+  flex: 1;
+}
+
+.piloto-dispensar {
+  width: var(--toque);
+  min-height: var(--toque);
+  color: var(--text-system);
+  font: 400 20px/1 var(--font-product);
+  background: none;
+  border: 0;
+}

@@ -2968,6 +2968,7 @@ pub fn run() {
                     diagnostico::diagnostico_registrar,
                     diagnostico::diagnostico_recente,
                     piloto::sinais_de_uso,
+                    piloto::piloto_dispensar,
                     diagnostico::diagnostico_caminho,
                     atualizacao::atualizacao_estado,
                     atualizacao::atualizacao_anotar_verificacao,

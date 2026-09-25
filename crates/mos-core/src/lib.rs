@@ -161,7 +161,7 @@ pub use piloto::{
         detectar as detectar_ausencia, plano as plano_de_resgate, AcaoDeResgate, Ausencia,
         ItemDeResgate, Passo as PassoDoResgate, PassoDeResgate, PlanoDeResgate,
     },
-    Alvo, Habitos, Retrato, ReuniaoNoRetrato, SyncNoRetrato,
+    Alvo, Dispensa, Habitos, Retrato, ReuniaoNoRetrato, SyncNoRetrato,
 };
 pub use ports::{
     AcademicRepository, AppRepository, AttentionRepository, BackupInspection, BackupReceipt,

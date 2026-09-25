@@ -113,6 +113,30 @@ pub struct ItemDeAtencao {
     pub acao: AcaoRecomendada,
     /// Peso para ordenar entre severidades iguais. Maior primeiro.
     pub peso: i32,
+    /// Identidade estavel do item: tipo, alvo e QUANDO o motivo nasceu. Um
+    /// fato novo (prazo remarcado, follow-up novo) muda a chave — e e isso que
+    /// faz um item dispensado voltar so quando ha motivo (ADR-083).
+    #[serde(default)]
+    pub chave: String,
+}
+
+impl ItemDeAtencao {
+    /// A chave estavel. Item sem alvo (agregado, como "3 capturas na Inbox")
+    /// leva o titulo, para a contagem nova contar como fato novo.
+    pub fn chave_estavel(&self) -> String {
+        let fato = self.desde.clone().unwrap_or_default();
+        if self.alvo.id.is_empty() {
+            format!("atencao:{}:{}:{}", self.tipo.as_str(), fato, self.titulo)
+        } else {
+            format!(
+                "atencao:{}:{}:{}:{}",
+                self.tipo.as_str(),
+                self.alvo.kind,
+                self.alvo.id,
+                fato
+            )
+        }
+    }
 }
 
 fn rfc(instante: time::OffsetDateTime) -> Option<String> {
@@ -183,6 +207,7 @@ pub fn compor_atencao(r: &Retrato<'_>) -> Vec<ItemDeAtencao> {
             // Quem espera terceiro nao esta "vencida" por culpa propria.
             if let (Some(t), Some(s)) = (tipo, severidade) {
                 itens.push(ItemDeAtencao {
+                    chave: String::new(),
                     tipo: t,
                     severidade: s,
                     titulo: task.title.clone(),
@@ -309,6 +334,7 @@ pub fn compor_atencao(r: &Retrato<'_>) -> Vec<ItemDeAtencao> {
                 .map(|p| p.name.clone())
                 .unwrap_or_default();
             itens.push(ItemDeAtencao {
+                chave: String::new(),
                 tipo: t,
                 severidade: s,
                 titulo: task.title.clone(),
@@ -380,6 +406,7 @@ pub fn compor_atencao(r: &Retrato<'_>) -> Vec<ItemDeAtencao> {
             _ => Severidade::Media,
         };
         itens.push(ItemDeAtencao {
+            chave: String::new(),
             tipo,
             severidade,
             titulo: reminder.title.clone(),
@@ -401,6 +428,7 @@ pub fn compor_atencao(r: &Retrato<'_>) -> Vec<ItemDeAtencao> {
         use crate::MeetingPhase::*;
         match reuniao.fase {
             NeedsAttention | FailedRecoverable => itens.push(ItemDeAtencao {
+                chave: String::new(),
                 tipo: TipoDeAtencao::MeetingNeedsAttention,
                 severidade: Severidade::Media,
                 titulo: reuniao.titulo.clone(),
@@ -420,6 +448,7 @@ pub fn compor_atencao(r: &Retrato<'_>) -> Vec<ItemDeAtencao> {
             Ready | PartiallyReady if reuniao.acoes_pendentes > 0 => {
                 let dias = dias_entre(&r.dia_de(reuniao.quando), &hoje);
                 itens.push(ItemDeAtencao {
+                    chave: String::new(),
                     tipo: TipoDeAtencao::MeetingReview,
                     // Revisar logo e barato; revisar uma semana depois e
                     // reconstruir de memoria. A severidade sobe com o tempo, e
@@ -472,6 +501,7 @@ pub fn compor_atencao(r: &Retrato<'_>) -> Vec<ItemDeAtencao> {
         };
         let o_que = if c.kind == "exam" { "prova" } else { "entrega" };
         itens.push(ItemDeAtencao {
+            chave: String::new(),
             tipo: TipoDeAtencao::AcademicDeadline,
             severidade,
             titulo: c.title.clone(),
@@ -508,6 +538,7 @@ pub fn compor_atencao(r: &Retrato<'_>) -> Vec<ItemDeAtencao> {
             .unwrap_or(0);
         let n = inbox.len();
         itens.push(ItemDeAtencao {
+            chave: String::new(),
             tipo: TipoDeAtencao::UnprocessedCapture,
             severidade: if n >= 10 || dias >= 7 {
                 Severidade::Media
@@ -540,6 +571,7 @@ pub fn compor_atencao(r: &Retrato<'_>) -> Vec<ItemDeAtencao> {
             pendentes,
             mensagem,
         } => itens.push(ItemDeAtencao {
+            chave: String::new(),
             tipo: TipoDeAtencao::UnsyncedChanges,
             severidade: Severidade::Alta,
             titulo: "A sincronização parou".into(),
@@ -567,6 +599,7 @@ pub fn compor_atencao(r: &Retrato<'_>) -> Vec<ItemDeAtencao> {
                 .unwrap_or(0);
             if horas >= HORAS_OFFLINE {
                 itens.push(ItemDeAtencao {
+                    chave: String::new(),
                     tipo: TipoDeAtencao::UnsyncedChanges,
                     severidade: Severidade::Media,
                     titulo: format!("Sem sincronizar há {horas}h"),
@@ -595,6 +628,7 @@ pub fn compor_atencao(r: &Retrato<'_>) -> Vec<ItemDeAtencao> {
                 .filter(|o| o.status == crate::ObjectiveStatus::Pending)
                 .count();
             itens.push(ItemDeAtencao {
+                chave: String::new(),
                 tipo: TipoDeAtencao::UnfinishedDay,
                 severidade: Severidade::Media,
                 titulo: format!("O dia {} ficou aberto", stale.day.as_str()),
@@ -614,6 +648,7 @@ pub fn compor_atencao(r: &Retrato<'_>) -> Vec<ItemDeAtencao> {
             crate::SessionStatus::Active if minuto >= MINUTO_NOITE => {
                 let (feitos, total) = daily.progress();
                 itens.push(ItemDeAtencao {
+                    chave: String::new(),
                     tipo: TipoDeAtencao::UnfinishedDay,
                     severidade: Severidade::Baixa,
                     titulo: "Hora de encerrar o dia".into(),
@@ -636,6 +671,7 @@ pub fn compor_atencao(r: &Retrato<'_>) -> Vec<ItemDeAtencao> {
                     .unwrap_or(MINUTO_MANHA);
                 if minuto >= limiar && minuto < MINUTO_TARDE {
                     itens.push(ItemDeAtencao {
+                        chave: String::new(),
                         tipo: TipoDeAtencao::DayNotStarted,
                         severidade: Severidade::Baixa,
                         titulo: "Seu dia ainda não foi iniciado".into(),
@@ -667,6 +703,7 @@ pub fn compor_atencao(r: &Retrato<'_>) -> Vec<ItemDeAtencao> {
         if let (Some(fim_a), true) = (a.ends_at, b.at > a.at) {
             if b.at < fim_a && r.dia_de(a.at) == hoje {
                 itens.push(ItemDeAtencao {
+                    chave: String::new(),
                     tipo: TipoDeAtencao::SchedulingConflict,
                     severidade: Severidade::Media,
                     titulo: format!("{} e {} se sobrepõem", a.title, b.title),
@@ -680,6 +717,14 @@ pub fn compor_atencao(r: &Retrato<'_>) -> Vec<ItemDeAtencao> {
             }
         }
     }
+
+    // ---- identidade e dispensa ---------------------------------------------
+    for item in &mut itens {
+        item.chave = item.chave_estavel();
+    }
+    // O que a pessoa dispensou nao volta sem fato novo (ou antes do adiamento
+    // vencer). A regra e esta, uma so, para desktop e bolso.
+    itens.retain(|item| !r.dispensado(&item.chave));
 
     // ---- dedup + ordem ------------------------------------------------------
     let mut vistos = std::collections::HashSet::new();
@@ -739,6 +784,46 @@ mod tests {
             atencao: "O transcritor local não foi encontrado.".into(),
             quando: agora() - Duration::days(dias),
         }
+    }
+
+    #[test]
+    fn dispensar_some_ate_haver_fato_novo_e_adiar_volta_na_hora() {
+        let mut c = Cenario::default();
+        c.reunioes.push(reuniao(crate::MeetingPhase::Ready, 3, 0));
+        let item = compor_atencao(&c.retrato())
+            .into_iter()
+            .find(|i| i.tipo == TipoDeAtencao::MeetingReview)
+            .unwrap();
+        assert!(item.chave.starts_with("atencao:meeting_review:"));
+
+        // Dispensado sem prazo: some.
+        c.dispensados.push(super::super::Dispensa {
+            chave: item.chave.clone(),
+            ate: None,
+        });
+        assert!(compor_atencao(&c.retrato())
+            .iter()
+            .all(|i| i.tipo != TipoDeAtencao::MeetingReview));
+
+        // Fato novo (a reuniao e outra vez "de agora"): a chave muda e volta.
+        c.reunioes[0].quando = agora() + Duration::minutes(5);
+        assert!(compor_atencao(&c.retrato())
+            .iter()
+            .any(|i| i.tipo == TipoDeAtencao::MeetingReview));
+
+        // Adiado: some ate a hora, e volta depois dela.
+        c.reunioes[0].quando = agora() - Duration::days(0);
+        c.dispensados = vec![super::super::Dispensa {
+            chave: item.chave.clone(),
+            ate: Some(agora() + Duration::hours(2)),
+        }];
+        assert!(compor_atencao(&c.retrato())
+            .iter()
+            .all(|i| i.tipo != TipoDeAtencao::MeetingReview));
+        c.now = agora() + Duration::hours(3);
+        assert!(compor_atencao(&c.retrato())
+            .iter()
+            .any(|i| i.tipo == TipoDeAtencao::MeetingReview));
     }
 
     #[test]

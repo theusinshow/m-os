@@ -95,7 +95,7 @@ export type Piloto = {
     vazio: string | null;
   };
   proximos: { hora: string; titulo: string; at: string }[];
-  atencao: { tipo: string; severidade: string; titulo: string; descricao: string; alvo: { kind: string; id: string }; razoes: string[] }[];
+  atencao: { tipo: string; severidade: string; titulo: string; descricao: string; alvo: { kind: string; id: string }; razoes: string[]; chave?: string }[];
   proposta: {
     principal: { draft: { title: string } } | null;
     secundarios: { draft: { title: string } }[];
@@ -701,6 +701,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ acoes }),
     });
+  },
+  /** Dispensa um item de atenção até haver fato novo (ADR-083). */
+  dispensarAtencao(chave: string) {
+    return pedir<unknown>("/api/piloto/dispensar", { method: "POST", body: JSON.stringify({ chave }) });
   },
   /** Marca a visita como retomada: o resgate não volta até a próxima ausência. */
   concluirResgate() {

@@ -78,6 +78,7 @@ pub struct Leitura {
     pub ultima_presenca: Option<time::OffsetDateTime>,
     pub habitos: Habitos,
     pub reunioes: Vec<mos_core::ReuniaoNoRetrato>,
+    pub dispensados: Vec<mos_core::Dispensa>,
 }
 
 impl Leitura {
@@ -96,6 +97,7 @@ impl Leitura {
             ultima_presenca: self.ultima_presenca,
             habitos: &self.habitos,
             reunioes: &self.reunioes,
+            dispensados: &self.dispensados,
         }
     }
 }
@@ -175,6 +177,12 @@ pub fn ler<R: Runtime>(app: &AppHandle<R>) -> Result<Leitura, CoreError> {
         ultima_presenca,
         habitos,
         reunioes,
+        // Sem leitura das dispensas, a atencao aparece inteira: melhor mostrar
+        // de novo que esconder por engano.
+        dispensados: state
+            .storage
+            .dispensas_de_atencao(now_local)
+            .unwrap_or_default(),
     })
 }
 
@@ -315,6 +323,24 @@ pub fn piloto_resgate_aplicar<R: Runtime>(
     let _ = app.emit("data-changed", "resgate");
     avisar(&app);
     Ok(resultado)
+}
+
+// ------------------------------------------------------- dispensar atencao
+
+/// Dispensa um item de atencao (ADR-083). `adiar_horas` ausente = ate haver
+/// fato novo; presente = volta depois de tantas horas.
+#[tauri::command]
+pub fn piloto_dispensar<R: Runtime>(
+    app: AppHandle<R>,
+    chave: String,
+    adiar_horas: Option<i64>,
+) -> Result<(), CoreError> {
+    let state = app.try_state::<AppState>().ok_or_else(erro_abrindo)?;
+    let agora = state.clock.now();
+    let ate = adiar_horas.map(|horas| agora + time::Duration::hours(horas.clamp(1, 24 * 14)));
+    state.storage.dispensar_atencao(&chave, ate, agora)?;
+    let _ = app.emit("data-changed", "piloto");
+    Ok(())
 }
 
 // ------------------------------------------------------------ sinais de uso

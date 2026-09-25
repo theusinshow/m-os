@@ -70,6 +70,7 @@ pub fn rotas() -> Router<Estado> {
         .route("/api/piloto/encerrar-dia", post(encerrar_dia))
         .route("/api/piloto/resgate-concluir", post(resgate_concluir))
         .route("/api/piloto/resgate", get(resgate))
+        .route("/api/piloto/dispensar", post(dispensar))
         .route("/api/piloto/resgate-aplicar", post(resgate_aplicar))
         .route("/api/tasks/{id}/comecar", post(comecar))
         .route("/api/tasks/{id}/parar", post(parar))
@@ -103,6 +104,7 @@ struct Leitura {
     sync: SyncNoRetrato,
     ultima_presenca: Option<OffsetDateTime>,
     habitos: Habitos,
+    dispensados: Vec<mos_core::Dispensa>,
 }
 
 impl Leitura {
@@ -123,6 +125,7 @@ impl Leitura {
             // O bolso nao grava reuniao: as Tasks que nasceram delas ja viajam
             // pelo sync, e e por elas que a atencao do celular sabe da reuniao.
             reunioes: &[],
+            dispensados: &self.dispensados,
         }
     }
 }
@@ -214,6 +217,10 @@ fn ler(
             inicio_habitual_minuto: mos_core::inicio_habitual(&mut inicios),
             fim_habitual_minuto: None,
         },
+        dispensados: estado
+            .storage
+            .dispensas_de_atencao(now_local)
+            .unwrap_or_default(),
     })
 }
 
@@ -349,6 +356,31 @@ async fn resgate_aplicar(
     })
     .await?;
     Ok(Json(resultado))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Dispensar {
+    pub chave: String,
+    /// Ausente: ate haver fato novo.
+    #[serde(default)]
+    pub adiar_horas: Option<i64>,
+}
+
+/// Dispensa um item de atencao (ADR-083) — a mesma gravacao do desktop.
+async fn dispensar(
+    State(estado): State<Estado>,
+    Json(pedido): Json<Dispensar>,
+) -> Resultado<Json<serde_json::Value>> {
+    crate::api::escrever(&estado, move |estado| {
+        let agora = OffsetDateTime::now_utc();
+        let ate = pedido
+            .adiar_horas
+            .map(|horas| agora + time::Duration::hours(horas.clamp(1, 24 * 14)));
+        estado.storage.dispensar_atencao(&pedido.chave, ate, agora)
+    })
+    .await?;
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 async fn resgate_concluir(State(estado): State<Estado>) -> Resultado<Json<serde_json::Value>> {

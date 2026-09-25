@@ -1677,3 +1677,69 @@ async fn reenviar_a_mesma_captura_nao_duplica() {
         time::macros::datetime!(2026-09-24 08:15 -03:00),
     );
 }
+
+/// F8: dispensar um item de atenção tira ele do panorama até haver fato novo.
+#[tokio::test(flavor = "multi_thread")]
+async fn dispensar_atencao_no_bolso_some_do_panorama() {
+    let hub = servir_hub().await;
+    let pasta_web = tempfile::tempdir().unwrap();
+    let web = servir_web(pasta_web.path(), hub).await;
+    let cliente = reqwest::Client::new();
+    let ontem = (time::OffsetDateTime::now_utc() - time::Duration::days(1))
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap();
+    cliente
+        .post(format!("http://{web}/api/tasks"))
+        .json(&serde_json::json!({ "titulo": "Entregar laudo", "prazo": ontem }))
+        .send()
+        .await
+        .unwrap();
+    let ler = || async {
+        cliente
+            .get(format!("http://{web}/api/piloto"))
+            .send()
+            .await
+            .unwrap()
+            .json::<serde_json::Value>()
+            .await
+            .unwrap()
+    };
+    let antes = ler().await;
+    let item = antes["atencao"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| {
+            i["titulo"]
+                .as_str()
+                .unwrap_or("")
+                .contains("Entregar laudo")
+        })
+        .cloned()
+        .unwrap_or_else(|| panic!("{antes}"));
+    let chave = item["chave"].as_str().unwrap().to_owned();
+    assert!(chave.starts_with("atencao:"));
+
+    let resposta = cliente
+        .post(format!("http://{web}/api/piloto/dispensar"))
+        .json(&serde_json::json!({ "chave": chave }))
+        .send()
+        .await
+        .unwrap();
+    assert!(resposta.status().is_success());
+    let depois = ler().await;
+    assert!(depois["atencao"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|i| i["chave"] != chave.as_str()));
+
+    // Chave que não é de atenção é recusada.
+    let recusa = cliente
+        .post(format!("http://{web}/api/piloto/dispensar"))
+        .json(&serde_json::json!({ "chave": "forgotten:x" }))
+        .send()
+        .await
+        .unwrap();
+    assert!(!recusa.status().is_success());
+}

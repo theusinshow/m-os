@@ -32,7 +32,7 @@ const acoes: AcoesDoPiloto = {
 };
 
 function item(mudanca: Partial<ItemDeAtencao>): ItemDeAtencao {
-  return { tipo: "overdue", severidade: "alta", titulo: "Item", descricao: "", alvo: { kind: "task", id: "t" }, razoes: ["vence hoje"], desde: null, acao: { acao: "abrir_task", id: "t" }, peso: 0, ...mudanca };
+  return { tipo: "overdue", severidade: "alta", titulo: "Item", descricao: "", alvo: { kind: "task", id: "t" }, razoes: ["vence hoje"], desde: null, acao: { acao: "abrir_task", id: "t" }, peso: 0, chave: `atencao:${mudanca.titulo ?? "item"}`, ...mudanca };
 }
 
 const ATENCAO: ItemDeAtencao[] = [

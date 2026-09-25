@@ -147,10 +147,15 @@ export function Piloto({
           <ul className="piloto-itens">
             {atencao.map((item) => (
               <li key={`${item.tipo}:${item.alvo.id}:${item.titulo}`} data-severidade={item.severidade}>
-                <button type="button" className="piloto-item" onClick={() => destino(item)?.()} disabled={!destino(item)}>
-                  <span>{item.titulo}</span>
-                  <span className="piloto-mudo">{item.descricao || item.razoes[0]}</span>
-                </button>
+                <div className="piloto-item-linha">
+                  <button type="button" className="piloto-item" onClick={() => destino(item)?.()} disabled={!destino(item)}>
+                    <span>{item.titulo}</span>
+                    <span className="piloto-mudo">{item.descricao || item.razoes[0]}</span>
+                  </button>
+                  {item.chave ? (
+                    <button type="button" className="piloto-dispensar" aria-label={`Dispensar: ${item.titulo}`} disabled={ocupado !== null} onClick={() => void correr(`dispensar:${item.chave}`, () => api.dispensarAtencao(item.chave!))}>×</button>
+                  ) : null}
+                </div>
               </li>
             ))}
           </ul>

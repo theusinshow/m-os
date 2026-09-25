@@ -149,6 +149,27 @@ pub struct Retrato<'a> {
     /// Reunioes recentes que ainda pedem algo da pessoa. Vazio no bolso: o
     /// celular nao grava reuniao, e as Tasks que nasceram delas ja viajam.
     pub reunioes: &'a [ReuniaoNoRetrato],
+    /// O que a pessoa dispensou na atencao (ADR-083).
+    pub dispensados: &'a [Dispensa],
+}
+
+/// Um item de atencao dispensado. `ate = None` e "ate haver fato novo" — a
+/// chave muda quando o motivo muda; `Some` e adiado ate o instante.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Dispensa {
+    pub chave: String,
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    pub ate: Option<OffsetDateTime>,
+}
+
+impl Retrato<'_> {
+    /// Se o item com esta chave esta dispensado agora.
+    pub fn dispensado(&self, chave: &str) -> bool {
+        self.dispensados
+            .iter()
+            .any(|d| d.chave == chave && d.ate.is_none_or(|ate| self.now_local < ate))
+    }
 }
 
 /// Uma reuniao, do ponto de vista do piloto: so o que decide se ela precisa da
@@ -365,6 +386,7 @@ pub(crate) mod fixtures {
         pub ultima_presenca: Option<OffsetDateTime>,
         pub habitos: Habitos,
         pub reunioes: Vec<ReuniaoNoRetrato>,
+        pub dispensados: Vec<super::Dispensa>,
     }
 
     impl Default for Cenario {
@@ -383,6 +405,7 @@ pub(crate) mod fixtures {
                 ultima_presenca: Some(agora() - time::Duration::hours(12)),
                 habitos: Habitos::default(),
                 reunioes: Vec::new(),
+                dispensados: Vec::new(),
             }
         }
     }
@@ -403,6 +426,7 @@ pub(crate) mod fixtures {
                 ultima_presenca: self.ultima_presenca,
                 habitos: &self.habitos,
                 reunioes: &self.reunioes,
+                dispensados: &self.dispensados,
             }
         }
     }

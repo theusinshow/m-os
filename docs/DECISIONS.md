@@ -4617,3 +4617,36 @@ produtividade, não sai do aparelho e não lê coluna de conteúdo.
 entram quando houver pergunta que só um evento novo responda (plano §14).
 "Parar → pronta" é aproximado pelo job (criado → concluído). O bolso ainda não
 mostra os sinais.
+
+## ADR-083 — Item de atenção com chave estável e dispensa que só volta com fato novo
+
+**Data:** 2026-09-24. **Status:** aceito e implementado (F8 do [MOS-OVERHAUL-PLAN](MOS-OVERHAUL-PLAN.md)).
+
+### Contexto
+
+Notificações já tinham chave, adiamento e resolução (`autopilot_avisos`,
+ADR-069); os **itens de atenção** da Home não tinham identidade nem como ser
+dispensados. A mesma pendência voltava a cada leitura, e a única saída era agir
+sobre ela.
+
+### Decisão
+
+1. `ItemDeAtencao.chave = atencao:{tipo}:{alvo}:{desde}` — `desde` é quando o
+   motivo nasceu. Prazo remarcado, follow-up novo ou reunião nova mudam a chave:
+   é isso que define "fato novo". Item agregado (sem alvo) leva o título, para
+   a contagem nova contar como fato novo.
+2. `Retrato.dispensados` e `Retrato::dispensado(chave)`: o core filtra, uma
+   regra só para desktop e bolso. `ate = None` some até fato novo; `Some` volta
+   depois do instante.
+3. Persistência na tabela de avisos que já existe, com prefixo `atencao:` —
+   sem migration, e sai com a mesma poda de 7 dias (a dispensa não é eterna).
+4. Botão de dispensar por item no desktop (discreto até o ponteiro chegar) e no
+   bolso (alvo de dedo inteiro). Nenhum canal novo, nenhuma notificação a mais.
+
+### Limites
+
+A dispensa é por aparelho: `autopilot_avisos` é local, como a entrega de aviso.
+Fazer a decisão viajar pede tipo novo de sync — fica para quando o uso mostrar
+que dispensar no PC e ver de novo no celular incomoda. Testes: core
+(`dispensar_some_ate_haver_fato_novo_e_adiar_volta_na_hora`) e HTTP
+(`dispensar_atencao_no_bolso_some_do_panorama`).

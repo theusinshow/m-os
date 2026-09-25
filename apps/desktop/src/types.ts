@@ -1969,6 +1969,8 @@ export type ItemDeAtencao = {
   desde: string | null;
   acao: AcaoRecomendada;
   peso: number;
+  /** Identidade estável: muda quando o motivo muda (ADR-083). */
+  chave: string;
 };
 
 export type Candidata = {

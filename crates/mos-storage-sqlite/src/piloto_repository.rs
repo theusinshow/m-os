@@ -5,7 +5,7 @@
 //! interruptor do Autopilot. Nenhuma viaja — o `sync_cobertura.rs` diz por
 //! que, tabela por tabela.
 
-use mos_core::{AvisoEntregue, CoreError, TipoDeAviso};
+use mos_core::{AvisoEntregue, CoreError, Dispensa, TipoDeAviso};
 use mos_sync::{RegistroDeSaude, TipoDeFalha};
 use rusqlite::{params, OptionalExtension};
 use time::OffsetDateTime;
@@ -312,6 +312,67 @@ impl SqliteStorage {
 
     /// Apaga o que tem mais de `dias`. O historico serve a deduplicacao de
     /// hoje, nao a arqueologia.
+    /// Dispensa um item de atencao (ADR-083). `ate = None` e "ate haver fato
+    /// novo"; `Some` e adiado ate o instante. Mora na mesma tabela dos avisos,
+    /// com o prefixo `atencao:` na chave, e sai com a mesma poda.
+    pub fn dispensar_atencao(
+        &self,
+        chave: &str,
+        ate: Option<OffsetDateTime>,
+        agora: OffsetDateTime,
+    ) -> Result<(), CoreError> {
+        if !chave.starts_with("atencao:") {
+            return Err(CoreError::new(
+                mos_core::ErrorCode::InvalidInput,
+                "Esta chave nao e de um item de atencao.",
+                false,
+            ));
+        }
+        let ate = ate.map(rfc).transpose()?;
+        let resolvido = if ate.is_none() {
+            Some(rfc(agora)?)
+        } else {
+            None
+        };
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        connection
+            .execute(
+                "INSERT INTO autopilot_avisos (id, chave, tipo, titulo, entregue_em, adiado_ate, resolvido_em) \
+                 VALUES (?1, ?2, 'atencao', '', ?3, ?4, ?5) \
+                 ON CONFLICT(chave) DO UPDATE SET entregue_em = ?3, adiado_ate = ?4, resolvido_em = ?5",
+                params![uuid::Uuid::now_v7().to_string(), chave, rfc(agora)?, ate, resolvido],
+            )
+            .map_err(map_sql_error)?;
+        Ok(())
+    }
+
+    /// As dispensas em vigor para o retrato.
+    pub fn dispensas_de_atencao(&self, agora: OffsetDateTime) -> Result<Vec<Dispensa>, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        let mut statement = connection
+            .prepare(
+                "SELECT chave, adiado_ate FROM autopilot_avisos \
+                 WHERE chave LIKE 'atencao:%' AND (resolvido_em IS NOT NULL OR adiado_ate > ?1)",
+            )
+            .map_err(map_sql_error)?;
+        let linhas = statement
+            .query_map([rfc(agora)?], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            })
+            .map_err(map_sql_error)?;
+        let mut dispensas = Vec::new();
+        for linha in linhas {
+            let (chave, ate) = linha.map_err(map_sql_error)?;
+            dispensas.push(Dispensa {
+                chave,
+                ate: ate.and_then(|t| {
+                    OffsetDateTime::parse(&t, &time::format_description::well_known::Rfc3339).ok()
+                }),
+            });
+        }
+        Ok(dispensas)
+    }
+
     pub fn podar_avisos(&self, antes_de: OffsetDateTime) -> Result<usize, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         connection

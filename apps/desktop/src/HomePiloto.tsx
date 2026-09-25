@@ -17,6 +17,7 @@
  */
 import { useState } from "react";
 import { api, appError } from "./api";
+import { Icon } from "./Icon";
 import { StateMessage } from "./Surface";
 import { Button } from "./Button";
 import { ATENCAO_NA_HOME, fraseDeAusencia, fraseDeHoje, linhaDoItem, linhasDeAusencia, minutosCurto, rotuloDaAcao, seloDeSeveridade } from "./piloto";
@@ -163,6 +164,9 @@ export function HomePiloto({ panorama, acoes, resgateDispensado, dispensarResgat
               <span className="piloto-mudo">{linhaDoItem(item)}{item.razoes.length > 1 || (item.descricao && item.razoes[0]) ? ` · ${item.razoes.filter((r) => r !== item.descricao).join(" · ")}` : ""}</span>
             </div>
             {rotulo ? <Button variant="ghost" size="sm" disabled={ocupado !== null} onClick={() => executar(item.acao)}>{rotulo}</Button> : null}
+            {/* Dispensar: some até haver fato novo (ADR-083). Não resolve nada —
+                só tira da frente o que a pessoa já viu e decidiu não tratar agora. */}
+            {item.chave ? <button type="button" className="icon-button piloto-dispensar" aria-label={`Dispensar: ${item.titulo}`} title="Dispensar até haver novidade" disabled={ocupado !== null} onClick={() => void correr(item.chave, () => api.pilotoDispensar(item.chave))}><Icon name="close" /></button> : null}
           </li>;
         })}
       </ul>
