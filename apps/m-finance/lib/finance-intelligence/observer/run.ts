@@ -14,15 +14,24 @@ import { sendPushToUser } from "@/lib/push/web-push";
 
 const LIVE: FinancialInsightStatus[] = ["open", "acknowledged"];
 
+/**
+ * O Safe-to-Spend da última rodada. Falha de leitura (a migration 0016 ainda
+ * não aplicada, por exemplo) vira "sem rodada anterior": o context pack do
+ * Hermes não pode cair por causa do histórico do Observer.
+ */
 export async function getPreviousSafeToSpend(userId: string) {
   if (!db) return null;
-  const [row] = await db
-    .select({ safeToSpendCents: financialObserverRuns.safeToSpendCents })
-    .from(financialObserverRuns)
-    .where(eq(financialObserverRuns.userId, userId))
-    .orderBy(desc(financialObserverRuns.ranAt))
-    .limit(1);
-  return row?.safeToSpendCents ?? null;
+  try {
+    const [row] = await db
+      .select({ safeToSpendCents: financialObserverRuns.safeToSpendCents })
+      .from(financialObserverRuns)
+      .where(eq(financialObserverRuns.userId, userId))
+      .orderBy(desc(financialObserverRuns.ranAt))
+      .limit(1);
+    return row?.safeToSpendCents ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -137,7 +146,9 @@ export async function getStoredInsights(userId: string, limit = 20) {
     .from(financialInsights)
     .where(and(eq(financialInsights.userId, userId), inArray(financialInsights.status, LIVE)))
     .orderBy(desc(financialInsights.lastSeenAt))
-    .limit(50);
+    .limit(50)
+    // Mesmo motivo do `getPreviousSafeToSpend`: sem a tabela, nenhum insight.
+    .catch(() => []);
   return rows
     .sort(
       (a, b) =>

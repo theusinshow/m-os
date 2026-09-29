@@ -129,7 +129,7 @@ export function HermesPage({ inbox, projects, tasks, receipt, openProject, openR
   tasks: Task[];
   /** Uma entidade trazida de outra tela ("Perguntar ao Hermes"), com um
    *  rascunho. Vira chip visível antes de qualquer envio (ADR-027). */
-  semente?: { contexto: ContextInput; rascunho: string; chave: number } | null;
+  semente?: { contexto?: ContextInput | null; rascunho: string; chave: number } | null;
   openProject?: (project: Project) => void;
   openResource?: (id: string) => void;
   openTask?: (id: string) => void;
@@ -329,7 +329,7 @@ export function HermesPage({ inbox, projects, tasks, receipt, openProject, openR
   // é enviado — quem pergunta é a pessoa.
   useEffect(() => {
     if (!semente) return;
-    setContexts([semente.contexto]);
+    setContexts(semente.contexto ? [semente.contexto] : []);
     setDraft(semente.rascunho);
     window.setTimeout(() => field.current?.focus(), 50);
   }, [semente?.chave]); // eslint-disable-line react-hooks/exhaustive-deps

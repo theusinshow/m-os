@@ -48,7 +48,9 @@ export type ContextEntity =
   | "screen"
   /** A busca que o M/OS fez sozinho antes de enviar. Não é entidade: é o
    *  registro de um bloco que saiu com várias delas dentro (ADR-027). */
-  | "search";
+  | "search"
+  /** O context pack do M-Finance, no modo financeiro (ADR-073). */
+  | "finance";
 
 /** Corpo de uma parte. Espelha `PartBody` do dominio. */
 export type PartBody =

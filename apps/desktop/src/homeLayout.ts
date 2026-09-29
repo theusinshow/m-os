@@ -114,6 +114,13 @@ export const HOME_WIDGETS: { id: string; label: string; section: string; role: H
   { id: "week_by_project", label: "SEMANA POR PROJECT", section: "overview", role: "overview", span: 6 },
   { id: "task_progress", label: "CONCLUÍDO", section: "overview", role: "overview", span: 3 },
   { id: "budget_ring", label: "META", section: "overview", role: "overview", span: 3 },
+  /* FINANÇAS fecha a faixa "Visão" com largura 12 por aritmetica, como a
+     FACULDADE: a faixa ja soma 24, e o unico span que mantem o multiplo de doze
+     e outro 12. A largura cheia tambem e a que cabe as tres colunas — pode
+     gastar, proximo vencimento, atencao — sem quebrar valor em duas linhas.
+     Indisponivel sem M-Finance configurado: um widget dizendo "configure" seria
+     peso cheio para o vazio (ADR-073). */
+  { id: "finance", label: "FINANÇAS", section: "overview", role: "overview", span: 12 },
   { id: "recent_resources", label: "RECURSOS", section: "collection", role: "collection", span: 6 },
   { id: "apps", label: "APPS", section: "collection", role: "collection", span: 6 },
   { id: "quick_actions", label: "AÇÕES", section: "utilities", role: "utility", span: 6 },

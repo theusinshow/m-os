@@ -162,18 +162,24 @@ impl TurnRecorder {
         }
     }
 
-    /// A busca que o modelo pediu nesta resposta, se pediu.
+    /// O salto que o modelo pediu nesta resposta, se pediu: uma busca no M/OS
+    /// ou uma consulta ao M-Finance.
     ///
     /// Lida ANTES de `into_parts`, que consome o registrador: quem decide se
     /// vale um segundo salto precisa saber disso enquanto ainda pode agir.
-    pub fn requested_query(&self) -> Option<String> {
-        // A acao ganha da busca quando as duas vem juntas, e a razao e a ordem
+    pub fn requested_follow_up(&self) -> Option<FollowUp> {
+        // A acao ganha de qualquer salto quando vem junto, e a razao e a ordem
         // do trabalho: se o modelo ja sabe o que propor, procurar mais seria
         // gastar um turno para confirmar o que ele acabou de afirmar.
         if mos_core::split_fenced(&self.text, "mos-action").1.is_some() {
             return None;
         }
-        mos_core::split_fenced(&self.text, "mos-query").1
+        // Consulta financeira antes da busca local: quem pediu os dois esta
+        // fazendo uma pergunta sobre dinheiro, e o numero e o que falta.
+        if let Some(raw) = mos_core::split_fenced(&self.text, "mos-finance").1 {
+            return Some(FollowUp::Finance(raw));
+        }
+        mos_core::split_fenced(&self.text, "mos-query").1.map(FollowUp::Query)
     }
 
     /// As partes na ordem em que devem ser lidas.
@@ -208,8 +214,23 @@ impl TurnRecorder {
         // conversa precisa ver que houve uma ida ao banco entre a pergunta e a
         // resposta, senao a pausa parece travamento.
         let (text, query) = mos_core::split_fenced(&text, "mos-query");
+        // A consulta ao M-Finance sai pelo mesmo motivo, e vira o mesmo tipo de
+        // passo visivel. O resultado dela chega no turno seguinte, registrado
+        // la como o que atravessou a ponte (ADR-027).
+        let (text, finance) = mos_core::split_fenced(&text, "mos-finance");
         if !text.is_empty() {
             parts.push(PartBody::Text { text });
+        }
+        if let Some(raw) = &finance {
+            let (state, detail) = match mos_core::parse_finance_query(raw) {
+                Ok(request) => (ToolRunState::Success, request.tool.as_str().to_owned()),
+                Err(error) => (ToolRunState::Error, error.message),
+            };
+            parts.push(PartBody::ToolRun {
+                name: "Consulta ao M-Finance".to_owned(),
+                state,
+                detail,
+            });
         }
         if let Some(raw) = &query {
             let (state, detail) = match mos_core::parse_query(raw) {
@@ -238,6 +259,15 @@ impl TurnRecorder {
             || !self.tools.is_empty()
             || self.error.is_some()
     }
+}
+
+/// O segundo turno que uma resposta pode pedir.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FollowUp {
+    /// ` ```mos-query ``` ` — busca na base local do M/OS (ADR-051).
+    Query(String),
+    /// ` ```mos-finance ``` ` — uma ferramenta de leitura do M-Finance (ADR-073).
+    Finance(String),
 }
 
 /// Separa a proposta do texto da resposta.
@@ -293,6 +323,7 @@ pub fn proposal_part(raw: &str, now_local: time::OffsetDateTime) -> PartBody {
 async fn run_action<R: Runtime>(
     app: &AppHandle<R>,
     args: &mos_core::ActionArgs,
+    idempotency_key: &str,
 ) -> Result<mos_core::ActionEffect, CoreError> {
     let state = app.state::<AppState>();
     match args {
@@ -1045,29 +1076,39 @@ async fn run_action<R: Runtime>(
             )
             .touching("daily_session", sessao.to_string(), hoje.day.to_string()))
         }
-        mos_core::ActionArgs::MFinanceCreateBill {
-            amount_cents,
-            description,
-            due_day,
-            is_recurring,
-        } => {
-            let message = crate::finance::execute_create_bill(
-                *amount_cents,
-                description,
-                *due_day,
-                *is_recurring,
-            )
-            .await
-            .map_err(|error| CoreError::new(mos_core::ErrorCode::Io, error, true))?;
-            Ok(mos_core::ActionEffect::new(
-                message,
-                // Sem desfazer: o M/OS nao tem um comando de "apagar conta" no
-                // M-Finance, e inventar um so para o Undo seria dar ao Hermes um
-                // poder que a Action API (Fase 3 da spec) nao expoe. Corrigir uma
-                // conta criada por engano e manual, dentro do proprio M-Finance —
-                // igual e como as outras contas de la sempre foram corrigidas.
-                None,
-            ))
+        // Toda acao do M-Finance segue o mesmo caminho: o corpo sai do MESMO
+        // `ActionArgs` que desenhou o cartao (`finance_payload`, no core), a
+        // chave de idempotencia identifica a proposta, e o M-Finance valida de
+        // novo contra o que o preview mostrou.
+        mos_core::ActionArgs::MFinanceCreateBill { .. }
+        | mos_core::ActionArgs::MFinanceCreateCardExpense { .. }
+        | mos_core::ActionArgs::MFinanceCreateIncome { .. }
+        | mos_core::ActionArgs::MFinanceMarkBillPaid { .. }
+        | mos_core::ActionArgs::MFinanceMarkInvoicePaid { .. }
+        | mos_core::ActionArgs::MFinanceCreateSubscription { .. }
+        | mos_core::ActionArgs::MFinanceCreateGoal { .. }
+        | mos_core::ActionArgs::MFinanceUpdateGoal { .. }
+        | mos_core::ActionArgs::MFinanceSetPolicy { .. } => {
+            let payload = mos_core::finance_payload(args).ok_or_else(|| {
+                CoreError::new(
+                    mos_core::ErrorCode::InvalidInput,
+                    "Acao do M-Finance sem corpo.",
+                    false,
+                )
+            })?;
+            let effect = crate::finance::execute_action(args.kind().as_str(), payload, idempotency_key)
+                .await
+                .map_err(|error| CoreError::new(mos_core::ErrorCode::Io, error, true))?;
+            let _ = app.emit("data-changed", "finance");
+            // Sem desfazer: o M/OS nao tem um "apagar lancamento" no M-Finance,
+            // e inventar um so para o Undo seria dar ao Hermes um poder que a
+            // Action API nao expoe. Corrigir e no proprio M-Finance — igual e
+            // como as outras contas de la sempre foram corrigidas.
+            let mut result = mos_core::ActionEffect::new(effect.message, None);
+            for (kind, id, label) in effect.entities {
+                result = result.touching(kind, id, label);
+            }
+            Ok(result)
         }
     }
 }
@@ -1555,7 +1596,9 @@ pub async fn action_resolve<R: Runtime>(
         // um lembrete que ja venceu.
         let now_local = crate::surface::now_local(&app);
         let resolved = match mos_core::parse_action_at(&raw, now_local) {
-            Ok(args) => run_action(&app, &args).await,
+            Ok(args) => {
+                run_action(&app, &args, &crate::finance::idempotency_key(&message_id, &raw)).await
+            }
             Err(error) => Err(error),
         };
         match resolved {
@@ -2581,8 +2624,56 @@ mod tests {
         recorder.absorb(&Outcome::Delta {
             text: "Vou procurar.\n```mos-query\n{\"search\":\"victor bases\"}\n```".into(),
         });
-        let raw = recorder.requested_query().expect("o pedido de busca");
+        let Some(FollowUp::Query(raw)) = recorder.requested_follow_up() else {
+            panic!("o pedido de busca");
+        };
         assert_eq!(mos_core::parse_query(&raw).unwrap().search, "victor bases");
+    }
+
+    /// A consulta financeira e lida do mesmo jeito, e ganha da busca local
+    /// quando as duas vem juntas.
+    #[test]
+    fn the_recorder_sees_the_finance_query() {
+        let mut recorder = TurnRecorder::start("c".into(), "m".into());
+        recorder.absorb(&Outcome::Delta {
+            text: "```mos-query
+{\"search\":\"x\"}
+```
+                   ```mos-finance
+{\"tool\":\"finance.get_goals\"}
+```"
+                .into(),
+        });
+        let Some(FollowUp::Finance(raw)) = recorder.requested_follow_up() else {
+            panic!("a consulta financeira");
+        };
+        assert_eq!(
+            mos_core::parse_finance_query(&raw).unwrap().tool,
+            mos_core::FinanceTool::Goals
+        );
+    }
+
+    /// A consulta vira um passo visivel, e o bloco cru some do texto.
+    #[test]
+    fn the_finance_query_shows_up_as_a_step() {
+        let mut recorder = TurnRecorder::start("c".into(), "m".into());
+        recorder.absorb(&Outcome::Delta {
+            text: "Consultando.
+```mos-finance
+{\"tool\":\"finance.get_card_exposure\"}
+```".into(),
+        });
+        recorder.absorb(&Outcome::Complete);
+        let parts = recorder.into_parts(MessageStatus::Complete, agora());
+        assert!(parts.iter().any(|part| matches!(
+            part,
+            PartBody::ToolRun { name, detail, .. }
+                if name == "Consulta ao M-Finance" && detail == "finance.get_card_exposure"
+        )));
+        assert!(parts.iter().all(|part| match part {
+            PartBody::Text { text } => !text.contains("mos-finance"),
+            _ => true,
+        }));
     }
 
     /// A acao ganha da busca quando as duas vem juntas: se o modelo ja sabe o
@@ -2596,7 +2687,7 @@ mod tests {
                    ```mos-action\n{\"action\":\"mos.time.stop\"}\n```"
                 .into(),
         });
-        assert!(recorder.requested_query().is_none());
+        assert!(recorder.requested_follow_up().is_none());
     }
 
     /// A busca vira uma execucao visivel na thread. Sem ela, a pausa entre a

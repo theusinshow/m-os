@@ -10,12 +10,12 @@ import {
 import { markBillPaid, markInvoicePaid } from "@/lib/domain/finance-actions/mark-paid";
 import type { DomainResult } from "@/lib/domain/finance-actions/result";
 import { getCardById } from "@/lib/card-expenses";
-import { parseMonthKey } from "@/lib/finance-intelligence/dates";
+import { monthOfDate, parseMonthKey, todayInSaoPaulo } from "@/lib/finance-intelligence/dates";
 import { POLICY_KEYS, POLICY_LABELS } from "@/lib/finance-intelligence/policies";
 import { normalizeForMatch } from "@/lib/finance-intelligence/sanitize";
 import { formatCurrency } from "@/lib/formatters/currency";
 import { createBillFromMosAction } from "@/lib/mos/action-bridge";
-import { ensureMonthForUser, getCurrentMonthParts } from "@/lib/months";
+import { ensureMonthForUser } from "@/lib/months";
 
 /**
  * O catálogo de ESCRITA que o M/OS pode executar, depois do preview e da
@@ -148,8 +148,12 @@ function refused<T>(result: Extract<DomainResult<T>, { ok: false }>): MosActionO
   return { ok: false, error: result.message, code: result.code };
 }
 
+/**
+ * O mês pedido, ou o mês civil do dono — em São Paulo, e não no UTC da Vercel,
+ * que vira o mês às 21h do último dia. É o mesmo "hoje" que o kernel usa.
+ */
 async function currentMonthRecord(userId: string, key?: string) {
-  const parts = (key && parseMonthKey(key)) || getCurrentMonthParts();
+  const parts = (key && parseMonthKey(key)) || monthOfDate(todayInSaoPaulo());
   return ensureMonthForUser(userId, parts.month, parts.year);
 }
 

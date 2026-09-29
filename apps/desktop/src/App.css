@@ -13892,3 +13892,49 @@ button.daily-objective-title:focus-visible {
     transition: opacity var(--dur-instant) var(--ease-state);
   }
 }
+
+/* FINANÇAS na Home (ADR-073): três colunas — pode gastar, o que vence, o que
+   pede atenção. O Safe-to-Spend nunca aparece sem a linha que diz de onde ele
+   saiu, e o valor negativo usa o mesmo sódio que marca o vencido no resto do
+   app, e nada mais: o widget não inventa cor. */
+.finance-widget {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.finance-widget-col {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.finance-widget-value {
+  color: var(--text);
+  font: var(--text-title);
+  font-variant-numeric: tabular-nums;
+}
+
+.finance-widget-value[data-negative] {
+  color: var(--signal-ink);
+}
+
+.finance-widget-col small {
+  color: var(--text-meta);
+  font: var(--text-small);
+}
+
+.finance-widget-col .empty-state {
+  margin: 0;
+}
+
+.finance-widget-error {
+  color: var(--danger);
+}
+
+@media (max-width: 720px) {
+  .finance-widget {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

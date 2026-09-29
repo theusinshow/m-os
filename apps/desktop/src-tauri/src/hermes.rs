@@ -16,7 +16,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tokio::sync::mpsc;
 
-use crate::jarvis::{self, ContextInput, TurnEvent, TurnRecorder};
+use crate::jarvis::{self, ContextInput, FollowUp, TurnEvent, TurnRecorder};
 use crate::AppState;
 use mos_core::MessageStatus;
 
@@ -74,6 +74,13 @@ pub struct HermesState {
     /// pergunta trivial poderia disparar uma cadeia de buscas herdada das
     /// anteriores.
     query_hops: Arc<Mutex<u8>>,
+    /// Quantas consultas ao M-Finance ainda cabem na pergunta em curso.
+    ///
+    /// Orcamento proprio, e nao o do `mos-query`: uma pergunta financeira pode
+    /// precisar de uma busca local E de um numero, e fazer um comer o outro
+    /// ensinaria o modelo a escolher entre saber e agir. Zero fora do modo
+    /// financeiro — e ai o contrato de consulta nem desce.
+    finance_hops: Arc<Mutex<u8>>,
     base_url: Mutex<String>,
 }
 
@@ -87,6 +94,7 @@ impl Default for HermesState {
             conversation_id: Arc::new(Mutex::new(String::new())),
             recorder: Arc::new(Mutex::new(None)),
             query_hops: Arc::new(Mutex::new(0)),
+            finance_hops: Arc::new(Mutex::new(0)),
             base_url: Mutex::new(DEFAULT_BASE_URL.to_owned()),
         }
     }
@@ -194,7 +202,7 @@ fn settle_turn<R: Runtime>(
     state: &HermesState,
     status: MessageStatus,
     ending: Option<mos_core::TurnEnding>,
-) -> Option<String> {
+) -> Option<FollowUp> {
     let recorder = state
         .recorder
         .lock()
@@ -217,7 +225,7 @@ fn settle_turn<R: Runtime>(
     // interrupcao produziria um pedido pela metade, e responde-lo seria
     // continuar uma frase que o usuario mandou parar.
     let query = (status == MessageStatus::Complete)
-        .then(|| recorder.requested_query())
+        .then(|| recorder.requested_follow_up())
         .flatten();
     let mut parts = recorder.into_parts(status, crate::surface::now_local(app));
     // Por ultimo: a linha explica o que aconteceu DEPOIS do que chegou, e nao
@@ -312,6 +320,143 @@ async fn answer_query<R: Runtime>(app: &AppHandle<R>, raw: &str) {
         // pendurada para sempre.
         let _ = settle_turn(app, &state, MessageStatus::Failed, None);
     }
+}
+
+/// Executa a consulta ao M-Finance que o modelo pediu e devolve o resultado.
+///
+/// Mesmo desenho do `answer_query`, e pela mesma razao nao viola a ADR-028: o
+/// M/OS continua falando primeiro. O modelo pediu por escrito uma ferramenta da
+/// allowlist; o M/OS chama o M-Finance com o secret que so ele tem e manda o
+/// resultado pelo mesmo socket. O secret nunca atravessa para o modelo.
+async fn answer_finance<R: Runtime>(app: &AppHandle<R>, raw: &str) {
+    let state = app.state::<HermesState>();
+    // O pedido e lido ANTES de gastar o salto, como no `answer_query`: um
+    // bloco ilegivel ja virou um passo com erro na thread.
+    let Ok(request) = mos_core::parse_finance_query(raw) else {
+        return;
+    };
+    let hops_left = {
+        let Ok(mut guard) = state.finance_hops.lock() else {
+            return;
+        };
+        if *guard == 0 {
+            return;
+        }
+        *guard -= 1;
+        *guard
+    };
+
+    let conversation_id = get(&state.conversation_id);
+    let service = app.state::<AppState>().conversations.clone();
+    let Ok(answer) = service.start_answer(&conversation_id) else {
+        return;
+    };
+    jarvis::announce_message(app, &answer);
+
+    let reading = crate::finance::query(request.tool, &request.args).await;
+    let (tool_state, detail, prompt) = match &reading {
+        Ok(reading) => (
+            mos_core::ToolRunState::Success,
+            format!("{} · asOf {}", request.tool.as_str(), reading.as_of),
+            mos_core::finance_answer(request.tool, &reading.as_of, &reading.data, hops_left),
+        ),
+        Err(message) => (
+            mos_core::ToolRunState::Error,
+            format!("{} — {message}", request.tool.as_str()),
+            mos_core::finance_failure(request.tool.as_str(), message, hops_left),
+        ),
+    };
+
+    // O que saiu da maquina e o que voltou ficam registrados como o passo que
+    // abre este turno (ADR-027) — a mensagem anterior ja foi gravada.
+    let mut recorder = TurnRecorder::start(conversation_id.clone(), answer.id.to_string());
+    recorder.seed(mos_core::PartBody::ToolRun {
+        name: "Consulta ao M-Finance".to_owned(),
+        state: tool_state,
+        detail,
+    });
+    set(&state.recorder, Some(recorder));
+
+    if order(app, Order::Submit(prompt)).await.is_err() {
+        let _ = settle_turn(app, &state, MessageStatus::Failed, None);
+    }
+}
+
+/// O bloco financeiro da pergunta, e o registro do que ele levou.
+///
+/// Devolve `(bloco, parte)`: o texto que desce no preambulo e a parte
+/// `context_ref` que a conversa grava. Vazio quando a pergunta nao e
+/// financeira ou quando a leitura nao esta habilitada — e ai nenhum dado
+/// financeiro sai da maquina.
+async fn finance_context<R: Runtime>(
+    app: &AppHandle<R>,
+    text: &str,
+    screen: &str,
+    actions_enabled: bool,
+) -> (String, Option<mos_core::PartBody>) {
+    let state = app.state::<HermesState>();
+    set(&state.finance_hops, 0);
+    if !finance_read_enabled(app) || !mos_core::finance_intent(text, screen) {
+        return (String::new(), None);
+    }
+    let hops = mos_core::MAX_FINANCE_HOPS;
+    set(&state.finance_hops, hops);
+
+    match crate::finance::query(mos_core::FinanceTool::ContextPack, &serde_json::json!({})).await {
+        Ok(reading) => {
+            let block =
+                mos_core::finance_context_block(&reading.data, &reading.as_of, hops, actions_enabled);
+            let part = mos_core::PartBody::ContextRef {
+                origin: mos_core::ContextOrigin::Automatic,
+                entity: mos_core::ContextEntity::Finance,
+                id: String::new(),
+                label: "M-Finance".to_owned(),
+                fields: [
+                    "mês atual",
+                    "Safe-to-Spend",
+                    "30 dias",
+                    "próximos meses",
+                    "cartões",
+                    "assinaturas",
+                    "metas",
+                    "políticas",
+                    "insights",
+                ]
+                .into_iter()
+                .map(str::to_owned)
+                .chain(std::iter::once(format!("asOf {}", reading.as_of)))
+                .collect(),
+                bytes: block.len(),
+            };
+            (block, Some(part))
+        }
+        Err(message) => {
+            // Sem os numeros o modelo precisa SABER que esta sem eles, senao
+            // responde de memoria. E sem consulta extra: se o pacote falhou, a
+            // proxima ferramenta tende a falhar igual.
+            set(&state.finance_hops, 0);
+            (mos_core::finance_unavailable_block(&message, actions_enabled), None)
+        }
+    }
+}
+
+/// O M-Finance esta cadastrado com leitura E ha secret para ler?
+///
+/// A busca e pelo ALVO, como no gate de escrita: o id do App e um UUID sorteado
+/// no cadastro. `can_read` e a capacidade que o Registry ja tinha; ate aqui ela
+/// era so informativa.
+fn finance_read_enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let registered = app
+        .state::<AppState>()
+        .apps
+        .apps(false)
+        .ok()
+        .and_then(|apps| {
+            mos_core::app_targeting_host(&apps, crate::finance::ACTION_HOST)
+                .map(|entry| entry.can_read || entry.can_write)
+        })
+        .unwrap_or(false);
+    registered && crate::finance::can_read()
 }
 
 /// Conexao preguicosa na origem: acontecia so quando o usuario entrava no modo
@@ -464,10 +609,17 @@ pub async fn hermes_connect<R: Runtime>(app: AppHandle<R>) -> Result<(), HermesF
                                             // travaria o laco que le o socket,
                                             // e a resposta que ele mesmo espera
                                             // chega por este laco.
-                                            if let Some(raw) = query {
+                                            if let Some(follow_up) = query {
                                                 let outra = pump.clone();
                                                 tauri::async_runtime::spawn(async move {
-                                                    answer_query(&outra, &raw).await;
+                                                    match follow_up {
+                                                        FollowUp::Query(raw) => {
+                                                            answer_query(&outra, &raw).await
+                                                        }
+                                                        FollowUp::Finance(raw) => {
+                                                            answer_finance(&outra, &raw).await
+                                                        }
+                                                    }
                                                 });
                                             }
                                         }
@@ -607,6 +759,27 @@ pub async fn hermes_send<R: Runtime>(
     let now_local = crate::surface::now_local(&app);
     let hops = mos_core::MAX_QUERY_HOPS;
     set(&app.state::<HermesState>().query_hops, hops);
+    // O modo financeiro (ADR-073): so quando a pergunta e sobre dinheiro, e so
+    // com leitura habilitada. Busca o pacote ANTES de gravar o registro, para
+    // o registro dizer exatamente o que saiu.
+    //
+    // O gate de ESCRITA vem antes dele: so desce acao `m-finance.*` quando o
+    // App que aponta para o M-Finance tem `can_write` no Registry. A busca e
+    // pelo ALVO e nao pelo id: `AppId` e um UUID sorteado no cadastro, entao
+    // `app("m-finance")` nunca casava com nada e o gate ficava fechado para
+    // sempre, marcasse o usuario o que marcasse.
+    let finance_enabled = app
+        .state::<AppState>()
+        .apps
+        .apps(false)
+        .ok()
+        .and_then(|apps| {
+            mos_core::app_targeting_host(&apps, crate::finance::ACTION_HOST)
+                .map(|entry| entry.can_write)
+        })
+        .unwrap_or(false);
+    let (finance_block, finance_part) =
+        finance_context(&app, &text, &here.screen, finance_enabled).await;
 
     // O registro do que saiu (ADR-027). Um chip por candidato seria honesto e
     // ilegivel — doze chips numa mensagem sem anexo nenhum esconderiam os
@@ -636,6 +809,9 @@ pub async fn hermes_send<R: Runtime>(
         });
     }
     let candidates_block = mos_core::candidates_block(&candidates);
+    if let Some(part) = finance_part {
+        automatic.push(part);
+    }
     if !candidates_block.is_empty() {
         automatic.push(mos_core::PartBody::ContextRef {
             origin: mos_core::ContextOrigin::Automatic,
@@ -688,23 +864,10 @@ pub async fn hermes_send<R: Runtime>(
     // argumento vao para a VPS. Nao sao dados pessoais, mas sao um mapa do que o
     // sistema sabe fazer, e isso esta registrado na spec.
     //
-    // So desce no catalogo quando o App que aponta para o M-Finance tem
-    // can_write marcado no Registry — a mesma capacidade que ja existia, so
-    // passando a ter efeito real pela primeira vez (SPEC-ACOES-ENTRE-APPS.md).
+    // As `m-finance.*` so descem no catalogo com `can_write` — o gate agora e
+    // lido mais acima, junto do modo financeiro, que precisa dele para saber
+    // se pode mandar o modelo propor acao.
     //
-    // A busca e pelo ALVO e nao pelo id: `AppId` e um UUID sorteado no
-    // cadastro, entao `app("m-finance")` nunca casava com nada e o gate
-    // ficava fechado para sempre, marcasse o usuario o que marcasse.
-    let finance_enabled = app
-        .state::<AppState>()
-        .apps
-        .apps(false)
-        .ok()
-        .and_then(|apps| {
-            mos_core::app_targeting_host(&apps, crate::finance::ACTION_HOST)
-                .map(|entry| entry.can_write)
-        })
-        .unwrap_or(false);
     // A ordem do preambulo esta em `mos_core::preamble`, e o contexto ANEXADO
     // vem depois dele: o que o usuario escolheu mandar fica colado na pergunta,
     // que e onde ele espera que esteja.
@@ -718,6 +881,7 @@ pub async fn hermes_send<R: Runtime>(
             hops_left: hops,
             today: crate::daily::bloco_de_hoje(&app),
             attention: crate::piloto::bloco_de_atencao(&app),
+            finance: finance_block,
         }),
         assembled.block,
         text

@@ -656,9 +656,11 @@ function FinanceActionSettings() {
   return (
     <Panel label="AÇÕES DO HERMES NO M-FINANCE">
       <p className="support-copy">
-        O Hermes pode propor criar contas no M-Finance quando você pedir — nunca sem confirmação
-        explícita. Isto guarda o secret que autoriza o M/OS a chamar a Action API do M-Finance
-        (mesmo secret configurado como variável de ambiente lá, do lado do M-Finance).
+        O Hermes pode propor lançamentos no M-Finance — contas, compras no cartão, receitas,
+        pagamentos, assinaturas, metas e políticas — nunca sem confirmação explícita. Isto guarda
+        o secret que autoriza o M/OS a chamar a Action API do M-Finance (o mesmo
+        <code> MOS_ACTION_SECRET</code> configurado do lado do M-Finance). Ele também serve para
+        leitura quando o secret de leitura abaixo não está configurado.
       </p>
       <form className="stack-form" onSubmit={save}>
         <label><span>SECRET</span><input type="password" value={secret} onChange={(event) => setSecret(event.currentTarget.value)} autoComplete="off" /></label>
@@ -669,6 +671,66 @@ function FinanceActionSettings() {
       </form>
       <dl className="fact-grid">
         <div><dt>SECRET</dt><dd>{configured ? "Configurado" : <span className="fact-empty">Não configurado</span>}</dd></div>
+      </dl>
+      {message ? <StateMessage state={messageState} label={message} /> : null}
+    </Panel>
+  );
+}
+
+/**
+ * O secret de LEITURA do M-Finance (ADR-073): o Hermes lê o estado financeiro
+ * por ele e não consegue escrever nada. Separado do de ação de propósito —
+ * vazar este não lança conta nenhuma.
+ */
+function FinanceReadSettings() {
+  const [configured, setConfigured] = useState(false);
+  const [secret, setSecret] = useState("");
+  const [message, setMessage] = useState("");
+  const [messageState, setMessageState] = useState<"saving" | "saved" | "error">("saved");
+
+  useEffect(() => {
+    void finance.readSecretConfigured().then(setConfigured).catch(() => undefined);
+  }, []);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (!secret.trim()) return;
+    setMessageState("saving");
+    setMessage("Salvando secret...");
+    try {
+      await finance.setReadSecret(secret);
+      setSecret("");
+      setConfigured(true);
+      setMessage("Secret de leitura guardado no Windows Credential Manager.");
+      setMessageState("saved");
+    } catch (error) {
+      setMessageState("error");
+      setMessage(String(error));
+    }
+  }
+
+  async function clear() {
+    await finance.clearReadSecret().catch(() => undefined);
+    setConfigured(false);
+  }
+
+  return (
+    <Panel label="LEITURA DO M-FINANCE PELO HERMES">
+      <p className="support-copy">
+        Com isto o Hermes responde perguntas financeiras com os números reais — mês, Safe-to-Spend,
+        faturas, cenários — e a Home ganha o widget FINANÇAS. Os dados só descem quando a pergunta
+        é sobre dinheiro, e cada envio fica registrado na conversa. O secret é o
+        <code> MOS_FINANCE_READ_SECRET</code> do M-Finance; ele não escreve nada.
+      </p>
+      <form className="stack-form" onSubmit={save}>
+        <label><span>SECRET DE LEITURA</span><input type="password" value={secret} onChange={(event) => setSecret(event.currentTarget.value)} autoComplete="off" /></label>
+        <div className="form-actions">
+          <Button variant="ghost" onClick={() => void clear()}>Remover secret</Button>
+          <Button variant="primary" type="submit">Salvar</Button>
+        </div>
+      </form>
+      <dl className="fact-grid">
+        <div><dt>LEITURA</dt><dd>{configured ? "Secret próprio" : <span className="fact-empty">Usando o secret de ação, se houver</span>}</dd></div>
       </dl>
       {message ? <StateMessage state={messageState} label={message} /> : null}
     </Panel>
@@ -951,7 +1013,7 @@ export function SettingsPage({ theme, setTheme, status, capturesArchived, captur
      `arrange_widgets`, que existiu em Rust e em TypeScript ao mesmo tempo. */
   const conteudo: Record<string, ReactNode> = {
     sync: <><SyncSettings /><AutopilotSettings /></>,
-    conexoes: <><HermesSettings /><OpenAiUsageSettings /><UnivirtusSettings /><FinanceActionSettings /></>,
+    conexoes: <><HermesSettings /><OpenAiUsageSettings /><UnivirtusSettings /><FinanceActionSettings /><FinanceReadSettings /></>,
     aparencia: <><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" aria-label="Tema claro" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form>{/* A voz mora no mesmo Panel porque ela e a mesma captura por outra
      porta — separa-la num painel proprio a transformaria numa feature
      ao lado, que e exatamente o que o §Voz do design system recusa. */}<form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setVoiceShortcut(voiceShortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="voice-shortcut">Atalho da voz</label><p>{status?.voiceShortcut}</p><p className="support-copy">Segure para falar, solte para guardar. Vale de qualquer lugar do Windows, e o microfone só abre enquanto a tecla está pressionada.</p></div><div className="inline-form"><input id="voice-shortcut" value={voiceShortcut} onChange={(event) => setVoiceShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="ATALHOS"><p className="support-copy">O M/OS é operável quase inteiro pelo teclado. Nada aqui precisa ser decorado — esta lista existe para quando você quiser.</p><dl className="shortcut-list">{SHORTCUTS.map((entry) => <div key={entry.keys}><dt>{entry.keys}</dt><dd>{entry.does}</dd></div>)}</dl></Panel></>,

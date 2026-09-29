@@ -184,6 +184,22 @@ Não são necessários para compilar, só para usar o sistema inteiro.
 e `MOS_ACTION_SECRET`. O deploy vem do próprio monorepo — projeto na Vercel
 apontando para `theusinshow/m-os` com **Root Directory** `apps/m-finance`.
 
+A camada de inteligência (ADR-073) acrescenta, todas opcionais:
+
+| Variável | Para quê | Sem ela |
+|---|---|---|
+| `MOS_FINANCE_READ_SECRET` | escopo só de leitura do gateway `/api/mos/finance/query` | a leitura aceita só o `MOS_ACTION_SECRET` |
+| `FINANCE_AI_BASE_URL` · `FINANCE_AI_API_KEY` | IA financeira pesada, qualquer endpoint compatível com a API da OpenAI | `finance.analyze` responde `ai_not_configured`; o Hermes raciocina sobre as ferramentas determinísticas |
+| `FINANCE_AI_MODEL_STANDARD` · `FINANCE_AI_MODEL_HEAVY` | modelo por tier (revisão × plano/cenário) | um tier usa o modelo do outro |
+| `FINANCE_AI_TIMEOUT_MS` | teto da chamada | 45000 |
+| `FINANCE_AI_NARRATE_INSIGHTS=true` | a LLM reescreve o texto de insight material | o texto do template determinístico |
+
+Gere os dois secrets com `openssl rand -hex 32`, cadastre na Vercel e cole no
+M/OS em Settings → Conexões (ação e leitura, campos separados). A migration
+`0016` precisa estar aplicada (`npm run db:migrate` em `apps/m-finance`, depois
+do `check-db-migrations.mjs`); sem ela o gateway e o dashboard seguem de pé com
+as políticas padrão e sem insights gravados.
+
 **Hermes** exige um túnel SSH mantendo `127.0.0.1:9119` apontando para a VPS. O
 `scripts/install-hermes-tunnel.ps1` registra uma tarefa agendada no logon, sem
 admin. Ele procura uma chave sem passphrase em `~/.ssh` entre os nomes

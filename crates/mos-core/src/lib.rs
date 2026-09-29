@@ -15,6 +15,7 @@ mod conversation;
 mod daily;
 mod error;
 mod feriados;
+mod finance;
 mod functions;
 mod ingestion;
 mod meeting;
@@ -62,8 +63,13 @@ pub mod univirtus {
     pub use crate::academic_univirtus_impl::*;
 }
 pub use action::{
-    action_contract, parse_action, parse_action_at, preview_of, ActionArgs, ActionAudit,
-    ActionEffect, ActionKind, ActionLine, ActionPreview, TargetRef, TouchedEntity, UndoStep,
+    action_contract, finance_payload, parse_action, parse_action_at, preview_of, validate_policy,
+    ActionArgs, ActionAudit, ActionEffect, ActionKind, ActionLine, ActionPreview, TargetRef,
+    TouchedEntity, UndoStep, POLICY_KEYS,
+};
+pub use finance::{
+    finance_answer, finance_context_block, finance_failure, finance_intent, finance_query_contract,
+    finance_unavailable_block, parse_finance_query, FinanceQuery, FinanceTool, MAX_FINANCE_HOPS,
 };
 pub use agent::{
     candidates_block, here_block, normalize, now_block, parse_query, preamble, query_answer,

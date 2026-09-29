@@ -22,6 +22,7 @@ export const TAG_DA_ENTIDADE: Record<ContextInput["entity"], string> = {
   reminder: "LEMB",
   screen: "TELA",
   search: "BUSCA",
+  finance: "FIN",
 };
 
 export function rotuloDoItem(item: SearchItem): string {

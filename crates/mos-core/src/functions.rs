@@ -477,6 +477,72 @@ pub fn function_registry() -> Vec<FunctionDefinition> {
             FunctionRisk::High,
             FunctionConfirmation::Explicit,
         ),
+        // As oito da ADR-073. Todas High/Explicit, inclusive `set_policy`: ela
+        // nao move dinheiro hoje, mas muda o que o Safe-to-Spend diz amanha.
+        function(
+            "m-finance.create_card_expense",
+            "Lançar compra no cartão",
+            "Propõe uma compra no cartão (à vista ou parcelada) para o M-Finance.",
+            FunctionCategory::App,
+            FunctionRisk::High,
+            FunctionConfirmation::Explicit,
+        ),
+        function(
+            "m-finance.create_income",
+            "Lançar receita no M-Finance",
+            "Propõe uma receita no mês em que ela entra.",
+            FunctionCategory::App,
+            FunctionRisk::High,
+            FunctionConfirmation::Explicit,
+        ),
+        function(
+            "m-finance.mark_bill_paid",
+            "Marcar conta como paga",
+            "Marca UMA conta do M-Finance como paga, pelo id, conferindo o valor do preview.",
+            FunctionCategory::App,
+            FunctionRisk::High,
+            FunctionConfirmation::Explicit,
+        ),
+        function(
+            "m-finance.mark_invoice_paid",
+            "Marcar fatura como paga",
+            "Marca a fatura lançada de um cartão como paga.",
+            FunctionCategory::App,
+            FunctionRisk::High,
+            FunctionConfirmation::Explicit,
+        ),
+        function(
+            "m-finance.create_subscription",
+            "Salvar assinatura",
+            "Propõe uma assinatura ou teste grátis com a data da próxima cobrança.",
+            FunctionCategory::App,
+            FunctionRisk::High,
+            FunctionConfirmation::Explicit,
+        ),
+        function(
+            "m-finance.create_goal",
+            "Criar meta financeira",
+            "Propõe uma meta com alvo, prazo e prioridade.",
+            FunctionCategory::App,
+            FunctionRisk::High,
+            FunctionConfirmation::Explicit,
+        ),
+        function(
+            "m-finance.update_goal",
+            "Editar meta financeira",
+            "Muda alvo, prazo, valor guardado ou prioridade de uma meta.",
+            FunctionCategory::App,
+            FunctionRisk::High,
+            FunctionConfirmation::Explicit,
+        ),
+        function(
+            "m-finance.set_policy",
+            "Mudar política financeira",
+            "Muda uma regra permanente (margem, renda confiável, teto de parcelas…). Afeta toda decisão futura.",
+            FunctionCategory::App,
+            FunctionRisk::High,
+            FunctionConfirmation::Explicit,
+        ),
         function(
             "data.backup",
             "Criar Backup",
@@ -567,6 +633,25 @@ mod tests {
             .expect("m-finance.create_bill deveria estar registrada");
         assert_eq!(entry.risk, FunctionRisk::High);
         assert_eq!(entry.confirmation, FunctionConfirmation::Explicit);
+    }
+
+    /// Toda acao `m-finance.*` do catalogo tem funcao registrada, e todas sao
+    /// risco alto com confirmacao explicita. Uma acao que escapasse do registro
+    /// cairia no default cauteloso do preview — mas o registro e a fonte.
+    #[test]
+    fn toda_acao_financeira_e_risco_alto_com_confirmacao() {
+        let registry = function_registry();
+        for kind in crate::ActionKind::all() {
+            if !kind.is_finance() {
+                continue;
+            }
+            let entry = registry
+                .iter()
+                .find(|item| item.id == kind.function_id())
+                .unwrap_or_else(|| panic!("{} sem funcao registrada", kind.as_str()));
+            assert_eq!(entry.risk, FunctionRisk::High, "{}", entry.id);
+            assert_eq!(entry.confirmation, FunctionConfirmation::Explicit, "{}", entry.id);
+        }
     }
 
     #[test]

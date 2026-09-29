@@ -11,7 +11,7 @@ const { entriesMock, markMock, cardMock, expenseMock, monthsMock } = vi.hoisted(
   markMock: { markBillPaid: vi.fn(), markInvoicePaid: vi.fn() },
   cardMock: { getCardById: vi.fn() },
   expenseMock: { createCardExpense: vi.fn() },
-  monthsMock: { ensureMonthForUser: vi.fn(), getCurrentMonthParts: vi.fn() },
+  monthsMock: { ensureMonthForUser: vi.fn() },
 }));
 
 vi.mock("@/lib/domain/finance-actions/entries", () => entriesMock);
@@ -38,7 +38,6 @@ beforeEach(() => {
   ]) {
     mock.mockReset();
   }
-  monthsMock.getCurrentMonthParts.mockReset().mockReturnValue({ month: 9, year: 2026 });
   monthsMock.ensureMonthForUser.mockReset().mockResolvedValue(SETEMBRO);
   cardMock.getCardById.mockResolvedValue({ id: CARD, name: "Nubank", dueDay: 15 });
 });

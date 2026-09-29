@@ -204,6 +204,10 @@ pub enum ContextEntity {
     /// nada esconderiam o que ele anexou de verdade. Um chip so, com os nomes
     /// em `fields`, cumpre a ADR-027 sem afogar a evidencia.
     Search,
+    /// O que o M-Finance devolveu no modo financeiro (ADR-073): o context pack
+    /// que desceu com a pergunta. Sem id pelo mesmo motivo da `Search` — e um
+    /// bloco, e os `fields` dizem o que havia dentro dele.
+    Finance,
 }
 
 /// O corpo de uma parte.

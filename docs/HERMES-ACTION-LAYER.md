@@ -190,7 +190,33 @@ mos.time.start          { project, activity?, description? }
 mos.time.stop           { }
 mos.time.record         { project, minutes, day?, activity?, description? }
 m-finance.create_bill   { amountCents, description, dueDay?, isRecurring }
+m-finance.create_card_expense  { cardId, cardName, amountCents, description, installments?, purchaseDate? }
+m-finance.create_income        { name, amountCents, incomeType, month?, expectedDate?, received? }
+m-finance.mark_bill_paid       { billId, billName, amountCents }
+m-finance.mark_invoice_paid    { cardId, cardName, month?, amountCents? }
+m-finance.create_subscription  { name, amountCents, nextChargeDate, cycle?, isTrial? }
+m-finance.create_goal          { name, targetAmountCents, currentAmountCents?, deadline?, priority? }
+m-finance.update_goal          { goalId, goalName, …campos }
+m-finance.set_policy           { key, value }
 ```
+
+As nove `m-finance.*` são High/Explicit e só descem com `can_write` no App do
+M-Finance. As que tocam entidade existente levam o id **e** o que o cartão
+mostrou (nome, valor): o M-Finance recusa se o banco mudou entre o preview e o
+confirmar. Cada confirmação leva uma idempotency key — confirmar de novo depois
+de um timeout não lança duas vezes. Desenho completo: ADR-073 e
+`docs/superpowers/specs/2026-09-29-m-finance-intelligence-design.md`.
+
+### O modo financeiro
+
+Pergunta sobre dinheiro (`mos_core::finance_intent`: tela Finance, termo
+inequívoco — fatura, cartão, parcela, R$… — ou frase como "posso comprar") com
+leitura habilitada faz o M/OS buscar o context pack do M-Finance **antes** de
+enviar, registrar a parte `context_ref` `FIN` e descer os números no preâmbulo,
+delimitados como conteúdo não confiável. O modelo pode pedir mais com
+` ```mos-finance {"tool": …, "args": …}``` `, até dois saltos por pergunta, cada
+um um passo visível na thread. "valor", "conta" e "meta" sozinhos não ligam o
+modo: dado financeiro só sai da máquina quando a pergunta é sobre dinheiro.
 
 Todo campo que aponta para uma entidade existente aceita **id ou título**, e o
 contrato ensina a preferir o id.

@@ -143,6 +143,7 @@ Estado real em 2026-08-21. `—` significa que não existe; **não** significa
 | Obsolescência (paradas) | ✓ | ✓ | — | n/a (derivada) | lê |
 | M/Academic | ✓ | ✓ | — | **emite** | lê |
 | Identidade de dispositivo | ✓ | ✓ | — | ✓ | — |
+| M-Finance Intelligence (ADR-073) | ✓ (intenção, consulta, catálogo) | ✓ | PWA do M-Finance | n/a (Postgres do M-Finance) | lê e age |
 
 **"fundação"** quer dizer: as tabelas, o relógio, as operações, a reconciliação
 e o motor de sincronização existem e estão testados — inclusive contra dois
