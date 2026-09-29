@@ -179,7 +179,9 @@ impl TurnRecorder {
         if let Some(raw) = mos_core::split_fenced(&self.text, "mos-finance").1 {
             return Some(FollowUp::Finance(raw));
         }
-        mos_core::split_fenced(&self.text, "mos-query").1.map(FollowUp::Query)
+        mos_core::split_fenced(&self.text, "mos-query")
+            .1
+            .map(FollowUp::Query)
     }
 
     /// As partes na ordem em que devem ser lidas.
@@ -1096,9 +1098,10 @@ async fn run_action<R: Runtime>(
                     false,
                 )
             })?;
-            let effect = crate::finance::execute_action(args.kind().as_str(), payload, idempotency_key)
-                .await
-                .map_err(|error| CoreError::new(mos_core::ErrorCode::Io, error, true))?;
+            let effect =
+                crate::finance::execute_action(args.kind().as_str(), payload, idempotency_key)
+                    .await
+                    .map_err(|error| CoreError::new(mos_core::ErrorCode::Io, error, true))?;
             let _ = app.emit("data-changed", "finance");
             // Sem desfazer: o M/OS nao tem um "apagar lancamento" no M-Finance,
             // e inventar um so para o Undo seria dar ao Hermes um poder que a
@@ -1597,7 +1600,12 @@ pub async fn action_resolve<R: Runtime>(
         let now_local = crate::surface::now_local(&app);
         let resolved = match mos_core::parse_action_at(&raw, now_local) {
             Ok(args) => {
-                run_action(&app, &args, &crate::finance::idempotency_key(&message_id, &raw)).await
+                run_action(
+                    &app,
+                    &args,
+                    &crate::finance::idempotency_key(&message_id, &raw),
+                )
+                .await
             }
             Err(error) => Err(error),
         };
@@ -2642,7 +2650,7 @@ mod tests {
                    ```mos-finance
 {\"tool\":\"finance.get_goals\"}
 ```"
-                .into(),
+            .into(),
         });
         let Some(FollowUp::Finance(raw)) = recorder.requested_follow_up() else {
             panic!("a consulta financeira");
@@ -2661,7 +2669,8 @@ mod tests {
             text: "Consultando.
 ```mos-finance
 {\"tool\":\"finance.get_card_exposure\"}
-```".into(),
+```"
+            .into(),
         });
         recorder.absorb(&Outcome::Complete);
         let parts = recorder.into_parts(MessageStatus::Complete, agora());

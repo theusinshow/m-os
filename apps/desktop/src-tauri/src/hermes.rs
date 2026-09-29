@@ -404,8 +404,12 @@ async fn finance_context<R: Runtime>(
 
     match crate::finance::query(mos_core::FinanceTool::ContextPack, &serde_json::json!({})).await {
         Ok(reading) => {
-            let block =
-                mos_core::finance_context_block(&reading.data, &reading.as_of, hops, actions_enabled);
+            let block = mos_core::finance_context_block(
+                &reading.data,
+                &reading.as_of,
+                hops,
+                actions_enabled,
+            );
             let part = mos_core::PartBody::ContextRef {
                 origin: mos_core::ContextOrigin::Automatic,
                 entity: mos_core::ContextEntity::Finance,
@@ -435,7 +439,10 @@ async fn finance_context<R: Runtime>(
             // responde de memoria. E sem consulta extra: se o pacote falhou, a
             // proxima ferramenta tende a falhar igual.
             set(&state.finance_hops, 0);
-            (mos_core::finance_unavailable_block(&message, actions_enabled), None)
+            (
+                mos_core::finance_unavailable_block(&message, actions_enabled),
+                None,
+            )
         }
     }
 }

@@ -67,10 +67,6 @@ pub use action::{
     ActionArgs, ActionAudit, ActionEffect, ActionKind, ActionLine, ActionPreview, TargetRef,
     TouchedEntity, UndoStep, POLICY_KEYS,
 };
-pub use finance::{
-    finance_answer, finance_context_block, finance_failure, finance_intent, finance_query_contract,
-    finance_unavailable_block, parse_finance_query, FinanceQuery, FinanceTool, MAX_FINANCE_HOPS,
-};
 pub use agent::{
     candidates_block, here_block, normalize, now_block, parse_query, preamble, query_answer,
     query_contract, resolution_error, resolve, search_terms, short_id, split_fenced, spoken_moment,
@@ -110,6 +106,10 @@ pub use daily::{
 };
 pub use error::{CoreError, ErrorCode};
 pub use feriados::{nacionais, nacionais_entre, pascoa, EscopoDoFeriado, Feriado, PesoDoFeriado};
+pub use finance::{
+    finance_answer, finance_context_block, finance_failure, finance_intent, finance_query_contract,
+    finance_unavailable_block, parse_finance_query, FinanceQuery, FinanceTool, MAX_FINANCE_HOPS,
+};
 pub use functions::{
     function_registry, search_functions, FunctionCategory, FunctionConfirmation,
     FunctionDefinition, FunctionRisk,

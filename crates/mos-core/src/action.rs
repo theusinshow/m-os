@@ -1055,7 +1055,10 @@ pub fn parse_action_at(raw: &str, now_local: OffsetDateTime) -> Result<ActionArg
             };
             let amount_cents = finance_cents(&args, "amountCents", kind)?;
             if installments > 1 && amount_cents < i64::from(installments) {
-                return Err(finance_error(kind, "o valor é baixo demais para essa quantidade de parcelas"));
+                return Err(finance_error(
+                    kind,
+                    "o valor é baixo demais para essa quantidade de parcelas",
+                ));
             }
             ActionArgs::MFinanceCreateCardExpense {
                 card_id: finance_id(&args, "cardId", kind)?,
@@ -1069,7 +1072,13 @@ pub fn parse_action_at(raw: &str, now_local: OffsetDateTime) -> Result<ActionArg
         ActionKind::MFinanceCreateIncome => ActionArgs::MFinanceCreateIncome {
             name: finance_text(&args, "name", kind)?,
             amount_cents: finance_cents(&args, "amountCents", kind)?,
-            income_type: finance_choice(&args, "incomeType", &["main", "freelance", "extra"], None, kind)?,
+            income_type: finance_choice(
+                &args,
+                "incomeType",
+                &["main", "freelance", "extra"],
+                None,
+                kind,
+            )?,
             month: finance_month(&args, "month", kind)?,
             expected_date: finance_date(&args, "expectedDate", kind)?,
             received: flag(&args, "received"),
@@ -1094,16 +1103,29 @@ pub fn parse_action_at(raw: &str, now_local: OffsetDateTime) -> Result<ActionArg
                 name: finance_text(&args, "name", kind)?,
                 amount_cents: finance_cents(&args, "amountCents", kind)?,
                 next_charge_date,
-                cycle: finance_choice(&args, "cycle", &["monthly", "yearly", "once"], Some("monthly"), kind)?,
+                cycle: finance_choice(
+                    &args,
+                    "cycle",
+                    &["monthly", "yearly", "once"],
+                    Some("monthly"),
+                    kind,
+                )?,
                 is_trial: flag(&args, "isTrial"),
             }
         }
         ActionKind::MFinanceCreateGoal => ActionArgs::MFinanceCreateGoal {
             name: finance_text(&args, "name", kind)?,
             target_amount_cents: finance_cents(&args, "targetAmountCents", kind)?,
-            current_amount_cents: finance_optional_amount(&args, "currentAmountCents", kind)?.unwrap_or(0),
+            current_amount_cents: finance_optional_amount(&args, "currentAmountCents", kind)?
+                .unwrap_or(0),
             deadline: finance_date(&args, "deadline", kind)?,
-            priority: finance_choice(&args, "priority", &["low", "medium", "high"], Some("medium"), kind)?,
+            priority: finance_choice(
+                &args,
+                "priority",
+                &["low", "medium", "high"],
+                Some("medium"),
+                kind,
+            )?,
         },
         ActionKind::MFinanceUpdateGoal => {
             let deadline = match args.get("deadline") {
@@ -1138,8 +1160,9 @@ pub fn parse_action_at(raw: &str, now_local: OffsetDateTime) -> Result<ActionArg
         }
         ActionKind::MFinanceSetPolicy => {
             let key = required(&args, "key", kind)?;
-            let value = validate_policy(&key, args.get("value").unwrap_or(&serde_json::Value::Null))
-                .map_err(|motivo| finance_error(kind, &motivo))?;
+            let value =
+                validate_policy(&key, args.get("value").unwrap_or(&serde_json::Value::Null))
+                    .map_err(|motivo| finance_error(kind, &motivo))?;
             ActionArgs::MFinanceSetPolicy { key, value }
         }
     })
@@ -1158,7 +1181,11 @@ fn finance_error(kind: ActionKind, detalhe: &str) -> CoreError {
     )
 }
 
-fn finance_text(args: &serde_json::Value, key: &str, kind: ActionKind) -> Result<String, CoreError> {
+fn finance_text(
+    args: &serde_json::Value,
+    key: &str,
+    kind: ActionKind,
+) -> Result<String, CoreError> {
     let value = required(args, key, kind)?;
     if value.chars().count() > 120 {
         return Err(finance_error(kind, &format!("tem `{key}` longo demais")));
@@ -1218,24 +1245,37 @@ fn finance_id(args: &serde_json::Value, key: &str, kind: ActionKind) -> Result<S
     Ok(value.to_ascii_lowercase())
 }
 
-fn finance_date(args: &serde_json::Value, key: &str, kind: ActionKind) -> Result<String, CoreError> {
+fn finance_date(
+    args: &serde_json::Value,
+    key: &str,
+    kind: ActionKind,
+) -> Result<String, CoreError> {
     let value = text(args, key);
     if value.is_empty() {
         return Ok(value);
     }
-    crate::Day::parse(&value).map_err(|_| finance_error(kind, &format!("tem `{key}` fora de AAAA-MM-DD")))?;
+    crate::Day::parse(&value)
+        .map_err(|_| finance_error(kind, &format!("tem `{key}` fora de AAAA-MM-DD")))?;
     Ok(value)
 }
 
-fn finance_month(args: &serde_json::Value, key: &str, kind: ActionKind) -> Result<String, CoreError> {
+fn finance_month(
+    args: &serde_json::Value,
+    key: &str,
+    kind: ActionKind,
+) -> Result<String, CoreError> {
     let value = text(args, key);
     if value.is_empty() {
         return Ok(value);
     }
     let valid = value.len() == 7
         && value.as_bytes()[4] == b'-'
-        && value[..4].parse::<u16>().is_ok_and(|year| (2020..=2100).contains(&year))
-        && value[5..].parse::<u8>().is_ok_and(|month| (1..=12).contains(&month));
+        && value[..4]
+            .parse::<u16>()
+            .is_ok_and(|year| (2020..=2100).contains(&year))
+        && value[5..]
+            .parse::<u8>()
+            .is_ok_and(|month| (1..=12).contains(&month));
     if !valid {
         return Err(finance_error(kind, &format!("tem `{key}` fora de AAAA-MM")));
     }
@@ -1258,7 +1298,10 @@ fn finance_choice(
     if options.contains(&value.as_str()) {
         Ok(value)
     } else {
-        Err(finance_error(kind, &format!("tem `{key}` fora de {}", options.join("|"))))
+        Err(finance_error(
+            kind,
+            &format!("tem `{key}` fora de {}", options.join("|")),
+        ))
     }
 }
 
@@ -1336,7 +1379,11 @@ pub fn validate_policy(key: &str, value: &serde_json::Value) -> Result<serde_jso
                 .and_then(serde_json::Value::as_bool)
                 .ok_or_else(|| "precisa de `protectGoals` verdadeiro ou falso".to_owned())?;
         }
-        outro => return Err(format!("`{outro}` não é uma política que o M-Finance conhece")),
+        outro => {
+            return Err(format!(
+                "`{outro}` não é uma política que o M-Finance conhece"
+            ))
+        }
     }
     Ok(value.clone())
 }
@@ -1376,7 +1423,10 @@ fn policy_value_text(key: &str, value: &serde_json::Value) -> String {
         ),
         "forecast_horizon_months" => format!(
             "{} meses",
-            value.get("months").and_then(serde_json::Value::as_i64).unwrap_or(0)
+            value
+                .get("months")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0)
         ),
         "observer_sensitivity" => match value.get("level").and_then(serde_json::Value::as_str) {
             Some("low") => "baixa".to_owned(),
@@ -1389,7 +1439,11 @@ fn policy_value_text(key: &str, value: &serde_json::Value) -> String {
                 .get("lookaheadMonths")
                 .and_then(serde_json::Value::as_i64)
                 .unwrap_or(0),
-            if value.get("protectGoals").and_then(serde_json::Value::as_bool) == Some(true) {
+            if value
+                .get("protectGoals")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+            {
                 "protegidas"
             } else {
                 "não protegidas"
@@ -1406,7 +1460,13 @@ fn policy_value_text(key: &str, value: &serde_json::Value) -> String {
 /// o que atravessa a rede precisam sair do MESMO `ActionArgs`.
 pub fn finance_payload(args: &ActionArgs) -> Option<serde_json::Value> {
     use serde_json::json;
-    let opt = |value: &str| if value.is_empty() { serde_json::Value::Null } else { json!(value) };
+    let opt = |value: &str| {
+        if value.is_empty() {
+            serde_json::Value::Null
+        } else {
+            json!(value)
+        }
+    };
     Some(match args {
         ActionArgs::MFinanceCreateBill {
             amount_cents,
@@ -2309,7 +2369,10 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
             ..
         } => (
             "MARCAR CONTA COMO PAGA",
-            vec![line("Conta", bill_name), line("Valor", &format_cents(*amount_cents))],
+            vec![
+                line("Conta", bill_name),
+                line("Valor", &format_cents(*amount_cents)),
+            ],
         ),
         ActionArgs::MFinanceMarkInvoicePaid {
             card_name,
@@ -2366,11 +2429,21 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
             deadline,
             priority,
         } => {
-            let mut lines = vec![line("Meta", name), line("Alvo", &format_cents(*target_amount_cents))];
+            let mut lines = vec![
+                line("Meta", name),
+                line("Alvo", &format_cents(*target_amount_cents)),
+            ];
             if *current_amount_cents > 0 {
                 lines.push(line("Já guardado", &format_cents(*current_amount_cents)));
             }
-            lines.push(line("Prazo", if deadline.is_empty() { "sem prazo" } else { deadline }));
+            lines.push(line(
+                "Prazo",
+                if deadline.is_empty() {
+                    "sem prazo"
+                } else {
+                    deadline
+                },
+            ));
             lines.push(line("Prioridade", &prioridade_meta(priority)));
             ("CRIAR META", lines)
         }
@@ -2394,7 +2467,14 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
                 lines.push(line("Guardado", &format_cents(*cents)));
             }
             if let Some(deadline) = deadline {
-                lines.push(line("Prazo", if deadline.is_empty() { "sem prazo" } else { deadline }));
+                lines.push(line(
+                    "Prazo",
+                    if deadline.is_empty() {
+                        "sem prazo"
+                    } else {
+                        deadline
+                    },
+                ));
             }
             if !priority.is_empty() {
                 lines.push(line("Prioridade", &prioridade_meta(priority)));
@@ -2408,7 +2488,10 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
                 line("Novo valor", &policy_value_text(key, value)),
                 // Por extenso no cartao: uma politica nao e um lancamento, ela
                 // muda TODA conta daqui para frente.
-                line("Efeito", "muda o Safe-to-Spend, os cenários e os alertas daqui para frente"),
+                line(
+                    "Efeito",
+                    "muda o Safe-to-Spend, os cenários e os alertas daqui para frente",
+                ),
             ],
         ),
     };
@@ -3533,12 +3616,17 @@ mod tests {
     const GOAL: &str = "33333333-3333-4333-8333-333333333333";
 
     fn finance(action: &str, args: &str) -> Result<ActionArgs, CoreError> {
-        parse_action(&format!(r#"{{"action":"m-finance.{action}","args":{args}}}"#))
+        parse_action(&format!(
+            r#"{{"action":"m-finance.{action}","args":{args}}}"#
+        ))
     }
 
     #[test]
     fn every_finance_action_round_trips_and_is_hidden_without_can_write() {
-        let finance: Vec<_> = ActionKind::all().into_iter().filter(|k| k.is_finance()).collect();
+        let finance: Vec<_> = ActionKind::all()
+            .into_iter()
+            .filter(|k| k.is_finance())
+            .collect();
         assert_eq!(finance.len(), 9);
         for kind in &finance {
             assert_eq!(ActionKind::parse(kind.as_str()), Some(*kind));
@@ -3561,7 +3649,11 @@ mod tests {
         assert_eq!(preview.title, "LANÇAR COMPRA NO CARTÃO");
         assert_eq!(preview.risk, FunctionRisk::High);
         assert_eq!(preview.confirmation, FunctionConfirmation::Explicit);
-        assert!(preview.lines.iter().any(|l| l.value == "10× de R$ 600,00"), "{:?}", preview.lines);
+        assert!(
+            preview.lines.iter().any(|l| l.value == "10× de R$ 600,00"),
+            "{:?}",
+            preview.lines
+        );
         assert_eq!(
             finance_payload(&args).unwrap(),
             serde_json::json!({
@@ -3578,19 +3670,32 @@ mod tests {
             &format!(r#"{{"cardId":"{CARD}","cardName":"Nubank","amountCents":17000,"description":"Gasolina"}}"#),
         )
         .unwrap();
-        assert!(matches!(args, ActionArgs::MFinanceCreateCardExpense { installments: 1, .. }));
+        assert!(matches!(
+            args,
+            ActionArgs::MFinanceCreateCardExpense {
+                installments: 1,
+                ..
+            }
+        ));
 
         for bad in [
             // titulo no lugar do id
-            r#"{"cardId":"Nubank","cardName":"Nubank","amountCents":100,"description":"x"}"#.to_owned(),
+            r#"{"cardId":"Nubank","cardName":"Nubank","amountCents":100,"description":"x"}"#
+                .to_owned(),
             // valor fracionado
             format!(r#"{{"cardId":"{CARD}","cardName":"N","amountCents":12.5,"description":"x"}}"#),
             // parcelas demais
-            format!(r#"{{"cardId":"{CARD}","cardName":"N","amountCents":100,"description":"x","installments":61}}"#),
+            format!(
+                r#"{{"cardId":"{CARD}","cardName":"N","amountCents":100,"description":"x","installments":61}}"#
+            ),
             // valor menor que o numero de parcelas
-            format!(r#"{{"cardId":"{CARD}","cardName":"N","amountCents":5,"description":"x","installments":10}}"#),
+            format!(
+                r#"{{"cardId":"{CARD}","cardName":"N","amountCents":5,"description":"x","installments":10}}"#
+            ),
             // data fora do formato
-            format!(r#"{{"cardId":"{CARD}","cardName":"N","amountCents":100,"description":"x","purchaseDate":"15/09"}}"#),
+            format!(
+                r#"{{"cardId":"{CARD}","cardName":"N","amountCents":100,"description":"x","purchaseDate":"15/09"}}"#
+            ),
         ] {
             assert!(finance("create_card_expense", &bad).is_err(), "{bad}");
         }
@@ -3607,8 +3712,16 @@ mod tests {
         assert_eq!(preview.title, "MARCAR CONTA COMO PAGA");
         assert_eq!(finance_payload(&args).unwrap()["amountCents"], 12000);
 
-        assert!(finance("mark_bill_paid", r#"{"billId":"internet","billName":"Internet","amountCents":1}"#).is_err());
-        assert!(finance("mark_bill_paid", &format!(r#"{{"billId":"{BILL}","billName":"Internet"}}"#)).is_err());
+        assert!(finance(
+            "mark_bill_paid",
+            r#"{"billId":"internet","billName":"Internet","amountCents":1}"#
+        )
+        .is_err());
+        assert!(finance(
+            "mark_bill_paid",
+            &format!(r#"{{"billId":"{BILL}","billName":"Internet"}}"#)
+        )
+        .is_err());
     }
 
     #[test]
@@ -3619,13 +3732,25 @@ mod tests {
         )
         .unwrap();
         assert_eq!(finance_payload(&args).unwrap()["month"], "2026-10");
-        assert!(finance("create_income", r#"{"name":"x","amountCents":1,"incomeType":"salario"}"#).is_err());
-        assert!(finance("create_income", r#"{"name":"x","amountCents":1,"incomeType":"main","month":"2026-13"}"#).is_err());
+        assert!(finance(
+            "create_income",
+            r#"{"name":"x","amountCents":1,"incomeType":"salario"}"#
+        )
+        .is_err());
+        assert!(finance(
+            "create_income",
+            r#"{"name":"x","amountCents":1,"incomeType":"main","month":"2026-13"}"#
+        )
+        .is_err());
     }
 
     #[test]
     fn invoice_amount_is_optional_but_never_zero() {
-        assert!(finance("mark_invoice_paid", &format!(r#"{{"cardId":"{CARD}","cardName":"Nubank"}}"#)).is_ok());
+        assert!(finance(
+            "mark_invoice_paid",
+            &format!(r#"{{"cardId":"{CARD}","cardName":"Nubank"}}"#)
+        )
+        .is_ok());
         assert!(finance(
             "mark_invoice_paid",
             &format!(r#"{{"cardId":"{CARD}","cardName":"Nubank","amountCents":0}}"#)
@@ -3642,7 +3767,11 @@ mod tests {
         .unwrap();
         assert_eq!(preview_of(&args).title, "SALVAR TESTE GRÁTIS");
         assert_eq!(finance_payload(&args).unwrap()["cycle"], "monthly");
-        assert!(finance("create_subscription", r#"{"name":"Notion","amountCents":4000}"#).is_err());
+        assert!(finance(
+            "create_subscription",
+            r#"{"name":"Notion","amountCents":4000}"#
+        )
+        .is_err());
     }
 
     #[test]
@@ -3652,17 +3781,30 @@ mod tests {
             &format!(r#"{{"goalId":"{GOAL}","goalName":"Mac","deadline":null}}"#),
         )
         .unwrap();
-        assert_eq!(finance_payload(&clear).unwrap()["deadline"], serde_json::Value::Null);
-        assert!(preview_of(&clear).lines.iter().any(|l| l.value == "sem prazo"));
+        assert_eq!(
+            finance_payload(&clear).unwrap()["deadline"],
+            serde_json::Value::Null
+        );
+        assert!(preview_of(&clear)
+            .lines
+            .iter()
+            .any(|l| l.value == "sem prazo"));
 
         let untouched = finance(
             "update_goal",
             &format!(r#"{{"goalId":"{GOAL}","goalName":"Mac","priority":"high"}}"#),
         )
         .unwrap();
-        assert!(finance_payload(&untouched).unwrap().get("deadline").is_none());
+        assert!(finance_payload(&untouched)
+            .unwrap()
+            .get("deadline")
+            .is_none());
 
-        assert!(finance("update_goal", &format!(r#"{{"goalId":"{GOAL}","goalName":"Mac"}}"#)).is_err());
+        assert!(finance(
+            "update_goal",
+            &format!(r#"{{"goalId":"{GOAL}","goalName":"Mac"}}"#)
+        )
+        .is_err());
     }
 
     #[test]

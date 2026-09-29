@@ -138,8 +138,11 @@ pub fn parse_finance_query(raw: &str) -> Result<FinanceQuery, CoreError> {
     if raw.len() > MAX_QUERY_CHARS {
         return Err(recusa("A consulta financeira é grande demais.".to_owned()));
     }
-    let value: Value = serde_json::from_str(raw)
-        .map_err(|error| recusa(format!("A consulta financeira não é um JSON válido: {error}")))?;
+    let value: Value = serde_json::from_str(raw).map_err(|error| {
+        recusa(format!(
+            "A consulta financeira não é um JSON válido: {error}"
+        ))
+    })?;
     let name = value
         .get("tool")
         .and_then(Value::as_str)
@@ -155,7 +158,11 @@ pub fn parse_finance_query(raw: &str) -> Result<FinanceQuery, CoreError> {
     let args = match value.get("args") {
         None | Some(Value::Null) => Value::Object(Default::default()),
         Some(Value::Object(map)) => Value::Object(map.clone()),
-        Some(_) => return Err(recusa("`args` da consulta financeira precisa ser um objeto.".to_owned())),
+        Some(_) => {
+            return Err(recusa(
+                "`args` da consulta financeira precisa ser um objeto.".to_owned(),
+            ))
+        }
     };
     Ok(FinanceQuery { tool, args })
 }
@@ -172,13 +179,61 @@ fn fold(text: &str) -> String {
 /// projeto?", "faz a conta" e "meta da sprint" nao sao financas, e abrir o
 /// modo financeiro por elas mandaria dado bancario para a VPS sem motivo.
 const STRONG_TERMS: &[&str] = &[
-    "fatura", "faturas", "cartao", "cartoes", "credito", "parcela", "parcelas", "parcelado",
-    "parcelada", "parcelar", "parcelamento", "assinatura", "assinaturas", "orcamento", "orcamentos",
-    "gasto", "gastos", "gastei", "gastar", "gastando", "paguei", "pagar", "pagamento", "receita",
-    "receitas", "salario", "renda", "freela", "freelance", "dinheiro", "grana", "saldo", "sobra",
-    "sobrar", "sobrou", "economizar", "economia", "divida", "dividas", "boleto", "boletos",
-    "vencimento", "vencimentos", "financeiro", "financeira", "financas", "m-finance", "mfinance",
-    "nubank", "reais", "comprometido", "compromissos", "safe-to-spend", "juros", "emprestimo",
+    "fatura",
+    "faturas",
+    "cartao",
+    "cartoes",
+    "credito",
+    "parcela",
+    "parcelas",
+    "parcelado",
+    "parcelada",
+    "parcelar",
+    "parcelamento",
+    "assinatura",
+    "assinaturas",
+    "orcamento",
+    "orcamentos",
+    "gasto",
+    "gastos",
+    "gastei",
+    "gastar",
+    "gastando",
+    "paguei",
+    "pagar",
+    "pagamento",
+    "receita",
+    "receitas",
+    "salario",
+    "renda",
+    "freela",
+    "freelance",
+    "dinheiro",
+    "grana",
+    "saldo",
+    "sobra",
+    "sobrar",
+    "sobrou",
+    "economizar",
+    "economia",
+    "divida",
+    "dividas",
+    "boleto",
+    "boletos",
+    "vencimento",
+    "vencimentos",
+    "financeiro",
+    "financeira",
+    "financas",
+    "m-finance",
+    "mfinance",
+    "nubank",
+    "reais",
+    "comprometido",
+    "compromissos",
+    "safe-to-spend",
+    "juros",
+    "emprestimo",
 ];
 
 /// Pares que so juntos sao financeiros.
@@ -231,7 +286,9 @@ pub fn finance_intent(text: &str, screen: &str) -> bool {
 // ---------------------------------------------------------------- formatacao
 
 fn cents_of(value: &Value) -> Option<i64> {
-    value.as_i64().or_else(|| value.as_f64().map(|v| v.round() as i64))
+    value
+        .as_i64()
+        .or_else(|| value.as_f64().map(|v| v.round() as i64))
 }
 
 fn money(value: Option<&Value>) -> String {
@@ -349,8 +406,16 @@ pub fn finance_context_block(
             money(month.get("incomeCents")),
             money(month.get("reliableIncomeCents")),
         );
-        if month.get("incomeEstimatedCents").and_then(cents_of).unwrap_or(0) > 0 {
-            line.push_str(&format!("; NF estimada {}", money(month.get("incomeEstimatedCents"))));
+        if month
+            .get("incomeEstimatedCents")
+            .and_then(cents_of)
+            .unwrap_or(0)
+            > 0
+        {
+            line.push_str(&format!(
+                "; NF estimada {}",
+                money(month.get("incomeEstimatedCents"))
+            ));
         }
         line.push_str(&format!(
             ") · comprometido {} (contas {}, faturas {}",
@@ -358,8 +423,16 @@ pub fn finance_context_block(
             money(month.get("billsCents")),
             money(month.get("invoicesCents")),
         ));
-        if month.get("invoicesEstimatedCents").and_then(cents_of).unwrap_or(0) > 0 {
-            line.push_str(&format!(", {} estimado", money(month.get("invoicesEstimatedCents"))));
+        if month
+            .get("invoicesEstimatedCents")
+            .and_then(cents_of)
+            .unwrap_or(0)
+            > 0
+        {
+            line.push_str(&format!(
+                ", {} estimado",
+                money(month.get("invoicesEstimatedCents"))
+            ));
         }
         line.push_str(&format!(
             ") · pago {} · a vencer {} · vencido {} · sobra contábil {} · saúde {}\n",
@@ -375,7 +448,13 @@ pub fn finance_context_block(
         if !safe.is_null() {
             let deductions = array(safe, &["deductions"])
                 .iter()
-                .map(|item| format!("{} {}", label(item, "label"), money(item.get("amountCents"))))
+                .map(|item| {
+                    format!(
+                        "{} {}",
+                        label(item, "label"),
+                        money(item.get("amountCents"))
+                    )
+                })
                 .collect::<Vec<_>>();
             out.push_str(&format!(
                 "Safe-to-Spend {} ({}) = sobra contábil − [{}]\n",
@@ -387,7 +466,10 @@ pub fn finance_context_block(
                     deductions.join("; ")
                 },
             ));
-            for assumption in array(safe, &["assumptions"]).iter().filter_map(Value::as_str) {
+            for assumption in array(safe, &["assumptions"])
+                .iter()
+                .filter_map(Value::as_str)
+            {
                 out.push_str(&format!("  premissa: {}\n", assumption.replace("```", "'")));
             }
         }
@@ -411,7 +493,9 @@ pub fn finance_context_block(
                 text_of(item, "dueDate"),
                 match (
                     text_of(item, "status"),
-                    item.get("estimated").and_then(Value::as_bool).unwrap_or(false),
+                    item.get("estimated")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
                 ) {
                     (_, true) => " · estimada".to_owned(),
                     (status, false) => format!(" · {}", status_pt(status)),
@@ -438,7 +522,11 @@ pub fn finance_context_block(
                         money(row.get("reliableIncomeCents")),
                         money(row.get("committedCents")),
                         money(row.get("reliableRemainingCents")),
-                        if row.get("isEstimated").and_then(Value::as_bool).unwrap_or(false) {
+                        if row
+                            .get("isEstimated")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false)
+                        {
                             " (estimado)"
                         } else {
                             ""
@@ -506,7 +594,9 @@ pub fn finance_context_block(
                     label(goal, "name"),
                     text_of(goal, "id"),
                     money(goal.get("remainingCents")),
-                    goal.get("deadline").and_then(Value::as_str).unwrap_or("sem prazo"),
+                    goal.get("deadline")
+                        .and_then(Value::as_str)
+                        .unwrap_or("sem prazo"),
                     money(goal.get("requiredMonthlyCents")),
                 )
             })
@@ -550,7 +640,9 @@ pub fn finance_context_block(
                 "- [{}] {} — {}\n",
                 text_of(insight, "severity"),
                 label(insight, "title"),
-                text_of(insight, "summary").replace("```", "'").replace('\n', " "),
+                text_of(insight, "summary")
+                    .replace("```", "'")
+                    .replace('\n', " "),
             ));
         }
     }
@@ -580,7 +672,9 @@ pub fn finance_unavailable_block(reason: &str, actions_enabled: bool) -> String 
 
 /// O que volta ao modelo depois de uma consulta `mos-finance`.
 pub fn finance_answer(tool: FinanceTool, as_of: &str, data: &Value, hops_left: u8) -> String {
-    let mut json = serde_json::to_string(data).unwrap_or_default().replace("```", "'");
+    let mut json = serde_json::to_string(data)
+        .unwrap_or_default()
+        .replace("```", "'");
     let mut cortado = false;
     if json.chars().count() > MAX_FINANCE_RESULT_CHARS {
         json = json.chars().take(MAX_FINANCE_RESULT_CHARS).collect();
@@ -656,7 +750,10 @@ mod tests {
             "cria uma task para revisar o custo do servidor",
             "me lembra amanhã às 9",
         ] {
-            assert!(!finance_intent(frase, "Kanban"), "não deveria ligar: {frase}");
+            assert!(
+                !finance_intent(frase, "Kanban"),
+                "não deveria ligar: {frase}"
+            );
         }
     }
 
@@ -732,11 +829,17 @@ mod tests {
         let bloco = finance_context_block(&pack(), "2026-09-15T12:00:00Z", 2, true);
         assert!(bloco.contains("sobra contábil R$ 2.400,00"), "{bloco}");
         assert!(bloco.contains("Safe-to-Spend R$ 1.900,00"), "{bloco}");
-        assert!(bloco.contains("Receita ainda não garantida R$ 500,00"), "{bloco}");
+        assert!(
+            bloco.contains("Receita ainda não garantida R$ 500,00"),
+            "{bloco}"
+        );
         assert!(bloco.contains("bill bill-light"), "{bloco}");
         assert!(bloco.contains("VENCIDA"), "{bloco}");
         assert!(bloco.contains("2026-10 confiável R$ 5.066,67"), "{bloco}");
-        assert!(bloco.contains("O M-Finance NÃO tem: saldo em conta bancária"), "{bloco}");
+        assert!(
+            bloco.contains("O M-Finance NÃO tem: saldo em conta bancária"),
+            "{bloco}"
+        );
         assert!(bloco.contains("asOf 2026-09-15T12:00:00Z"));
     }
 

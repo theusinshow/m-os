@@ -40,7 +40,8 @@ const ANALYZE_TIMEOUT: Duration = Duration::from_secs(70);
 const ACTION_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn entry(account: &str) -> Result<Entry, String> {
-    Entry::new(SERVICE, account).map_err(|error| format!("Credential Manager indisponivel: {error}"))
+    Entry::new(SERVICE, account)
+        .map_err(|error| format!("Credential Manager indisponivel: {error}"))
 }
 
 fn store(account: &str, secret: &str) -> Result<(), String> {
@@ -101,9 +102,9 @@ pub fn can_read() -> bool {
 }
 
 fn read_secret() -> Result<String, String> {
-    load(READ_ACCOUNT).or_else(|| load(ACTION_ACCOUNT)).ok_or_else(|| {
-        "Secret do M-Finance nao configurado. Cole-o em Settings.".to_owned()
-    })
+    load(READ_ACCOUNT)
+        .or_else(|| load(ACTION_ACCOUNT))
+        .ok_or_else(|| "Secret do M-Finance nao configurado. Cole-o em Settings.".to_owned())
 }
 
 // -------------------------------------------------------------------- leitura
@@ -144,7 +145,10 @@ pub struct FinanceReading {
 
 /// Chama UMA ferramenta do Intelligence Gateway. O nome ja passou pela
 /// allowlist do `mos-core` (`FinanceTool`); o M-Finance confere de novo.
-pub async fn query(tool: mos_core::FinanceTool, args: &serde_json::Value) -> Result<FinanceReading, String> {
+pub async fn query(
+    tool: mos_core::FinanceTool,
+    args: &serde_json::Value,
+) -> Result<FinanceReading, String> {
     let secret = read_secret()?;
     let timeout = if tool == mos_core::FinanceTool::Analyze {
         ANALYZE_TIMEOUT
@@ -170,10 +174,12 @@ pub async fn query(tool: mos_core::FinanceTool, args: &serde_json::Value) -> Res
             }
         })?;
     let status = response.status();
-    let body: QueryResponse = response
-        .json()
-        .await
-        .map_err(|_| format!("Resposta inesperada do M-Finance (HTTP {}).", status.as_u16()))?;
+    let body: QueryResponse = response.json().await.map_err(|_| {
+        format!(
+            "Resposta inesperada do M-Finance (HTTP {}).",
+            status.as_u16()
+        )
+    })?;
     if body.ok {
         Ok(FinanceReading {
             tool: tool.as_str().to_owned(),
@@ -291,10 +297,12 @@ pub async fn execute_action(
         })?;
 
     let status = response.status();
-    let body: ActionResponse = response
-        .json()
-        .await
-        .map_err(|_| format!("Resposta inesperada do M-Finance (HTTP {}).", status.as_u16()))?;
+    let body: ActionResponse = response.json().await.map_err(|_| {
+        format!(
+            "Resposta inesperada do M-Finance (HTTP {}).",
+            status.as_u16()
+        )
+    })?;
 
     if !body.ok {
         return Err(match status.as_u16() {
@@ -322,7 +330,13 @@ pub async fn execute_action(
             .entities
             .into_iter()
             .filter(|entity| !entity.id.is_empty())
-            .map(|entity| (format!("m-finance.{}", entity.kind), entity.id, entity.label))
+            .map(|entity| {
+                (
+                    format!("m-finance.{}", entity.kind),
+                    entity.id,
+                    entity.label,
+                )
+            })
             .collect(),
     })
 }
@@ -336,7 +350,11 @@ pub fn idempotency_key(message_id: &str, raw: &str) -> String {
         hash ^= u64::from(*byte);
         hash = hash.wrapping_mul(0x0100_0000_01b3);
     }
-    let prefix: String = message_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(40).collect();
+    let prefix: String = message_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .take(40)
+        .collect();
     format!("mos:{prefix}:{hash:016x}")
 }
 
@@ -347,10 +365,18 @@ mod tests {
     #[test]
     fn a_chave_e_estavel_e_distingue_propostas() {
         let a = idempotency_key("0191f2c4-aaaa-7bbb-8ccc-1234567890ab", r#"{"action":"x"}"#);
-        assert_eq!(a, idempotency_key("0191f2c4-aaaa-7bbb-8ccc-1234567890ab", r#"{"action":"x"}"#));
-        assert_ne!(a, idempotency_key("0191f2c4-aaaa-7bbb-8ccc-1234567890ab", r#"{"action":"y"}"#));
+        assert_eq!(
+            a,
+            idempotency_key("0191f2c4-aaaa-7bbb-8ccc-1234567890ab", r#"{"action":"x"}"#)
+        );
+        assert_ne!(
+            a,
+            idempotency_key("0191f2c4-aaaa-7bbb-8ccc-1234567890ab", r#"{"action":"y"}"#)
+        );
         // O formato que a Action API aceita: [A-Za-z0-9:._-]{8,128}.
         assert!(a.len() <= 128);
-        assert!(a.chars().all(|c| c.is_ascii_alphanumeric() || ":._-".contains(c)));
+        assert!(a
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || ":._-".contains(c)));
     }
 }

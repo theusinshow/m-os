@@ -650,7 +650,12 @@ mod tests {
                 .find(|item| item.id == kind.function_id())
                 .unwrap_or_else(|| panic!("{} sem funcao registrada", kind.as_str()));
             assert_eq!(entry.risk, FunctionRisk::High, "{}", entry.id);
-            assert_eq!(entry.confirmation, FunctionConfirmation::Explicit, "{}", entry.id);
+            assert_eq!(
+                entry.confirmation,
+                FunctionConfirmation::Explicit,
+                "{}",
+                entry.id
+            );
         }
     }
 
