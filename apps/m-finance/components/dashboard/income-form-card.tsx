@@ -1,12 +1,23 @@
-import { createIncome, deleteIncome, updateIncome } from "@/app/actions/incomes";
+import {
+  createIncome,
+  deleteIncome,
+  updateIncome,
+} from "@/app/actions/incomes";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
+import { EstimateBadge } from "@/components/cards/estimate-badge";
+import { NfQuickForm } from "@/components/dashboard/nf-quick-form";
 import { EditDisclosure } from "@/components/ui/edit-disclosure";
 import { FormSubmitButton } from "@/components/form-submit-button";
 import { ToastForm } from "@/components/toast-form";
-import { ValidatedForm, ValidatedInput, ValidatedSelect } from "@/components/ui/validated-form";
+import {
+  ValidatedForm,
+  ValidatedInput,
+  ValidatedSelect,
+} from "@/components/ui/validated-form";
 import { InlineEmpty } from "@/components/ui/inline-empty";
 import { formatCurrency } from "@/lib/formatters/currency";
 import { centsToInput } from "@/lib/money";
+import type { ForecastSource } from "@/lib/calculations/forecast";
 
 type Income = {
   id: string;
@@ -23,182 +34,277 @@ const incomeTypeLabel = {
   freelance: "Freelance",
 };
 
+/**
+ * A nota fiscal do mês em primeiro lugar, porque é ela que decide o mês: o
+ * valor muda todo mês, e antes ela era só mais uma "receita" num formulário
+ * genérico de nome, tipo e mês. Extras e freelances continuam logo abaixo.
+ */
 export function IncomeFormCard({
   incomes,
   monthOptions,
   activeMonthValue,
+  activeMonthLabel,
+  mainIncome,
 }: {
   incomes: Income[];
   /** Mês atual e os seguintes, para lançar a receita no mês em que ela chega. */
   monthOptions: { value: string; label: string }[];
   activeMonthValue: string;
+  activeMonthLabel: string;
+  mainIncome: {
+    source: ForecastSource;
+    amountCents: number;
+    basisCount: number;
+  };
 }) {
   return (
-    <div>
-      <p className="mb-4 text-sm leading-5 text-text-muted">
-        Receita principal, extras e freelances. Emitiu a nota hoje para receber mês que vem?
-        Lance no mês em que o dinheiro entra — a projeção lá embaixo passa a contar com ela.
-      </p>
-      <div className="grid gap-5 xl:grid-cols-[0.85fr_1fr]">
-        <ValidatedForm action={createIncome} successMessage="Receita adicionada." resetOnSuccess className="space-y-4">
+    <div className="space-y-5">
+      <div className="rounded-lg border border-border-subtle bg-background-elevated p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <label className="mb-2 block text-sm font-medium text-text-secondary" htmlFor="income-name">
-              Nome
-            </label>
-            <ValidatedInput
-              className="field-input"
-              id="income-name"
-              name="name"
-              placeholder="Receita principal"
-              required
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">
+              Nota fiscal de {activeMonthLabel}
+            </p>
+            <p
+              className={`num mt-1 text-2xl font-semibold ${
+                mainIncome.source === "actual"
+                  ? "text-text-primary"
+                  : "text-text-secondary"
+              }`}
+            >
+              {mainIncome.source === "none"
+                ? "Não lançada"
+                : `${mainIncome.source === "estimated" ? "≈ " : ""}${formatCurrency(mainIncome.amountCents)}`}
+            </p>
+            {mainIncome.source === "estimated" ? (
+              <p className="mt-1 text-xs text-text-muted">
+                Estimada pela média{" "}
+                {mainIncome.basisCount === 1
+                  ? "da última NF"
+                  : `das últimas ${mainIncome.basisCount} NFs`}
+                . Emitiu a nota? Lance o valor real.
+              </p>
+            ) : null}
+          </div>
+          {mainIncome.source === "estimated" ? <EstimateBadge /> : null}
+        </div>
+        {mainIncome.source !== "actual" ? (
+          <div className="mt-4 border-t border-border-subtle pt-4">
+            <NfQuickForm
+              monthLabel={activeMonthLabel}
+              monthValue={activeMonthValue}
+              suggestedCents={mainIncome.amountCents}
             />
           </div>
+        ) : null}
+      </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="mb-2 block text-sm font-medium text-text-secondary" htmlFor="income-amount">
-                Valor
-              </label>
-              <ValidatedInput
-                className="field-input"
-                id="income-amount"
-                inputMode="decimal"
-                name="amount"
-                placeholder="4500,00"
-                required
-              />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-text-secondary" htmlFor="income-type">
-                Tipo
-              </label>
-              <ValidatedSelect
-                className="field-input"
-                id="income-type"
-                name="incomeType"
-                required
-              >
-                <option value="main">Principal</option>
-                <option value="extra">Extra</option>
-                <option value="freelance">Freelance</option>
-              </ValidatedSelect>
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
+      <details className="group/other">
+        <summary className="focus-ring cursor-pointer rounded-md text-sm font-medium text-text-secondary [&::-webkit-details-marker]:hidden">
+          Outra receita (extra, freelance, NF de outro mês)
+        </summary>
+        <div className="mt-4 max-w-xl">
+          <ValidatedForm
+            action={createIncome}
+            successMessage="Receita adicionada."
+            resetOnSuccess
+            className="space-y-4"
+          >
             <div>
               <label
                 className="mb-2 block text-sm font-medium text-text-secondary"
-                htmlFor="income-target-month"
+                htmlFor="income-name"
               >
-                Entra no mês de
+                Nome
               </label>
-              <ValidatedSelect
+              <ValidatedInput
                 className="field-input"
-                defaultValue={activeMonthValue}
-                id="income-target-month"
-                name="targetMonth"
-              >
-                {monthOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </ValidatedSelect>
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-text-secondary" htmlFor="income-date">
-                Data prevista
-              </label>
-              <input
-                className="field-input"
-                id="income-date"
-                name="expectedDate"
-                type="date"
+                id="income-name"
+                name="name"
+                placeholder="Freelance de outubro"
+                required
               />
             </div>
-          </div>
 
-          <label className="flex items-center gap-2 text-sm text-text-secondary">
-            <input className="h-4 w-4 accent-accent" name="received" type="checkbox" />
-            Já recebido
-          </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label
+                  className="mb-2 block text-sm font-medium text-text-secondary"
+                  htmlFor="income-amount"
+                >
+                  Valor
+                </label>
+                <ValidatedInput
+                  className="field-input"
+                  id="income-amount"
+                  inputMode="decimal"
+                  name="amount"
+                  placeholder="4500,00"
+                  required
+                />
+              </div>
+              <div>
+                <label
+                  className="mb-2 block text-sm font-medium text-text-secondary"
+                  htmlFor="income-type"
+                >
+                  Tipo
+                </label>
+                <ValidatedSelect
+                  className="field-input"
+                  id="income-type"
+                  name="incomeType"
+                  required
+                >
+                  <option value="main">Principal</option>
+                  <option value="extra">Extra</option>
+                  <option value="freelance">Freelance</option>
+                </ValidatedSelect>
+              </div>
+            </div>
 
-          <FormSubmitButton pendingLabel="Adicionando...">Adicionar receita</FormSubmitButton>
-        </ValidatedForm>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label
+                  className="mb-2 block text-sm font-medium text-text-secondary"
+                  htmlFor="income-target-month"
+                >
+                  Entra no mês de
+                </label>
+                <ValidatedSelect
+                  className="field-input"
+                  defaultValue={activeMonthValue}
+                  id="income-target-month"
+                  name="targetMonth"
+                >
+                  {monthOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </ValidatedSelect>
+              </div>
+              <div>
+                <label
+                  className="mb-2 block text-sm font-medium text-text-secondary"
+                  htmlFor="income-date"
+                >
+                  Data prevista
+                </label>
+                <input
+                  className="field-input"
+                  id="income-date"
+                  name="expectedDate"
+                  type="date"
+                />
+              </div>
+            </div>
 
-        <div className="space-y-3">
-          {incomes.length === 0 ? (
-            <InlineEmpty>Nenhuma receita cadastrada para este mês.</InlineEmpty>
-          ) : (
-            incomes.map((income) => (
-              <div
-                className="rounded-lg border border-border-subtle bg-background-elevated p-4"
-                key={income.id}
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="font-semibold text-text-primary">{income.name}</p>
-                    <p className="mt-1 text-sm text-text-muted">
-                      {incomeTypeLabel[income.incomeType]} · {income.received ? "Recebido" : "Previsto"}
-                    </p>
-                  </div>
-                  <p className="num font-semibold text-text-primary">
-                    {formatCurrency(income.amountCents)}
+            <label className="flex items-center gap-2 text-sm text-text-secondary">
+              <input
+                className="h-4 w-4 accent-accent"
+                name="received"
+                type="checkbox"
+              />
+              Já recebido
+            </label>
+
+            <FormSubmitButton pendingLabel="Adicionando...">
+              Adicionar receita
+            </FormSubmitButton>
+          </ValidatedForm>
+        </div>
+      </details>
+
+      <div className="space-y-3">
+        {incomes.length === 0 ? (
+          <InlineEmpty>Nenhuma receita lançada neste mês.</InlineEmpty>
+        ) : (
+          incomes.map((income) => (
+            <div
+              className="rounded-lg border border-border-subtle bg-background-elevated p-4"
+              key={income.id}
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="font-semibold text-text-primary">
+                    {income.name}
+                  </p>
+                  <p className="mt-1 text-sm text-text-muted">
+                    {incomeTypeLabel[income.incomeType]} ·{" "}
+                    {income.received ? "Recebido" : "Previsto"}
                   </p>
                 </div>
-                <EditDisclosure className="mt-4">
-                  <ValidatedForm action={updateIncome} successMessage="Receita atualizada." className="grid gap-3">
-                    <input name="incomeId" type="hidden" value={income.id} />
+                <p className="num font-semibold text-text-primary">
+                  {formatCurrency(income.amountCents)}
+                </p>
+              </div>
+              <EditDisclosure className="mt-4">
+                <ValidatedForm
+                  action={updateIncome}
+                  successMessage="Receita atualizada."
+                  className="grid gap-3"
+                >
+                  <input name="incomeId" type="hidden" value={income.id} />
+                  <ValidatedInput
+                    className="field-input"
+                    defaultValue={income.name}
+                    name="name"
+                    required
+                  />
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <ValidatedInput
                       className="field-input"
-                      defaultValue={income.name}
-                      name="name"
+                      defaultValue={centsToInput(income.amountCents)}
+                      inputMode="decimal"
+                      name="amount"
                       required
                     />
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <ValidatedInput
-                        className="field-input"
-                        defaultValue={centsToInput(income.amountCents)}
-                        inputMode="decimal"
-                        name="amount"
-                        required
-                      />
-                      <ValidatedSelect
-                        className="field-input"
-                        defaultValue={income.incomeType}
-                        name="incomeType"
-                      >
-                        <option value="main">Principal</option>
-                        <option value="extra">Extra</option>
-                        <option value="freelance">Freelance</option>
-                      </ValidatedSelect>
-                    </div>
-                    <input
+                    <ValidatedSelect
                       className="field-input"
-                      defaultValue={income.expectedDate ?? ""}
-                      name="expectedDate"
-                      type="date"
+                      defaultValue={income.incomeType}
+                      name="incomeType"
+                    >
+                      <option value="main">Principal</option>
+                      <option value="extra">Extra</option>
+                      <option value="freelance">Freelance</option>
+                    </ValidatedSelect>
+                  </div>
+                  <input
+                    className="field-input"
+                    defaultValue={income.expectedDate ?? ""}
+                    name="expectedDate"
+                    type="date"
+                  />
+                  <label className="flex items-center gap-2 text-sm text-text-secondary">
+                    <input
+                      className="h-4 w-4 accent-accent"
+                      defaultChecked={income.received}
+                      name="received"
+                      type="checkbox"
                     />
-                    <label className="flex items-center gap-2 text-sm text-text-secondary">
-                      <input className="h-4 w-4 accent-accent" defaultChecked={income.received} name="received" type="checkbox" />
-                      Já recebido
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      <FormSubmitButton pendingLabel="Salvando...">Salvar</FormSubmitButton>
-                    </div>
-                  </ValidatedForm>
-                  <ToastForm action={deleteIncome} successMessage="Receita excluída." className="mt-2">
-                    <input name="incomeId" type="hidden" value={income.id} />
-                    <ConfirmDeleteButton confirmMessage="Excluir esta receita? Essa ação não pode ser desfeita.">
-                      Excluir receita
-                    </ConfirmDeleteButton>
-                  </ToastForm>
-                </EditDisclosure>
-              </div>
-            ))
-          )}
-        </div>
+                    Já recebido
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <FormSubmitButton pendingLabel="Salvando...">
+                      Salvar
+                    </FormSubmitButton>
+                  </div>
+                </ValidatedForm>
+                <ToastForm
+                  action={deleteIncome}
+                  successMessage="Receita excluída."
+                  className="mt-2"
+                >
+                  <input name="incomeId" type="hidden" value={income.id} />
+                  <ConfirmDeleteButton confirmMessage="Excluir esta receita? Essa ação não pode ser desfeita.">
+                    Excluir receita
+                  </ConfirmDeleteButton>
+                </ToastForm>
+              </EditDisclosure>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

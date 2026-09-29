@@ -24,12 +24,6 @@ export async function createIncome(_prev: FormState, formData: FormData): Promis
     return errorState("Banco ou usuário interno não configurado.");
   }
 
-  const currentMonth = await getActiveMonthForUser(appUser.id);
-
-  if (!currentMonth) {
-    return errorState("Crie o mês atual antes de cadastrar receita.");
-  }
-
   const parsed = createIncomeSchema.safeParse({
     name: formData.get("name"),
     amountCents: parseCurrencyToCents(formData.get("amount")),
@@ -54,7 +48,11 @@ export async function createIncome(_prev: FormState, formData: FormData): Promis
   const target = parseMonthValue(payload.targetMonth);
   const targetMonth = target
     ? await ensureMonthForUser(appUser.id, target.month, target.year)
-    : currentMonth;
+    : await getActiveMonthForUser(appUser.id);
+
+  if (!targetMonth) {
+    return errorState("Crie o mês atual antes de cadastrar receita.");
+  }
 
   await db.insert(incomes).values({
     userId: appUser.id,

@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { DashboardCard } from "@/components/dashboard/dashboard-card";
+import { EstimateBadge } from "@/components/cards/estimate-badge";
 import { deleteInvoice, markInvoiceAsPending, updateInvoice } from "@/app/actions/invoices";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { EditDisclosure } from "@/components/ui/edit-disclosure";
@@ -23,11 +25,48 @@ type Invoice = {
   cardType?: "personal" | "business";
 };
 
-export function InvoiceSummaryCard({ invoices }: { invoices: Invoice[] }) {
+export function InvoiceSummaryCard({
+  invoices,
+  estimates = [],
+}: {
+  invoices: Invoice[];
+  /** Cartões sem fatura lançada no mês, com o valor estimado. Não se pagam daqui. */
+  estimates?: Invoice[];
+}) {
   return (
     <DashboardCard title="Faturas">
       <div className="space-y-3">
-        {invoices.length === 0 ? (
+        {estimates.map((estimate) => (
+          <div
+            className="rounded-lg border border-dashed border-border-default bg-background-elevated p-4"
+            key={estimate.id}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <CardBrandMark name={estimate.name} />
+                <div>
+                  <p className="font-semibold text-text-primary">{estimate.name}</p>
+                  <p className="mt-1 text-sm text-text-muted">
+                    Vence {formatShortDate(estimate.dueDate)}
+                  </p>
+                </div>
+              </div>
+              <EstimateBadge />
+            </div>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="num text-xl font-semibold text-text-secondary">
+                ≈ {formatCurrency(estimate.amountCents)}
+              </p>
+              <Link
+                className="focus-ring rounded text-sm font-medium text-accent underline underline-offset-4"
+                href="/app/cards"
+              >
+                Confirmar valor
+              </Link>
+            </div>
+          </div>
+        ))}
+        {invoices.length === 0 && estimates.length === 0 ? (
           <InlineEmpty>Nenhuma fatura cadastrada para este mês.</InlineEmpty>
         ) : invoices.map((invoice) => (
           <div className="rounded-lg border border-border-subtle bg-background-elevated p-4" key={invoice.id}>

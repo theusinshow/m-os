@@ -1,25 +1,7 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { creditCardInvoices, creditCards } from "@/db/schema";
 import { derivePayableStatus } from "@/lib/status";
-
-export async function getManagedCreditCards(userId: string) {
-  if (!db) {
-    return [];
-  }
-
-  return db
-    .select({
-      id: creditCards.id,
-      name: creditCards.name,
-      cardType: creditCards.cardType,
-      dueDay: creditCards.dueDay,
-      isActive: creditCards.isActive,
-    })
-    .from(creditCards)
-    .where(eq(creditCards.userId, userId))
-    .orderBy(desc(creditCards.isActive), asc(creditCards.name));
-}
 
 export async function getCreditCards(userId: string) {
   if (!db) {

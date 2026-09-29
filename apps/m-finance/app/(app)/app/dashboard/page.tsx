@@ -35,11 +35,17 @@ import {
   getRecurringBillsByMonth,
 } from "@/lib/bills";
 import { getInvoicesByMonth } from "@/lib/cards";
-import { getMonthTotalsForUser, getNextMonthForUser } from "@/lib/months";
+import { getNextMonthForUser } from "@/lib/months";
 import { getMonthPartsAtOffset } from "@/lib/months";
 import { monthValue } from "@/lib/active-month";
 import { summarizeInstallments } from "@/lib/calculations/commitments";
-import { buildMonthProjection } from "@/lib/calculations/projection";
+import {
+  getCardLinesForMonth,
+  getForecastInputs,
+  getMainIncomeForMonth,
+  getProjectionForUser,
+} from "@/lib/forecast";
+import { derivePayableStatus } from "@/lib/status";
 import { toMonthCategoryData } from "@/lib/calculations/charts/month-categories";
 import { pendingRecurrences } from "@/lib/recurrence";
 import { getSettingsForUser } from "@/lib/settings";
@@ -65,10 +71,45 @@ export default async function DashboardPage() {
   // Os snapshots vêm do mais novo para o mais antigo; a linha lê da esquerda
   // para a direita, então a série vai ao contrário.
   const history = [...snapshots].reverse();
+  // O mês da tela conta também o que ainda não foi lançado: a fatura que não
+  // fechou e a NF que não foi emitida entram estimadas. Sem isso, outubro sem
+  // fatura lançada aparecia com folga que não existia. Só o que é real vira
+  // alerta ou botão de pagar — a estimativa só entra nas contas.
+  const forecastInputs = appUser ? await getForecastInputs(appUser.id) : null;
+  const activeParts = currentMonth
+    ? { month: currentMonth.month, year: currentMonth.year }
+    : null;
+  const estimatedInvoices =
+    forecastInputs && activeParts
+      ? getCardLinesForMonth(forecastInputs, activeParts)
+          .filter((line) => line.source === "estimated")
+          .map((line) => ({
+            id: `estimate-${line.card.id}`,
+            name: line.card.name,
+            amountCents: line.amountCents,
+            dueDate: line.dueDate,
+            status: derivePayableStatus("pending", line.dueDate),
+            cardType: line.card.cardType,
+          }))
+      : [];
+  const mainIncome =
+    forecastInputs && activeParts
+      ? getMainIncomeForMonth(forecastInputs, activeParts)
+      : { source: "none" as const, amountCents: 0, basisCount: 0 };
+  const estimatedIncomeCents = mainIncome.source === "estimated" ? mainIncome.amountCents : 0;
+  const estimatedInvoicesCents = estimatedInvoices.reduce(
+    (total, invoice) => total + invoice.amountCents,
+    0,
+  );
   const summary = getDashboardSummary({
-    incomes: realIncomes,
+    incomes: [
+      ...realIncomes,
+      ...(estimatedIncomeCents > 0
+        ? [{ id: "estimate-nf", amountCents: estimatedIncomeCents, received: false }]
+        : []),
+    ],
     bills: realBills,
-    invoices: realInvoices,
+    invoices: [...realInvoices, ...estimatedInvoices],
   });
   const categoryData = toMonthCategoryData(realBills, realInvoices);
   const installmentSeries = summarizeInstallments(
@@ -85,13 +126,10 @@ export default async function DashboardPage() {
         };
       })
     : [];
-  const projection = currentMonth
-    ? buildMonthProjection(
-        appUser ? await getMonthTotalsForUser(appUser.id) : [],
-        { month: currentMonth.month, year: currentMonth.year },
-        6,
-      )
-    : [];
+  const projection =
+    appUser && forecastInputs && activeParts
+      ? await getProjectionForUser(appUser.id, forecastInputs, activeParts, 6)
+      : [];
   const totalOutstandingCents = summary.totalPendingCents + summary.totalOverdueCents;
   const totalCommittedCents = summary.totalBillsCents + summary.totalInvoicesCents;
   const allSettled = totalCommittedCents > 0 && totalOutstandingCents === 0;
@@ -117,14 +155,20 @@ export default async function DashboardPage() {
     {
       label: "Receita prevista",
       value: summary.totalIncomeCents,
-      note: `${realIncomes.length} entrada${realIncomes.length === 1 ? "" : "s"}`,
+      note:
+        estimatedIncomeCents > 0
+          ? "Inclui NF estimada"
+          : `${realIncomes.length} entrada${realIncomes.length === 1 ? "" : "s"}`,
       points: history.map((snapshot) => snapshot.totalIncomeCents),
       tone: "neutral" as const,
     },
     {
       label: "Comprometido",
       value: totalCommittedCents,
-      note: "Contas e faturas",
+      note:
+        estimatedInvoicesCents > 0
+          ? `Inclui ≈ ${formatCurrency(estimatedInvoicesCents)} de fatura estimada`
+          : "Contas e faturas",
       points: history.map(
         (snapshot) => snapshot.totalBillsCents + snapshot.totalInvoicesCents,
       ),
@@ -299,7 +343,11 @@ export default async function DashboardPage() {
               activeMonthValue={
                 currentMonth ? monthValue(currentMonth.month, currentMonth.year) : ""
               }
+              activeMonthLabel={formatMonthLabel(
+                new Date(currentMonth.year, currentMonth.month - 1, 1),
+              )}
               incomes={realIncomes}
+              mainIncome={mainIncome}
               monthOptions={incomeMonthOptions}
             />
           </div>
@@ -308,7 +356,7 @@ export default async function DashboardPage() {
       <section className="grid gap-4 xl:grid-cols-[1fr_0.8fr]">
         <UpcomingBillsList bills={realBills} invoices={realInvoices} />
         <div className="space-y-4">
-          <InvoiceSummaryCard invoices={realInvoices} />
+          <InvoiceSummaryCard estimates={estimatedInvoices} invoices={realInvoices} />
           <PersonalBusinessCard invoices={realInvoices} />
         </div>
       </section>

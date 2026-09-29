@@ -5,8 +5,8 @@ import { revalidatePath } from "next/cache";
 import { creditCardInvoices, creditCards, months } from "@/db/schema";
 import { db } from "@/db/client";
 import { requireUser } from "@/lib/auth/guard";
-import { getAppUserBySupabaseId } from "@/lib/months";
-import { getActiveMonthForUser } from "@/lib/active-month";
+import { ensureMonthForUser, getAppUserBySupabaseId } from "@/lib/months";
+import { getActiveMonthParts } from "@/lib/active-month";
 import { parseCurrencyToCents } from "@/lib/money";
 import { composeMonthDate, parseDueDay } from "@/lib/due-date";
 import { invoiceSchema } from "@/lib/validators/invoice";
@@ -25,11 +25,11 @@ export async function createInvoice(_prev: FormState, formData: FormData): Promi
     return errorState("Banco ou usuário interno não configurado.");
   }
 
-  const currentMonth = await getActiveMonthForUser(appUser.id);
-
-  if (!currentMonth) {
-    return errorState("Crie o mês atual antes de cadastrar fatura.");
-  }
+  // A fatura é do mês que está na tela. Antes, um mês sem linha em `months`
+  // caía no mês do calendário em silêncio — confirmar a fatura de dezembro
+  // gravava em setembro.
+  const active = await getActiveMonthParts();
+  const currentMonth = await ensureMonthForUser(appUser.id, active.month, active.year);
 
   const parsed = invoiceSchema.safeParse({
     cardId: formData.get("cardId"),
