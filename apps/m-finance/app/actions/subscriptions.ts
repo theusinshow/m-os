@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/auth/guard";
 import { getAppUserBySupabaseId } from "@/lib/months";
 import { parseCurrencyToCents } from "@/lib/money";
 import { subscriptionSchema } from "@/lib/validators/subscription";
+import { createSubscriptionEntry } from "@/lib/domain/finance-actions/entries";
 import {
   errorState,
   fieldErrorsFromZod,
@@ -42,15 +43,10 @@ export async function addSubscription(_prev: FormState, formData: FormData): Pro
 
   const data = parsed.data;
 
-  await db.insert(subscriptions).values({
-    userId: appUser.id,
-    name: data.name,
-    amountCents: data.amountCents,
-    nextChargeDate: data.nextChargeDate,
-    cycle: data.cycle,
-    status: data.isTrial ? "trial" : "active",
-    reminderDaysBefore: data.reminderDaysBefore,
-  });
+  const created = await createSubscriptionEntry({ userId: appUser.id, ...data });
+  if (!created.ok) {
+    return errorState(created.message);
+  }
 
   revalidatePath("/app/subscriptions");
   return successState(data.isTrial ? "Teste grátis salvo." : "Assinatura salva.");

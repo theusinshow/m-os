@@ -81,6 +81,7 @@ Estados possíveis:
 | ADR-064 | O anel abraça a marca, e a cor volta a significar | Accepted |
 | ADR-065 | OpenAI entra pela fatura oficial, e restante significa limite menos gasto | Accepted |
 | ADR-066 | A Task passa a representar trabalho: o passo é entidade, o prazo volta | Accepted |
+| ADR-073 | O M-Finance calcula, o Hermes explica, o M/OS executa | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -4226,3 +4227,45 @@ quem liga o auto-stop, 20 segundos e encerra. Cada sugestão, "continuar", conta
 são constantes nomeadas, e a primeira semana de uso real decide se mudam. O que esta ADR **não**
 consegue: perceber o fim de uma reunião presencial com a mesma confiança (não há app para largar o
 microfone) — por isso ali o Guardian só pergunta.
+
+## ADR-073 — O M-Finance calcula, o Hermes explica, o M/OS executa
+
+**Estado:** Accepted · 2026-09-29 · estende a ADR-051 e a spec de 2026-08-17
+
+### Contexto
+
+O Hermes sabia criar uma conta no M-Finance e mais nada. Perguntar "como estou
+esse mês?" dava uma resposta genérica, porque o modelo não via número nenhum; e
+o WhatsApp tinha sete ações de escrita que o Hermes não tinha, cada uma com a
+regra copiada da interface web (a compra parcelada existia duas vezes, com
+transação num lado e sem no outro).
+
+### Decisão
+
+1. **Leitura por allowlist.** `POST /api/mos/finance/query` com treze
+   ferramentas nomeadas, zod por ferramenta e `asOf` em toda resposta. Secret de
+   leitura próprio (`MOS_FINANCE_READ_SECRET`); o de ação também lê, o de
+   leitura nunca escreve.
+2. **Kernel determinístico.** Todo número que o Hermes cita sai de função pura
+   sobre um snapshot carregado uma vez — incluindo o **Safe-to-Spend**, que é
+   separado da sobra contábil e sempre vem com as deduções e premissas.
+3. **Escrita pelos mesmos serviços.** `lib/domain/finance-actions` é chamado
+   pelo WhatsApp, pela interface web e pela Action API. Nove ações explícitas,
+   todas High/Explicit, com idempotency key e revalidação contra o que o
+   preview mostrou.
+4. **Política é dado estruturado.** `financial_policies` com chaves fechadas e
+   schema por chave; cenário temporário nunca grava política.
+5. **Proatividade sem LLM no caminho.** Detectores determinísticos com dedupe e
+   cooldown gravam `financial_insights`; a LLM, quando configurada, só narra o
+   que o detector já achou material.
+6. **O Hermes pede mais por escrito.** Bloco `mos-finance` no mesmo padrão do
+   `mos-query` (ADR-051), dois saltos por pergunta, cada um registrado.
+
+### Consequências
+
+O M-Finance ganha a migration 0016 (quatro tabelas, nenhuma alterada). O
+preâmbulo do Hermes cresce só quando a pergunta é financeira. O M/OS continua
+sem calcular dinheiro — ele transporta, registra e pede confirmação. Open
+Finance continua fora: tudo isto funciona sobre entrada manual. Desenho completo
+em `docs/superpowers/specs/2026-09-29-m-finance-intelligence-design.md`.
+

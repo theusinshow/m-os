@@ -5,6 +5,8 @@ import { getBillsByMonth } from "@/lib/bills";
 import { getInvoicesByMonth } from "@/lib/cards";
 import { getIncomesByMonth } from "@/lib/incomes";
 import type { SimulationResult } from "@/lib/calculations/simulator";
+import { simulateScenario } from "@/lib/finance-intelligence/scenarios/engine";
+import { loadFinanceSnapshot } from "@/lib/finance-intelligence/snapshot/load";
 
 export type StoredSimulation = {
   id: string;
@@ -72,4 +74,19 @@ export async function getSimulationBaseline(userId: string, currentMonthId: stri
     invoicesCents,
     baselineRemainingCents: totalIncomeCents - recurringBillsCents - invoicesCents,
   };
+}
+
+/**
+ * A sobra projetada de cada mês à frente (até 24), pela mesma base do Scenario
+ * Engine que o Hermes usa: contas lançadas, faturas reais ou estimadas e NF.
+ * Mês sem receita conhecida fica fora — ali a base plana continua valendo.
+ */
+export async function getSimulationBaselineByMonth(userId: string) {
+  const snapshot = await loadFinanceSnapshot(userId);
+  const base = simulateScenario(snapshot, [], 24);
+  return new Map(
+    base.months
+      .filter((row) => row.hasIncome)
+      .map((row) => [row.key, row.incomeCents - row.commitmentsCents] as const),
+  );
 }

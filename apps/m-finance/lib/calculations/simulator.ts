@@ -100,10 +100,10 @@ function buildRecommendation(
 }
 
 /**
- * Projects the purchase impact over the affected months against a flat monthly
- * baseline (income − recurring bills − invoices from the current month). The
- * baseline is intentionally constant: future months don't exist yet, so we
- * assume recurrences repeat. The UI states this assumption.
+ * Projects the purchase impact over the affected months. Each month uses its
+ * own projected remaining (`baselineByMonth`, from the Scenario Engine: bills,
+ * real or estimated invoices, NF) when known, and the flat current-month
+ * baseline otherwise. The UI states this assumption.
  */
 export function computeSimulation({
   totalAmountCents,
@@ -112,6 +112,7 @@ export function computeSimulation({
   startMonth,
   startYear,
   baselineRemainingCents,
+  baselineByMonth,
 }: {
   totalAmountCents: number;
   paymentType: PaymentType;
@@ -119,6 +120,12 @@ export function computeSimulation({
   startMonth: number;
   startYear: number;
   baselineRemainingCents: number;
+  /**
+   * A sobra projetada de cada mês (`yyyy-mm`), vinda do Scenario Engine. Mês
+   * fora do mapa cai na base plana — é o que acontece além do horizonte que o
+   * app conhece.
+   */
+  baselineByMonth?: Map<string, number>;
 }): SimulationResult {
   const affectedMonths = paymentType === "installment" ? Math.max(installments, 1) : 1;
 
@@ -134,11 +141,13 @@ export function computeSimulation({
 
   const months: SimulationMonth[] = impacts.map((impactCents, index) => {
     const { month, year } = addMonths(startMonth, startYear, index);
-    const remainingWithCents = baselineRemainingCents - impactCents;
+    const baseline =
+      baselineByMonth?.get(`${year}-${String(month).padStart(2, "0")}`) ?? baselineRemainingCents;
+    const remainingWithCents = baseline - impactCents;
     return {
       month,
       year,
-      baselineRemainingCents,
+      baselineRemainingCents: baseline,
       impactCents,
       remainingWithCents,
       health: classifyMonthHealth({

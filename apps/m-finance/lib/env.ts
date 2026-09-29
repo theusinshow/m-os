@@ -12,6 +12,19 @@ export const env = {
   cronSecret: process.env.CRON_SECRET ?? "",
   // Secret que autoriza o M/OS a chamar a Action API (Hermes propondo acoes).
   mosActionSecret: process.env.MOS_ACTION_SECRET ?? "",
+  // Secret de LEITURA do M/OS (Intelligence Gateway). Escopo menor que o de
+  // acao: le tudo o que o gateway expoe e nao escreve nada (ADR-073).
+  mosFinanceReadSecret: process.env.MOS_FINANCE_READ_SECRET ?? "",
+  // IA financeira pesada (ADR-073 §10). Qualquer endpoint compativel com a API
+  // da OpenAI. Sem chave, `finance.analyze` responde `ai_not_configured` e o
+  // Hermes raciocina sobre as ferramentas deterministicas.
+  financeAiBaseUrl: process.env.FINANCE_AI_BASE_URL ?? "",
+  financeAiApiKey: process.env.FINANCE_AI_API_KEY ?? "",
+  financeAiModelStandard: process.env.FINANCE_AI_MODEL_STANDARD ?? "",
+  financeAiModelHeavy: process.env.FINANCE_AI_MODEL_HEAVY ?? "",
+  financeAiTimeoutMs: Number(process.env.FINANCE_AI_TIMEOUT_MS ?? "45000") || 45000,
+  // Narrar insights materiais com a LLM. Desligado, o texto e o do template.
+  financeAiNarrateInsights: process.env.FINANCE_AI_NARRATE_INSIGHTS === "true",
   // WhatsApp via Twilio. The webhook is intentionally private to one phone.
   twilioAccountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
   twilioAuthToken: process.env.TWILIO_AUTH_TOKEN ?? "",
@@ -50,4 +63,8 @@ export function isTwilioConfigured() {
 
 export function isDeepSeekConfigured() {
   return Boolean(env.deepseekApiKey && env.deepseekBaseUrl && env.deepseekModel);
+}
+
+export function isFinanceAiConfigured() {
+  return Boolean(env.financeAiApiKey && env.financeAiBaseUrl && (env.financeAiModelStandard || env.financeAiModelHeavy));
 }

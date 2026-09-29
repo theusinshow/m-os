@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { envMock, authMock, bridgeMock } = vi.hoisted(() => ({
-  envMock: { mosActionSecret: "" },
+const { envMock, authMock, bridgeMock, receiptsMock } = vi.hoisted(() => ({
+  envMock: { mosActionSecret: "", mosFinanceReadSecret: "" },
   authMock: { getWhatsappOwnerUser: vi.fn() },
   bridgeMock: { createBillFromMosAction: vi.fn() },
+  receiptsMock: { claimReceipt: vi.fn(), completeReceipt: vi.fn(), releaseReceipt: vi.fn() },
 }));
 
 vi.mock("@/lib/env", () => ({ env: envMock }));
 vi.mock("@/lib/whatsapp/auth", () => authMock);
 vi.mock("@/lib/mos/action-bridge", () => bridgeMock);
+vi.mock("@/lib/mos/receipts", () => receiptsMock);
 
 const { POST } = await import("./route");
 
@@ -24,6 +26,10 @@ function postRequest(body: unknown, authorization?: string) {
 
 beforeEach(() => {
   envMock.mosActionSecret = SECRET;
+  envMock.mosFinanceReadSecret = "secret-de-leitura";
+  receiptsMock.claimReceipt.mockReset().mockResolvedValue({ status: "new" });
+  receiptsMock.completeReceipt.mockReset().mockResolvedValue(undefined);
+  receiptsMock.releaseReceipt.mockReset().mockResolvedValue(undefined);
   authMock.getWhatsappOwnerUser.mockReset().mockResolvedValue({ id: "user-1" });
   bridgeMock.createBillFromMosAction.mockReset().mockResolvedValue({ ok: true, billId: "bill-1" });
 });
@@ -130,7 +136,15 @@ describe("m-finance.create_bill", () => {
     const response = await POST(postRequest({ actionId: "m-finance.create_bill", args }, `Bearer ${SECRET}`));
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ ok: true, billId: "bill-1" });
+    // O billId continua onde sempre esteve; o recibo é o que o M/OS mostra.
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      billId: "bill-1",
+      receipt: {
+        actionId: "m-finance.create_bill",
+        entities: [{ type: "bill", id: "bill-1", label: "Internet" }],
+      },
+    });
     expect(bridgeMock.createBillFromMosAction).toHaveBeenCalledWith("user-1", args);
   });
 
@@ -144,5 +158,90 @@ describe("m-finance.create_bill", () => {
       ok: false,
       error: "Os argumentos da ação não batem com o esperado.",
     });
+  });
+});
+
+describe("escopo", () => {
+  it("o secret de leitura nunca escreve", async () => {
+    const response = await POST(
+      postRequest({ actionId: "m-finance.create_bill", args: {} }, "Bearer secret-de-leitura"),
+    );
+    expect(response.status).toBe(401);
+    expect(bridgeMock.createBillFromMosAction).not.toHaveBeenCalled();
+  });
+});
+
+describe("novas acoes", () => {
+  it("argumento fora do schema e recusado com 422, sem escrever", async () => {
+    const response = await POST(
+      postRequest(
+        { actionId: "m-finance.mark_bill_paid", args: { billId: "nao-e-uuid", billName: "x", amountCents: 1 } },
+        `Bearer ${SECRET}`,
+      ),
+    );
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({ ok: false, code: "invalid" });
+  });
+
+  it("acao generica nao existe", async () => {
+    const response = await POST(postRequest({ actionId: "m-finance.execute", args: {} }, `Bearer ${SECRET}`));
+    expect(response.status).toBe(400);
+  });
+});
+
+describe("idempotencia", () => {
+  const args = { amountCents: 100, description: "Internet", dueDay: 5, isRecurring: false };
+
+  it("retry com a mesma chave devolve o recibo gravado sem executar de novo", async () => {
+    receiptsMock.claimReceipt.mockResolvedValue({
+      status: "done",
+      result: { ok: true, billId: "bill-1", receipt: { message: "ok" } },
+    });
+
+    const response = await POST(
+      postRequest({ actionId: "m-finance.create_bill", args, idempotencyKey: "msg-1:abcdef" }, `Bearer ${SECRET}`),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ ok: true, billId: "bill-1", replayed: true });
+    expect(bridgeMock.createBillFromMosAction).not.toHaveBeenCalled();
+  });
+
+  it("execucao em curso com a mesma chave e 409", async () => {
+    receiptsMock.claimReceipt.mockResolvedValue({ status: "in_progress" });
+    const response = await POST(
+      postRequest({ actionId: "m-finance.create_bill", args, idempotencyKey: "msg-1:abcdef" }, `Bearer ${SECRET}`),
+    );
+    expect(response.status).toBe(409);
+    expect(bridgeMock.createBillFromMosAction).not.toHaveBeenCalled();
+  });
+
+  it("primeira execucao grava o recibo", async () => {
+    const response = await POST(
+      postRequest({ actionId: "m-finance.create_bill", args, idempotencyKey: "msg-2:abcdef" }, `Bearer ${SECRET}`),
+    );
+    expect(response.status).toBe(200);
+    expect(receiptsMock.completeReceipt).toHaveBeenCalledWith(
+      "user-1",
+      "msg-2:abcdef",
+      expect.objectContaining({ ok: true, billId: "bill-1" }),
+    );
+  });
+
+  it("excecao libera a chave para tentar de novo", async () => {
+    bridgeMock.createBillFromMosAction.mockRejectedValue(new Error("boom"));
+    const response = await POST(
+      postRequest({ actionId: "m-finance.create_bill", args, idempotencyKey: "msg-3:abcdef" }, `Bearer ${SECRET}`),
+    );
+    expect(response.status).toBe(500);
+    expect(receiptsMock.releaseReceipt).toHaveBeenCalledWith("user-1", "msg-3:abcdef");
+    expect(receiptsMock.completeReceipt).not.toHaveBeenCalled();
+  });
+
+  it("chave malformada e 400", async () => {
+    const response = await POST(
+      postRequest({ actionId: "m-finance.create_bill", args, idempotencyKey: "a b" }, `Bearer ${SECRET}`),
+    );
+    expect(response.status).toBe(400);
   });
 });

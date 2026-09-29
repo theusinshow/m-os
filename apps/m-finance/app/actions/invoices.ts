@@ -10,6 +10,7 @@ import { getActiveMonthParts } from "@/lib/active-month";
 import { parseCurrencyToCents } from "@/lib/money";
 import { composeMonthDate, parseDueDay } from "@/lib/due-date";
 import { invoiceSchema } from "@/lib/validators/invoice";
+import { markInvoicePaid } from "@/lib/domain/finance-actions/mark-paid";
 import {
   errorState,
   fieldErrorsFromZod,
@@ -102,14 +103,10 @@ export async function markInvoiceAsPaid(formData: FormData) {
     throw new Error("Não foi possível marcar a fatura como paga.");
   }
 
-  await db
-    .update(creditCardInvoices)
-    .set({
-      status: "paid",
-      paidAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(and(eq(creditCardInvoices.id, invoiceId), eq(creditCardInvoices.userId, appUser.id)));
+  const paid = await markInvoicePaid(appUser.id, { invoiceId });
+  if (!paid.ok && paid.code !== "already_paid") {
+    throw new Error(paid.message);
+  }
 
   revalidatePath("/app/dashboard");
   revalidatePath("/app/cards");

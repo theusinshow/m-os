@@ -9,6 +9,9 @@ import { PageHeading } from "@/components/page-heading";
 import { requireUser } from "@/lib/auth/guard";
 import { getAppUserBySupabaseId } from "@/lib/months";
 import { getAllCategories, getSettingsForUser } from "@/lib/settings";
+import { PoliciesForm } from "@/components/settings/policies-form";
+import { loadFinanceSnapshot } from "@/lib/finance-intelligence/snapshot/load";
+import { DEFAULT_POLICIES } from "@/lib/finance-intelligence/policies";
 
 export default async function SettingsPage() {
   const user = await requireUser();
@@ -16,6 +19,11 @@ export default async function SettingsPage() {
   const settings = appUser ? await getSettingsForUser(appUser.id) : null;
   const categories = appUser ? await getAllCategories(appUser.id) : [];
   const alertDaysBefore = settings?.alertDaysBefore ?? 3;
+  const policies = appUser
+    ? await loadFinanceSnapshot(appUser.id)
+        .then((snapshot) => snapshot.policies)
+        .catch(() => DEFAULT_POLICIES)
+    : DEFAULT_POLICIES;
 
   return (
     <div className="space-y-6">
@@ -74,6 +82,16 @@ export default async function SettingsPage() {
             </ValidatedForm>
           </DashboardCard>
         </div>
+      </section>
+
+      <section className="scroll-mt-24 space-y-3" id="politicas">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">Decisão</p>
+        <DashboardCard
+          title="Políticas financeiras"
+          description="As regras que o Safe-to-Spend, os cenários e os alertas obedecem. O Hermes pode propor mudanças, mas só grava com a sua confirmação."
+        >
+          <PoliciesForm policies={policies} />
+        </DashboardCard>
       </section>
 
       <DashboardCard title="Notificações no celular">

@@ -9,6 +9,7 @@ import { requireUser } from "@/lib/auth/guard";
 import { getAppUserBySupabaseId } from "@/lib/months";
 import { parseCurrencyToCents } from "@/lib/money";
 import { contributionSchema, goalSchema } from "@/lib/validators/goal";
+import { createGoalEntry, updateGoalEntry } from "@/lib/domain/finance-actions/entries";
 import {
   errorState,
   fieldErrorsFromZod,
@@ -50,21 +51,19 @@ export async function createGoal(_prev: FormState, formData: FormData): Promise<
   }
 
   const payload = parsed.data;
-  // A goal tracks progress toward a target, so the saved amount is capped at it
-  // — overshoot isn't recorded and the progress/summary never exceed 100%.
-  const reached = payload.currentAmountCents >= payload.targetAmountCents;
-  const currentAmountCents = Math.min(payload.currentAmountCents, payload.targetAmountCents);
-
-  await db.insert(goals).values({
-    userId: appUser.id,
+  // Meta acompanha progresso até o alvo: o serviço limita o valor ao alvo e
+  // cria já concluída quando chegou lá.
+  const created = await createGoalEntry(appUser.id, {
     name: payload.name,
     targetAmountCents: payload.targetAmountCents,
-    currentAmountCents,
+    currentAmountCents: payload.currentAmountCents,
     deadline: payload.deadline ?? null,
     priority: payload.priority,
-    status: reached ? "completed" : "active",
     notes: payload.notes ?? null,
   });
+  if (!created.ok) {
+    return errorState(created.message);
+  }
 
   revalidatePath("/app/goals");
   return successState("Meta criada.");
@@ -99,42 +98,18 @@ export async function updateGoal(_prev: FormState, formData: FormData): Promise<
   }
 
   const payload = parsed.data;
-
-  const [existing] = await db
-    .select({ status: goals.status })
-    .from(goals)
-    .where(and(eq(goals.id, goalId), eq(goals.userId, appUser.id)))
-    .limit(1);
-
-  if (!existing) {
-    return errorState("Meta não encontrada.");
+  // Editar não despausa nem desarquiva: a regra mora em `updateGoalEntry`.
+  const updated = await updateGoalEntry(appUser.id, goalId, {
+    name: payload.name,
+    targetAmountCents: payload.targetAmountCents,
+    currentAmountCents: payload.currentAmountCents,
+    deadline: payload.deadline ?? null,
+    priority: payload.priority,
+    notes: payload.notes ?? null,
+  });
+  if (!updated.ok) {
+    return errorState(updated.code === "not_found" ? "Meta não encontrada." : updated.message);
   }
-
-  const reached = payload.currentAmountCents >= payload.targetAmountCents;
-  const currentAmountCents = Math.min(payload.currentAmountCents, payload.targetAmountCents);
-  // Editing a goal must not silently un-pause or un-archive it: status changes
-  // belong to setGoalStatus. We only keep the active<->completed pair in sync
-  // with the saved amount; paused/archived are preserved as-is.
-  const nextStatus =
-    existing.status === "active" || existing.status === "completed"
-      ? reached
-        ? "completed"
-        : "active"
-      : existing.status;
-
-  await db
-    .update(goals)
-    .set({
-      name: payload.name,
-      targetAmountCents: payload.targetAmountCents,
-      currentAmountCents,
-      deadline: payload.deadline ?? null,
-      priority: payload.priority,
-      status: nextStatus,
-      notes: payload.notes ?? null,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(goals.id, goalId), eq(goals.userId, appUser.id)));
 
   revalidatePath("/app/goals");
   return successState("Meta atualizada.");

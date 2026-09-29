@@ -49,6 +49,8 @@ import { derivePayableStatus } from "@/lib/status";
 import { toMonthCategoryData } from "@/lib/calculations/charts/month-categories";
 import { pendingRecurrences } from "@/lib/recurrence";
 import { getSettingsForUser } from "@/lib/settings";
+import { IntelligencePanel } from "@/components/dashboard/intelligence-panel";
+import { getDashboardIntelligence } from "@/lib/finance-intelligence/dashboard";
 
 export default async function DashboardPage() {
   const user = await requireUser();
@@ -68,6 +70,8 @@ export default async function DashboardPage() {
   const categories = appUser ? await getBillCategories(appUser.id) : [];
   const settings = appUser ? await getSettingsForUser(appUser.id) : null;
   const snapshots = appUser ? await getMonthlySnapshots(appUser.id) : [];
+  // Safe-to-Spend e insights falam do mês corrente; olhando outro mês, somem.
+  const intelligence = appUser && viewingCurrent ? await getDashboardIntelligence(appUser.id) : null;
   // Os snapshots vêm do mais novo para o mais antigo; a linha lê da esquerda
   // para a direita, então a série vai ao contrário.
   const history = [...snapshots].reverse();
@@ -300,6 +304,8 @@ export default async function DashboardPage() {
 
         <AlertsPanel alerts={alerts} />
       </section>
+
+      {intelligence ? <IntelligencePanel data={intelligence} /> : null}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {monthMetrics.map((metric) => (

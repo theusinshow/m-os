@@ -2,6 +2,7 @@ import {
   boolean,
   check,
   date,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -9,6 +10,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -504,6 +506,135 @@ export const budgets = pgTable(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// M-Finance Intelligence (ADR-073)
+// ---------------------------------------------------------------------------
+
+/**
+ * As chaves de política que existem. Uma chave nova é migration, e não uma
+ * string solta: cada uma tem schema e efeito em `lib/finance-intelligence/policies.ts`.
+ */
+export const financialPolicyKey = pgEnum("financial_policy_key", [
+  "minimum_month_end_buffer",
+  "reliable_income_rules",
+  "max_installment_commitment",
+  "forecast_horizon_months",
+  "observer_sensitivity",
+  "safe_to_spend_policy",
+]);
+export const financialPolicySource = pgEnum("financial_policy_source", ["user", "hermes", "whatsapp"]);
+
+export const financialPolicies = pgTable(
+  "financial_policies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    key: financialPolicyKey("key").notNull(),
+    value: jsonb("value").notNull(),
+    // Quem gravou: a tela, uma ação confirmada do Hermes, ou o WhatsApp.
+    source: financialPolicySource("source").notNull().default("user"),
+    active: boolean("active").notNull().default(true),
+    ...timestamps,
+  },
+  (table) => [unique("financial_policies_user_key_unique").on(table.userId, table.key)],
+);
+
+export const financialInsightType = pgEnum("financial_insight_type", [
+  "bill_due_soon",
+  "overdue_commitment",
+  "income_missing",
+  "card_spending_spike",
+  "future_month_pressure",
+  "installment_pressure",
+  "subscription_load",
+  "safe_to_spend_drop",
+]);
+export const financialInsightSeverity = pgEnum("financial_insight_severity", [
+  "info",
+  "warning",
+  "critical",
+]);
+export const financialInsightStatus = pgEnum("financial_insight_status", [
+  "open",
+  "acknowledged",
+  "resolved",
+  "expired",
+]);
+
+/**
+ * O que o Observer achou material. Um insight vivo (aberto ou reconhecido) por
+ * `dedupe_key`: rodar o detector dez vezes seguidas toca `last_seen_at`, e não
+ * cria dez linhas.
+ */
+export const financialInsights = pgTable(
+  "financial_insights",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    type: financialInsightType("type").notNull(),
+    severity: financialInsightSeverity("severity").notNull(),
+    status: financialInsightStatus("status").notNull().default("open"),
+    title: text("title").notNull(),
+    summary: text("summary").notNull(),
+    // Texto da LLM, quando configurada. O `summary` determinístico continua lá.
+    narrative: text("narrative"),
+    facts: jsonb("facts").notNull(),
+    evidence: jsonb("evidence").notNull().default(sql`'[]'::jsonb`),
+    dedupeKey: text("dedupe_key").notNull(),
+    materialityScore: integer("materiality_score").notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("financial_insights_user_dedupe_live_unique")
+      .on(table.userId, table.dedupeKey)
+      .where(sql`${table.status} in ('open', 'acknowledged')`),
+    index("financial_insights_user_status_idx").on(table.userId, table.status),
+  ],
+);
+
+/**
+ * Uma linha por rodada do Observer. Guarda o Safe-to-Spend daquele instante —
+ * é a base do `safe_to_spend_drop` — e quantas observações saíram.
+ */
+export const financialObserverRuns = pgTable(
+  "financial_observer_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    ranAt: timestamp("ran_at", { withTimezone: true }).notNull().defaultNow(),
+    safeToSpendCents: integer("safe_to_spend_cents").notNull(),
+    observations: integer("observations").notNull(),
+    facts: jsonb("facts").notNull(),
+  },
+  (table) => [index("financial_observer_runs_user_ran_idx").on(table.userId, table.ranAt)],
+);
+
+export const mosActionReceiptStatus = pgEnum("mos_action_receipt_status", ["pending", "completed"]);
+
+/**
+ * O recibo de cada ação do M/OS, pela idempotency key. Um retry de rede com a
+ * mesma chave devolve o mesmo recibo sem escrever de novo.
+ */
+export const mosActionReceipts = pgTable(
+  "mos_action_receipts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    actionId: text("action_id").notNull(),
+    status: mosActionReceiptStatus("status").notNull().default("pending"),
+    result: jsonb("result"),
+    ...timestamps,
+  },
+  (table) => [
+    unique("mos_action_receipts_user_key_unique").on(table.userId, table.idempotencyKey),
+  ],
+);
+
 export type BillStatus = (typeof billStatus.enumValues)[number];
 export type InvoiceStatus = (typeof invoiceStatus.enumValues)[number];
 export type MonthHealth = (typeof monthHealth.enumValues)[number];
@@ -511,3 +642,6 @@ export type PaymentType = (typeof paymentType.enumValues)[number];
 export type RiskLevel = (typeof riskLevel.enumValues)[number];
 export type GoalPriority = (typeof goalPriority.enumValues)[number];
 export type GoalStatus = (typeof goalStatus.enumValues)[number];
+export type FinancialInsightType = (typeof financialInsightType.enumValues)[number];
+export type FinancialInsightSeverity = (typeof financialInsightSeverity.enumValues)[number];
+export type FinancialInsightStatus = (typeof financialInsightStatus.enumValues)[number];

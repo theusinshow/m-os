@@ -9,6 +9,7 @@ import { createIncomeSchema, incomeSchema } from "@/lib/validators/income";
 import { ensureMonthForUser, getAppUserBySupabaseId } from "@/lib/months";
 import { getActiveMonthForUser, parseMonthValue } from "@/lib/active-month";
 import { parseCurrencyToCents } from "@/lib/money";
+import { createIncomeEntry } from "@/lib/domain/finance-actions/entries";
 import {
   errorState,
   fieldErrorsFromZod,
@@ -54,15 +55,18 @@ export async function createIncome(_prev: FormState, formData: FormData): Promis
     return errorState("Crie o mês atual antes de cadastrar receita.");
   }
 
-  await db.insert(incomes).values({
+  const created = await createIncomeEntry({
     userId: appUser.id,
-    monthId: targetMonth.id,
+    month: targetMonth,
     name: payload.name,
     amountCents: payload.amountCents,
     incomeType: payload.incomeType,
     expectedDate: payload.expectedDate ?? null,
     received: payload.received,
   });
+  if (!created.ok) {
+    return errorState(created.message);
+  }
 
   revalidatePath("/app/dashboard");
   revalidatePath("/app/bills");
