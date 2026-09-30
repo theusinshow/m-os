@@ -65,7 +65,7 @@ sha2 = "0.10"
 thiserror.workspace = true
 time.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "net", "signal", "macros", "time"] }
-tower-http = { version = "0.6", features = ["fs", "compression-gzip"] }
+tower-http = { version = "0.7", features = ["fs", "compression-gzip"] }
 uuid.workspace = true
 getrandom = "0.3"
 # 0.5 e a estavel; a 0.6 ainda e `-dev`. Um segredo nao entra em pre-release.
