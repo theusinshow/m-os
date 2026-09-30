@@ -14,9 +14,12 @@ export const maxDuration = 60;
 
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_RESPONSE_BYTES = 256 * 1024;
+// Charset explicito: o PowerShell 5.1 le JSON sem charset como Latin-1 e
+// transforma "Pressão" em "PressÃ£o".
+const JSON_UTF8 = { "content-type": "application/json; charset=utf-8" };
 
 function failure(status: number, tool: string, code: string, message: string) {
-  return Response.json({ ok: false, tool, error: { code, message } }, { status });
+  return Response.json({ ok: false, tool, error: { code, message } }, { status, headers: JSON_UTF8 });
 }
 
 /**
@@ -95,7 +98,7 @@ export async function POST(request: Request) {
     if (Buffer.byteLength(serialized) > MAX_RESPONSE_BYTES) {
       return failure(413, tool, "response_too_large", "A resposta passou do limite; peça um recorte menor.");
     }
-    return new Response(serialized, { status: 200, headers: { "content-type": "application/json" } });
+    return new Response(serialized, { status: 200, headers: JSON_UTF8 });
   } catch (error) {
     if (error instanceof FinanceDataUnavailableError) {
       return failure(503, tool, "db_unavailable", "Banco de dados indisponível.");
