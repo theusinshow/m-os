@@ -22,7 +22,7 @@ tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 # TlsFeatureNotEnabled para qualquer wss://, e o erro chega ao usuario como
 # falha generica de gateway. Gateway atras de proxy ou fora do loopback usa
 # wss, e websocket_url ja mapeia https -> wss.
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "rustls-tls"] }
 # A feature de plataforma NAO e opcional. Sem ela o keyring 3 usa o keystore
