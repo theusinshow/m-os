@@ -198,9 +198,16 @@ m-finance.create_subscription  { name, amountCents, nextChargeDate, cycle?, isTr
 m-finance.create_goal          { name, targetAmountCents, currentAmountCents?, deadline?, priority? }
 m-finance.update_goal          { goalId, goalName, …campos }
 m-finance.set_policy           { key, value }
+m-finance.update_subscription  { subscriptionId, subscriptionName, amountCents?, nextChargeDate?, cycle? }
+m-finance.cancel_subscription  { subscriptionId, subscriptionName }
+m-finance.mark_income_received { incomeId, incomeName, amountCents }
+m-finance.add_goal_contribution { goalId, goalName, amountCents, contributionDate? }
+m-finance.set_goal_status      { goalId, goalName, status }
+m-finance.set_invoice_amount   { cardId, cardName, amountCents, month? }
+m-finance.set_budget           { budgetType, limitCents, categoryName?, cardId?, cardName?, month? }
 ```
 
-As nove `m-finance.*` são High/Explicit e só descem com `can_write` no App do
+As dezesseis `m-finance.*` são High/Explicit e só descem com `can_write` no App do
 M-Finance. As que tocam entidade existente levam o id **e** o que o cartão
 mostrou (nome, valor): o M-Finance recusa se o banco mudou entre o preview e o
 confirmar. Cada confirmação leva uma idempotency key — confirmar de novo depois

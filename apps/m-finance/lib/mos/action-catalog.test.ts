@@ -1,6 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { entriesMock, markMock, cardMock, expenseMock, monthsMock } = vi.hoisted(() => ({
+const { entriesMock, markMock, cardMock, expenseMock, monthsMock, moreMock } = vi.hoisted(() => ({
+  moreMock: {
+    addGoalContribution: vi.fn(),
+    cancelSubscriptionEntry: vi.fn(),
+    GOAL_STATUSES: ["active", "paused", "completed", "archived"],
+    markIncomeReceived: vi.fn(),
+    setBudgetEntry: vi.fn(),
+    setGoalStatusEntry: vi.fn(),
+    updateSubscriptionEntry: vi.fn(),
+    upsertInvoiceAmount: vi.fn(),
+  },
   entriesMock: {
     createGoalEntry: vi.fn(),
     createIncomeEntry: vi.fn(),
@@ -16,6 +26,7 @@ const { entriesMock, markMock, cardMock, expenseMock, monthsMock } = vi.hoisted(
 
 vi.mock("@/lib/domain/finance-actions/entries", () => entriesMock);
 vi.mock("@/lib/domain/finance-actions/mark-paid", () => markMock);
+vi.mock("@/lib/domain/finance-actions/more-entries", () => moreMock);
 vi.mock("@/lib/card-expenses", () => cardMock);
 vi.mock("@/lib/domain/finance-actions/create-card-expense", () => expenseMock);
 vi.mock("@/lib/months", () => monthsMock);
@@ -35,7 +46,8 @@ beforeEach(() => {
     ...Object.values(markMock),
     ...Object.values(cardMock),
     ...Object.values(expenseMock),
-  ]) {
+    ...Object.values(moreMock).filter((value) => typeof value === "function"),
+  ] as { mockReset: () => void }[]) {
     mock.mockReset();
   }
   monthsMock.ensureMonthForUser.mockReset().mockResolvedValue(SETEMBRO);
@@ -43,7 +55,7 @@ beforeEach(() => {
 });
 
 describe("catálogo", () => {
-  it("nove ações explícitas, nenhuma genérica", () => {
+  it("dezesseis ações explícitas, nenhuma genérica", () => {
     expect(MOS_ACTION_IDS).toEqual([
       "m-finance.create_bill",
       "m-finance.create_card_expense",
@@ -54,6 +66,13 @@ describe("catálogo", () => {
       "m-finance.create_goal",
       "m-finance.update_goal",
       "m-finance.set_policy",
+      "m-finance.update_subscription",
+      "m-finance.cancel_subscription",
+      "m-finance.mark_income_received",
+      "m-finance.add_goal_contribution",
+      "m-finance.set_goal_status",
+      "m-finance.set_invoice_amount",
+      "m-finance.set_budget",
     ]);
     expect(isMosActionId("m-finance.execute")).toBe(false);
     expect(isMosActionId("constructor")).toBe(false);
@@ -206,5 +225,83 @@ describe("m-finance.create_subscription", () => {
     expect(entriesMock.createSubscriptionEntry).toHaveBeenCalledWith(
       expect.objectContaining({ cycle: "monthly", reminderDaysBefore: 1, isTrial: true }),
     );
+  });
+});
+
+const SUB = "44444444-4444-4444-8444-444444444444";
+const INCOME = "55555555-5555-4555-8555-555555555555";
+
+describe("ações que completam a tela", () => {
+  it("assinatura: edição vazia é recusada; cancelar confere o nome", async () => {
+    expect(
+      await executeMosAction("m-finance.update_subscription", USER, { subscriptionId: SUB, subscriptionName: "Claude" }),
+    ).toMatchObject({ ok: false, code: "invalid" });
+
+    moreMock.cancelSubscriptionEntry.mockResolvedValue({ ok: true, value: { id: SUB, name: "Claude Max" } });
+    await executeMosAction("m-finance.cancel_subscription", USER, { subscriptionId: SUB, subscriptionName: "Claude Max" });
+    expect(moreMock.cancelSubscriptionEntry).toHaveBeenCalledWith(USER, SUB, { name: "Claude Max" });
+  });
+
+  it("receita recebida leva nome e valor do preview", async () => {
+    moreMock.markIncomeReceived.mockResolvedValue({ ok: true, value: { id: INCOME, name: "NF", amountCents: 500000 } });
+    await executeMosAction("m-finance.mark_income_received", USER, { incomeId: INCOME, incomeName: "NF", amountCents: 500000 });
+    expect(moreMock.markIncomeReceived).toHaveBeenCalledWith(USER, INCOME, { amountCents: 500000, name: "NF" });
+  });
+
+  it("contribuição sem data usa hoje em São Paulo", async () => {
+    moreMock.addGoalContribution.mockResolvedValue({
+      ok: true,
+      value: { id: GOAL, name: "Mac", status: "active", currentAmountCents: 400000 },
+    });
+    await executeMosAction("m-finance.add_goal_contribution", USER, { goalId: GOAL, goalName: "Mac", amountCents: 100000 });
+    expect(moreMock.addGoalContribution).toHaveBeenCalledWith(
+      USER,
+      GOAL,
+      100000,
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      { name: "Mac" },
+    );
+  });
+
+  it("status de meta fora da lista é recusado", async () => {
+    expect(
+      await executeMosAction("m-finance.set_goal_status", USER, { goalId: GOAL, goalName: "Mac", status: "deleted" }),
+    ).toMatchObject({ ok: false, code: "invalid" });
+  });
+
+  it("valor da fatura no mês pedido, conferindo o cartão", async () => {
+    monthsMock.ensureMonthForUser.mockResolvedValue({ id: "month-oct", month: 10, year: 2026 });
+    moreMock.upsertInvoiceAmount.mockResolvedValue({
+      ok: true,
+      value: { cardName: "Nubank", amountCents: 150000, dueDate: "2026-10-15", created: true },
+    });
+    const result = await executeMosAction("m-finance.set_invoice_amount", USER, {
+      cardId: CARD,
+      cardName: "Nubank",
+      amountCents: 150000,
+      month: "2026-10",
+    });
+    expect(result).toMatchObject({ ok: true, receipt: { message: expect.stringContaining("lançada") } });
+    expect(moreMock.upsertInvoiceAmount).toHaveBeenCalledWith(
+      expect.objectContaining({ month: { id: "month-oct", month: 10, year: 2026 }, expectation: { cardName: "Nubank" } }),
+    );
+  });
+
+  it("orçamento por categoria exige o nome; por cartão, o id", async () => {
+    expect(await executeMosAction("m-finance.set_budget", USER, { budgetType: "category", limitCents: 1000 })).toMatchObject({
+      ok: false,
+      code: "invalid",
+    });
+    expect(await executeMosAction("m-finance.set_budget", USER, { budgetType: "card", limitCents: 1000 })).toMatchObject({
+      ok: false,
+      code: "invalid",
+    });
+    moreMock.setBudgetEntry.mockResolvedValue({ ok: true, value: { id: "b", label: "Mercado", created: false } });
+    const result = await executeMosAction("m-finance.set_budget", USER, {
+      budgetType: "category",
+      limitCents: 80000,
+      categoryName: "Mercado",
+    });
+    expect(result).toMatchObject({ ok: true, receipt: { message: expect.stringContaining("ajustado") } });
   });
 });

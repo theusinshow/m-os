@@ -62,6 +62,7 @@ const { createBillEntries, scheduleFromFlags } = await import("./create-bill");
 const { createCardExpense, splitInstallments } = await import("./create-card-expense");
 const { markBillPaid, markInvoicePaid } = await import("./mark-paid");
 const { normalizeGoalAmounts, setFinancialPolicy, updateGoalEntry } = await import("./entries");
+const { addGoalContribution, markIncomeReceived, setBudgetEntry, upsertInvoiceAmount } = await import("./more-entries");
 
 const USER = "user-1";
 const SEP = { id: "m9", month: 9, year: 2026 };
@@ -253,5 +254,58 @@ describe("setFinancialPolicy", () => {
       source: "hermes",
     });
     expect(state.conflicts).toHaveLength(1);
+  });
+});
+
+describe("serviços que completam a tela", () => {
+  it("meta pausada que chega ao alvo continua pausada", async () => {
+    state.selects = [[{ name: "Mac", currentAmountCents: 800000, targetAmountCents: 900000, status: "paused" }]];
+    const result = await addGoalContribution(USER, "g", 200000, "2026-09-30");
+    expect(result).toMatchObject({ ok: true, value: { status: "paused", currentAmountCents: 900000 } });
+  });
+
+  it("meta ativa que chega ao alvo conclui", async () => {
+    state.selects = [[{ name: "Mac", currentAmountCents: 800000, targetAmountCents: 900000, status: "active" }]];
+    expect(await addGoalContribution(USER, "g", 100000, "2026-09-30")).toMatchObject({ value: { status: "completed" } });
+  });
+
+  it("receita já recebida e valor divergente do preview", async () => {
+    state.selects = [[{ id: "i", name: "NF", amountCents: 500000, received: true }]];
+    expect(await markIncomeReceived(USER, "i")).toMatchObject({ ok: false, code: "already_paid" });
+    state.selects = [[{ id: "i", name: "NF", amountCents: 500000, received: false }]];
+    expect(await markIncomeReceived(USER, "i", { amountCents: 1 })).toMatchObject({ ok: false, code: "stale_preview" });
+  });
+
+  it("fatura paga não tem o valor trocado", async () => {
+    state.selects = [[{ name: "Nubank", dueDay: 15 }], [{ id: "inv", status: "paid" }]];
+    const result = await upsertInvoiceAmount({ userId: USER, cardId: "c", month: SEP, amountCents: 1 });
+    expect(result).toMatchObject({ ok: false, code: "already_paid" });
+    expect(state.inserts).toHaveLength(0);
+  });
+
+  it("fatura nova usa o dia do cartão", async () => {
+    state.selects = [[{ name: "Nubank", dueDay: 15 }], []];
+    const result = await upsertInvoiceAmount({ userId: USER, cardId: "c", month: SEP, amountCents: 150000 });
+    expect(result).toMatchObject({ ok: true, value: { dueDate: "2026-09-15", created: true } });
+  });
+
+  it("orçamento existente só ajusta o limite", async () => {
+    state.selects = [[{ id: "cat", name: "Mercado" }], [{ id: "b1" }]];
+    const result = await setBudgetEntry({
+      userId: USER,
+      month: SEP,
+      budgetType: "category",
+      limitCents: 80000,
+      categoryName: "mercado",
+    });
+    expect(result).toMatchObject({ ok: true, value: { id: "b1", label: "Mercado", created: false } });
+    expect(state.updates[0].set).toMatchObject({ limitCents: 80000 });
+    expect(state.inserts).toHaveLength(0);
+  });
+
+  it("categoria com nome repetido recusa em vez de escolher", async () => {
+    state.selects = [[{ id: "a", name: "Mercado" }, { id: "b", name: "MERCADO" }]];
+    const result = await setBudgetEntry({ userId: USER, month: SEP, budgetType: "category", limitCents: 1, categoryName: "mercado" });
+    expect(result).toMatchObject({ ok: false, code: "invalid" });
   });
 });

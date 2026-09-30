@@ -2,7 +2,7 @@
 
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { creditCardInvoices, creditCards, months } from "@/db/schema";
+import { creditCardInvoices, months } from "@/db/schema";
 import { db } from "@/db/client";
 import { requireUser } from "@/lib/auth/guard";
 import { ensureMonthForUser, getAppUserBySupabaseId } from "@/lib/months";
@@ -11,6 +11,7 @@ import { parseCurrencyToCents } from "@/lib/money";
 import { composeMonthDate, parseDueDay } from "@/lib/due-date";
 import { invoiceSchema } from "@/lib/validators/invoice";
 import { markInvoicePaid } from "@/lib/domain/finance-actions/mark-paid";
+import { upsertInvoiceAmount } from "@/lib/domain/finance-actions/more-entries";
 import {
   errorState,
   fieldErrorsFromZod,
@@ -48,45 +49,19 @@ export async function createInvoice(_prev: FormState, formData: FormData): Promi
 
   const payload = parsed.data;
 
-  // The due date defaults to the card's own due day, so adding a monthly
-  // invoice is just "pick card + value".
-  const [card] = await db
-    .select({ dueDay: creditCards.dueDay })
-    .from(creditCards)
-    .where(and(eq(creditCards.id, payload.cardId), eq(creditCards.userId, appUser.id)))
-    .limit(1);
-
-  if (!card) {
-    return errorState("Cartão não encontrado.");
+  // Mesmo serviço do Hermes (`m-finance.set_invoice_amount`): cria ou corrige a
+  // fatura do mês, com o vencimento do cartão quando não vem outro.
+  const result = await upsertInvoiceAmount({
+    userId: appUser.id,
+    cardId: payload.cardId,
+    month: currentMonth,
+    amountCents: payload.amountCents,
+    dueDay: payload.dueDay ?? null,
+    notes: payload.notes ?? null,
+  });
+  if (!result.ok) {
+    return errorState(result.code === "not_found" ? "Cartão não encontrado." : result.message);
   }
-
-  const dueDate = composeMonthDate(
-    currentMonth.year,
-    currentMonth.month,
-    payload.dueDay ?? card.dueDay,
-  );
-
-  await db
-    .insert(creditCardInvoices)
-    .values({
-      userId: appUser.id,
-      monthId: currentMonth.id,
-      cardId: payload.cardId,
-      amountCents: payload.amountCents,
-      dueDate,
-      status: "pending",
-      notes: payload.notes ?? null,
-    })
-    .onConflictDoUpdate({
-      target: [creditCardInvoices.cardId, creditCardInvoices.monthId],
-      set: {
-        amountCents: payload.amountCents,
-        dueDate,
-        status: "pending",
-        notes: payload.notes ?? null,
-        updatedAt: new Date(),
-      },
-    });
 
   revalidatePath("/app/dashboard");
   revalidatePath("/app/cards");

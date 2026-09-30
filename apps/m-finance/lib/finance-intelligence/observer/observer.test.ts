@@ -103,6 +103,29 @@ describe("detectores", () => {
     expect(byDetector(result, "card_spending_spike")).toHaveLength(0);
   });
 
+  it("meta que pede mais por mês do que a folga do mês mais apertado", () => {
+    // MacBook pede 1.500/mês até dezembro; com margem de 1.000, outubro fica
+    // com 1.780 − 1.000 = 780 de folga.
+    const apertado = runDetectors({
+      snapshot: baseSnapshot({ policies: withPolicies({ minimumMonthEndBufferCents: 100000 }) }),
+      previousSafeToSpendCents: null,
+    });
+    expect(byDetector(apertado, "goal_at_risk")[0]).toMatchObject({
+      dedupeKey: "goal_at_risk:goal-mac:2026-09",
+      severity: "warning",
+      facts: expect.objectContaining({ requiredMonthlyCents: 150000, tightestMonth: "2026-10", roomCents: 78000 }),
+    });
+    // Sem margem, a folga de outubro (1.780) cobre os 1.500.
+    expect(byDetector(observations, "goal_at_risk")).toHaveLength(0);
+  });
+
+  it("prazo que passou sem concluir", () => {
+    const snapshot = baseSnapshot();
+    snapshot.goals = [{ ...snapshot.goals[0], deadline: "2026-08-31" }];
+    const result = runDetectors({ snapshot, previousSafeToSpendCents: null });
+    expect(byDetector(result, "goal_at_risk")[0]?.facts).toMatchObject({ deadlinePassed: true });
+  });
+
   it("materialidade cresce com o valor, em escala", () => {
     expect(materialityOf(5000)).toBeLessThan(materialityOf(50000));
     expect(materialityOf(50)).toBe(0);

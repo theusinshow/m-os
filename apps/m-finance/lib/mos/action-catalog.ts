@@ -8,6 +8,16 @@ import {
   updateGoalEntry,
 } from "@/lib/domain/finance-actions/entries";
 import { markBillPaid, markInvoicePaid } from "@/lib/domain/finance-actions/mark-paid";
+import {
+  addGoalContribution,
+  cancelSubscriptionEntry,
+  GOAL_STATUSES,
+  markIncomeReceived,
+  setBudgetEntry,
+  setGoalStatusEntry,
+  updateSubscriptionEntry,
+  upsertInvoiceAmount,
+} from "@/lib/domain/finance-actions/more-entries";
 import type { DomainResult } from "@/lib/domain/finance-actions/result";
 import { getCardById } from "@/lib/card-expenses";
 import { monthOfDate, parseMonthKey, todayInSaoPaulo } from "@/lib/finance-intelligence/dates";
@@ -121,6 +131,51 @@ export const actionSchemas = {
   "m-finance.set_policy": z
     .object({ key: z.enum(POLICY_KEYS as [string, ...string[]]), value: z.unknown() })
     .strict(),
+  // As sete que completam o que a tela faz (o resto da ADR-073).
+  "m-finance.update_subscription": z
+    .object({
+      subscriptionId: z.string().uuid(),
+      subscriptionName: text,
+      amountCents: cents.optional(),
+      nextChargeDate: date.optional(),
+      cycle: z.enum(["once", "monthly", "yearly"]).optional(),
+    })
+    .strict()
+    .refine(
+      (value) => value.amountCents !== undefined || value.nextChargeDate !== undefined || value.cycle !== undefined,
+      { message: "A edição não muda nada." },
+    ),
+  "m-finance.cancel_subscription": z
+    .object({ subscriptionId: z.string().uuid(), subscriptionName: text })
+    .strict(),
+  "m-finance.mark_income_received": z
+    .object({ incomeId: z.string().uuid(), incomeName: text, amountCents: cents })
+    .strict(),
+  "m-finance.add_goal_contribution": z
+    .object({ goalId: z.string().uuid(), goalName: text, amountCents: cents, contributionDate: date.optional() })
+    .strict(),
+  "m-finance.set_goal_status": z
+    .object({ goalId: z.string().uuid(), goalName: text, status: z.enum(GOAL_STATUSES) })
+    .strict(),
+  "m-finance.set_invoice_amount": z
+    .object({ cardId: z.string().uuid(), cardName: text, amountCents: cents, month: month.optional() })
+    .strict(),
+  "m-finance.set_budget": z
+    .object({
+      budgetType: z.enum(["total", "category", "card"]),
+      limitCents: cents,
+      categoryName: text.optional(),
+      cardId: z.string().uuid().optional(),
+      cardName: text.optional(),
+      month: month.optional(),
+    })
+    .strict()
+    .refine((value) => value.budgetType !== "category" || Boolean(value.categoryName), {
+      message: "Orçamento por categoria precisa de categoryName.",
+    })
+    .refine((value) => value.budgetType !== "card" || Boolean(value.cardId), {
+      message: "Orçamento por cartão precisa de cardId.",
+    }),
 } as const;
 
 type Args<K extends keyof typeof actionSchemas> = z.infer<(typeof actionSchemas)[K]>;
@@ -297,5 +352,106 @@ export async function executeMosAction(actionId: MosActionId, userId: string, ra
     }
   }
 
-  return { ok: false, error: "Ação sem execução implementada.", code: "invalid" };
+  return executeCompletion(actionId, userId, parsed.data);
+}
+
+const STATUS_LABEL = { active: "reativada", paused: "pausada", completed: "concluída", archived: "arquivada" } as const;
+
+/** As sete ações que completam a tela — separadas só para o switch caber na leitura. */
+async function executeCompletion(actionId: MosActionId, userId: string, data: unknown): Promise<MosActionOutcome> {
+  switch (actionId) {
+    case "m-finance.update_subscription": {
+      const args = data as Args<typeof actionId>;
+      const result = await updateSubscriptionEntry(
+        userId,
+        args.subscriptionId,
+        { amountCents: args.amountCents, nextChargeDate: args.nextChargeDate, cycle: args.cycle },
+        { name: args.subscriptionName },
+      );
+      if (!result.ok) return refused(result);
+      return receipt(actionId, `Assinatura "${result.value.name}" atualizada.`, [
+        { type: "subscription", id: result.value.id, label: result.value.name },
+      ]);
+    }
+    case "m-finance.cancel_subscription": {
+      const args = data as Args<typeof actionId>;
+      const result = await cancelSubscriptionEntry(userId, args.subscriptionId, { name: args.subscriptionName });
+      if (!result.ok) return refused(result);
+      return receipt(actionId, `Assinatura "${result.value.name}" cancelada.`, [
+        { type: "subscription", id: result.value.id, label: result.value.name },
+      ]);
+    }
+    case "m-finance.mark_income_received": {
+      const args = data as Args<typeof actionId>;
+      const result = await markIncomeReceived(userId, args.incomeId, {
+        amountCents: args.amountCents,
+        name: args.incomeName,
+      });
+      if (!result.ok) return refused(result);
+      return receipt(actionId, `Receita "${result.value.name}" (${formatCurrency(result.value.amountCents)}) marcada como recebida.`, [
+        { type: "income", id: result.value.id, label: result.value.name },
+      ]);
+    }
+    case "m-finance.add_goal_contribution": {
+      const args = data as Args<typeof actionId>;
+      const result = await addGoalContribution(
+        userId,
+        args.goalId,
+        args.amountCents,
+        args.contributionDate ?? todayInSaoPaulo(),
+        { name: args.goalName },
+      );
+      if (!result.ok) return refused(result);
+      return receipt(
+        actionId,
+        `${formatCurrency(args.amountCents)} guardados em "${result.value.name}"${result.value.status === "completed" ? " — meta concluída" : ""}.`,
+        [{ type: "goal", id: result.value.id, label: result.value.name }],
+      );
+    }
+    case "m-finance.set_goal_status": {
+      const args = data as Args<typeof actionId>;
+      const result = await setGoalStatusEntry(userId, args.goalId, args.status, { name: args.goalName });
+      if (!result.ok) return refused(result);
+      return receipt(actionId, `Meta "${result.value.name}" ${STATUS_LABEL[result.value.status]}.`, [
+        { type: "goal", id: result.value.id, label: result.value.name },
+      ]);
+    }
+    case "m-finance.set_invoice_amount": {
+      const args = data as Args<typeof actionId>;
+      const monthRecord = await currentMonthRecord(userId, args.month);
+      const result = await upsertInvoiceAmount({
+        userId,
+        cardId: args.cardId,
+        month: monthRecord,
+        amountCents: args.amountCents,
+        expectation: { cardName: args.cardName },
+      });
+      if (!result.ok) return refused(result);
+      return receipt(
+        actionId,
+        `Fatura ${result.value.cardName} de ${String(monthRecord.month).padStart(2, "0")}/${monthRecord.year} ${result.value.created ? "lançada" : "corrigida"}: ${formatCurrency(result.value.amountCents)}, vence ${result.value.dueDate}.`,
+        [{ type: "card", id: args.cardId, label: result.value.cardName }],
+      );
+    }
+    case "m-finance.set_budget": {
+      const args = data as Args<typeof actionId>;
+      const monthRecord = await currentMonthRecord(userId, args.month);
+      const result = await setBudgetEntry({
+        userId,
+        month: monthRecord,
+        budgetType: args.budgetType,
+        limitCents: args.limitCents,
+        categoryName: args.categoryName ?? null,
+        cardId: args.cardId ?? null,
+      });
+      if (!result.ok) return refused(result);
+      return receipt(
+        actionId,
+        `Orçamento "${result.value.label}" ${result.value.created ? "criado" : "ajustado"}: ${formatCurrency(args.limitCents)} em ${String(monthRecord.month).padStart(2, "0")}/${monthRecord.year}.`,
+        [{ type: "budget", id: result.value.id, label: result.value.label }],
+      );
+    }
+    default:
+      return { ok: false, error: "Ação sem execução implementada.", code: "invalid" };
+  }
 }

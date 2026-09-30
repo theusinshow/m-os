@@ -159,6 +159,15 @@ propor ação sem outro salto.
 | `create_goal` | name, targetAmountCents, currentAmountCents?, deadline?, priority | `createGoalEntry` |
 | `update_goal` | goalId, goalName, + campos | `updateGoalEntry` |
 | `set_policy` | key, value | `setFinancialPolicy` |
+| `update_subscription` · `cancel_subscription` | subscriptionId, subscriptionName, … | `updateSubscriptionEntry` · `cancelSubscriptionEntry` |
+| `mark_income_received` | incomeId, incomeName, amountCents | `markIncomeReceived` |
+| `add_goal_contribution` · `set_goal_status` | goalId, goalName, … | `addGoalContribution` · `setGoalStatusEntry` |
+| `set_invoice_amount` | cardId, cardName, amountCents, month? | `upsertInvoiceAmount` |
+| `set_budget` | budgetType, limitCents, categoryName?/cardId?, month? | `setBudgetEntry` |
+
+As sete últimas (2026-09-30) completam o que a tela faz; a web usa os mesmos
+serviços (`lib/domain/finance-actions/more-entries.ts`). Migration `0017`
+acrescenta `goal_at_risk` ao enum de insights.
 
 Todas: risco **High**, confirmação **Explicit**, preview com valor em R$, e
 revalidação no M-Finance. `billName`/`amountCents` nas ações que tocam entidade
@@ -211,7 +220,8 @@ O parser barato do WhatsApp (heurística + DeepSeek) continua como está.
 
 Detectores puros: `bill_due_soon`, `overdue_commitment`, `income_missing`,
 `card_spending_spike`, `future_month_pressure`, `installment_pressure`,
-`subscription_load`, `safe_to_spend_drop`. Cada um devolve
+`subscription_load`, `safe_to_spend_drop`, `goal_at_risk` (meta cujo ritmo mensal
+não cabe na folga do mês mais apertado até o prazo, ou com prazo vencido). Cada um devolve
 `{ detector, dedupeKey, severity, materialityScore, facts, entityRefs }`;
 materialidade é código, com limiares escalados por `observer_sensitivity`.
 

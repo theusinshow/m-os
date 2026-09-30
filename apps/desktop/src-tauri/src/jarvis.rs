@@ -1090,7 +1090,14 @@ async fn run_action<R: Runtime>(
         | mos_core::ActionArgs::MFinanceCreateSubscription { .. }
         | mos_core::ActionArgs::MFinanceCreateGoal { .. }
         | mos_core::ActionArgs::MFinanceUpdateGoal { .. }
-        | mos_core::ActionArgs::MFinanceSetPolicy { .. } => {
+        | mos_core::ActionArgs::MFinanceSetPolicy { .. }
+        | mos_core::ActionArgs::MFinanceUpdateSubscription { .. }
+        | mos_core::ActionArgs::MFinanceCancelSubscription { .. }
+        | mos_core::ActionArgs::MFinanceMarkIncomeReceived { .. }
+        | mos_core::ActionArgs::MFinanceAddGoalContribution { .. }
+        | mos_core::ActionArgs::MFinanceSetGoalStatus { .. }
+        | mos_core::ActionArgs::MFinanceSetInvoiceAmount { .. }
+        | mos_core::ActionArgs::MFinanceSetBudget { .. } => {
             let payload = mos_core::finance_payload(args).ok_or_else(|| {
                 CoreError::new(
                     mos_core::ErrorCode::InvalidInput,

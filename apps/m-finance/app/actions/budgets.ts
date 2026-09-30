@@ -6,6 +6,7 @@ import { budgets } from "@/db/schema";
 import { requireUser } from "@/lib/auth/guard";
 import { db } from "@/db/client";
 import { budgetSchema } from "@/lib/validators/budget";
+import { setBudgetEntry } from "@/lib/domain/finance-actions/more-entries";
 import { parseCurrencyToCents } from "@/lib/money";
 import { getAppUserBySupabaseId } from "@/lib/months";
 import { getActiveMonthForUser } from "@/lib/active-month";
@@ -49,22 +50,23 @@ export async function createBudget(_prev: FormState, formData: FormData): Promis
 
   const payload = parsed.data;
 
-  try {
-    await db.insert(budgets).values({
-      userId: appUser.id,
-      monthId: currentMonth.id,
-      budgetType: payload.budgetType,
-      categoryId: payload.categoryId ?? null,
-      cardId: payload.cardId ?? null,
-      limitCents: payload.limitCents,
-    });
-  } catch {
-    return errorState("Já existe um orçamento desse tipo para este mês.");
+  // Mesmo serviço do Hermes (`m-finance.set_budget`). Existindo orçamento
+  // desse tipo no mês, o limite é ajustado em vez de recusar a gravação.
+  const result = await setBudgetEntry({
+    userId: appUser.id,
+    month: currentMonth,
+    budgetType: payload.budgetType,
+    limitCents: payload.limitCents,
+    categoryId: payload.categoryId ?? null,
+    cardId: payload.cardId ?? null,
+  });
+  if (!result.ok) {
+    return errorState(result.message);
   }
 
   revalidatePath("/app/budgets");
   revalidatePath("/app/dashboard");
-  return successState("Orçamento adicionado.");
+  return successState(result.value.created ? "Orçamento adicionado." : "Orçamento já existia; limite ajustado.");
 }
 
 export async function updateBudget(_prev: FormState, formData: FormData): Promise<FormState> {

@@ -10,6 +10,7 @@ import {
   sameMonth,
 } from "@/lib/finance-intelligence/dates";
 import { futureCommitments } from "@/lib/finance-intelligence/kernel/commitments";
+import { goalSummary } from "@/lib/finance-intelligence/kernel/goals";
 import { monthOverview } from "@/lib/finance-intelligence/kernel/overview";
 import { safeToSpend } from "@/lib/finance-intelligence/kernel/safe-to-spend";
 import { subscriptionSummary } from "@/lib/finance-intelligence/kernel/subscriptions";
@@ -57,6 +58,7 @@ export const THRESHOLDS = {
   s2sDropMinCents: 30000,
   s2sDropShare: 0.15,
   futureMonths: 6,
+  goalMinMonthlyCents: 5000,
 } as const;
 
 const SEVERITY_ORDER: Record<FinancialInsightSeverity, number> = { info: 0, warning: 1, critical: 2 };
@@ -354,6 +356,64 @@ function detectSafeToSpendDrop(
   ];
 }
 
+/**
+ * Meta com prazo que não fecha: o ritmo mensal que ela pede é maior do que a
+ * folga confiável dos meses até o prazo (o pior deles, até seis à frente), ou o
+ * prazo já passou sem ela concluir. Meta sem prazo não entra — sem prazo não
+ * há "atrasada", só "devagar".
+ */
+function detectGoalAtRisk(snapshot: FinanceSnapshot, factor: number): FinanceObservation[] {
+  const buffer = snapshot.policies.minimumMonthEndBufferCents;
+  const rows = futureCommitments(snapshot, THRESHOLDS.futureMonths).months;
+  const out: FinanceObservation[] = [];
+
+  for (const goal of goalSummary(snapshot).goals) {
+    if (goal.status !== "active" || goal.deadline === null || goal.remainingCents === 0) continue;
+    const name = goal.name;
+    const base = {
+      detector: "goal_at_risk" as const,
+      dedupeKey: `goal_at_risk:${goal.id}:${monthKey(snapshot.current)}`,
+      entityRefs: [{ type: "goal", id: goal.id }],
+    };
+
+    if (goal.deadlinePassed) {
+      out.push({
+        ...base,
+        severity: "warning",
+        materialityScore: materialityOf(goal.remainingCents),
+        title: `O prazo de "${name}" passou`,
+        summary: `Faltam ${formatCurrency(goal.remainingCents)} e o prazo era ${goal.deadline}. Vale um prazo novo ou pausar a meta.`,
+        facts: { goal: name, remainingCents: goal.remainingCents, deadline: goal.deadline, deadlinePassed: true },
+      });
+      continue;
+    }
+
+    const required = goal.requiredMonthlyCents ?? 0;
+    if (required < THRESHOLDS.goalMinMonthlyCents * factor) continue;
+    const window = rows.slice(0, Math.max(1, Math.min(goal.monthsLeft ?? 1, rows.length))).filter((row) => row.hasIncome);
+    if (window.length === 0) continue;
+    const tightest = window.reduce((low, row) => (row.reliableRemainingCents < low.reliableRemainingCents ? row : low));
+    const room = tightest.reliableRemainingCents - buffer;
+    if (required <= room) continue;
+
+    out.push({
+      ...base,
+      severity: room <= 0 ? "critical" : "warning",
+      materialityScore: materialityOf(required - Math.max(room, 0)),
+      title: `"${name}" não fecha no prazo`,
+      summary: `Pede ${formatCurrency(required)}/mês até ${goal.deadline}, mas ${tightest.key} tem só ${formatCurrency(Math.max(room, 0))} de folga confiável.`,
+      facts: {
+        goal: name,
+        requiredMonthlyCents: required,
+        deadline: goal.deadline,
+        tightestMonth: tightest.key,
+        roomCents: room,
+      },
+    });
+  }
+  return out;
+}
+
 /** Todos os detectores, na ordem em que a Home deveria ler: o urgente primeiro. */
 export function runDetectors({ snapshot, previousSafeToSpendCents }: ObserverInput): FinanceObservation[] {
   const factor = sensitivityFactor(snapshot.policies.observerSensitivity);
@@ -366,6 +426,7 @@ export function runDetectors({ snapshot, previousSafeToSpendCents }: ObserverInp
     ...detectSafeToSpendDrop(snapshot, previousSafeToSpendCents, factor),
     ...detectInstallmentPressure(snapshot, factor),
     ...detectSubscriptionLoad(snapshot, factor),
+    ...detectGoalAtRisk(snapshot, factor),
   ];
   return all.sort(
     (a, b) => severityRank(b.severity) - severityRank(a.severity) || b.materialityScore - a.materialityScore,

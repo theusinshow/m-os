@@ -548,6 +548,7 @@ export const financialInsightType = pgEnum("financial_insight_type", [
   "installment_pressure",
   "subscription_load",
   "safe_to_spend_drop",
+  "goal_at_risk",
 ]);
 export const financialInsightSeverity = pgEnum("financial_insight_severity", [
   "info",
