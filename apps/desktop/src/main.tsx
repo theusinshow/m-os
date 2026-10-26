@@ -11,6 +11,7 @@ import "@fontsource/jetbrains-mono/500.css";
 // muda e de onde o codigo em execucao le. Ver ADR-033.
 import "../../../packages/design-system/all.css";
 import App from "./App";
+import { PortaoDeAtualizacao } from "./PortaoDeAtualizacao";
 
 // Qual das janelas do M/OS este documento e.
 //
@@ -54,8 +55,17 @@ window.addEventListener("unhandledrejection", (evento) => {
   registrar("erro", `promessa rejeitada sem catch: ${causa}`);
 });
 
+// Só a janela principal passa pela porta da atualização: as janelinhas de
+// sobreposição abrem e fecham com ela, e uma tela cheia de "atualizando" num
+// lembrete de 420 pixels seria só ruído (ADR-076).
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <App />,
+  janela === "main" ? (
+    <PortaoDeAtualizacao>
+      <App />
+    </PortaoDeAtualizacao>
+  ) : (
+    <App />
+  ),
 );
 
 // "Esta janela montou."

@@ -14018,3 +14018,66 @@ button.daily-objective-title:focus-visible {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ===========================================================================
+   A porta da atualização obrigatória (ADR-076). Tela cheia, por cima de tudo:
+   enquanto ela está aqui, o M/OS não deixa trabalhar na versão velha.
+   =========================================================================== */
+.portao-atualizacao {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+  background: var(--canvas);
+}
+
+.portao-cartao {
+  display: grid;
+  gap: var(--space-3);
+  width: min(440px, 100%);
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.portao-cartao h1 {
+  margin: 0;
+  color: var(--text);
+  font: var(--text-ui);
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.portao-barra {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.portao-barra span {
+  display: block;
+  height: 100%;
+  background: var(--signal-fill);
+  transition: width var(--dur-state) var(--ease-state);
+}
+
+.portao-aviso {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 460px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font: var(--text-small);
+}

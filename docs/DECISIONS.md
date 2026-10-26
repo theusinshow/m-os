@@ -4425,3 +4425,67 @@ tests:         vitest 80/80 + tsc + vite build; perfil ICC lido e convertido
   rápido, avisar prova e o dia, menos ruído) — frente própria, com desenho.
 - **Revisão visual inteira do bolso**, com referência externa — depois dos
   lembretes, para não redesenhar telas que ainda vão mudar.
+
+## ADR-076 — Todo push no desktop vira versão, e o M/OS não deixa trabalhar na versão velha
+
+**Estado:** Accepted · 2026-10-26
+
+### Contexto
+
+O updater assinado existia desde a v0.2 (`TECHNICAL-FOUNDATION-V0.2-RELEASE-UPDATES.md`),
+mas duas coisas o deixavam sem efeito:
+
+1. **Push não virava versão.** O app só enxerga GitHub Release, e release só
+   nascia de tag `v*` empurrada à mão. A última foi a v0.7.2 (30/09); quase um
+   mês de correções no `master` nunca chegou ao app instalado.
+2. **Instalar dependia de um clique em Settings.** A v0.2 recusou de propósito
+   "atualização silenciosa automática na abertura". Este ADR revoga essa recusa.
+
+O dono pediu: cada push habilita uma atualização, e o software não deixa usar
+sem atualizar.
+
+### Decisão
+
+**Desktop.**
+
+- `package.yml` passa a rodar depois do CI verde no `master` (`workflow_run`).
+  Se algo em `apps/desktop`, `crates`, `packages`, `Cargo.toml` ou `Cargo.lock`
+  mudou desde a última tag, publica a próxima versão: patch + 1 da última tag,
+  ou a versão do repositório quando alguém a subiu à mão (salto de minor/major
+  continua sendo decisão, e não contador). `scripts/set-version.ps1` carimba o
+  número só no checkout do build — commitar o bump faria o push disparar outro
+  release. Tag `v*` manual continua funcionando.
+- `PortaoDeAtualizacao` envolve a janela principal. Ao abrir, confere (prazo de
+  4 s) e, havendo versão nova, instala em tela cheia antes de mostrar qualquer
+  coisa. Aberto, confere a cada 30 min e reinicia sozinho com 60 s de aviso.
+- Três exceções, em `regraDaAtualizacaoObrigatoria.ts`:
+  - **Sem resposta, abre.** O M/OS é local-first (VISION): rede caída ou GitHub
+    fora não podem virar um app que não abre.
+  - **Duas falhas na mesma versão, abre** com aviso. Instalador quebrado não
+    tranca o dono do lado de fora; a próxima versão volta a trancar.
+  - **Gravando reunião ou nota de voz, espera.** O áudio vive em memória até
+    parar. Timer não segura: ele mora no banco e sobrevive ao reinício.
+- As janelinhas de sobreposição não passam pela porta, e `tauri dev` também não
+  — o build de desenvolvimento seria "atualizado" pelo release.
+
+**M-Finance.** Já subia a cada push pela Vercel; o que ficava velho era a aba
+aberta (e o PWA do iPhone). `/api/version` responde o commit no ar; a aba
+compara com o dela ao voltar para a tela e a cada 5 min e, divergindo,
+recarrega — uma vez por versão, para não entrar em laço enquanto a CDN propaga.
+
+### Eixos
+
+- **iOS:** não se aplica como app — não há app iOS. O bolso (`mos-web`) e o
+  M-Finance são web: o M-Finance ganha a troca automática acima; o `mos-web`
+  continua com deploy manual na VPS, fora deste corte.
+- **Core / sync:** nada em `mos-core` nem `mos-sync`. Versões diferentes na
+  malha continuam protegidas pelo contrato do hub.
+- **Hermes:** não se aplica.
+
+### Consequências
+
+- A primeira versão com a porta (0.7.3) precisa ser instalada uma vez pelo
+  botão de Settings; dali em diante cada push no desktop chega sozinho.
+- Cada release leva ~13 min de build Windows (repositório público, sem custo).
+- Uma versão ruim chega a todo mundo: o portão de testes do CI é o que segura,
+  e o conserto é outro push.

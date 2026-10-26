@@ -6,6 +6,7 @@ import type { Metadata, Viewport } from "next";
 // para desenhar com uma. `app/fonts/fonts.ts` e os arquivos continuam no
 // repositório — são asset do M-Finance, e removê-los é decisão de outra hora.
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
+import { VersionWatch } from "@/components/pwa/version-watch";
 import "@/styles/globals.css";
 
 export const metadata: Metadata = {
@@ -42,6 +43,7 @@ export default function RootLayout({
       <body>
         {children}
         <ServiceWorkerRegister />
+        <VersionWatch />
       </body>
     </html>
   );
