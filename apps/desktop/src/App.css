@@ -4118,6 +4118,35 @@ select:disabled {
   cursor: default;
 }
 
+/* O dropdown aberto. O WebView2 pinta a lista de opcoes com o fundo do
+   `select` — e o `select` em repouso e transparente, entao a lista caia no
+   branco do sistema com o texto claro do tema por cima: opcoes ilegiveis no
+   escuro. O `color-scheme` do `:root` nao alcanca esse caso. Pintar as opcoes
+   com os tokens resolve nos dois temas, porque os tokens trocam com
+   `[data-theme]`. */
+select option,
+select optgroup {
+  color: var(--text);
+  background-color: var(--surface-raised);
+}
+
+select option:checked {
+  color: var(--text);
+  background-color: var(--surface-active);
+}
+
+select option:disabled {
+  color: var(--text-system);
+}
+
+select:not(:disabled) {
+  cursor: pointer;
+}
+
+select:not(:disabled):hover {
+  border-color: var(--border-strong);
+}
+
 /* Erro tem cor, ao contrario de warning: e o unico estado alem do sinal que
    pode usar cromatica, e vem sempre acompanhado de frase. */
 input[aria-invalid="true"],
@@ -8465,6 +8494,57 @@ input[type="checkbox"]:disabled {
   color: var(--text-meta);
   font: var(--text-meta);
   font-variant-numeric: tabular-nums;
+}
+
+/* O cabecalho diz o que a folha e antes do primeiro campo: "LEMBRAR DE" sozinho
+   no topo podia ser o rotulo de qualquer coisa. */
+.composer-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+
+/* O campo de data mora dentro de QUANDO, e herda o rotulo micro dos demais. */
+.composer-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+
+/* Erro de campo: cor de perigo e frase, sempre as duas. A cor sozinha nao
+   chega a quem nao a distingue; a frase sozinha se perde no meio da folha. */
+.field-error {
+  margin: 0;
+  color: var(--danger);
+  font: var(--text-meta);
+}
+
+/* Com "Nota, repetição e alertas extras" aberto a folha cresce, e numa janela
+   baixa o botao de criar ficava abaixo da borda da tela, sem rolagem. */
+.reminder-composer {
+  max-height: calc(100vh - 14vh - var(--space-5));
+  overflow-y: auto;
+}
+
+/* O retorno de "salvou". Quieto, no mesmo lugar da acao. */
+.reminder-sheet-saved {
+  margin: 0;
+  color: var(--text-meta);
+  font: var(--text-meta);
+}
+
+.reminder-sheet-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* O `padding-top` do `.stack-form` e para formulario no corpo de uma pagina.
+   Dentro da folha ele somava com o padding dela e abria um vao de ~70px acima
+   do primeiro rotulo — visto na foto da bancada. */
+.reminder-composer .stack-form,
+.reminder-sheet .reminder-sheet-edit {
+  padding-top: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -431,7 +431,10 @@ pub fn usage_faixa<R: Runtime>(app: AppHandle<R>) -> Result<Faixa, CoreError> {
         recolhida,
         observada,
         &externas,
-        crate::openai_usage::resumo(&app),
+        // O anel de gasto da OpenAI saiu da faixa (26/10). `montar` continua
+        // sabendo desenha-lo, e o teste dele continua de pe: tirar da tela e
+        // uma decisao de produto, e volta-la e trocar esta linha.
+        None,
         OffsetDateTime::now_utc(),
     )
 }

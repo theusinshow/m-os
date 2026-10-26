@@ -4269,3 +4269,87 @@ sem calcular dinheiro — ele transporta, registra e pede confirmação. Open
 Finance continua fora: tudo isto funciona sobre entrada manual. Desenho completo
 em `docs/superpowers/specs/2026-09-29-m-finance-intelligence-design.md`.
 
+
+---
+
+## ADR-074 — Três cortes de ruído: o gasto da OpenAI sai da tela, a faculdade só avisa a prova, e o dropdown deixa de ser branco
+
+**Estado:** Accepted · 2026-10-26
+
+### Contexto
+
+Três incômodos de uso, pedidos juntos pelo dono:
+
+1. o anel **GASTO NO MÊS** (custo da OpenAI por projeto, ADR da faixa de uso)
+   ocupava a borda da tela com um número que ninguém pediu para ver o dia todo;
+2. o Notification Engine (`PILOTO.md` §2.5) avisava **toda atividade** da
+   faculdade com prazo hoje ou amanhã, e todo bloco planejado para ela. O
+   Univirtus publica dezenas por período; o canal virou ruído e levava junto o
+   aviso que importa — a prova;
+3. a lista aberta de todo `<select>` saía **branca** com o texto claro do tema
+   escuro por cima: opções ilegíveis. O `color-scheme` do `:root` não alcança o
+   popup quando o `select` em repouso é transparente.
+
+E a folha de criar/editar lembrete tinha arestas: dois "Cancelar" lado a lado
+com efeitos opostos (um destrutivo), Salvar que remarcava mesmo sem a hora
+mudar, horário no passado só recusado depois do clique, erro que sumia porque a
+folha fechava, e cópia sem acento.
+
+### Decisão
+
+1. **O gasto sai da experiência, e nada é apagado.** A faixa deixa de receber o
+   anel (`usage.rs` passa `None`), o painel "OpenAI · custos" sai das
+   Configurações e o laço que consultava a Admin API não nasce mais. A chave
+   continua no Credential Manager; o módulo `openai_usage.rs` e os comandos
+   continuam registrados. Voltar é trocar uma linha. M-Finance e Safe-to-Spend
+   não são tocados — "métrica de gastos" era o anel.
+2. **Da faculdade, só a prova avisa.** `avisos::aviso_academico_principal`: prova
+   sem decisão cuja janela fecha hoje ou amanhã. Atividade nunca; prova já
+   fechada também não. O `upcoming` deixa de avisar o bloco planejado de
+   atividade (casado pelo instante e pelo título que `calendar::compose` grava)
+   e continua avisando prova, bloco de estudo da prova e lembrete.
+3. **O popup do select é pintado com tokens** (`option`, `optgroup`,
+   `:checked`, `:disabled`), o que vale nos dois temas porque os tokens trocam
+   com `[data-theme]`.
+4. **Criar/editar lembrete**: estado de erro por campo (título vazio, horário no
+   passado) com frase; "Algum dia" vira uma das respostas de QUANDO; editar é um
+   formulário (Enter salva, Esc descarta), só remarca se a hora mudou, e
+   esconde a barra de ações enquanto edita; "Cancelar lembrete" nomeia o gesto
+   destrutivo; a folha só fecha quando a ação deu certo.
+
+### Os oito eixos
+
+```
+core:          avisos::aviso_academico_principal + bloco_de_atividade (mos-core,
+               sem plataforma); nada muda em academic.rs nem em atencao.rs
+database:      nenhuma migration. autopilot_avisos é local e se poda em 7 dias;
+               aviso antigo de atividade adiado vence e não tem mais candidato
+sync:          não muda o que viaja. A regra mora no domínio, então reimportar
+               a atividade pelo Univirtus ou recebê-la do outro PC não a
+               transforma em aviso. Lembretes (que sincronizam) não são tocados
+desktop:       faixa sem o anel de gasto; Configurações sem o painel; select
+               legível nos dois temas; composer e folha de lembrete revistos
+ios:           não se aplica hoje — o bolso (mos-web) não roda o Notification
+               Engine (PILOTO §7) nem tem select; quando rodar, lê a mesma
+               função e herda o corte. O gasto da OpenAI nunca esteve lá
+notifications: local (toast + notificação do SO no desktop): atividade sai,
+               prova fica. Remota: nenhuma mudança (Web Push só de lembrete)
+hermes:        nenhuma mudança. Ele continua vendo a atividade como
+               compromisso (EntityKind::Assignment) — o corte é de aviso, não
+               de conhecimento
+tests:         5 testes novos em piloto::avisos (atividade em todos os
+               horizontes, janela de prova hoje/amanhã, prova fechada/distante/
+               decidida, bloco planejado de atividade vs. prova vs. lembrete,
+               aviso antigo adiado que não volta) + vitest/tsc/vite build
+```
+
+### O que ficou de fora, e por quê
+
+- **Aviso de ABERTURA de janela.** O Univirtus manda `dataInicio`
+  (`ExternalAssessment.available_at`), mas o M/OS não grava: `academic_exams`
+  só tem `at`, que é o fechamento. Avisar "a APOL abriu" exige migration nova
+  (coluna aditiva) e o campo atravessando o sync. É a próxima decisão, e é do
+  dono.
+- **Task criada a partir de atividade.** Ela é gesto explícito da pessoa
+  ("Criar Task") e continua avisando como Task vencida. Cortá-la seria decidir
+  por ela sobre algo que ela mesma criou.

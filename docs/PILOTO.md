@@ -107,9 +107,18 @@ gravado até o último passo.
 ### 2.5 O Notification Engine
 
 Candidatos: compromisso em 15 min (`upcoming`), Task planejada para hoje e não
-começada depois das 15h (`forgotten_task`), Task vencida urgente, entrega
-acadêmica de hoje/amanhã, follow-up vencido, dia aberto à noite, dia não
+começada depois das 15h (`forgotten_task`), Task vencida urgente, janela de
+**prova** que fecha hoje/amanhã, follow-up vencido, dia aberto à noite, dia não
 iniciado, sync persistente (erro que exige ação, ou offline há horas com fila).
+
+**Faculdade: só o principal (ADR-074).** Da faculdade, só a prova avisa: a
+janela que fecha hoje ou amanhã (`academic`), e a prova ou o bloco de estudo
+dela que começa em 15 minutos (`upcoming`). Atividade (`assignment`) não gera
+aviso nenhum — nem prazo, nem bloco planejado —, e prova cuja janela já fechou
+também não. A regra é `avisos::aviso_academico_principal`, no domínio: o sync do
+Univirtus reimporta a atividade quantas vezes quiser e ela continua sem aviso.
+A atividade não some de lugar nenhum (Faculdade, Home, Calendário, Start My Day)
+e lembrete criado à mão continua com o agendador do Attention System.
 
 Política, na ordem de custo: Autopilot desligado → nada; mesma chave já
 avisada → nada (a chave é tipo + alvo + dia); adiada → nada até vencer;

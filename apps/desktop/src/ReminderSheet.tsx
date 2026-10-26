@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LazyMotion, m } from "framer-motion";
-import { api } from "./api";
+import { api, appError } from "./api";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
@@ -51,7 +51,29 @@ export function ReminderSheet({
   const [titulo, setTitulo] = useState(reminder.title);
   const [nota, setNota] = useState(reminder.body);
   const [quando, setQuando] = useState<string>(paraCampoLocal(reminder.nextDueAt));
+  const [salvo, setSalvo] = useState(false);
   const painel = useRef<HTMLDivElement>(null);
+  const campoTitulo = useRef<HTMLInputElement>(null);
+
+  /* Entrar na edicao sempre parte do que esta salvo. Sem isto, cancelar uma
+     edicao e reabrir trazia de volta o rascunho abandonado. */
+  function comecarEdicao() {
+    setTitulo(atual.title);
+    setNota(atual.body);
+    setQuando(paraCampoLocal(atual.nextDueAt));
+    setErro("");
+    setSalvo(false);
+    setEditando(true);
+  }
+
+  function cancelarEdicao() {
+    setEditando(false);
+    setErro("");
+  }
+
+  useEffect(() => {
+    if (editando) campoTitulo.current?.focus();
+  }, [editando]);
 
   const recarregar = useCallback(async () => {
     const [alertas, eventos] = await Promise.all([
@@ -68,28 +90,67 @@ export function ReminderSheet({
 
   useEffect(() => {
     painel.current?.focus();
+  }, []);
+
+  useEffect(() => {
     function aoTeclar(evento: globalThis.KeyboardEvent) {
       if (evento.key === "Escape") {
         evento.preventDefault();
-        close();
+        // Esc desfaz o passo mais recente: editando, sai da edicao; senao, fecha.
+        if (editando) cancelarEdicao();
+        else close();
       }
     }
     window.addEventListener("keydown", aoTeclar);
     return () => window.removeEventListener("keydown", aoTeclar);
-  }, [close]);
+  }, [close, editando]);
 
-  async function agir(fn: () => Promise<Reminder | void>) {
+  async function agir(fn: () => Promise<Reminder | void>): Promise<boolean> {
     setOcupado(true);
     setErro("");
+    setSalvo(false);
     try {
       const resultado = await fn();
       if (resultado) setAtual(resultado);
       await recarregar();
       changed();
+      return true;
     } catch (falha) {
-      setErro((falha as Error).message ?? String(falha));
+      setErro(appError(falha).message);
+      return false;
     } finally {
       setOcupado(false);
+    }
+  }
+
+  /* O que mudou de fato. Remarcar sem a hora ter mudado devolvia o lembrete a
+     `scheduled`, zerava o adiamento e escrevia "Remarcado" no historico por um
+     clique em Salvar que so corrigiu uma virgula na nota. */
+  const quandoOriginal = paraCampoLocal(atual.nextDueAt);
+  const quandoMudou = quando !== quandoOriginal && quando !== "";
+  const instanteNovo = quandoMudou ? new Date(quando) : null;
+  const quandoNoPassado =
+    instanteNovo !== null && !Number.isNaN(instanteNovo.getTime()) && instanteNovo.getTime() < Date.now();
+  const tituloVazio = !titulo.trim();
+
+  async function salvar(evento: React.FormEvent) {
+    evento.preventDefault();
+    if (ocupado || tituloVazio || quandoNoPassado) return;
+    const ok = await agir(async () => {
+      // Remarcar antes de renomear: mudar a hora devolve o lembrete a
+      // `scheduled`, e o título viaja no mesmo objeto.
+      let remarcado: Reminder | undefined;
+      if (instanteNovo && !Number.isNaN(instanteNovo.getTime())) {
+        remarcado = await api.rescheduleReminder(atual.id, instanteNovo);
+      }
+      if (titulo.trim() !== atual.title || nota !== atual.body) {
+        return api.editReminder(atual.id, { title: titulo.trim(), body: nota });
+      }
+      return remarcado;
+    });
+    if (ok) {
+      setEditando(false);
+      setSalvo(true);
     }
   }
 
@@ -127,17 +188,8 @@ export function ReminderSheet({
       >
         <header className="reminder-sheet-head">
           <div>
-            <span className="micro-label">LEMBRETE</span>
-            {editando ? (
-              <input
-                aria-label="Título"
-                className="reminder-sheet-title-input"
-                onChange={(evento) => setTitulo(evento.currentTarget.value)}
-                value={titulo}
-              />
-            ) : (
-              <h2>{atual.title}</h2>
-            )}
+            <span className="micro-label">{editando ? "EDITAR LEMBRETE" : "LEMBRETE"}</span>
+            <h2>{atual.title}</h2>
             <p className="attention-when">{whenLabel(atual, agora)}</p>
           </div>
           <button aria-label="Fechar" className="icon-button" onClick={close} type="button">
@@ -148,9 +200,25 @@ export function ReminderSheet({
         {pergunta ? <p className="reminder-sheet-question">{pergunta}</p> : null}
 
         {editando ? (
-          <div className="stack-form">
+          <form className="stack-form reminder-sheet-edit" onSubmit={salvar}>
             <label>
-              <span>NOTA</span>
+              <span>LEMBRAR DE</span>
+              <input
+                aria-describedby={tituloVazio ? "sheet-titulo-erro" : undefined}
+                aria-invalid={tituloVazio ? true : undefined}
+                className="reminder-sheet-title-input"
+                onChange={(evento) => setTitulo(evento.currentTarget.value)}
+                ref={campoTitulo}
+                value={titulo}
+              />
+              {tituloVazio ? (
+                <small className="field-error" id="sheet-titulo-erro">
+                  O lembrete precisa de um título.
+                </small>
+              ) : null}
+            </label>
+            <label>
+              <span>NOTA (OPCIONAL)</span>
               <textarea
                 onChange={(evento) => setNota(evento.currentTarget.value)}
                 rows={3}
@@ -160,34 +228,46 @@ export function ReminderSheet({
             <label>
               <span>QUANDO</span>
               <input
+                aria-describedby="sheet-quando-dica"
+                aria-invalid={quandoNoPassado ? true : undefined}
+                min={paraCampoLocal(new Date().toISOString())}
                 onChange={(evento) => setQuando(evento.currentTarget.value)}
                 type="datetime-local"
                 value={quando}
               />
+              {quandoNoPassado ? (
+                <small className="field-error" id="sheet-quando-dica">
+                  Esse horário já passou. Escolha um horário futuro.
+                </small>
+              ) : (
+                <small className="composer-resolved" id="sheet-quando-dica">
+                  {quandoMudou
+                    ? "Vai ser remarcado ao salvar."
+                    : atual.nextDueAt
+                      ? "Sem mudança, o horário atual continua valendo."
+                      : "Sem data. Escolha um horário para ser avisado."}
+                </small>
+              )}
             </label>
+            {erro ? (
+              <p className="inline-error" role="alert">
+                ! {erro} Suas alterações continuam nos campos.
+              </p>
+            ) : null}
             <div className="form-actions">
-              <Button onClick={() => setEditando(false)} variant="ghost">
-                Cancelar
+              <Button disabled={ocupado} onClick={cancelarEdicao} variant="ghost">
+                Descartar alterações
               </Button>
               <Button
-                disabled={ocupado || !titulo.trim()}
-                onClick={() =>
-                  void agir(async () => {
-                    // Remarcar antes de renomear: mudar a hora devolve o
-                    // lembrete a `scheduled`, e o título viaja no mesmo objeto.
-                    const instante = quando ? new Date(quando) : null;
-                    if (instante && !Number.isNaN(instante.getTime())) {
-                      await api.rescheduleReminder(atual.id, instante);
-                    }
-                    return api.editReminder(atual.id, { title: titulo.trim(), body: nota });
-                  }).then(() => setEditando(false))
-                }
+                aria-busy={ocupado || undefined}
+                disabled={ocupado || tituloVazio || quandoNoPassado}
+                type="submit"
                 variant="primary"
               >
-                Salvar
+                {ocupado ? "Salvando…" : "Salvar alterações"}
               </Button>
             </div>
-          </div>
+          </form>
         ) : (
           <dl className="reminder-sheet-facts">
             {atual.body ? (
@@ -270,16 +350,29 @@ export function ReminderSheet({
           </section>
         ) : null}
 
-        {erro ? (
+        {erro && !editando ? (
           <p className="inline-error" role="alert">
             ! {erro}
           </p>
         ) : null}
 
+        <p aria-live="polite" className="reminder-sheet-saved">
+          {salvo && !editando ? "Alterações salvas." : ""}
+        </p>
+
+        {/* Editando, a barra de acoes some: "Descartar" e "Cancelar lembrete"
+            lado a lado eram dois cancelar com efeitos opostos, um deles
+            destrutivo. */}
+        {editando ? null : (
         <div className="reminder-sheet-actions">
           <Button
             disabled={ocupado}
-            onClick={() => void agir(() => api.completeReminder(atual.id)).then(close)}
+            onClick={() =>
+              // So fecha se deu certo: fechar no erro escondia a mensagem.
+              void agir(() => api.completeReminder(atual.id)).then((ok) => {
+                if (ok) close();
+              })
+            }
             variant="primary"
           >
             {acaoPrincipal(atual)}
@@ -296,7 +389,7 @@ export function ReminderSheet({
                 </Button>
               ))
             : null}
-          <Button disabled={ocupado} onClick={() => setEditando(true)} variant="ghost">
+          <Button disabled={ocupado} onClick={comecarEdicao} variant="ghost">
             Editar
           </Button>
           <Button
@@ -317,12 +410,17 @@ export function ReminderSheet({
           </Button>
           <Button
             disabled={ocupado}
-            onClick={() => void agir(() => api.cancelReminder(atual.id)).then(close)}
+            onClick={() =>
+              void agir(() => api.cancelReminder(atual.id)).then((ok) => {
+                if (ok) close();
+              })
+            }
             variant="danger"
           >
-            Cancelar
+            Cancelar lembrete
           </Button>
         </div>
+        )}
 
         {historico.length > 0 ? (
           <section className="reminder-sheet-history">

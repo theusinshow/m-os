@@ -13,6 +13,21 @@
 //! O lembrete classico continua com o agendador do Attention System — este
 //! motor cobre o que aquele nunca cobriu (Task, Academic, dia, sync) e nao o
 //! substitui.
+//!
+//! # Faculdade: so o principal
+//!
+//! Da faculdade, so viram aviso as datas que mudam o que a pessoa faz: a janela
+//! de uma PROVA que fecha hoje ou amanha, e a prova (ou o bloco de estudo dela)
+//! que comeca em 15 minutos. Entrega de ATIVIDADE nao avisa — nem o prazo, nem
+//! o bloco planejado para ela. O Univirtus publica dezenas de atividades por
+//! periodo, e um aviso por atividade por dia ensinava a pessoa a ignorar o canal
+//! inteiro, levando junto o aviso da prova.
+//!
+//! A regra mora aqui, e nao na tela, porque o laco de avisos le daqui: o sync
+//! com o Univirtus pode reimportar a mesma atividade quantas vezes quiser, e ela
+//! continua sem gerar aviso. A atividade em si nao muda — continua na
+//! Faculdade, na Home, no Calendario e no Start My Day. Lembrete criado a mao
+//! continua com o agendador do Attention System, que este motor nao toca.
 
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +35,7 @@ use super::{
     atencao::{compor_atencao, Severidade, TipoDeAtencao},
     e_compromisso, Alvo, Retrato, SyncNoRetrato,
 };
-use crate::{CalendarKind, Priority, QuietHours, TaskState};
+use crate::{CalendarItem, CalendarKind, Compromisso, Horizonte, Priority, QuietHours, TaskState};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -138,6 +153,30 @@ fn janela_dia(r: &Retrato<'_>) -> String {
     r.hoje().as_str().to_owned()
 }
 
+/// O compromisso academico que ainda vale um aviso de prazo: uma PROVA, ainda
+/// sem decisao, cuja janela fecha hoje ou amanha. Atividade nunca; prova cuja
+/// janela ja fechou tambem nao — "o prazo passou" repetido todo dia nao muda o
+/// que a pessoa pode fazer.
+pub fn aviso_academico_principal(c: &Compromisso) -> bool {
+    c.kind == "exam"
+        && c.decision == crate::Decision::None
+        && matches!(c.horizonte, Horizonte::Today | Horizonte::Tomorrow)
+}
+
+/// O bloco planejado no calendario e de uma ATIVIDADE? Entao nao avisa.
+///
+/// O `CalendarItem` nao carrega de onde veio, e acrescentar o campo mudaria o
+/// contrato do Calendario so para isto. O casamento e pelo que o
+/// `calendar::compose` grava: o instante planejado e "disciplina — titulo".
+fn bloco_de_atividade(r: &Retrato<'_>, item: &CalendarItem) -> bool {
+    item.kind == CalendarKind::AcademicPlanned
+        && r.academic.iter().any(|c| {
+            c.kind != "exam"
+                && c.planned_at == Some(item.at)
+                && item.title == format!("{} — {}", c.subject, c.title)
+        })
+}
+
 /// Os candidatos a aviso, a partir do retrato. Sem politica — ver [`decidir`].
 pub fn candidatos(r: &Retrato<'_>) -> Vec<Candidato> {
     let mut lista = Vec::new();
@@ -149,7 +188,10 @@ pub fn candidatos(r: &Retrato<'_>) -> Vec<Candidato> {
 
     // Upcoming: compromisso comecando em ate 15 minutos.
     for item in r.agenda.iter().filter(|i| {
-        e_compromisso(i) && i.kind != CalendarKind::TaskDue && i.kind != CalendarKind::AssignmentDue
+        e_compromisso(i)
+            && i.kind != CalendarKind::TaskDue
+            && i.kind != CalendarKind::AssignmentDue
+            && !bloco_de_atividade(r, i)
     }) {
         let local = item.at.to_offset(offset);
         let faltam = (local - now).whole_minutes();
@@ -224,16 +266,24 @@ pub fn candidatos(r: &Retrato<'_>) -> Vec<Candidato> {
                     acao_principal: "Fazer agora".into(),
                 })
             }
-            TipoDeAtencao::AcademicDeadline if i.severidade >= Severidade::Alta => {
+            TipoDeAtencao::AcademicDeadline
+                if r.academic.iter().any(|c| {
+                    i.alvo == Alvo::academic(&c.kind, &c.id) && aviso_academico_principal(c)
+                }) =>
+            {
                 lista.push(Candidato {
                     chave: format!("academic:{}:{dia}", i.alvo.id),
                     tipo: TipoDeAviso::Academic,
+                    // A janela da prova FECHA: "vence" e palavra de entrega.
                     titulo: format!(
                         "{} {}.",
                         i.titulo,
-                        i.razoes.first().cloned().unwrap_or_default()
+                        i.razoes
+                            .first()
+                            .map(|razao| razao.replacen("vence", "fecha", 1))
+                            .unwrap_or_default()
                     ),
-                    corpo: "Ainda está pendente.".into(),
+                    corpo: format!("{}. Ainda está pendente.", primeira_maiuscula(&i.descricao)),
                     prioridade: Priority::High,
                     alvo: i.alvo.clone(),
                     adiar: opcoes(false, true, true),
@@ -702,5 +752,147 @@ mod tests {
         let am = instante_de_adiar(agora(), Some(-2)).unwrap();
         assert_eq!((am.day(), am.hour()), (16, 9));
         assert!(instante_de_adiar(agora(), None).is_none());
+    }
+
+    // ---- faculdade: so o principal ----------------------------------------
+
+    fn compromisso(kind: &str, id: &str, titulo: &str, horizonte: Horizonte) -> Compromisso {
+        Compromisso {
+            kind: kind.to_owned(),
+            id: id.to_owned(),
+            title: titulo.to_owned(),
+            subject_id: "s".into(),
+            subject: "Estática".into(),
+            subject_accent: String::new(),
+            at: agora() + Duration::hours(30),
+            horizonte,
+            task_id: None,
+            location: String::new(),
+            decision: crate::Decision::None,
+            planned_at: None,
+            planned_minutes: 0,
+        }
+    }
+
+    fn academicos(c: &Cenario) -> Vec<Candidato> {
+        candidatos(&c.retrato())
+            .into_iter()
+            .filter(|x| x.tipo == TipoDeAviso::Academic)
+            .collect()
+    }
+
+    #[test]
+    fn atividade_da_faculdade_nunca_vira_aviso_de_prazo() {
+        let mut c = Cenario::default();
+        for (id, h) in [
+            ("a1", Horizonte::Overdue),
+            ("a2", Horizonte::Today),
+            ("a3", Horizonte::Tomorrow),
+            ("a4", Horizonte::ThisWeek),
+        ] {
+            c.academic
+                .push(compromisso("assignment", id, "Atividade Prática", h));
+        }
+        assert!(academicos(&c).is_empty());
+    }
+
+    #[test]
+    fn janela_de_prova_que_fecha_hoje_ou_amanha_continua_avisando() {
+        let mut c = Cenario::default();
+        c.academic
+            .push(compromisso("exam", "e1", "APOL 3", Horizonte::Tomorrow));
+        c.academic.push(compromisso(
+            "exam",
+            "e2",
+            "Prova Objetiva",
+            Horizonte::Today,
+        ));
+        let avisos = academicos(&c);
+        assert_eq!(avisos.len(), 2);
+        let apol = avisos.iter().find(|a| a.alvo.id == "e1").unwrap();
+        assert_eq!(apol.titulo, "APOL 3 fecha amanhã.");
+        assert_eq!(apol.corpo, "Prova · Estática. Ainda está pendente.");
+        assert_eq!(apol.alvo.kind, "academic_exam");
+    }
+
+    #[test]
+    fn prova_fechada_distante_ou_decidida_nao_avisa() {
+        let mut c = Cenario::default();
+        c.academic
+            .push(compromisso("exam", "e1", "Fechou", Horizonte::Overdue));
+        c.academic
+            .push(compromisso("exam", "e2", "Longe", Horizonte::ThisWeek));
+        let mut feita = compromisso("exam", "e3", "Já fiz", Horizonte::Today);
+        feita.decision = crate::Decision::Done;
+        c.academic.push(feita);
+        assert!(academicos(&c).is_empty());
+    }
+
+    #[test]
+    fn bloco_planejado_de_atividade_nao_avisa_mas_o_da_prova_e_o_lembrete_sim() {
+        let mut c = Cenario::default();
+        let quando = agora() + Duration::minutes(10);
+        let mut atividade = compromisso("assignment", "a1", "Atividade", Horizonte::ThisWeek);
+        atividade.planned_at = Some(quando);
+        let mut prova = compromisso("exam", "e1", "APOL", Horizonte::ThisWeek);
+        prova.planned_at = Some(quando);
+        c.academic = vec![atividade, prova];
+        c.agenda = vec![
+            item(
+                CalendarKind::AcademicPlanned,
+                quando,
+                "Estática — Atividade",
+            ),
+            item(CalendarKind::AcademicPlanned, quando, "Estática — APOL"),
+            item(
+                CalendarKind::ExamScheduled,
+                quando,
+                "Estática — Prova presencial",
+            ),
+            item(CalendarKind::Reminder, quando, "Ligar para a secretaria"),
+        ];
+        let titulos: Vec<String> = candidatos(&c.retrato())
+            .into_iter()
+            .filter(|x| x.tipo == TipoDeAviso::Upcoming)
+            .map(|x| x.titulo)
+            .collect();
+        assert_eq!(titulos.len(), 3, "{titulos:?}");
+        assert!(titulos.iter().all(|t| !t.contains("— Atividade")));
+        assert!(titulos.iter().any(|t| t.starts_with("Estática — APOL")));
+        assert!(titulos
+            .iter()
+            .any(|t| t.starts_with("Estática — Prova presencial")));
+        assert!(titulos
+            .iter()
+            .any(|t| t.starts_with("Ligar para a secretaria")));
+    }
+
+    #[test]
+    fn aviso_antigo_de_atividade_adiado_nao_volta_quando_o_adiamento_vence() {
+        // O historico local pode ter um aviso de atividade adiado de antes da
+        // regra. Vencido o adiamento, a atividade continua sem candidato — e
+        // sem candidato nao ha o que entregar.
+        let mut c = Cenario::default();
+        c.academic.push(compromisso(
+            "assignment",
+            "a1",
+            "Atividade",
+            Horizonte::Today,
+        ));
+        let historico = vec![AvisoEntregue {
+            chave: format!("academic:a1:{}", c.retrato().hoje().as_str()),
+            tipo: TipoDeAviso::Academic,
+            entregue_em: agora() - Duration::hours(5),
+            adiado_ate: Some(agora() - Duration::minutes(1)),
+            resolvido_em: None,
+        }];
+        let q = QuietHours::default();
+        let d = decidir(
+            &c.retrato(),
+            candidatos(&c.retrato()),
+            &historico,
+            &politica(&q),
+        );
+        assert!(d.iter().all(|x| x.candidato.tipo != TipoDeAviso::Academic));
     }
 }

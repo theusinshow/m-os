@@ -154,6 +154,11 @@ pub async fn openai_usage_refresh<R: Runtime>(
     Ok(status_de(&app))
 }
 
+// Fora da faixa desde 26/10: o anel "GASTO NO MÊS" saiu da experiência a pedido
+// do dono. O modulo fica — a chave continua no cofre, os comandos continuam
+// registrados —, so ninguem le nem consulta a OpenAI sozinho. Ver o comentario
+// em `lib.rs`, onde o laco deixou de nascer.
+#[allow(dead_code)]
 pub fn resumo<R: Runtime>(app: &AppHandle<R>) -> Option<ResumoOpenAi> {
     status_de(app).resumo
 }
@@ -207,6 +212,7 @@ async fn atualizar<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     }
 }
 
+#[allow(dead_code)]
 pub async fn run<R: Runtime>(app: AppHandle<R>) {
     // Fora do caminho de abertura. O banco e a primeira pintura terminam antes
     // de uma integracao remota poder disputar runtime com eles.
