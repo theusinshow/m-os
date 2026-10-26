@@ -51,7 +51,7 @@
 | `apps/mos-web/ui/src/App.tsx` | folha só fecha quando salvou; abre destino da URL e da mensagem do SW |
 | `apps/mos-web/ui/src/navegacao.ts` | `destinoDaUrl` |
 | `apps/mos-web/ui/public/sw.js` | clique manda o destino para a janela aberta |
-| docs | README do mos-web, `PILOTO.md` §7, ADR-076 em `DECISIONS.md` |
+| docs | README do mos-web, `PILOTO.md` §7, ADR-077 em `DECISIONS.md` |
 
 ---
 
@@ -1188,7 +1188,7 @@ git commit -m "feat(mos-web): o toque no aviso abre o lembrete ou a task, e cria
 **Files:**
 - Modify: `apps/mos-web/README.md` (tabela "O que avisa" e seção "Adiar não está na porta", ~linhas 180-205)
 - Modify: `docs/PILOTO.md` (§7, ~linhas 173-175 e 229-233)
-- Modify: `docs/DECISIONS.md` (ADR-076 no fim)
+- Modify: `docs/DECISIONS.md` (ADR-077 no fim)
 - Modify: `docs/superpowers/specs/2026-10-26-lembretes-do-bolso-design.md` (Estado: Implementado; §5: lembretes **não** passam pelo teto por hora — ver abaixo)
 
 - [ ] **Step 1: README do mos-web**
@@ -1204,16 +1204,16 @@ Troque a tabela "O que avisa" por:
 
 Substitua a seção "**Adiar não está na porta.**" por um parágrafo dizendo que adiar existe, passa por `AttentionService::snooze` (registra histórico) e por que não há disputa com o agendador do desktop (o `mos-web` não tem agendador que escreva). E acrescente: "O iOS não mostra botões dentro da notificação; o toque abre o lembrete com Concluir e Adiar em cima."
 
-- [ ] **Step 2: `PILOTO.md` §7** — troque a frase que diz que o bolso não roda o motor por: "Desde a ADR-076 o `mos-web` roda `candidatos` + `decidir` num laço de 60s e entrega por Web Push os tipos Academic, Overdue, ForgottenTask e Upcoming. Com o PC em uso (última tecla há ≤ 5 min, informada ao hub por `/sync/presenca`), o bolso segura esses avisos."
+- [ ] **Step 2: `PILOTO.md` §7** — troque a frase que diz que o bolso não roda o motor por: "Desde a ADR-077 o `mos-web` roda `candidatos` + `decidir` num laço de 60s e entrega por Web Push os tipos Academic, Overdue, ForgottenTask e Upcoming. Com o PC em uso (última tecla há ≤ 5 min, informada ao hub por `/sync/presenca`), o bolso segura esses avisos."
 
-- [ ] **Step 3: ADR-076** — acrescente ao fim de `docs/DECISIONS.md`, no formato da ADR-074/075 (Contexto, Decisão, os oito eixos, o que ficou de fora). Pontos obrigatórios:
+- [ ] **Step 3: ADR-077** — acrescente ao fim de `docs/DECISIONS.md`, no formato da ADR-074/075 (Contexto, Decisão, os oito eixos, o que ficou de fora). Pontos obrigatórios:
   - Contexto: os quatro pedidos do dono; iOS sem botões na notificação.
   - Decisão: §1–§5 do spec, com os números (5 min; tipos do bolso; tipos só do PC).
   - **Correção do spec:** lembretes **não** passam pelo teto por hora do `decidir` — são compromisso explícito da pessoa e já têm dedupe por vencimento e degrau. Só os avisos do piloto passam pelo teto e pelo cooldown.
   - Eixos: copie os do spec, atualizando `database` com a migração aditiva `em_uso_em` no hub.
   - Fora: botões na notificação (iOS), aviso de abertura de janela da prova, revisão visual do bolso.
 
-- [ ] **Step 4: Spec** — mude `**Estado:**` para `implementado (ADR-076)` e corrija o §5 conforme o ponto acima.
+- [ ] **Step 4: Spec** — mude `**Estado:**` para `implementado (ADR-077)` e corrija o §5 conforme o ponto acima.
 
 - [ ] **Step 5: Verificação geral**
 
@@ -1231,7 +1231,7 @@ Expected: tudo verde. Se `cargo fmt --check` reclamar, rode `cargo fmt --all` e 
 
 ```bash
 git add apps/mos-web/README.md docs
-git commit -m "docs: ADR-076 — lembretes e avisos do bolso"
+git commit -m "docs: ADR-077 — lembretes e avisos do bolso"
 git push origin master
 ```
 
