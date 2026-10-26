@@ -38,6 +38,7 @@ export async function getInvoiceForCardMonth(userId: string, cardId: string, mon
       amountCents: creditCardInvoices.amountCents,
       dueDate: creditCardInvoices.dueDate,
       status: creditCardInvoices.status,
+      creditsCents: creditCardInvoices.creditsCents,
     })
     .from(creditCardInvoices)
     .where(

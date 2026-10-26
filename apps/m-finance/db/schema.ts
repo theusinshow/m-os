@@ -35,7 +35,7 @@ export const goalPriority = pgEnum("goal_priority", ["low", "medium", "high"]);
 export const goalStatus = pgEnum("goal_status", ["active", "paused", "completed", "archived"]);
 export const budgetType = pgEnum("budget_type", ["total", "category", "card"]);
 export type BudgetType = (typeof budgetType.enumValues)[number];
-export const expenseSource = pgEnum("expense_source", ["manual", "openfinance"]);
+export const expenseSource = pgEnum("expense_source", ["manual", "openfinance", "statement"]);
 export const pluggyItemStatus = pgEnum("pluggy_item_status", [
   "pending",
   "updating",
@@ -226,6 +226,10 @@ export const creditCardInvoices = pgTable(
     status: invoiceStatus("status").notNull().default("pending"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     notes: text("notes"),
+    // O que já abateu esta fatura antes do vencimento: pagamentos antecipados
+    // e créditos (estorno sem par, "ajuste a crédito"). `amountCents` continua
+    // sendo o que falta pagar; as compras explicam `amountCents + creditsCents`.
+    creditsCents: integer("credits_cents").notNull().default(0),
     ...timestamps,
   },
   (table) => [
@@ -245,7 +249,13 @@ export const creditCardExpenses = pgTable(
     amountCents: integer("amount_cents").notNull(),
     purchaseDate: date("purchase_date"),
     notes: text("notes"),
-    // Origin of the row: "manual" (user typed it) or "openfinance" (synced via
+    categoryId: uuid("category_id").references(() => billCategories.id, { onDelete: "set null" }),
+    // A compra é a cobrança de uma assinatura que vive dentro do cartão.
+    subscriptionId: uuid("subscription_id").references(() => subscriptions.id, {
+      onDelete: "set null",
+    }),
+    // Origin of the row: "manual" (user typed it), "statement" (imported from
+    // an OFX or pasted invoice) or "openfinance" (synced via
     // an aggregator). External rows carry the provider transaction id so a
     // re-sync upserts instead of duplicating.
     source: expenseSource("source").notNull().default("manual"),
@@ -314,6 +324,9 @@ export const subscriptions = pgTable(
     nextChargeDate: date("next_charge_date").notNull(),
     cycle: subscriptionCycle("cycle").notNull().default("monthly"),
     status: subscriptionStatus("status").notNull().default("trial"),
+    // Cobrada dentro deste cartão: o valor já está na fatura, e o lembrete de
+    // cobrança deixa de fazer sentido (não há o que cancelar a tempo de pagar).
+    cardId: uuid("card_id").references(() => creditCards.id, { onDelete: "set null" }),
     // How many days before the charge to notify (defaults to 1 = "um dia antes").
     reminderDaysBefore: integer("reminder_days_before").notNull().default(1),
     // The charge date we already pushed a reminder for, so the cron never

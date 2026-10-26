@@ -14,6 +14,12 @@ const initialCategories = [
   "Dívidas",
   "Lazer",
   "Investimentos",
+  // As cinco que a importação de fatura precisa para classificar compra de cartão.
+  "Software & APIs",
+  "Alimentação",
+  "Mercado",
+  "Compras",
+  "Taxas",
   "Outros",
 ];
 

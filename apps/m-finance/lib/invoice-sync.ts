@@ -44,7 +44,11 @@ export async function syncInvoiceTotal(
   const newSum = Number(row?.total ?? 0);
 
   const [invoice] = await tx
-    .select({ id: creditCardInvoices.id, amountCents: creditCardInvoices.amountCents })
+    .select({
+      id: creditCardInvoices.id,
+      amountCents: creditCardInvoices.amountCents,
+      creditsCents: creditCardInvoices.creditsCents,
+    })
     .from(creditCardInvoices)
     .where(
       and(
@@ -55,11 +59,15 @@ export async function syncInvoiceTotal(
     )
     .limit(1);
 
-  const total = nextInvoiceTotal({
-    currentTotal: invoice?.amountCents ?? null,
+  // As compras explicam a fatura inteira — o que falta pagar mais o que já foi
+  // abatido. A comparação é contra esse bruto, e o que se grava é o que falta.
+  const credits = invoice?.creditsCents ?? 0;
+  const gross = nextInvoiceTotal({
+    currentTotal: invoice ? invoice.amountCents + credits : null,
     previousSum,
     newSum,
   });
+  const total = gross - credits;
 
   if (total > 0) {
     await tx
