@@ -1,6 +1,9 @@
 import type { EstadoDoAparelho } from "../api";
 import type { Situacao } from "../notificacoes";
 
+/** O mesmo endereco que o desktop abre (`FinancePage.tsx`). */
+const M_FINANCE = "https://m-finance-silk.vercel.app";
+
 /**
  * O indice, e nao uma gaveta.
  *
@@ -71,6 +74,22 @@ export function Mais({
               </small>
             </div>
           </button>
+        </li>
+        <li className="item">
+          {/* Um link, e nao uma pagina daqui: o M-Finance e outro app, com
+              banco e login proprios. Embutir o dinheiro no bolso do M/OS seria
+              copiar a tela que ele ja tem — ver `PLATFORMS.md`. */}
+          <a
+            className="linha-destino"
+            href={M_FINANCE}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <div className="item-corpo">
+              <p>M-Finance ↗</p>
+              <small>contas, cartão e o quanto ainda dá para gastar</small>
+            </div>
+          </a>
         </li>
       </ul>
 

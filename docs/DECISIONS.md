@@ -4353,3 +4353,75 @@ tests:         5 testes novos em piloto::avisos (atividade em todos os
 - **Task criada a partir de atividade.** Ela é gesto explícito da pessoa
   ("Criar Task") e continua avisando como Task vencida. Cortá-la seria decidir
   por ela sobre algo que ela mesma criou.
+
+---
+
+## ADR-075 — O bolso abre só com Face ID, o ícone deixa de ser preto, o sódio ganha a gama do iPhone e o M-Finance fica a um toque
+
+**Estado:** Accepted · 2026-10-26
+
+### Contexto
+
+Quatro queixas de uso do iPhone, pedidas juntas pelo dono:
+
+1. **A senha a cada abertura.** Em 22/10 a VPS passou do Caddy para o Traefik do
+   Dokploy, e `/etc/dokploy/traefik/dynamic/mos.yml` recriou o `basic_auth` do
+   Caddy como o middleware `mos-auth`. Ele já existia antes: a tentativa de 10/09
+   (`tirar-senha.py`) foi revertida no mesmo dia. Uma PWA instalada no iPhone
+   não guarda Basic Auth, então pedia a senha toda vez — e por trás dela a
+   passkey já estava compilada, configurada e com aparelho registrado
+   (`/api/porta/estado`), com sessão de 30 dias. Eram duas portas, e só uma
+   fazia sentido.
+2. **O ícone preto na Tela de Início.** O PNG estava certo. `/` e
+   `/apple-touch-icon.png` respondiam 401 por causa do mesmo Basic Auth, e o
+   caminho que o iOS adivinha caía no fallback do SPA (`index.html`): HTML no
+   lugar de imagem.
+3. **O amarelo "ovo envelhecido".** O token do bolso é o mesmo do desktop
+   (`#E7C24E`). O iPhone gerencia cor e mostra o hex como ele é, com True Tone
+   puxando para o quente; no PC o mesmo hex parece mais vivo. O dono comparou
+   no iPhone o sRGB atual contra três versões Display-P3 do mesmo tom e escolheu
+   `p3(0.96 0.79 0.20)`.
+4. **Ir ao M-Finance** sem sair procurando o endereço.
+
+### Decisão
+
+1. **A porta é a passkey.** `deploy/senha-traefik.py tirar` remove o `mos-auth`
+   só do roteador `mos-web`, depois de conferir que a porta interna existe, e
+   repõe sozinho se `/api` responder sem sessão. A definição do middleware fica
+   no arquivo: `senha-traefik.py voltar` é a porta de emergência se o aparelho
+   com a passkey se perder. Aplicado e conferido em 26/10 (`/` 200,
+   `/api/tasks` 401, ícone 200). `tirar-senha.py` e `voltar-senha.py` mexem no
+   Caddy, que está parado — ficam como histórico.
+2. **`apple-touch-icon.png` existe de verdade**, gerado junto com os outros.
+3. **O sódio do bolso em P3**, em `@media (color-gamut: p3)` no `estilo.css`
+   (`--signal`, `--signal-wash`, `--signal-press`, `--brilho-topo`). Tela sem P3
+   fica com o hex. Os PNGs do ícone saem com perfil ICC Display P3 embutido
+   (`scripts/gerar-icones-web.py`), e os SVGs com `fill` P3 sobre o hex.
+   **O desktop não muda**: o dono aprovou o amarelo como ele aparece no PC, e o
+   WebView2 num monitor P3 aplicaria a versão saturada por cima do que já parece
+   vivo ali.
+4. **M-Finance na página Mais**, como link para o mesmo endereço que o desktop
+   abre. Link e não página: o M-Finance tem banco e login próprios.
+
+### Os oito eixos
+
+```
+core:          nenhuma mudança
+database:      nenhuma
+sync:          nenhuma — /sync/* nunca passou pelo mos-auth
+desktop:       não se aplica: o sódio do desktop é o aprovado; o M-Finance já
+               tem página lá (FinancePage.tsx)
+ios:           é onde tudo isto mora — porta só com passkey, ícone, sódio P3,
+               link do M-Finance
+notifications: nenhuma (a revisão de lembretes e avisos é a próxima frente)
+hermes:        nenhuma
+tests:         vitest 80/80 + tsc + vite build; perfil ICC lido e convertido
+               pelo LittleCMS; prova de produção pelo próprio senha-traefik.py
+```
+
+### O que ficou de fora
+
+- **Lembretes e notificações do bolso** (adiar pela notificação, composer
+  rápido, avisar prova e o dia, menos ruído) — frente própria, com desenho.
+- **Revisão visual inteira do bolso**, com referência externa — depois dos
+  lembretes, para não redesenhar telas que ainda vão mudar.
