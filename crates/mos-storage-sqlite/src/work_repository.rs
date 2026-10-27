@@ -1099,6 +1099,15 @@ impl WorkRepository for SqliteStorage {
                 false,
             ));
         }
+        // A triagem viaja como mudanca da Capture, como em `resource_repository`:
+        // sem ela o outro aparelho nunca sabe que a Capture saiu da Inbox, e o
+        // eco da propria criacao, voltando do hub, a reescreve como `inbox`.
+        self.emitir_update(
+            &transaction,
+            "capture",
+            capture_id.as_uuid(),
+            &[("processingState", serde_json::json!("processed"))],
+        )?;
         transaction.commit().map_err(map_sql_error)?;
         query_task(&connection, id)
     }
@@ -1160,6 +1169,13 @@ impl WorkRepository for SqliteStorage {
             ));
         }
 
+        // Idem: a triagem viaja como mudanca da Capture.
+        self.emitir_update(
+            &transaction,
+            "capture",
+            capture_id.as_uuid(),
+            &[("processingState", serde_json::json!("processed"))],
+        )?;
         transaction.commit().map_err(map_sql_error)?;
         let task = query_task(&connection, task_id)?;
         drop(connection);

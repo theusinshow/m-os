@@ -195,3 +195,38 @@ fn todas_as_operacoes_saem_do_mesmo_dispositivo() {
         assert_eq!(op.at.device, este.id);
     }
 }
+
+/// A Capture triada em Task diz que foi triada — nos dois caminhos.
+///
+/// Sem a operacao, a mudanca morria neste aparelho: o outro nunca sabia que a
+/// Capture saiu da Inbox, e o eco da propria criacao, voltando do hub, a
+/// reescrevia como `inbox` aqui mesmo (o teste do bolso
+/// `triagem_no_bolso_sugere_e_aplica_por_item` falhava uma vez em quatro).
+#[test]
+fn triar_em_task_emite_o_estado_da_capture() {
+    use mos_core::{NewTask, WorkRepository};
+
+    let (_dir, storage) = com_sync();
+    let simples = storage.create(nova("vira task")).unwrap();
+    storage
+        .create_task_from_capture(simples.id, NewTask::create("Vira task", "", None).unwrap())
+        .unwrap();
+    let com_lembrete = storage.create(nova("vira task com lembrete")).unwrap();
+    storage
+        .create_task_from_capture_with_reminder(
+            com_lembrete.id,
+            NewTask::create("Com lembrete", "", None).unwrap(),
+            None,
+        )
+        .unwrap();
+
+    let pendentes = storage.pendentes(50).unwrap();
+    for capture in [simples.id, com_lembrete.id] {
+        assert!(
+            pendentes.iter().any(|op| op.entity.id == capture.as_uuid()
+                && matches!(&op.body, OpBody::Update { fields }
+                    if fields.get("processingState") == Some(&serde_json::json!("processed")))),
+            "a Capture {capture} foi triada sem emitir processingState"
+        );
+    }
+}
