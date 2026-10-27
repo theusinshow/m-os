@@ -82,6 +82,7 @@ Estados possíveis:
 | ADR-065 | OpenAI entra pela fatura oficial, e restante significa limite menos gasto | Accepted |
 | ADR-066 | A Task passa a representar trabalho: o passo é entidade, o prazo volta | Accepted |
 | ADR-088 | O M-Finance calcula, o Hermes explica, o M/OS executa | Accepted |
+| ADR-093 | O Workspace é filtro do M/OS inteiro, e a regra mora no core | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -5043,3 +5044,78 @@ recarrega — uma vez por versão, para não entrar em laço enquanto a CDN prop
 - Cada release leva ~13 min de build Windows (repositório público, sem custo).
 - Uma versão ruim chega a todo mundo: o portão de testes do CI é o que segura,
   e o conserto é outro push.
+
+
+## ADR-093 — O Workspace é filtro do M/OS inteiro, e a regra mora no core
+
+**Estado:** Accepted · 2026-10-26
+
+> O número 092 fica reservado para os lembretes do bolso
+> (`docs/superpowers/plans/2026-10-26-lembretes-do-bolso.md`), que já o citam.
+
+### Contexto
+
+O dono quis três Workspaces — PROSUL (empresa), DEV (programação), MMD
+(desenhos) — e "separar melhor as coisas". Trocar de Workspace já mudava os
+widgets da Home, o leque e os Projects/Apps listados nela. Todo o resto
+mostrava tudo junto: Tasks, Inbox, Biblioteca e o contexto do Hermes. A Task
+solta e a Capture nem tinham como saber em que Workspace nasceram.
+
+### Decisão
+
+1. **O Workspace é um filtro global**, com a opção **Todos**.
+2. **Sem Workspace aparece em todos.** Nada some por não ter sido classificado.
+3. **Uma coluna, e não uma junção.** A migration 0043 acrescenta
+   `workspace_id` opcional (`ON DELETE SET NULL`) em `tasks`, `captures` e
+   `conversations`. Cada uma nasce em no máximo um Workspace; a Task também
+   herda os Workspaces do Project, por `project_workspaces`.
+4. **A regra mora em `mos_core::escopo`.** Com declarados (o próprio mais os
+   herdados), o item aparece nos que estão ATIVOS entre eles; se todos os
+   declarados estão arquivados, ele fica só em Todos. O core devolve o
+   `EscopoDoWorkspace` (os ids visíveis) e o front só testa pertinência — não
+   há segunda cópia da regra em TypeScript.
+5. **Criar nasce no Workspace atual.** A Task triada de uma Capture herda o
+   Workspace da Capture (em `insert_task`, por onde passam a Inbox, a voz e a
+   reunião); o que se solta na ingestão nasce no Workspace da tela.
+6. **O Hermes muda só o contexto.** A conversa nasce no Workspace atual; a
+   lista mostra as dele e as sem Workspace; os candidatos da busca passam pelo
+   escopo antes do ranking; o que ele cria nasce no Workspace da conversa.
+   Sem instruções próprias por Workspace e sem bloqueio de ação.
+7. **Fora do filtro, de propósito:** Calendário, Reuniões, Faculdade, Finance,
+   Tempo, lembretes e a atenção do Piloto. São do dia inteiro; esconder um
+   prazo por estar no Workspace errado é perder o prazo.
+
+### Os oito eixos
+
+```
+core:          mos_core::escopo (pertence, escopo, EscopoDoWorkspace::admite);
+               CreateTaskInput/CreateCaptureInput.workspace_id; set_task_workspace,
+               CaptureService::set_workspace; ConversationService::*_em;
+               agente_exec::Contexto.workspace_id
+database:      0043_workspace_dos_itens.sql — ADD COLUMN, nada destruído; o que
+               existe fica NULL e aparece em todos
+sync:          campo "workspaceId" nos mapas task, capture e conversation; merge
+               por campo. Sem tabela nova, então a geração da cobertura não sobe
+desktop:       seletor na barra do sistema (Home mantém o CONTEXTO ATUAL); Tasks,
+               Inbox, Projects, Biblioteca, Home e Hermes filtram; campo WORKSPACE
+               no detalhe da Task e da Capture; "Sem workspace" para a triagem
+ios:           o bolso não muda nesta fase: não conhece Workspace, mostra tudo, e
+               o que captura chega sem Workspace. Seletor no bolso é fase 2
+notifications: nenhuma muda
+hermes:        enxerga o Workspace da conversa; cria nele
+tests:         escopo.rs (a regra, arquivado, Todos, os quatro tipos);
+               workspace_dos_itens.rs (ida-e-volta, herança da Capture, escopo
+               no banco, mover, duas réplicas); agente_exec.rs (cria no
+               Workspace da conversa, lista de conversas separada);
+               escopoDoWorkspace.test.ts
+```
+
+### Consequências
+
+- O histórico nasce todo sem Workspace e, pela regra 2, aparece em todos até
+  ser triado. O caminho é "Sem workspace" no seletor e o campo WORKSPACE.
+- A Biblioteca passou a usar o escopo do core no recorte NESTE CONTEXTO: um
+  Resource sem Workspace agora aparece em todos, como o resto.
+- Réplica antiga (o outro PC, o bolso) guarda o campo que não conhece e o
+  reenvia; nada se perde, só não filtra lá.
+- Spec: `docs/superpowers/specs/2026-10-26-workspace-filtro-global-design.md`.

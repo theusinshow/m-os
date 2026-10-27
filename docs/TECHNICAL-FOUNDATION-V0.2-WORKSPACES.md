@@ -6,6 +6,10 @@ Este corte introduz Workspaces como fundacao de contexto, nao como dashboard pes
 
 Workspace ajuda o usuario a reunir Projects e Apps relacionados a um modo de trabalho sem transformar esses itens em silos.
 
+> **Atualização (2026-10-26, ADR-093).** O Workspace deixou de ser só contexto
+> da Home e virou filtro do M/OS inteiro, com a regra em `mos_core::escopo`. Ver
+> `docs/superpowers/specs/2026-10-26-workspace-filtro-global-design.md`.
+
 ## 2. Escopo deste corte
 
 Deve existir:

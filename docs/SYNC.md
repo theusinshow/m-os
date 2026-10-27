@@ -186,6 +186,16 @@ o desenho do sync mudar, essas quatro tabelas se apagam sem tocar no que existe.
 
 ---
 
+## 6.1 O Workspace dos itens (ADR-093)
+
+A 0043 acrescenta `workspace_id` em `tasks`, `captures` e `conversations`, e o
+campo viaja como `workspaceId` nos três tipos — próprio, para mover de Workspace
+num aparelho e editar o título no outro conviverem. Chegar antes do Workspace é
+o caso de sempre das pendentes da projeção. Sem tabela nova: a geração da
+cobertura não sobe.
+
+---
+
 ## 7. Sync incremental
 
 O custo cresce com **o que mudou**, nunca com o tamanho da base (§43).
