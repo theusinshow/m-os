@@ -43,6 +43,10 @@ mais fina conforme o desenho encolhe, então o ângulo abre para compensar:
 
 viewBox `0 0 64 64` nos três, centroide em (32,32).
 
+Os graus acima são o nome que o handoff deu a cada faixa, e não uma medida: a linha de
+centro dos polígonos inclina **29.4° · 34.3° · 40.4° da vertical**. Os polígonos são a
+verdade; o Lab de ícones (`npm run lab` em `apps/desktop`) mede contra eles.
+
 **Raio do ícone ≈ 18% do lado:** 112→20px, 64→11px, 32→6px, 16→3px.
 
 **Um acento só: o sódio `#E7C24E`.** Tinta sobre ele: `#0A0C0E`. Nenhuma cor de marca nova
@@ -51,7 +55,7 @@ entra — nem uma por app.
 **Tipografia:** Schibsted Grotesk (400/500/700) e JetBrains Mono (400/500). Nada mais.
 
 **Paleta:** canvas `#0A0C0E` · surface `#101316` · border `#1E2429` · border forte
-`#2A3136` · texto `#E7EAEC` · secundário `#8C949A` · sistema `#626A70`.
+`#2A3136` · texto `#E7EAEC` · secundário `#8C949A` · sistema `#7C858D`.
 
 **Movimento:** a barra dá meia-volta (180°). É o único movimento da marca, e é também o
 único spinner do sistema — não existe círculo girando, não existem três pontos.

@@ -67,8 +67,7 @@ button {
 
 /* Silhueta e preenchimento puro. Mantendo o traco junto, o icone ativo crescia
    1.25px em relacao ao inativo e a fila do rail perdia o alinhamento optico. */
-.mos-icon[data-filled],
-.mos-icon[data-icon="home"] {
+.mos-icon[data-filled] {
   fill: currentColor;
   stroke: none;
 }

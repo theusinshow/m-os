@@ -82,6 +82,29 @@ def desenhar(tamanho):
     return imagem.resize((tamanho, tamanho), FILTRO)
 
 
+# O favicon nao passa por mascara de sistema nenhuma: a aba desenha o que
+# receber. Leva os cantos do `icone.svg` (13.4 de 64) e, sobretudo, a barra da
+# SUA faixa — a 16 e 32px a barra pequena, e nao a de 512 reduzida, que era o
+# que o navegador fazia com o SVG unico.
+RAIO_FAVICON = 13.4 / 64
+FAVICONS = (16, 32)
+
+
+def desenhar_favicon(tamanho):
+    lado = tamanho * SUPER
+    escala = lado / 64.0
+    imagem = Image.new("RGBA", (lado, lado), (0, 0, 0, 0))
+    pincel = ImageDraw.Draw(imagem)
+    pincel.rounded_rectangle(
+        [0, 0, lado - 1, lado - 1], radius=int(lado * RAIO_FAVICON), fill=SODIO
+    )
+    pincel.polygon(
+        [(x * escala, y * escala) for x, y in barra_para(tamanho)],
+        fill=TINTA,
+    )
+    return imagem.resize((tamanho, tamanho), FILTRO)
+
+
 def perfil_display_p3():
     """Um perfil ICC v2 de Display P3, montado a mao.
 
@@ -152,6 +175,10 @@ def main():
         desenhar(tamanho).convert("RGB").save(
             caminho, "PNG", optimize=True, icc_profile=perfil
         )
+        print("gerado", os.path.relpath(caminho, RAIZ))
+    for tamanho in FAVICONS:
+        caminho = os.path.join(DESTINO, "favicon-%d.png" % tamanho)
+        desenhar_favicon(tamanho).save(caminho, "PNG", optimize=True, icc_profile=perfil)
         print("gerado", os.path.relpath(caminho, RAIZ))
 
 

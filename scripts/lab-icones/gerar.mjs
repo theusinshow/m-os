@@ -37,9 +37,15 @@ function lerFontes() {
   const symbol = ler("apps/desktop/src/Symbol.tsx");
   const barras = {};
   const rotulos = {};
-  for (const [, graus, faixa, pontos] of symbol.matchAll(/\/\*\*[^*]*?(\d+) graus \*\/\s*(\w+): "([^"]+)"/g)) {
+  const declarados = {};
+  // "22 graus no handoff, 29.4 medidos": o nome da faixa e a medida que o
+  // codigo declara. O Lab confere a medida contra o poligono.
+  for (const [, graus, medidos, faixa, pontos] of symbol.matchAll(
+    /\/\*\*[^*]*?(\d+) graus(?: no handoff, ([\d.]+) medidos)? \*\/\s*(\w+): "([^"]+)"/g,
+  )) {
     barras[faixa] = pontos.split(" ").map((p) => p.split(",").map(Number));
     rotulos[faixa] = Number(graus);
+    if (medidos) declarados[faixa] = Number(medidos);
   }
 
   const py = ler("scripts/gerar-icones.py");
@@ -47,7 +53,11 @@ function lerFontes() {
 
   const familia = ler("scripts/generate-family-icons.py");
   const receita = {};
-  for (const [, lado, raio] of familia.matchAll(/^\s+(\d+): \((\d+), [\d.]+, "/gm)) receita[lado] = Number(raio);
+  const variante = {};
+  for (const [, lado, raio, eixo] of familia.matchAll(/^\s+(\d+): \((\d+), [\d.]+, "(\w+)"/gm)) {
+    receita[lado] = Number(raio);
+    variante[lado] = eixo;
+  }
   const campos = {};
   for (const [, app, campo] of familia.matchAll(/"([\w-]+)": \("(#[0-9A-Fa-f]{6})", FIELD\)/g)) campos[app] = campo;
   const glifos = {};
@@ -72,7 +82,7 @@ function lerFontes() {
   const briefRaio = Number(brief.match(/Raio do ícone ≈ (\d+)%/)?.[1]) / 100;
   const briefTraco = brief.match(/Stroke[^\n]*/i)?.[0] ?? null;
 
-  return { barras, rotulos, raioMos, receita, campos, glifos, webCheio, paleta, tokensEscuros, traco, briefPaleta, briefRaio, briefTraco, tokens };
+  return { barras, rotulos, declarados, raioMos, receita, variante, campos, glifos, webCheio, paleta, tokensEscuros, traco, briefPaleta, briefRaio, briefTraco, tokens };
 }
 
 // ---------------------------------------------------------------------------
@@ -189,11 +199,16 @@ function medirBitmap(item, quadro, fontes, extras) {
 }
 
 /** "Este tamanho e o maior reduzido?" — so desvia entre faixas diferentes. */
-function seloDeEscala(quadro, maior, familia) {
+function seloDeEscala(quadro, maior, familia, fontes) {
   if (!maior || maior === quadro || quadro.tamanho >= maior.tamanho) return null;
   const reduzido = reduzir(maior.imagem, quadro.tamanho);
   const d = diferenca(reduzido, quadro.imagem);
-  const mesmaFaixa = familia === "mos" && faixaDe(quadro.tamanho) === faixaDe(maior.tamanho);
+  // "Mesma faixa": o mesmo desenho e esperado. No M/OS e a barra; nos irmaos,
+  // a variante de eixo do glifo na RECIPE.
+  const mesmaFaixa =
+    familia === "mos"
+      ? faixaDe(quadro.tamanho) === faixaDe(maior.tamanho)
+      : fontes.variante[quadro.tamanho] !== undefined && fontes.variante[quadro.tamanho] === fontes.variante[maior.tamanho];
   if (d < 0.012 && !mesmaFaixa) {
     return selo("desvio", "desenho proprio", `igual ao ${maior.tamanho}px reduzido (dif. ${(d * 100).toFixed(1)}%)`, "desenho do tamanho");
   }
@@ -222,6 +237,7 @@ function quadrosDoArquivo(item) {
 }
 
 function medirSvg(item, texto, fontes) {
+  // `item.favicon`: citado num `<link rel="icon">` de HTML.
   const selos = [];
   const hexes = [...new Set([...texto.matchAll(/(?:fill|stroke)="(#[0-9A-Fa-f]{3,6})"/g)].map(([, h]) => h.toUpperCase()))];
   const campo = fontes.campos[item.app];
@@ -247,15 +263,15 @@ function medirSvg(item, texto, fontes) {
     const pontos = poligono.trim().split(/\s+/).map((p) => p.split(",").map(Number));
     const lean = inclinacaoDoPoligono(pontos);
     const faixa = Object.entries(fontes.barras).find(([, p]) => Math.abs(inclinacaoDoPoligono(p) - lean) < 1.5)?.[0];
-    selos.push(
-      selo(
-        "desvio",
-        "barra",
-        `${lean.toFixed(1)}° (${faixa ?? "fora das tres"})`,
-        "um desenho por faixa",
-        "SVG unico: o navegador desenha a mesma barra em 16px na aba e em 512px na instalacao",
-      ),
-    );
+    // Um SVG so serve todos os tamanhos. No manifest ele e desenhado grande (a
+    // instalacao), e ai a barra large esta certa; como favicon (`rel="icon"`),
+    // a aba o desenha em 16px com a barra de 512 — o escalonamento proibido.
+    if (item.favicon) {
+      selos.push(selo("desvio", "barra", `${lean.toFixed(1)}° (${faixa ?? "fora das tres"})`, "um desenho por faixa", "SVG como favicon: a aba desenha em 16px a barra de 512"));
+    } else {
+      const ok = faixa === "large";
+      selos.push(selo(ok ? "ok" : "desvio", "barra", `${lean.toFixed(1)}° (${faixa ?? "fora das tres"})`, "large (usado grande, no manifest)"));
+    }
   }
   if (item.familia === "glifo") selos.push(selo("nao-medivel", "fonte", "", "", "glifo de origem, entra no icone pelo generate-family-icons.py"));
   return selos;
@@ -269,10 +285,11 @@ function medirArquivos(fontes) {
   const itens = [];
   for (const item of inventario()) {
     const { usos, orfao } = usosDe(item.caminho, item.familia);
-    const registro = { ...item, usos, orfao, quadros: [] };
+    const favicon = item.caminho.endsWith(".svg") && usos.some((u) => u.endsWith(".html") && new RegExp(`rel="icon"[^>]*${basename(item.caminho).replace(".", "\.")}`).test(ler(u)));
+    const registro = { ...item, usos, orfao, favicon, quadros: [] };
     if (item.caminho.endsWith(".svg")) {
       const texto = readFileSync(join(RAIZ, item.caminho), "utf8");
-      registro.quadros.push({ rotulo: basename(item.caminho), tamanho: null, src: svgDataUri(texto), vetor: true, selos: medirSvg(item, texto, fontes) });
+      registro.quadros.push({ rotulo: basename(item.caminho), tamanho: null, src: svgDataUri(texto), vetor: true, selos: medirSvg(registro, texto, fontes) });
     } else {
       const quadros = quadrosDoArquivo(item).map((q) => ({ ...q, tamanho: q.imagem?.largura ?? null }));
       itens.push(registro);
@@ -309,7 +326,7 @@ function medirArquivos(fontes) {
   for (const item of itens) {
     for (const q of item.quadros) {
       if (!q.imagem) continue;
-      const s = seloDeEscala(q, porApp.get(item.grupo), item.familia);
+      const s = seloDeEscala(q, porApp.get(item.grupo), item.familia, fontes);
       if (s) q.selos.push(s);
     }
   }
@@ -378,11 +395,15 @@ async function medirComponentes(fontes) {
 function conflitos(fontes) {
   const lista = [];
   const leans = Object.fromEntries(Object.entries(fontes.barras).map(([f, p]) => [f, inclinacaoDoPoligono(p)]));
+  const declarado = Object.keys(leans).every((f) => Math.abs((fontes.declarados[f] ?? -1) - leans[f]) < 0.1);
   lista.push({
+    ok: declarado,
     regra: "Ângulo da barra",
     brief: Object.entries(fontes.rotulos).map(([f, g]) => `${f} ${g}°`).join(" · "),
     codigo: Object.entries(leans).map(([f, g]) => `${f} ${g.toFixed(1)}° da vertical (${(90 - g).toFixed(1)}° da horizontal)`).join(" · "),
-    nota: "Os polígonos são os mesmos nas duas fontes; o rótulo em graus não mede nenhuma reta deles. A ordem confere (o ângulo abre ao encolher), o número não.",
+    nota: declarado
+      ? "O rótulo é nome de faixa do handoff; o Symbol.tsx declara a medida ao lado, e ela confere com o polígono."
+      : "Os polígonos são os mesmos nas duas fontes; o rótulo em graus não mede nenhuma reta deles. A ordem confere (o ângulo abre ao encolher), o número não.",
   });
   lista.push({
     regra: "Raio do campo",

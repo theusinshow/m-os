@@ -20,6 +20,8 @@ import struct
 
 from PIL import Image, ImageDraw
 
+from icns import TAMANHOS as TAMANHOS_ICNS, escrever_icns
+
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ICONES = os.path.join(RAIZ, "apps", "desktop", "src-tauri", "icons")
 
@@ -128,3 +130,10 @@ if __name__ == "__main__":
         [16, 20, 24, 32, 40, 48, 64, 96, 128, 256],
     )
     print("%-24s %s" % ("icon.ico", tamanhos))
+    pngs = {}
+    for tamanho in TAMANHOS_ICNS:
+        buffer = io.BytesIO()
+        desenhar(tamanho).save(buffer, format="PNG")
+        pngs[tamanho] = buffer.getvalue()
+    escrever_icns(os.path.join(ICONES, "icon.icns"), pngs)
+    print("%-24s %s" % ("icon.icns", TAMANHOS_ICNS))

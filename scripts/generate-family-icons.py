@@ -24,6 +24,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from icns import TAMANHOS as TAMANHOS_ICNS, escrever_icns
+
 ROOT = Path(__file__).resolve().parent.parent
 MARKS = ROOT / "packages/design-system/marks"
 
@@ -99,6 +101,7 @@ def compose(
     ink: str = INK_DARK,
     maskable: bool = False,
     field: str = FIELD,
+    full_bleed: bool = False,
 ) -> str:
     radius, ratio, variant = RECIPE[size]
     if maskable:
@@ -110,6 +113,11 @@ def compose(
         # com 0.64 ela daria 0.90 — os cantos sairiam fora.
         radius = 0
         ratio = 0.55
+    # A tela inicial do iOS arredonda sozinha, por cima. PNG que ja chega
+    # arredondado ganha canto preto depois da mascara — a mesma regra do
+    # `gerar-icones-web.py` para o M/OS de bolso.
+    if full_bleed:
+        radius = 0
     box = size * ratio
     offset = (size - box) / 2
     # O `viewBox` do Material Symbols vai de -960 a 0 no eixo Y. Um `<svg>`
@@ -130,12 +138,13 @@ def render(
     destination: Path,
     field: str = FIELD,
     ink: str = INK_DARK,
+    full_bleed: bool = False,
 ) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         "w", suffix=".svg", delete=False, encoding="utf-8"
     ) as handle:
-        handle.write(compose(glyph, size, ink=ink, field=field))
+        handle.write(compose(glyph, size, ink=ink, field=field, full_bleed=full_bleed))
         source = Path(handle.name)
     try:
         subprocess.run(
@@ -190,6 +199,14 @@ def main() -> None:
             print(f"cronocad/{name:<18} {size:>4}px  {RECIPE[size][2]}")
         write_ico("timer", crono / "icon.ico")
         print(f"cronocad/{'icon.ico':<18} 16, 24, 32, 48, 64, 128, 256")
+        with tempfile.TemporaryDirectory() as workspace:
+            pngs = {}
+            for size in TAMANHOS_ICNS:
+                frame = Path(workspace) / f"{size}.png"
+                render("timer", size, frame)
+                pngs[size] = frame.read_bytes()
+            escrever_icns(crono / "icon.icns", pngs)
+        print(f"cronocad/{'icon.icns':<18} {', '.join(map(str, TAMANHOS_ICNS))}")
 
     # Os dois web usam um SVG so, que o navegador escala. A aba renderiza entre
     # 16 e 32, entao o arquivo congela a linha de 32 da receita: FILL 1 e peso
@@ -208,7 +225,9 @@ def main() -> None:
             # `ImageResponse`: o Satori nao desenha `path`, entao o `.tsx` so
             # conseguia aproximar a marca com borda de CSS. Um PNG gerado pela
             # mesma receita nao precisa aproximar nada.
-            render(glyph, 180, icon.parent / "apple-icon.png", field=field, ink=ink)
+            render(
+                glyph, 180, icon.parent / "apple-icon.png", field=field, ink=ink, full_bleed=True
+            )
             legacy = icon.parent / "apple-icon.tsx"
             if legacy.is_file():
                 legacy.unlink()
