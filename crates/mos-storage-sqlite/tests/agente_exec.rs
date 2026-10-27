@@ -291,3 +291,99 @@ fn contexto_de_project_responde_o_que_falta_com_fonte_e_teto() {
     assert!(!contexto.contains("Já entregue"));
     assert!(!contexto.contains("De outro projeto"));
 }
+
+#[test]
+fn o_que_o_hermes_cria_nasce_no_workspace_da_conversa() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = servicos(&dir);
+    let registro = Registro::default();
+    let prosul = s
+        .work
+        .create_workspace(mos_core::CreateWorkspaceInput {
+            name: "PROSUL".into(),
+            description: String::new(),
+        })
+        .unwrap();
+    let agora_local = datetime!(2026-10-26 10:00 -03:00);
+    let ctx = Contexto {
+        workspace_id: Some(prosul.id.to_string()),
+        servicos: &s,
+        capacidades: &registro,
+        agora: agora_local.to_offset(time::UtcOffset::UTC),
+        agora_local,
+    };
+
+    let criada = executar_acao(
+        &ctx,
+        &acao(
+            r#"{"action":"mos.task.create","args":{"title":"Medir a laje"}}"#,
+            agora_local,
+        ),
+    )
+    .unwrap();
+    let task = s
+        .work
+        .tasks(false)
+        .unwrap()
+        .into_iter()
+        .find(|t| t.title == "Medir a laje")
+        .unwrap();
+    assert_eq!(task.workspace_id, Some(prosul.id), "{}", criada.message);
+
+    executar_acao(
+        &ctx,
+        &acao(
+            r#"{"action":"mos.capture.create","args":{"content":"ligar pro engenheiro"}}"#,
+            agora_local,
+        ),
+    )
+    .unwrap();
+    let capture = s
+        .captures
+        .inbox(10)
+        .unwrap()
+        .into_iter()
+        .find(|c| c.content == "ligar pro engenheiro")
+        .unwrap();
+    assert_eq!(capture.workspace_id, Some(prosul.id));
+}
+
+#[test]
+fn a_lista_de_conversas_separa_por_workspace() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = servicos(&dir);
+    let criar = |nome: &str| {
+        s.work
+            .create_workspace(mos_core::CreateWorkspaceInput {
+                name: nome.into(),
+                description: String::new(),
+            })
+            .unwrap()
+            .id
+            .to_string()
+    };
+    let (prosul, dev) = (criar("PROSUL"), criar("DEV"));
+    let de_prosul = s.conversations.create_em(Some(&prosul)).unwrap();
+    let de_dev = s.conversations.create_em(Some(&dev)).unwrap();
+    let solta = s.conversations.create_em(None).unwrap();
+
+    let ids = |workspace: Option<&str>| -> Vec<String> {
+        s.conversations
+            .list_em(false, workspace)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.id.to_string())
+            .collect()
+    };
+    let em_prosul = ids(Some(&prosul));
+    assert!(em_prosul.contains(&de_prosul.id.to_string()));
+    assert!(em_prosul.contains(&solta.id.to_string()));
+    assert!(!em_prosul.contains(&de_dev.id.to_string()));
+    assert_eq!(ids(None).len(), 3, "TUDO ve todas");
+
+    let corrente = s.conversations.current_or_new_em(Some(&dev)).unwrap();
+    assert_ne!(
+        corrente.id, de_prosul.id,
+        "a corrente de DEV nao e de PROSUL"
+    );
+}

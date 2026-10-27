@@ -419,6 +419,9 @@ pub struct ConversationSummary {
     pub message_count: i64,
     /// Primeira linha da ultima mensagem com texto. Vazio numa conversa nova.
     pub preview: String,
+    /// O Workspace da conversa (ADR-093). A lista filtra por ele.
+    #[serde(default)]
+    pub workspace_id: Option<crate::WorkspaceId>,
 }
 
 #[derive(Clone, Debug)]

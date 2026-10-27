@@ -215,6 +215,7 @@ fn summarize(
         updated_at: parse_time(updated_at)?,
         message_count,
         preview,
+        workspace_id: None,
     })
 }
 
@@ -293,10 +294,10 @@ impl ConversationRepository for SqliteStorage {
             "lifecycle_state = 'active'"
         };
 
-        let rows: Vec<(String, String, String)> = {
+        let rows: Vec<(String, String, String, Option<String>)> = {
             let mut statement = transaction
                 .prepare(&format!(
-                    "SELECT id, title, updated_at FROM conversations
+                    "SELECT id, title, updated_at, workspace_id FROM conversations
                      WHERE {lifecycle} ORDER BY updated_at DESC LIMIT ?1"
                 ))
                 .map_err(map_sql_error)?;
@@ -306,6 +307,7 @@ impl ConversationRepository for SqliteStorage {
                         row.get::<_, String>(0)?,
                         row.get::<_, String>(1)?,
                         row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
                     ))
                 })
                 .map_err(map_sql_error)?;
@@ -317,8 +319,13 @@ impl ConversationRepository for SqliteStorage {
         };
 
         let mut summaries = Vec::with_capacity(rows.len());
-        for (id, title, updated_at) in rows {
-            summaries.push(summarize(&transaction, &id, title, &updated_at)?);
+        for (id, title, updated_at, workspace) in rows {
+            let mut resumo = summarize(&transaction, &id, title, &updated_at)?;
+            resumo.workspace_id = workspace
+                .as_deref()
+                .map(mos_core::WorkspaceId::parse)
+                .transpose()?;
+            summaries.push(resumo);
         }
         Ok(summaries)
     }

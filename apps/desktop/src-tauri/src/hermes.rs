@@ -344,8 +344,9 @@ async fn answer_query<R: Runtime>(app: &AppHandle<R>, raw: &str) {
         *guard -= 1;
     }
 
-    let candidatos = jarvis::run_query(app, &request);
     let conversation_id = get(&state.conversation_id);
+    let escopo = jarvis::escopo_da_conversa(app, &conversation_id);
+    let candidatos = jarvis::run_query(app, &request, escopo.as_ref());
     let service = app.state::<AppState>().conversations.clone();
 
     // A resposta abre uma mensagem NOVA do assistente, e nao continua a
@@ -833,7 +834,10 @@ pub async fn hermes_send<R: Runtime>(
     // candidatos junto. E a mesma ADR-028 (injecao de contexto), com o M/OS
     // deixando de esperar que o usuario faca a busca por ele.
     let here = crate::surface::here(&app);
-    let candidates = jarvis::candidates_for(&app, &text);
+    // Em PROSUL o Hermes enxerga PROSUL (ADR-093): a busca passa pelo escopo do
+    // Workspace da conversa.
+    let escopo = jarvis::escopo_da_conversa(&app, &conversation_id);
+    let candidates = jarvis::candidates_for(&app, &text, escopo.as_ref());
     let now_local = crate::surface::now_local(&app);
     let hops = mos_core::MAX_QUERY_HOPS;
     set(&app.state::<HermesState>().query_hops, hops);

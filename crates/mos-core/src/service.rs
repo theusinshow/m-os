@@ -2148,8 +2148,14 @@ impl ConversationService {
     }
 
     pub fn create(&self) -> Result<Conversation, CoreError> {
-        self.repository
-            .create_conversation(NewConversation::create())
+        self.create_em(None)
+    }
+
+    /// Conversa nova no Workspace atual (ADR-093). Vazio e TUDO.
+    pub fn create_em(&self, workspace_id: Option<&str>) -> Result<Conversation, CoreError> {
+        self.repository.create_conversation(
+            NewConversation::create().with_workspace(workspace_opcional(workspace_id)?),
+        )
     }
 
     pub fn get(&self, id: &str) -> Result<Conversation, CoreError> {
@@ -2157,7 +2163,34 @@ impl ConversationService {
     }
 
     pub fn list(&self, include_archived: bool) -> Result<Vec<ConversationSummary>, CoreError> {
-        self.repository.conversations(include_archived, 200)
+        self.list_em(include_archived, None)
+    }
+
+    /// As conversas que aparecem num Workspace: as dele e as sem Workspace.
+    /// A regra e a de `crate::pertence`, e o alvo e o unico ativo que importa
+    /// aqui â€” a conversa so declara o proprio.
+    pub fn list_em(
+        &self,
+        include_archived: bool,
+        workspace_id: Option<&str>,
+    ) -> Result<Vec<ConversationSummary>, CoreError> {
+        let alvo = workspace_opcional(workspace_id)?;
+        let ativos: std::collections::HashSet<WorkspaceId> = alvo.into_iter().collect();
+        Ok(self
+            .repository
+            .conversations(include_archived, 200)?
+            .into_iter()
+            .filter(|resumo| {
+                crate::pertence(
+                    &crate::Declarados {
+                        proprio: resumo.workspace_id,
+                        herdados: &[],
+                    },
+                    alvo,
+                    &ativos,
+                )
+            })
+            .collect())
     }
 
     /// A conversa mais recente, ou uma nova quando nao ha nenhuma.
@@ -2167,9 +2200,20 @@ impl ConversationService {
     /// ou deixar o renderer decidir qual conversa e a corrente, que e regra de
     /// aplicacao e nao de apresentacao.
     pub fn current_or_new(&self) -> Result<Conversation, CoreError> {
-        match self.repository.conversations(false, 1)?.first() {
+        self.current_or_new_em(None)
+    }
+
+    /// A mais recente que aparece no Workspace, ou uma nova nele.
+    pub fn current_or_new_em(&self, workspace_id: Option<&str>) -> Result<Conversation, CoreError> {
+        // Em TUDO a mais recente e a primeira linha: uma leitura de um, e nao a
+        // lista inteira resumida.
+        let recentes = match workspace_opcional(workspace_id)? {
+            None => self.repository.conversations(false, 1)?,
+            Some(_) => self.list_em(false, workspace_id)?,
+        };
+        match recentes.first() {
             Some(summary) => self.repository.get_conversation(summary.id),
-            None => self.create(),
+            None => self.create_em(workspace_id),
         }
     }
 

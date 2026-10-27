@@ -79,6 +79,25 @@ pub struct EscopoDoWorkspace {
     pub resources: Vec<String>,
 }
 
+impl EscopoDoWorkspace {
+    /// O Hermes pode receber este candidato nesta conversa?
+    ///
+    /// So os quatro tipos que o Workspace separa sao filtrados. Reuniao,
+    /// lembrete, objetivo do dia e faculdade ficam fora do filtro de proposito
+    /// (spec Â§2): sao do dia inteiro, e esconder um prazo do Hermes por ele
+    /// estar "no Workspace errado" seria perder o prazo.
+    pub fn admite(&self, kind: crate::EntityKind, id: &str) -> bool {
+        let lista = match kind {
+            crate::EntityKind::Task => &self.tasks,
+            crate::EntityKind::Capture => &self.captures,
+            crate::EntityKind::Project => &self.projects,
+            crate::EntityKind::Resource => &self.resources,
+            _ => return true,
+        };
+        lista.iter().any(|visivel| visivel == id)
+    }
+}
+
 /// Aplica `pertence` a cada item.
 pub fn escopo(vinculos: &VinculosDeWorkspace, alvo: WorkspaceId) -> EscopoDoWorkspace {
     let ativos: HashSet<WorkspaceId> = vinculos.ativos.iter().copied().collect();
@@ -232,6 +251,22 @@ mod tests {
         let vivos = ativos(&[b]);
         assert!(!pertence(&so(Some(a)), Some(b), &vivos));
         assert!(pertence(&so(Some(a)), None, &vivos));
+    }
+
+    #[test]
+    fn o_hermes_so_filtra_os_tipos_do_workspace() {
+        let escopo = EscopoDoWorkspace {
+            tasks: vec!["t1".into()],
+            ..Default::default()
+        };
+        assert!(escopo.admite(crate::EntityKind::Task, "t1"));
+        assert!(!escopo.admite(crate::EntityKind::Task, "t2"));
+        assert!(!escopo.admite(crate::EntityKind::Project, "p1"));
+        assert!(
+            escopo.admite(crate::EntityKind::Meeting, "m1"),
+            "reuniao e do dia inteiro"
+        );
+        assert!(escopo.admite(crate::EntityKind::Reminder, "r1"));
     }
 
     #[test]

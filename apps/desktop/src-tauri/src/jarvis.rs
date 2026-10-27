@@ -342,6 +342,7 @@ async fn run_action<R: Runtime>(
     app: &AppHandle<R>,
     args: &mos_core::ActionArgs,
     idempotency_key: &str,
+    workspace_id: Option<String>,
 ) -> Result<mos_core::ActionEffect, CoreError> {
     // Toda acao do M-Finance segue o mesmo caminho: o corpo sai do MESMO
     // `ActionArgs` que desenhou o cartao (`finance_payload`, no core), a chave
@@ -366,7 +367,7 @@ async fn run_action<R: Runtime>(
     let capacidades = CapacidadesDesktop { app: app.clone() };
     mos_core::agente_exec::executar_acao(
         &mos_core::agente_exec::Contexto {
-            workspace_id: None,
+            workspace_id,
             servicos: &servicos,
             capacidades: &capacidades,
             agora: state.clock.now(),
@@ -475,10 +476,18 @@ pub async fn action_resolve<R: Runtime>(
         let now_local = crate::surface::now_local(&app);
         let resolved = match mos_core::parse_action_at(&raw, now_local) {
             Ok(args) => {
+                // O que o Hermes cria nasce no Workspace da conversa que o
+                // propos (ADR-093), e nao no que a tela mostra agora.
+                let workspace = service
+                    .get(&message.conversation_id.to_string())
+                    .ok()
+                    .and_then(|conversa| conversa.workspace_id)
+                    .map(|id| id.to_string());
                 run_action(
                     &app,
                     &args,
                     &crate::finance::idempotency_key(&message_id, &raw),
+                    workspace,
                 )
                 .await
             }
@@ -639,14 +648,36 @@ fn resumo(texto: &str, teto: usize) -> String {
 /// Uma varredura por termo da a semantica de OU, e a contagem de termos que
 /// bateram vira o ranking. A entidade que aparece em quatro buscas diferentes e
 /// mais provavelmente a citada do que a que apareceu em uma.
-pub fn candidates_for<R: Runtime>(app: &AppHandle<R>, text: &str) -> Vec<mos_core::Candidate> {
-    candidates_for_kinds(app, text, &[])
+pub fn candidates_for<R: Runtime>(
+    app: &AppHandle<R>,
+    text: &str,
+    escopo: Option<&mos_core::EscopoDoWorkspace>,
+) -> Vec<mos_core::Candidate> {
+    candidates_for_kinds(app, text, &[], escopo)
+}
+
+/// O escopo do Workspace da conversa, ou `None` quando ela e de TUDO.
+///
+/// Falha de leitura vira `None`, e nao erro: sem o escopo o Hermes recebe o
+/// contexto de antes da ADR-093, que e mais largo e nunca menos correto.
+pub fn escopo_da_conversa<R: Runtime>(
+    app: &AppHandle<R>,
+    conversation_id: &str,
+) -> Option<mos_core::EscopoDoWorkspace> {
+    let state = app.state::<AppState>();
+    let workspace = state
+        .conversations
+        .get(conversation_id)
+        .ok()?
+        .workspace_id?;
+    state.work.escopo_do_workspace(&workspace.to_string()).ok()
 }
 
 fn candidates_for_kinds<R: Runtime>(
     app: &AppHandle<R>,
     text: &str,
     kinds: &[mos_core::EntityKind],
+    escopo: Option<&mos_core::EscopoDoWorkspace>,
 ) -> Vec<mos_core::Candidate> {
     let termos = mos_core::search_terms(text);
     if termos.is_empty() {
@@ -758,6 +789,11 @@ fn candidates_for_kinds<R: Runtime>(
                 }
             }
         }
+    }
+    // O filtro vem ANTES do ranking, que aplica o teto: filtrar depois deixaria
+    // uma conversa de PROSUL com tres candidatos onde cabiam doze.
+    if let Some(escopo) = escopo {
+        hits.retain(|(_, candidato)| escopo.admite(candidato.kind, &candidato.id));
     }
     mos_core::rank_candidates(hits, kinds)
 }
@@ -926,8 +962,9 @@ fn detalhe_academico(
 pub fn run_query<R: Runtime>(
     app: &AppHandle<R>,
     request: &mos_core::QueryRequest,
+    escopo: Option<&mos_core::EscopoDoWorkspace>,
 ) -> Vec<mos_core::Candidate> {
-    candidates_for_kinds(app, &request.search, &request.kinds)
+    candidates_for_kinds(app, &request.search, &request.kinds, escopo)
 }
 
 /// O bloco de contexto e o registro do que ele contem.
@@ -1184,18 +1221,29 @@ pub fn announce_conversation<R: Runtime>(app: &AppHandle<R>, conversation: &Conv
 pub fn conversation_list(
     state: State<'_, AppState>,
     include_archived: bool,
+    workspace_id: Option<String>,
 ) -> Result<Vec<ConversationSummary>, CoreError> {
-    state.conversations.list(include_archived)
+    state
+        .conversations
+        .list_em(include_archived, workspace_id.as_deref())
 }
 
 #[tauri::command]
-pub fn conversation_current(state: State<'_, AppState>) -> Result<Conversation, CoreError> {
-    state.conversations.current_or_new()
+pub fn conversation_current(
+    state: State<'_, AppState>,
+    workspace_id: Option<String>,
+) -> Result<Conversation, CoreError> {
+    state
+        .conversations
+        .current_or_new_em(workspace_id.as_deref())
 }
 
 #[tauri::command]
-pub fn conversation_create(state: State<'_, AppState>) -> Result<Conversation, CoreError> {
-    state.conversations.create()
+pub fn conversation_create(
+    state: State<'_, AppState>,
+    workspace_id: Option<String>,
+) -> Result<Conversation, CoreError> {
+    state.conversations.create_em(workspace_id.as_deref())
 }
 
 #[tauri::command]
