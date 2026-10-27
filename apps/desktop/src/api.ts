@@ -3,7 +3,8 @@ import type { UndoStep } from "./hermes";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { EstadoDaAtualizacao } from "./atualizacao";
-import type { Ocorrencia } from "./types";
+import type { EscopoDoWorkspace, Ocorrencia } from "./types";
+import { workspaceAtual } from "./escopoDoWorkspace";
 import type { OpenAiUsageStatus, ResultadoDaTriagem, SugestaoDeTriagem } from "./types";
 import type { AnalysisConsent, AudioTest, InsightPreview, Meeting, MeetingAnalysis, MeetingBookmark, MeetingInsight,
   MeetingOverview, MeetingPreferences, MeetingTick, ProjectInference, TranscriberStatus, TranscriptSegment, TrimOutcome,
@@ -979,8 +980,20 @@ export const api = {
     return invoke<void>("reveal_ingested_file", { resourceId });
   },
 
+  /* O que se cria nasce no Workspace atual (ADR-093). Lido aqui, e nao em cada
+     tela, porque a captura rapida e outra janela: ela so compartilha com a
+     principal a mesma origem, e portanto o mesmo `localStorage`. */
   createCapture(content: string, source: CaptureSource) {
-    return invoke<Capture>("create_capture", { input: { content, source } });
+    return invoke<Capture>("create_capture", { input: { content, source, workspaceId: workspaceAtual() } });
+  },
+  setCaptureWorkspace(id: string, workspaceId: string | null) {
+    return invoke<Capture>("set_capture_workspace", { id, workspaceId });
+  },
+  setTaskWorkspace(id: string, workspaceId: string | null) {
+    return invoke<Task>("set_task_workspace", { id, workspaceId });
+  },
+  workspaceScope(id: string) {
+    return invoke<EscopoDoWorkspace>("workspace_scope", { id });
   },
   getCapture(id: string) {
     return invoke<Capture>("get_capture", { id });
@@ -1096,7 +1109,10 @@ export const api = {
   },
   /** A criacao rapida: titulo e o que a pessoa quis dizer junto, nada mais. */
   createTask(title: string, description: string, projectId: string | null, sourceCaptureId: string | null = null, extra: Partial<{ dueAt: string | null; priority: TaskPriority; estimateMinutes: number | null; parentTaskId: string | null; checklist: string[] }> = {}) {
-    return invoke<Task>("create_task", { input: { title, description, projectId, sourceCaptureId, ...extra } });
+    /* Vinda de uma Capture, a Task herda o Workspace DELA, no core: quem tria
+       em DEV algo capturado em PROSUL continua tendo uma coisa de PROSUL. */
+    const workspaceId = sourceCaptureId ? null : workspaceAtual();
+    return invoke<Task>("create_task", { input: { title, description, projectId, sourceCaptureId, workspaceId, ...extra } });
   },
   /* A edicao e AUTORITATIVA campo por campo: `dueAt: null` significa TIRE o
      prazo, e nao "nao mexi nisso". Quem so quer mudar um campo parte da Task

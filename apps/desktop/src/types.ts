@@ -10,6 +10,8 @@ export type Capture = {
   updatedAt: string;
   processingState: ProcessingState;
   lifecycleState: LifecycleState;
+  /** O Workspace em que foi capturada (ADR-093). Nulo: sem Workspace, aparece em todos. */
+  workspaceId?: string | null;
 };
 
 export type Project = {
@@ -159,9 +161,19 @@ export type Task = {
      checklist inteiro por cartao seria o N+1 que o desenho recusa. */
   checklistTotal: number;
   checklistDone: number;
+  /** O Workspace PROPRIO (ADR-093). Os herdados do Project nao moram aqui. */
+  workspaceId?: string | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+};
+
+/** Os ids que aparecem num Workspace. A regra e do core (`mos_core::pertence`). */
+export type EscopoDoWorkspace = {
+  tasks: string[];
+  captures: string[];
+  projects: string[];
+  resources: string[];
 };
 
 /**

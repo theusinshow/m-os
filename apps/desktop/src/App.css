@@ -14208,3 +14208,40 @@ button.daily-objective-title:focus-visible {
   color: var(--text-secondary);
   font: var(--text-small);
 }
+
+/* O seletor global de Workspace (ADR-093). Mora na barra do sistema, ao lado
+   do nome da pagina, e fala na mesma voz dela: rotulo micro e o campo sem
+   moldura ate o hover. Nao e um controle de destaque — e um estado, como o
+   relogio do sync. */
+.workspace-global {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: var(--space-3);
+  min-width: 0;
+}
+
+.workspace-global select {
+  width: auto;
+  max-width: 220px;
+  padding: 2px var(--space-2);
+  border: var(--line) solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+}
+
+.workspace-global select:focus-visible {
+  border-color: var(--border-strong);
+  outline: none;
+}
+
+/* O que a Task herda do Project, escrito embaixo do campo. Sem isto ela
+   apareceria em PROSUL com "Sem workspace" no campo, e ninguem saberia por que. */
+.campo-workspace-herdado {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--text-system);
+  font: var(--text-small);
+}

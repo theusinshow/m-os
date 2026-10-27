@@ -17,7 +17,8 @@ import {
   ROTULO_DE_PRIORIDADE,
   situacaoDoPrazo,
 } from "./tasks";
-import type { Capture, Project, Task, TaskDetail, TaskPriority, TaskState } from "./types";
+import type { Capture, Project, Task, TaskDetail, TaskPriority, TaskState, Workspace } from "./types";
+import { CampoDeWorkspace } from "./CampoDeWorkspace";
 
 /* Dinâmico, como nas outras telas: um `import` estático puxa o `framer-motion`
    inteiro para o bundle principal e desfaz o code-splitting que o resto do app
@@ -67,9 +68,12 @@ export function TaskDrawer({
   openCapture,
   openTask,
   remind,
+  workspaces = [],
 }: {
   task: Task;
   projects: Project[];
+  /** Para mover a Task de Workspace (ADR-093). */
+  workspaces?: Workspace[];
   /** Para escolher a Task que bloqueia esta. */
   tasks: Task[];
   close: () => void;
@@ -92,6 +96,32 @@ export function TaskDrawer({
   );
 
   const atual = detalhe?.task ?? task;
+  /* Os Workspaces que a Task herda do Project. Lidos do banco, e nao
+     calculados aqui: a juncao e do core, e a tela so mostra o nome. */
+  const [herdados, setHerdados] = useState<string[]>([]);
+  useEffect(() => {
+    setHerdados([]);
+    if (!atual.projectId) return;
+    let vivo = true;
+    void api.projectWorkspaces(atual.projectId)
+      .then((lista) => { if (vivo) setHerdados(lista.filter((workspace) => workspace.lifecycleState === "active").map((workspace) => workspace.name)); })
+      .catch(() => undefined);
+    return () => { vivo = false; };
+  }, [atual.projectId]);
+
+  async function moverDeWorkspace(workspaceId: string | null) {
+    setErro("");
+    setOcupado(true);
+    try {
+      await api.setTaskWorkspace(task.id, workspaceId);
+      setDetalhe(await api.taskDetail(task.id));
+      await refresh();
+    } catch (falha) {
+      setErro(falha instanceof Error ? falha.message : String(falha));
+    } finally {
+      setOcupado(false);
+    }
+  }
 
   useEffect(() => {
     setDetalhe(null);
@@ -293,6 +323,13 @@ export function TaskDrawer({
               </select>
             </dd>
           </div>
+
+          {workspaces.length ? <div>
+            <dt>Workspace</dt>
+            <dd>
+              <CampoDeWorkspace valor={atual.workspaceId} workspaces={workspaces} herdados={herdados} desabilitado={ocupado} mudar={(workspaceId) => void moverDeWorkspace(workspaceId)} />
+            </dd>
+          </div> : null}
 
           <div>
             <dt>Prazo</dt>

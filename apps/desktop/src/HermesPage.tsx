@@ -123,7 +123,10 @@ function contextsOf(message: Message): ContextInput[] {
 
 
 
-export function HermesPage({ inbox, projects, tasks, receipt, openProject, openResource, openTask, semente }: {
+export function HermesPage({ inbox, projects, tasks, receipt, openProject, openResource, openTask, semente, workspaceId = null }: {
+  /** O Workspace atual. Trocar de Workspace aqui abre uma conversa nova nele:
+   *  continuar a de antes seria falar de PROSUL com o contexto de DEV. */
+  workspaceId?: string | null;
   inbox: Capture[];
   projects: Project[];
   tasks: Task[];
@@ -446,6 +449,13 @@ export function HermesPage({ inbox, projects, tasks, receipt, openProject, openR
     await hermes.selectConversation(id).catch(() => undefined);
     if (compact) setRailOpen(false);
   }
+
+  const workspaceAnterior = useRef(workspaceId);
+  useEffect(() => {
+    if (workspaceAnterior.current === workspaceId) return;
+    workspaceAnterior.current = workspaceId;
+    void newConversation();
+  }, [workspaceId, newConversation]);
 
   async function removeConversation(id: string) {
     await conversationApi.remove(id).catch(() => undefined);

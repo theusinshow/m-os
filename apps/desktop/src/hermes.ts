@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { workspaceAtual } from "./escopoDoWorkspace";
 
 /**
  * Fronteira do renderer com a camada Jarvis.
@@ -130,6 +131,8 @@ export type Conversation = {
   title: string;
   hermesSessionId: string | null;
   lifecycleState: "active" | "archived" | "trashed";
+  /** O Workspace em que nasceu (ADR-093): decide o contexto que o Hermes recebe. */
+  workspaceId?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -276,15 +279,18 @@ export const hermes = {
   },
 };
 
+/* As conversas seguem o Workspace atual (ADR-093): a lista mostra as dele e as
+   sem Workspace, e a nova nasce nele. Lido aqui pelo mesmo motivo do `api.ts`
+   â€” e preferencia da maquina, e nao estado de uma tela. */
 export const conversations = {
   list(includeArchived = false) {
-    return invoke<ConversationSummary[]>("conversation_list", { includeArchived });
+    return invoke<ConversationSummary[]>("conversation_list", { includeArchived, workspaceId: workspaceAtual() });
   },
   current() {
-    return invoke<Conversation>("conversation_current");
+    return invoke<Conversation>("conversation_current", { workspaceId: workspaceAtual() });
   },
   create() {
-    return invoke<Conversation>("conversation_create");
+    return invoke<Conversation>("conversation_create", { workspaceId: workspaceAtual() });
   },
   messages(id: string) {
     return invoke<Message[]>("conversation_messages", { id });
