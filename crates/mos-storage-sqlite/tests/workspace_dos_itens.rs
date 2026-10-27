@@ -181,3 +181,92 @@ fn o_workspace_atravessa_para_o_outro_aparelho() {
         Some(prosul.id)
     );
 }
+
+#[test]
+fn o_escopo_le_o_banco_e_aplica_a_regra() {
+    use std::collections::HashSet;
+    let (_d, pc) = aparelho("PC", false);
+    let prosul = pc
+        .create_workspace(NewWorkspace::create("PROSUL", "").unwrap())
+        .unwrap();
+    let dev = pc
+        .create_workspace(NewWorkspace::create("DEV", "").unwrap())
+        .unwrap();
+    let obra = pc
+        .create_project(mos_core::NewProject::create("Ponte", "", "").unwrap())
+        .unwrap();
+    pc.set_project_workspace(obra.id, prosul.id, true).unwrap();
+
+    let da_obra = pc
+        .create_task(NewTask::create("Memorial", "", Some(obra.id)).unwrap())
+        .unwrap();
+    let de_dev = pc
+        .create_task(
+            NewTask::create("Refatorar", "", None)
+                .unwrap()
+                .with_workspace(Some(dev.id)),
+        )
+        .unwrap();
+    let solta = pc
+        .create_task(NewTask::create("Solta", "", None).unwrap())
+        .unwrap();
+
+    let servico = mos_core::WorkService::new(std::sync::Arc::new(pc));
+    let visto = servico.escopo_do_workspace(&prosul.id.to_string()).unwrap();
+    let tasks: HashSet<String> = visto.tasks.into_iter().collect();
+    assert!(tasks.contains(&da_obra.id.to_string()), "herda do Project");
+    assert!(
+        tasks.contains(&solta.id.to_string()),
+        "sem Workspace aparece"
+    );
+    assert!(!tasks.contains(&de_dev.id.to_string()), "a de DEV nao");
+    assert!(visto.projects.contains(&obra.id.to_string()));
+
+    let movida = servico
+        .set_task_workspace(&de_dev.id.to_string(), Some(&prosul.id.to_string()))
+        .unwrap();
+    assert_eq!(movida.workspace_id, Some(prosul.id));
+    let visto = servico.escopo_do_workspace(&dev.id.to_string()).unwrap();
+    assert!(!visto.tasks.contains(&de_dev.id.to_string()), "saiu de DEV");
+
+    let devolvida = servico
+        .set_task_workspace(&de_dev.id.to_string(), Some(""))
+        .unwrap();
+    assert_eq!(
+        devolvida.workspace_id, None,
+        "vazio devolve ao sem Workspace"
+    );
+}
+
+#[test]
+fn mover_a_capture_atravessa_para_o_outro_aparelho() {
+    let hub = HubLocal::default();
+    let (_a, pc) = aparelho("PC", true);
+    let (_b, notebook) = aparelho("Notebook", true);
+    let mmd = pc
+        .create_workspace(NewWorkspace::create("MMD", "").unwrap())
+        .unwrap();
+    let capture = CaptureRepository::create(
+        &pc,
+        NewCapture::create("planta do terreo", CaptureSource::Home).unwrap(),
+    )
+    .unwrap();
+    rodada(&pc, &hub);
+    rodada(&notebook, &hub);
+    assert_eq!(
+        CaptureRepository::get(&notebook, capture.id)
+            .unwrap()
+            .workspace_id,
+        None
+    );
+
+    pc.set_capture_workspace(capture.id, Some(mmd.id)).unwrap();
+    rodada(&pc, &hub);
+    rodada(&notebook, &hub);
+    assert_eq!(
+        CaptureRepository::get(&notebook, capture.id)
+            .unwrap()
+            .workspace_id,
+        Some(mmd.id)
+    );
+}

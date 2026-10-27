@@ -56,6 +56,7 @@ fn o_executor_do_core_cria_comeca_e_desfaz_sem_janela() {
     let registro = Registro::default();
     let agora_local = datetime!(2026-09-24 10:00 -03:00);
     let ctx = Contexto {
+        workspace_id: None,
         servicos: &s,
         capacidades: &registro,
         agora: agora_local.to_offset(time::UtcOffset::UTC),
@@ -111,6 +112,7 @@ fn acao_sem_capacidade_no_aparelho_diz_que_esta_indisponivel() {
     let s = servicos(&dir);
     let agora_local = datetime!(2026-09-24 10:00 -03:00);
     let ctx = Contexto {
+        workspace_id: None,
         servicos: &s,
         capacidades: &mos_core::agente_exec::SemCapacidades,
         agora: agora_local.to_offset(time::UtcOffset::UTC),
@@ -184,6 +186,7 @@ fn lote_de_triagem_aplica_por_item_nao_duplica_e_desfaz() {
     ] {
         s.captures
             .create(mos_core::CreateCaptureInput {
+                workspace_id: None,
                 content: texto.into(),
                 source: mos_core::CaptureSource::QuickCapture,
             })
@@ -214,6 +217,7 @@ fn lote_de_triagem_aplica_por_item_nao_duplica_e_desfaz() {
 
     // Desfazer a Task com lembrete devolve a Capture à Inbox.
     let ctx = mos_core::agente_exec::Contexto {
+        workspace_id: None,
         servicos: &s,
         capacidades: &mos_core::agente_exec::SemCapacidades,
         agora: time::OffsetDateTime::now_utc(),

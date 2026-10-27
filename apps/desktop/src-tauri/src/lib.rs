@@ -623,6 +623,42 @@ fn set_workspace_archived(
     Ok(workspace)
 }
 
+/// Os ids que aparecem num Workspace (ADR-093). O front so testa pertinencia;
+/// a regra e `mos_core::pertence`.
+#[tauri::command]
+fn workspace_scope(
+    id: &str,
+    state: tauri::State<'_, AppState>,
+) -> Result<mos_core::EscopoDoWorkspace, CoreError> {
+    state.work.escopo_do_workspace(id)
+}
+
+#[tauri::command]
+fn set_task_workspace(
+    id: &str,
+    workspace_id: Option<String>,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Task, CoreError> {
+    let task = state.work.set_task_workspace(id, workspace_id.as_deref())?;
+    notify_data_changed(&app, "task-updated");
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(task)
+}
+
+#[tauri::command]
+fn set_capture_workspace(
+    id: &str,
+    workspace_id: Option<String>,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Capture, CoreError> {
+    let capture = state.captures.set_workspace(id, workspace_id.as_deref())?;
+    let _ = app.emit_to("main", "capture-changed", capture.id.to_string());
+    schedule_snapshot(&state.data, &state.snapshot_status, &app);
+    Ok(capture)
+}
+
 #[tauri::command]
 fn list_workspace_projects(
     id: &str,
@@ -2912,6 +2948,9 @@ pub fn run() {
                     list_workspaces,
                     set_workspace_archived,
                     list_workspace_projects,
+                    workspace_scope,
+                    set_task_workspace,
+                    set_capture_workspace,
                     list_workspace_apps,
                     list_project_workspaces,
                     list_app_workspaces,

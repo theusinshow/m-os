@@ -20,6 +20,18 @@ use crate::{
 pub struct CreateCaptureInput {
     pub content: String,
     pub source: CaptureSource,
+    /// O Workspace atual de quem capturou (ADR-093). Ausente e "sem
+    /// Workspace": e o que o bolso manda, e o que todo chamador antigo manda.
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+}
+
+/// O id de Workspace que veio de fora, vazio contando como nenhum.
+fn workspace_opcional(valor: Option<&str>) -> Result<Option<WorkspaceId>, CoreError> {
+    match valor.map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(id) => WorkspaceId::parse(id).map(Some),
+    }
 }
 
 #[derive(Clone)]
@@ -33,8 +45,20 @@ impl CaptureService {
     }
 
     pub fn create(&self, input: CreateCaptureInput) -> Result<Capture, CoreError> {
+        self.repository.create(
+            NewCapture::create(&input.content, input.source)?
+                .with_workspace(workspace_opcional(input.workspace_id.as_deref())?),
+        )
+    }
+
+    /// Move a Capture de Workspace. Vazio devolve ao "sem Workspace".
+    pub fn set_workspace(
+        &self,
+        id: &str,
+        workspace_id: Option<&str>,
+    ) -> Result<Capture, CoreError> {
         self.repository
-            .create(NewCapture::create(&input.content, input.source)?)
+            .set_capture_workspace(CaptureId::parse(id)?, workspace_opcional(workspace_id)?)
     }
 
     /// Cria a Capture com a CHAVE que o aparelho escolheu, uma vez so.
@@ -55,7 +79,8 @@ impl CaptureService {
         if let Ok(existente) = self.repository.get(id) {
             return Ok(existente);
         }
-        let mut nova = NewCapture::create(&input.content, input.source)?;
+        let mut nova = NewCapture::create(&input.content, input.source)?
+            .with_workspace(workspace_opcional(input.workspace_id.as_deref())?);
         nova.id = id;
         if let Some(quando) = captured_at {
             nova.captured_at = quando.min(nova.captured_at);
@@ -1148,6 +1173,10 @@ pub struct CreateTaskInput {
     /// Os passos com que a Task nasce, ja como linhas.
     #[serde(default)]
     pub checklist: Vec<String>,
+    /// O Workspace atual de quem criou (ADR-093). Ausente com
+    /// `source_capture_id` herda o da Capture.
+    #[serde(default)]
+    pub workspace_id: Option<String>,
 }
 
 /// A edicao de uma Task.
@@ -1547,6 +1576,28 @@ impl WorkService {
         Self { repository }
     }
 
+    /// Os ids que aparecem num Workspace (ADR-093). A regra e `crate::escopo`.
+    pub fn escopo_do_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<crate::EscopoDoWorkspace, CoreError> {
+        let alvo = WorkspaceId::parse(workspace_id)?;
+        Ok(crate::escopo(
+            &self.repository.vinculos_de_workspace()?,
+            alvo,
+        ))
+    }
+
+    /// Move a Task de Workspace. Vazio devolve ao "sem Workspace".
+    pub fn set_task_workspace(
+        &self,
+        id: &str,
+        workspace_id: Option<&str>,
+    ) -> Result<Task, CoreError> {
+        self.repository
+            .set_task_workspace(TaskId::parse(id)?, workspace_opcional(workspace_id)?)
+    }
+
     pub fn create_workspace(&self, input: CreateWorkspaceInput) -> Result<Workspace, CoreError> {
         self.repository
             .create_workspace(NewWorkspace::create(&input.name, &input.description)?)
@@ -1760,7 +1811,8 @@ impl WorkService {
                     .map(TaskId::parse)
                     .transpose()?,
             )
-            .with_checklist(&input.checklist);
+            .with_checklist(&input.checklist)
+            .with_workspace(workspace_opcional(input.workspace_id.as_deref())?);
         match input.source_capture_id {
             Some(capture_id) => self
                 .repository

@@ -39,6 +39,10 @@ pub struct Contexto<'a> {
     /// Agora, no fuso de QUEM PEDIU. Decide o que e "hoje" e como o recibo fala
     /// a hora.
     pub agora_local: OffsetDateTime,
+    /// O Workspace da conversa que propos a acao (ADR-093). O que o Hermes
+    /// cria nasce nele, como nasceria o que a pessoa criasse na tela. `None`
+    /// e "sem Workspace" â€” a conversa do bolso, a anterior a 0043.
+    pub workspace_id: Option<String>,
 }
 
 fn indisponivel(mensagem: &str) -> CoreError {
@@ -56,6 +60,7 @@ pub fn executar_acao(
             let capture = state.captures.create(crate::CreateCaptureInput {
                 content: content.clone(),
                 source: crate::CaptureSource::Home,
+                workspace_id: ctx.workspace_id.clone(),
             })?;
             Ok(crate::ActionEffect::new(
                 format!("Capture criada: {}", capture.content),
@@ -274,6 +279,7 @@ pub fn executar_acao(
                 due_at: (!due.is_empty()).then(|| due.clone()),
                 priority: (!priority.is_empty()).then(|| priority.clone()),
                 checklist: checklist.clone(),
+                workspace_id: ctx.workspace_id.clone(),
                 ..Default::default()
             })?;
             let passos = if task.checklist_total > 0 {

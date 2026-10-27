@@ -361,6 +361,7 @@ async fn capturar(
 ) -> Resultado<Json<serde_json::Value>> {
     let capture = escrever(&estado, move |estado| {
         let input = CreateCaptureInput {
+            workspace_id: None,
             content: pedido.texto,
             // A origem diz de ONDE veio, e isso e informacao de verdade: uma
             // captura feita no celular no meio da rua tem outra natureza da que

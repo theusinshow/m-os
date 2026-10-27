@@ -15,6 +15,7 @@ mod clock;
 mod conversation;
 mod daily;
 mod error;
+mod escopo;
 mod feriados;
 mod finance;
 mod functions;
@@ -110,6 +111,7 @@ pub use daily::{
     StartDayInput, TaskSuggestion, SUGGESTED_SECONDARIES,
 };
 pub use error::{CoreError, ErrorCode};
+pub use escopo::{escopo, pertence, Declarados, EscopoDoWorkspace, VinculosDeWorkspace};
 pub use feriados::{nacionais, nacionais_entre, pascoa, EscopoDoFeriado, Feriado, PesoDoFeriado};
 pub use finance::{
     finance_answer, finance_context_block, finance_failure, finance_intent, finance_query_contract,

@@ -235,6 +235,32 @@ impl CaptureRepository for SqliteStorage {
         query_capture(&connection, id)
     }
 
+    fn set_capture_workspace(
+        &self,
+        id: CaptureId,
+        workspace_id: Option<WorkspaceId>,
+    ) -> Result<Capture, CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let valor = workspace_id.map(|id| id.to_string());
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let changed = transaction
+            .execute(
+                "UPDATE captures SET workspace_id = ?1, updated_at = ?2 WHERE id = ?3",
+                params![valor, now, id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        ensure_changed(changed)?;
+        self.emitir_update(
+            &transaction,
+            "capture",
+            id.as_uuid(),
+            &[("workspaceId", serde_json::json!(valor))],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
+        query_capture(&connection, id)
+    }
+
     fn set_lifecycle_state(
         &self,
         id: CaptureId,

@@ -56,6 +56,12 @@ pub trait CaptureRepository: Send + Sync {
     /// regra, e ela existe para que nenhum apagamento aconteca por engano no
     /// meio do uso normal.
     fn delete_capture(&self, id: CaptureId) -> Result<(), CoreError>;
+    /// Move a Capture de Workspace (ADR-093). `None` devolve ao "sem Workspace".
+    fn set_capture_workspace(
+        &self,
+        id: CaptureId,
+        workspace_id: Option<WorkspaceId>,
+    ) -> Result<Capture, CoreError>;
 }
 
 pub trait WorkRepository: Send + Sync {
@@ -84,6 +90,14 @@ pub trait WorkRepository: Send + Sync {
         include_archived: bool,
     ) -> Result<Vec<RegisteredApp>, CoreError>;
     fn project_workspaces(&self, id: ProjectId) -> Result<Vec<Workspace>, CoreError>;
+    /// Tudo o que `crate::escopo` precisa, numa leitura so (ADR-093).
+    fn vinculos_de_workspace(&self) -> Result<crate::VinculosDeWorkspace, CoreError>;
+    /// Move a Task de Workspace. `None` devolve ao "sem Workspace".
+    fn set_task_workspace(
+        &self,
+        id: TaskId,
+        workspace_id: Option<WorkspaceId>,
+    ) -> Result<Task, CoreError>;
     fn app_workspaces(&self, id: AppId) -> Result<Vec<Workspace>, CoreError>;
     fn set_project_workspace(
         &self,

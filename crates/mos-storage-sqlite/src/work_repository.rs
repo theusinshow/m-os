@@ -1520,6 +1520,129 @@ impl WorkRepository for SqliteStorage {
         query_task(&connection, id)
     }
 
+    fn set_task_workspace(
+        &self,
+        id: TaskId,
+        workspace_id: Option<WorkspaceId>,
+    ) -> Result<Task, CoreError> {
+        let now = format_time(OffsetDateTime::now_utc())?;
+        let valor = workspace_id.map(|id| id.to_string());
+        let connection = self.escrita()?;
+        let transaction = connection.unchecked_transaction().map_err(map_sql_error)?;
+        let changed = transaction
+            .execute(
+                "UPDATE tasks SET workspace_id = ?1, updated_at = ?2 WHERE id = ?3",
+                params![valor, now, id.to_string()],
+            )
+            .map_err(map_sql_error)?;
+        if changed == 0 {
+            return Err(CoreError::new(
+                ErrorCode::NotFound,
+                "Task nao encontrada.",
+                false,
+            ));
+        }
+        self.emitir_update(
+            &transaction,
+            "task",
+            id.as_uuid(),
+            &[("workspaceId", serde_json::json!(valor))],
+        )?;
+        transaction.commit().map_err(map_sql_error)?;
+        query_task(&connection, id)
+    }
+
+    fn vinculos_de_workspace(&self) -> Result<mos_core::VinculosDeWorkspace, CoreError> {
+        let connection = self.connection.lock().map_err(map_lock_error)?;
+        // Tudo o que nao esta na lixeira. Arquivado entra: a pagina de
+        // arquivados tambem filtra, e um id a mais no conjunto nao mostra nada
+        // que a lista nao tenha.
+        fn ids<T>(
+            connection: &rusqlite::Connection,
+            sql: &str,
+            mapear: impl Fn(&Row<'_>) -> rusqlite::Result<Result<T, CoreError>>,
+        ) -> Result<Vec<T>, CoreError> {
+            let mut statement = connection.prepare(sql).map_err(map_sql_error)?;
+            let linhas = statement
+                .query_map([], mapear)
+                .map_err(map_sql_error)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(map_sql_error)?;
+            linhas.into_iter().collect()
+        }
+        let workspace = |valor: Option<String>| -> Result<Option<WorkspaceId>, CoreError> {
+            valor.as_deref().map(WorkspaceId::parse).transpose()
+        };
+        Ok(mos_core::VinculosDeWorkspace {
+            ativos: ids(
+                &connection,
+                "SELECT id FROM workspaces WHERE lifecycle_state = 'active'",
+                |row| Ok(WorkspaceId::parse(&row.get::<_, String>(0)?)),
+            )?,
+            tasks: ids(
+                &connection,
+                "SELECT id, workspace_id, project_id FROM tasks
+                  WHERE lifecycle_state <> 'trashed'",
+                |row| {
+                    let id: String = row.get(0)?;
+                    let proprio: Option<String> = row.get(1)?;
+                    let project: Option<String> = row.get(2)?;
+                    Ok((|| {
+                        Ok((
+                            TaskId::parse(&id)?,
+                            workspace(proprio)?,
+                            project.as_deref().map(ProjectId::parse).transpose()?,
+                        ))
+                    })())
+                },
+            )?,
+            captures: ids(
+                &connection,
+                "SELECT id, workspace_id FROM captures WHERE lifecycle_state <> 'trashed'",
+                |row| {
+                    let id: String = row.get(0)?;
+                    let proprio: Option<String> = row.get(1)?;
+                    Ok((|| Ok((CaptureId::parse(&id)?, workspace(proprio)?)))())
+                },
+            )?,
+            projects: ids(
+                &connection,
+                "SELECT id FROM projects WHERE lifecycle_state <> 'trashed'",
+                |row| Ok(ProjectId::parse(&row.get::<_, String>(0)?)),
+            )?,
+            project_workspaces: ids(
+                &connection,
+                "SELECT project_id, workspace_id FROM project_workspaces",
+                |row| {
+                    let project: String = row.get(0)?;
+                    let workspace: String = row.get(1)?;
+                    Ok((|| {
+                        Ok((ProjectId::parse(&project)?, WorkspaceId::parse(&workspace)?))
+                    })())
+                },
+            )?,
+            resources: ids(
+                &connection,
+                "SELECT id FROM resources WHERE lifecycle_state <> 'trashed'",
+                |row| Ok(mos_core::ResourceId::parse(&row.get::<_, String>(0)?)),
+            )?,
+            resource_workspaces: ids(
+                &connection,
+                "SELECT resource_id, workspace_id FROM resource_workspaces",
+                |row| {
+                    let resource: String = row.get(0)?;
+                    let workspace: String = row.get(1)?;
+                    Ok((|| {
+                        Ok((
+                            mos_core::ResourceId::parse(&resource)?,
+                            WorkspaceId::parse(&workspace)?,
+                        ))
+                    })())
+                },
+            )?,
+        })
+    }
+
     fn tasks(&self, include_archived: bool) -> Result<Vec<Task>, CoreError> {
         let connection = self.connection.lock().map_err(map_lock_error)?;
         let lifecycle = if include_archived {

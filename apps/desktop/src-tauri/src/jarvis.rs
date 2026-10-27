@@ -366,6 +366,7 @@ async fn run_action<R: Runtime>(
     let capacidades = CapacidadesDesktop { app: app.clone() };
     mos_core::agente_exec::executar_acao(
         &mos_core::agente_exec::Contexto {
+            workspace_id: None,
             servicos: &servicos,
             capacidades: &capacidades,
             agora: state.clock.now(),
@@ -393,6 +394,7 @@ pub async fn action_undo<R: Runtime>(
     let capacidades = CapacidadesDesktop { app: app.clone() };
     mos_core::agente_exec::desfazer_acao(
         &mos_core::agente_exec::Contexto {
+            workspace_id: None,
             servicos: &servicos,
             capacidades: &capacidades,
             agora: state.clock.now(),
