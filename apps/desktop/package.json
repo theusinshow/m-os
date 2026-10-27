@@ -4,6 +4,7 @@
   "version": "0.7.2",
   "type": "module",
   "scripts": {
+    "lab": "node ../../scripts/lab-icones/gerar.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",

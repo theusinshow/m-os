@@ -39,3 +39,6 @@ spikes/**/report.json
 # em vez de executado — foi assim que dois .pyc entraram num commit em 10/09/2026.
 __pycache__/
 *.pyc
+
+# Gerado pelo Lab de icones (npm run lab em apps/desktop)
+spikes/lab-icones.html
