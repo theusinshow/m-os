@@ -255,6 +255,13 @@ pub struct Task {
     pub checklist_total: usize,
     #[serde(default)]
     pub checklist_done: usize,
+    /// O Workspace em que a Task NASCEU, ou para onde foi movida (ADR-093).
+    ///
+    /// So o proprio: os Workspaces que ela herda do Project nao moram aqui, e
+    /// a pergunta "ela aparece em PROSUL?" e de `crate::pertence`, que junta os
+    /// dois. `None` e "sem Workspace", que aparece em todos.
+    #[serde(default)]
+    pub workspace_id: Option<WorkspaceId>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -396,6 +403,10 @@ pub struct NewTask {
     /// Os passos com que a Task nasce. Vazio e o caso comum — a criacao rapida
     /// continua sendo um titulo e mais nada.
     pub checklist: Vec<String>,
+    /// O Workspace atual de quem criou. `None` com `source_capture_id` herda o
+    /// da Capture â€” quem tria em DEV algo capturado em PROSUL continua tendo
+    /// uma coisa de PROSUL.
+    pub workspace_id: Option<WorkspaceId>,
     pub created_at: OffsetDateTime,
 }
 
@@ -422,8 +433,14 @@ impl NewTask {
             estimate_minutes: None,
             parent_task_id: None,
             checklist: Vec::new(),
+            workspace_id: None,
             created_at: OffsetDateTime::now_utc(),
         })
+    }
+
+    pub fn with_workspace(mut self, workspace: Option<WorkspaceId>) -> Self {
+        self.workspace_id = workspace;
+        self
     }
 
     pub fn with_due_at(mut self, due_at: Option<OffsetDateTime>) -> Self {
@@ -1086,6 +1103,7 @@ mod tests {
 
     fn exemplo() -> Task {
         Task {
+            workspace_id: None,
             id: TaskId::new(),
             title: "Revisar projeto estrutural".into(),
             description: String::new(),

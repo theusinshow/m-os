@@ -924,6 +924,7 @@ mod tests {
         let mut c = Cenario::default();
         for i in 0..4 {
             c.inbox.push(crate::Capture {
+                workspace_id: None,
                 id: crate::CaptureId::new(),
                 content: format!("c{i}"),
                 source: crate::CaptureSource::QuickCapture,

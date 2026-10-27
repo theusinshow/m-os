@@ -258,6 +258,7 @@ mod tests {
 
     fn captura(texto: &str) -> Capture {
         Capture {
+            workspace_id: None,
             id: CaptureId::new(),
             content: texto.to_owned(),
             source: CaptureSource::QuickCapture,

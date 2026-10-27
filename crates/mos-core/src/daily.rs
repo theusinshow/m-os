@@ -1703,6 +1703,7 @@ mod tests {
         updated: OffsetDateTime,
     ) -> crate::Task {
         crate::Task {
+            workspace_id: None,
             id: TaskId::new(),
             title: title.to_owned(),
             description: String::new(),

@@ -173,6 +173,12 @@ impl IngestionRepository for SqliteStorage {
         // A Capture primeiro, e no MESMO commit. E ela que sustenta a promessa
         // de que nada se perde: se o processo morrer no proximo milissegundo, a
         // Inbox ja sabe dizer o que a pessoa soltou.
+        // O que foi solto dentro de um Workspace nasce nele (ADR-093): o
+        // contexto da tela ja sabia onde a pessoa estava.
+        let capture = NewCapture {
+            workspace_id: capture.workspace_id.or(ingestion.context.workspace_id),
+            ..capture
+        };
         crate::repository::insert_capture(&transaction, &capture, &now)?;
 
         let id = ingestion.id;

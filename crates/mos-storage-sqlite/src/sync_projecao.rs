@@ -199,6 +199,9 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("scheduledFor", "scheduled_for"),
                 ("startedAt", "started_at"),
                 ("postponedCount", "postponed_count"),
+                // O Workspace da 0043 (ADR-093). Campo proprio: mover a Task
+                // de Workspace num aparelho e editar o titulo no outro convivem.
+                ("workspaceId", "workspace_id"),
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[("title", "'(sem titulo)'"), ("description", "''")],
@@ -263,6 +266,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("capturedAt", "captured_at"),
                 ("processingState", "processing_state"),
                 ("lifecycleState", "lifecycle_state"),
+                ("workspaceId", "workspace_id"),
             ],
             // `content` tem `CHECK (length(trim(content)) > 0)`: o provisorio
             // precisa ser NAO-VAZIO, senao o `INSERT` e recusado e a Capture
@@ -483,6 +487,7 @@ fn mapa_de(kind: &str) -> Option<Mapa> {
                 ("title", "title"),
                 ("hermesSessionId", "hermes_session_id"),
                 ("lifecycleState", "lifecycle_state"),
+                ("workspaceId", "workspace_id"),
                 ("createdAt", "created_at"),
             ],
             obrigatorias: &[],

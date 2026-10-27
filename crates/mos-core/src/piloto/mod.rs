@@ -302,6 +302,7 @@ pub(crate) mod fixtures {
 
     pub fn task(titulo: &str) -> Task {
         Task {
+            workspace_id: None,
             id: TaskId::new(),
             title: titulo.to_owned(),
             description: String::new(),

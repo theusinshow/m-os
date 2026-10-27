@@ -19,7 +19,7 @@ use crate::{
 };
 
 const CONVERSATION_COLUMNS: &str =
-    "id, title, hermes_session_id, lifecycle_state, created_at, updated_at";
+    "id, title, hermes_session_id, lifecycle_state, created_at, updated_at, workspace_id";
 
 fn conversation_from_row(row: &Row<'_>) -> Result<Conversation, rusqlite::Error> {
     Ok(Conversation {
@@ -32,6 +32,12 @@ fn conversation_from_row(row: &Row<'_>) -> Result<Conversation, rusqlite::Error>
         created_at: parse_time(&row.get::<_, String>(4)?)
             .map_err(|_| rusqlite::Error::InvalidQuery)?,
         updated_at: parse_time(&row.get::<_, String>(5)?)
+            .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        workspace_id: row
+            .get::<_, Option<String>>(6)?
+            .as_deref()
+            .map(mos_core::WorkspaceId::parse)
+            .transpose()
             .map_err(|_| rusqlite::Error::InvalidQuery)?,
     })
 }
@@ -223,9 +229,14 @@ impl ConversationRepository for SqliteStorage {
         transaction
             .execute(
                 "INSERT INTO conversations (id, title, hermes_session_id, lifecycle_state,
-                                            created_at, updated_at)
-                 VALUES (?1, ?2, NULL, 'active', ?3, ?3)",
-                params![conversation.id.to_string(), conversation.title, now],
+                                            created_at, updated_at, workspace_id)
+                 VALUES (?1, ?2, NULL, 'active', ?3, ?3, ?4)",
+                params![
+                    conversation.id.to_string(),
+                    conversation.title,
+                    now,
+                    conversation.workspace_id.map(|id| id.to_string()),
+                ],
             )
             .map_err(map_sql_error)?;
         self.emitir(
@@ -235,6 +246,10 @@ impl ConversationRepository for SqliteStorage {
                 fields: [
                     ("title".to_owned(), serde_json::json!(conversation.title)),
                     ("lifecycleState".to_owned(), serde_json::json!("active")),
+                    (
+                        "workspaceId".to_owned(),
+                        serde_json::json!(conversation.workspace_id.map(|id| id.to_string())),
+                    ),
                     ("createdAt".to_owned(), serde_json::json!(now)),
                 ]
                 .into_iter()

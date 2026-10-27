@@ -393,6 +393,11 @@ pub struct Conversation {
     /// O vinculo com a sessao da VPS. `None` enquanto a sessao nao abriu.
     pub hermes_session_id: Option<String>,
     pub lifecycle_state: crate::LifecycleState,
+    /// O Workspace em que a conversa nasceu (ADR-093): decide o contexto que o
+    /// Hermes recebe nela. `None` e "sem Workspace" â€” toda conversa anterior a
+    /// 0043 e toda conversa do bolso.
+    #[serde(default)]
+    pub workspace_id: Option<crate::WorkspaceId>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -420,6 +425,7 @@ pub struct ConversationSummary {
 pub struct NewConversation {
     pub id: ConversationId,
     pub title: String,
+    pub workspace_id: Option<crate::WorkspaceId>,
     pub created_at: OffsetDateTime,
 }
 
@@ -431,8 +437,14 @@ impl NewConversation {
         Self {
             id: ConversationId::new(),
             title: String::new(),
+            workspace_id: None,
             created_at: OffsetDateTime::now_utc(),
         }
+    }
+
+    pub fn with_workspace(mut self, workspace: Option<crate::WorkspaceId>) -> Self {
+        self.workspace_id = workspace;
+        self
     }
 }
 

@@ -469,6 +469,7 @@ mod tests {
 
     fn task(created: OffsetDateTime, done: Option<OffsetDateTime>) -> crate::Task {
         crate::Task {
+            workspace_id: None,
             id: crate::TaskId::new(),
             title: "Conferir o corrimao".into(),
             description: String::new(),

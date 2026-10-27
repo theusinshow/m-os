@@ -1,6 +1,6 @@
 use mos_core::{
     Capture, CaptureId, CaptureRepository, CaptureSource, CoreError, ErrorCode, LifecycleState,
-    NewCapture, ProcessingState, SearchRequest,
+    NewCapture, ProcessingState, SearchRequest, WorkspaceId,
 };
 use rusqlite::{params, OptionalExtension, Row};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
@@ -15,6 +15,7 @@ pub(crate) struct RawCapture {
     lifecycle_state: String,
     captured_at: String,
     updated_at: String,
+    workspace_id: Option<String>,
 }
 
 impl RawCapture {
@@ -27,6 +28,7 @@ impl RawCapture {
             lifecycle_state: row.get(4)?,
             captured_at: row.get(5)?,
             updated_at: row.get(6)?,
+            workspace_id: row.get(7)?,
         })
     }
 
@@ -39,12 +41,17 @@ impl RawCapture {
             lifecycle_state: LifecycleState::parse(&self.lifecycle_state)?,
             captured_at: parse_time(&self.captured_at)?,
             updated_at: parse_time(&self.updated_at)?,
+            workspace_id: self
+                .workspace_id
+                .as_deref()
+                .map(WorkspaceId::parse)
+                .transpose()?,
         })
     }
 }
 
 pub(crate) const CAPTURE_COLUMNS: &str =
-    "id, content, source_kind, processing_state, lifecycle_state, captured_at, updated_at";
+    "id, content, source_kind, processing_state, lifecycle_state, captured_at, updated_at, workspace_id";
 
 impl CaptureRepository for SqliteStorage {
     fn create(&self, capture: NewCapture) -> Result<Capture, CoreError> {
@@ -70,6 +77,10 @@ impl CaptureRepository for SqliteStorage {
                         serde_json::json!(ProcessingState::Inbox.as_str()),
                     ),
                     ("capturedAt".to_owned(), serde_json::json!(now)),
+                    (
+                        "workspaceId".to_owned(),
+                        serde_json::json!(capture.workspace_id.map(|id| id.to_string())),
+                    ),
                 ]
                 .into_iter()
                 .collect(),
@@ -511,13 +522,14 @@ pub(crate) fn insert_capture(
         .execute(
             "INSERT INTO captures (
                 id, content, source_kind, processing_state, lifecycle_state,
-                captured_at, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, 'inbox', 'active', ?4, ?4, ?4)",
+                captured_at, created_at, updated_at, workspace_id
+             ) VALUES (?1, ?2, ?3, 'inbox', 'active', ?4, ?4, ?4, ?5)",
             params![
                 capture.id.to_string(),
                 capture.content,
                 capture.source.as_str(),
-                now
+                now,
+                capture.workspace_id.map(|id| id.to_string()),
             ],
         )
         .map_err(map_sql_error)?;

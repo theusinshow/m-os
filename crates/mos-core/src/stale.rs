@@ -281,6 +281,7 @@ mod tests {
         project: Option<&Project>,
     ) -> Task {
         Task {
+            workspace_id: None,
             id: TaskId::new(),
             title: titulo.to_owned(),
             description: String::new(),

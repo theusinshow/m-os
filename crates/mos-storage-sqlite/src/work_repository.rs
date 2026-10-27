@@ -26,7 +26,7 @@ pub(crate) const PROJECT_COLUMNS: &str =
     "id, name, description, lifecycle_state, created_at, updated_at, repository";
 pub(crate) const WORKSPACE_COLUMNS: &str =
     "id, name, description, lifecycle_state, created_at, updated_at";
-pub(crate) const TASK_COLUMNS: &str = "id, title, description, project_id, source_capture_id, work_state, lifecycle_state, due_at, priority, estimate_minutes, parent_task_id, blocked_by_task_id, waiting_for, follow_up_at, scheduled_for, started_at, postponed_count, created_at, updated_at, completed_at";
+pub(crate) const TASK_COLUMNS: &str = "id, title, description, project_id, source_capture_id, work_state, lifecycle_state, due_at, priority, estimate_minutes, parent_task_id, blocked_by_task_id, waiting_for, follow_up_at, scheduled_for, started_at, postponed_count, created_at, updated_at, completed_at, workspace_id";
 
 pub(crate) const CHECKLIST_COLUMNS: &str =
     "id, task_id, label, position, completed_at, created_at, updated_at";
@@ -157,6 +157,7 @@ struct RawTask {
     created_at: String,
     updated_at: String,
     completed_at: Option<String>,
+    workspace_id: Option<String>,
     checklist_total: i64,
     checklist_done: i64,
 }
@@ -184,8 +185,9 @@ impl RawTask {
             created_at: row.get(17)?,
             updated_at: row.get(18)?,
             completed_at: row.get(19)?,
-            checklist_total: row.get(20)?,
-            checklist_done: row.get(21)?,
+            workspace_id: row.get(20)?,
+            checklist_total: row.get(21)?,
+            checklist_done: row.get(22)?,
         })
     }
 
@@ -226,6 +228,11 @@ impl RawTask {
             postponed_count: self.postponed_count.max(0) as u32,
             checklist_total: self.checklist_total.max(0) as usize,
             checklist_done: self.checklist_done.max(0) as usize,
+            workspace_id: self
+                .workspace_id
+                .as_deref()
+                .map(WorkspaceId::parse)
+                .transpose()?,
             created_at: parse_time(&self.created_at)?,
             updated_at: parse_time(&self.updated_at)?,
             completed_at: self.completed_at.as_deref().map(parse_time).transpose()?,
@@ -1954,13 +1961,29 @@ pub(crate) fn insert_task(
     let prazo = task.due_at.map(format_time).transpose()?;
     let prioridade = task.priority.as_str();
     let pai = task.parent_task_id.map(|value| value.to_string());
+    // Sem Workspace explicito, a Task triada herda o da Capture de origem
+    // (ADR-093). Lido AQUI, e nao no servico, porque todos os caminhos que
+    // criam Task de Capture (Inbox, voz, reuniao) passam por esta funcao.
+    let workspace = match (task.workspace_id, source_capture_id) {
+        (Some(workspace), _) => Some(workspace.to_string()),
+        (None, Some(capture)) => transaction
+            .query_row(
+                "SELECT workspace_id FROM captures WHERE id = ?1",
+                [capture.to_string()],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .map_err(map_sql_error)?
+            .flatten(),
+        (None, None) => None,
+    };
     transaction
         .execute(
             "INSERT INTO tasks (
                 id, title, description, project_id, source_capture_id, work_state,
                 lifecycle_state, due_at, priority, estimate_minutes, parent_task_id,
-                created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, 'backlog', 'active', ?6, ?7, ?8, ?9, ?10, ?10)",
+                created_at, updated_at, workspace_id
+             ) VALUES (?1, ?2, ?3, ?4, ?5, 'backlog', 'active', ?6, ?7, ?8, ?9, ?10, ?10, ?11)",
             params![
                 task.id.to_string(),
                 task.title,
@@ -1972,6 +1995,7 @@ pub(crate) fn insert_task(
                 task.estimate_minutes,
                 pai,
                 now,
+                workspace,
             ],
         )
         .map_err(map_sql_error)?;
@@ -1999,6 +2023,7 @@ pub(crate) fn insert_task(
                     serde_json::json!(task.estimate_minutes),
                 ),
                 ("parentTaskId".to_owned(), serde_json::json!(pai)),
+                ("workspaceId".to_owned(), serde_json::json!(workspace)),
                 ("createdAt".to_owned(), serde_json::json!(now)),
             ]
             .into_iter()

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::{CoreError, ErrorCode};
+use crate::{CoreError, ErrorCode, WorkspaceId};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -164,6 +164,11 @@ pub struct Capture {
     pub updated_at: OffsetDateTime,
     pub processing_state: ProcessingState,
     pub lifecycle_state: LifecycleState,
+    /// O Workspace em que foi capturada (ADR-093). `None` e "sem Workspace",
+    /// que aparece em todos â€” o estado de toda Capture anterior a 0043 e de
+    /// tudo o que o bolso captura.
+    #[serde(default)]
+    pub workspace_id: Option<WorkspaceId>,
 }
 
 #[derive(Clone, Debug)]
@@ -172,6 +177,7 @@ pub struct NewCapture {
     pub content: String,
     pub source: CaptureSource,
     pub captured_at: OffsetDateTime,
+    pub workspace_id: Option<WorkspaceId>,
 }
 
 impl NewCapture {
@@ -190,7 +196,13 @@ impl NewCapture {
             content: content.to_owned(),
             source,
             captured_at: OffsetDateTime::now_utc(),
+            workspace_id: None,
         })
+    }
+
+    pub fn with_workspace(mut self, workspace: Option<WorkspaceId>) -> Self {
+        self.workspace_id = workspace;
+        self
     }
 }
 

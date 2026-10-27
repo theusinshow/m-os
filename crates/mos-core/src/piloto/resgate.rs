@@ -414,6 +414,7 @@ mod tests {
         c.ultima_presenca = Some(agora() - Duration::days(5));
         for i in 0..12 {
             c.inbox.push(crate::Capture {
+                workspace_id: None,
                 id: crate::CaptureId::new(),
                 content: format!("c{i}"),
                 source: crate::CaptureSource::Home,
