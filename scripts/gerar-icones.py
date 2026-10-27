@@ -34,7 +34,11 @@ BARRAS = {
 
 SODIO = (231, 194, 78, 255)     # --signal-fill
 TINTA = (10, 12, 14, 255)       # --on-signal
-RAIO = 0.21                     # --rail-symbol-radius sobre --rail-symbol
+# 18% do lado, o raio da familia inteira (BRIEF-SISTEMA-DE-LOGOS, folha de
+# marcas). Era 21%, herdado do simbolo da sidebar; os irmaos ja estavam em 18%, e
+# lado a lado na barra de tarefas os cantos nao batiam. O --rail-symbol-radius
+# desceu junto (5px de 28).
+RAIO = 0.18
 
 # Desenha 16x maior e reduz: a arte nasce no tamanho certo, so o pixel e suavizado.
 SUPER = 16

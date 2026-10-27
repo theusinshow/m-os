@@ -169,7 +169,7 @@
   --rail-item: 44px;
   --icon-size: 20px;
   --rail-symbol: 28px;
-  --rail-symbol-radius: 6px;
+  --rail-symbol-radius: 5px;   /* 18% de 28, o raio da familia */
   --rail-symbol-gap: var(--space-loose);
   --rail-symbol-bar: 18px;
   --symbol-inline: 13px;

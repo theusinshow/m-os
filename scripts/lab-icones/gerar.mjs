@@ -410,6 +410,7 @@ function conflitos(fontes) {
     brief: `${(fontes.briefRaio * 100).toFixed(0)}% do lado`,
     codigo: `M/OS ${(fontes.raioMos * 100).toFixed(0)}% (gerar-icones.py, --rail-symbol-radius) · irmãos 18% (RECIPE) · PNG de tela inicial 0% (gerar-icones-web.py)`,
     nota: "O M/OS e os irmãos lado a lado na barra de tarefas têm cantos diferentes.",
+    ok: Math.abs(fontes.raioMos - fontes.briefRaio) < 0.005,
   });
   const mapa = { canvas: "canvas", surface: "surface", border: "border", "border forte": "border-strong", texto: "text", secundário: "text-secondary", sistema: "text-system" };
   const diferentes = Object.entries(fontes.briefPaleta)

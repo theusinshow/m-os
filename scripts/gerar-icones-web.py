@@ -83,10 +83,10 @@ def desenhar(tamanho):
 
 
 # O favicon nao passa por mascara de sistema nenhuma: a aba desenha o que
-# receber. Leva os cantos do `icone.svg` (13.4 de 64) e, sobretudo, a barra da
+# receber. Leva os cantos do `icone.svg` (18% do lado) e, sobretudo, a barra da
 # SUA faixa — a 16 e 32px a barra pequena, e nao a de 512 reduzida, que era o
 # que o navegador fazia com o SVG unico.
-RAIO_FAVICON = 13.4 / 64
+RAIO_FAVICON = 0.18
 FAVICONS = (16, 32)
 
 

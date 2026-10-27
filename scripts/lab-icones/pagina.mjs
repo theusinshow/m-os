@@ -384,7 +384,7 @@ figcaption { font-size: 11px; color: var(--text-secondary); margin-top: 6px; wor
 .grade-icones { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
 .icone { margin: 0; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
 .real-icone { color: var(--text); display: inline-flex; }
-.simbolo { display: inline-grid; place-items: center; width: calc(var(--t) * 1.75); height: calc(var(--t) * 1.75); background: var(--signal-fill); color: var(--on-signal); border-radius: 21%; }
+.simbolo { display: inline-grid; place-items: center; width: calc(var(--t) * 1.75); height: calc(var(--t) * 1.75); background: var(--signal-fill); color: var(--on-signal); border-radius: 18%; }
 .simbolo .mos-symbol { width: var(--t); height: var(--t); }
 .lista-filled { list-style: none; padding: 0; display: grid; gap: 8px; font-size: 12px; }
 .grade-terceiros { display: flex; flex-wrap: wrap; gap: 12px; }

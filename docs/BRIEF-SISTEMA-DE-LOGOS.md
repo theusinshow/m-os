@@ -47,7 +47,7 @@ Os graus acima são o nome que o handoff deu a cada faixa, e não uma medida: a 
 centro dos polígonos inclina **29.4° · 34.3° · 40.4° da vertical**. Os polígonos são a
 verdade; o Lab de ícones (`npm run lab` em `apps/desktop`) mede contra eles.
 
-**Raio do ícone ≈ 18% do lado:** 112→20px, 64→11px, 32→6px, 16→3px.
+**Raio do ícone ≈ 18% do lado, na família inteira** (o M/OS desceu de 21% em 2026-10-27): 112→20px, 64→11px, 32→6px, 16→3px.
 
 **Um acento só: o sódio `#E7C24E`.** Tinta sobre ele: `#0A0C0E`. Nenhuma cor de marca nova
 entra — nem uma por app.
