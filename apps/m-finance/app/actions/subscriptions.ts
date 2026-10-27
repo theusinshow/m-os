@@ -8,6 +8,8 @@ import { requireUser } from "@/lib/auth/guard";
 import { getAppUserBySupabaseId } from "@/lib/months";
 import { parseCurrencyToCents } from "@/lib/money";
 import { subscriptionSchema } from "@/lib/validators/subscription";
+import { createSubscriptionEntry } from "@/lib/domain/finance-actions/entries";
+import { cancelSubscriptionEntry } from "@/lib/domain/finance-actions/more-entries";
 import {
   errorState,
   fieldErrorsFromZod,
@@ -42,15 +44,10 @@ export async function addSubscription(_prev: FormState, formData: FormData): Pro
 
   const data = parsed.data;
 
-  await db.insert(subscriptions).values({
-    userId: appUser.id,
-    name: data.name,
-    amountCents: data.amountCents,
-    nextChargeDate: data.nextChargeDate,
-    cycle: data.cycle,
-    status: data.isTrial ? "trial" : "active",
-    reminderDaysBefore: data.reminderDaysBefore,
-  });
+  const created = await createSubscriptionEntry({ userId: appUser.id, ...data });
+  if (!created.ok) {
+    return errorState(created.message);
+  }
 
   revalidatePath("/app/subscriptions");
   return successState(data.isTrial ? "Teste grátis salvo." : "Assinatura salva.");
@@ -64,10 +61,11 @@ export async function cancelSubscription(formData: FormData) {
     throw new Error("Não foi possível cancelar.");
   }
 
-  await db
-    .update(subscriptions)
-    .set({ status: "canceled", updatedAt: new Date() })
-    .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, appUser.id)));
+  // Mesmo serviço do Hermes. Já cancelada não é erro de tela.
+  const canceled = await cancelSubscriptionEntry(appUser.id, id);
+  if (!canceled.ok && canceled.code !== "already_paid") {
+    throw new Error(canceled.message);
+  }
 
   revalidatePath("/app/subscriptions");
 }

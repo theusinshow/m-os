@@ -81,6 +81,7 @@ Estados possíveis:
 | ADR-064 | O anel abraça a marca, e a cor volta a significar | Accepted |
 | ADR-065 | OpenAI entra pela fatura oficial, e restante significa limite menos gasto | Accepted |
 | ADR-066 | A Task passa a representar trabalho: o passo é entidade, o prazo volta | Accepted |
+| ADR-088 | O M-Finance calcula, o Hermes explica, o M/OS executa | Accepted |
 
 ## ADR-001 — Desktop Windows é a primeira plataforma
 
@@ -4781,3 +4782,264 @@ desfazer é travada por teste.
 
 A autonomia vale no desktop; o bolso ainda não tem o chat do Hermes. Não
 houve teste contra o gateway real nesta entrega.
+## ADR-088 — O M-Finance calcula, o Hermes explica, o M/OS executa
+
+**Estado:** Accepted · 2026-09-29 · estende a ADR-051 e a spec de 2026-08-17
+
+### Contexto
+
+O Hermes sabia criar uma conta no M-Finance e mais nada. Perguntar "como estou
+esse mês?" dava uma resposta genérica, porque o modelo não via número nenhum; e
+o WhatsApp tinha sete ações de escrita que o Hermes não tinha, cada uma com a
+regra copiada da interface web (a compra parcelada existia duas vezes, com
+transação num lado e sem no outro).
+
+### Decisão
+
+1. **Leitura por allowlist.** `POST /api/mos/finance/query` com treze
+   ferramentas nomeadas, zod por ferramenta e `asOf` em toda resposta. Secret de
+   leitura próprio (`MOS_FINANCE_READ_SECRET`); o de ação também lê, o de
+   leitura nunca escreve.
+2. **Kernel determinístico.** Todo número que o Hermes cita sai de função pura
+   sobre um snapshot carregado uma vez — incluindo o **Safe-to-Spend**, que é
+   separado da sobra contábil e sempre vem com as deduções e premissas.
+3. **Escrita pelos mesmos serviços.** `lib/domain/finance-actions` é chamado
+   pelo WhatsApp, pela interface web e pela Action API. Nove ações explícitas,
+   todas High/Explicit, com idempotency key e revalidação contra o que o
+   preview mostrou.
+4. **Política é dado estruturado.** `financial_policies` com chaves fechadas e
+   schema por chave; cenário temporário nunca grava política.
+5. **Proatividade sem LLM no caminho.** Detectores determinísticos com dedupe e
+   cooldown gravam `financial_insights`; a LLM, quando configurada, só narra o
+   que o detector já achou material.
+6. **O Hermes pede mais por escrito.** Bloco `mos-finance` no mesmo padrão do
+   `mos-query` (ADR-051), dois saltos por pergunta, cada um registrado.
+
+### Consequências
+
+O M-Finance ganha a migration 0016 (quatro tabelas, nenhuma alterada). O
+preâmbulo do Hermes cresce só quando a pergunta é financeira. O M/OS continua
+sem calcular dinheiro — ele transporta, registra e pede confirmação. Open
+Finance continua fora: tudo isto funciona sobre entrada manual. Desenho completo
+em `docs/superpowers/specs/2026-09-29-m-finance-intelligence-design.md`.
+
+
+---
+
+## ADR-089 — Três cortes de ruído: o gasto da OpenAI sai da tela, a faculdade só avisa a prova, e o dropdown deixa de ser branco
+
+**Estado:** Accepted · 2026-10-26
+
+### Contexto
+
+Três incômodos de uso, pedidos juntos pelo dono:
+
+1. o anel **GASTO NO MÊS** (custo da OpenAI por projeto, ADR da faixa de uso)
+   ocupava a borda da tela com um número que ninguém pediu para ver o dia todo;
+2. o Notification Engine (`PILOTO.md` §2.5) avisava **toda atividade** da
+   faculdade com prazo hoje ou amanhã, e todo bloco planejado para ela. O
+   Univirtus publica dezenas por período; o canal virou ruído e levava junto o
+   aviso que importa — a prova;
+3. a lista aberta de todo `<select>` saía **branca** com o texto claro do tema
+   escuro por cima: opções ilegíveis. O `color-scheme` do `:root` não alcança o
+   popup quando o `select` em repouso é transparente.
+
+E a folha de criar/editar lembrete tinha arestas: dois "Cancelar" lado a lado
+com efeitos opostos (um destrutivo), Salvar que remarcava mesmo sem a hora
+mudar, horário no passado só recusado depois do clique, erro que sumia porque a
+folha fechava, e cópia sem acento.
+
+### Decisão
+
+1. **O gasto sai da experiência, e nada é apagado.** A faixa deixa de receber o
+   anel (`usage.rs` passa `None`), o painel "OpenAI · custos" sai das
+   Configurações e o laço que consultava a Admin API não nasce mais. A chave
+   continua no Credential Manager; o módulo `openai_usage.rs` e os comandos
+   continuam registrados. Voltar é trocar uma linha. M-Finance e Safe-to-Spend
+   não são tocados — "métrica de gastos" era o anel.
+2. **Da faculdade, só a prova avisa.** `avisos::aviso_academico_principal`: prova
+   sem decisão cuja janela fecha hoje ou amanhã. Atividade nunca; prova já
+   fechada também não. O `upcoming` deixa de avisar o bloco planejado de
+   atividade (casado pelo instante e pelo título que `calendar::compose` grava)
+   e continua avisando prova, bloco de estudo da prova e lembrete.
+3. **O popup do select é pintado com tokens** (`option`, `optgroup`,
+   `:checked`, `:disabled`), o que vale nos dois temas porque os tokens trocam
+   com `[data-theme]`.
+4. **Criar/editar lembrete**: estado de erro por campo (título vazio, horário no
+   passado) com frase; "Algum dia" vira uma das respostas de QUANDO; editar é um
+   formulário (Enter salva, Esc descarta), só remarca se a hora mudou, e
+   esconde a barra de ações enquanto edita; "Cancelar lembrete" nomeia o gesto
+   destrutivo; a folha só fecha quando a ação deu certo.
+
+### Os oito eixos
+
+```
+core:          avisos::aviso_academico_principal + bloco_de_atividade (mos-core,
+               sem plataforma); nada muda em academic.rs nem em atencao.rs
+database:      nenhuma migration. autopilot_avisos é local e se poda em 7 dias;
+               aviso antigo de atividade adiado vence e não tem mais candidato
+sync:          não muda o que viaja. A regra mora no domínio, então reimportar
+               a atividade pelo Univirtus ou recebê-la do outro PC não a
+               transforma em aviso. Lembretes (que sincronizam) não são tocados
+desktop:       faixa sem o anel de gasto; Configurações sem o painel; select
+               legível nos dois temas; composer e folha de lembrete revistos
+ios:           não se aplica hoje — o bolso (mos-web) não roda o Notification
+               Engine (PILOTO §7) nem tem select; quando rodar, lê a mesma
+               função e herda o corte. O gasto da OpenAI nunca esteve lá
+notifications: local (toast + notificação do SO no desktop): atividade sai,
+               prova fica. Remota: nenhuma mudança (Web Push só de lembrete)
+hermes:        nenhuma mudança. Ele continua vendo a atividade como
+               compromisso (EntityKind::Assignment) — o corte é de aviso, não
+               de conhecimento
+tests:         5 testes novos em piloto::avisos (atividade em todos os
+               horizontes, janela de prova hoje/amanhã, prova fechada/distante/
+               decidida, bloco planejado de atividade vs. prova vs. lembrete,
+               aviso antigo adiado que não volta) + vitest/tsc/vite build
+```
+
+### O que ficou de fora, e por quê
+
+- **Aviso de ABERTURA de janela.** O Univirtus manda `dataInicio`
+  (`ExternalAssessment.available_at`), mas o M/OS não grava: `academic_exams`
+  só tem `at`, que é o fechamento. Avisar "a APOL abriu" exige migration nova
+  (coluna aditiva) e o campo atravessando o sync. É a próxima decisão, e é do
+  dono.
+- **Task criada a partir de atividade.** Ela é gesto explícito da pessoa
+  ("Criar Task") e continua avisando como Task vencida. Cortá-la seria decidir
+  por ela sobre algo que ela mesma criou.
+
+---
+
+## ADR-090 — O bolso abre só com Face ID, o ícone deixa de ser preto, o sódio ganha a gama do iPhone e o M-Finance fica a um toque
+
+**Estado:** Accepted · 2026-10-26
+
+### Contexto
+
+Quatro queixas de uso do iPhone, pedidas juntas pelo dono:
+
+1. **A senha a cada abertura.** Em 22/10 a VPS passou do Caddy para o Traefik do
+   Dokploy, e `/etc/dokploy/traefik/dynamic/mos.yml` recriou o `basic_auth` do
+   Caddy como o middleware `mos-auth`. Ele já existia antes: a tentativa de 10/09
+   (`tirar-senha.py`) foi revertida no mesmo dia. Uma PWA instalada no iPhone
+   não guarda Basic Auth, então pedia a senha toda vez — e por trás dela a
+   passkey já estava compilada, configurada e com aparelho registrado
+   (`/api/porta/estado`), com sessão de 30 dias. Eram duas portas, e só uma
+   fazia sentido.
+2. **O ícone preto na Tela de Início.** O PNG estava certo. `/` e
+   `/apple-touch-icon.png` respondiam 401 por causa do mesmo Basic Auth, e o
+   caminho que o iOS adivinha caía no fallback do SPA (`index.html`): HTML no
+   lugar de imagem.
+3. **O amarelo "ovo envelhecido".** O token do bolso é o mesmo do desktop
+   (`#E7C24E`). O iPhone gerencia cor e mostra o hex como ele é, com True Tone
+   puxando para o quente; no PC o mesmo hex parece mais vivo. O dono comparou
+   no iPhone o sRGB atual contra três versões Display-P3 do mesmo tom e escolheu
+   `p3(0.96 0.79 0.20)`.
+4. **Ir ao M-Finance** sem sair procurando o endereço.
+
+### Decisão
+
+1. **A porta é a passkey.** `deploy/senha-traefik.py tirar` remove o `mos-auth`
+   só do roteador `mos-web`, depois de conferir que a porta interna existe, e
+   repõe sozinho se `/api` responder sem sessão. A definição do middleware fica
+   no arquivo: `senha-traefik.py voltar` é a porta de emergência se o aparelho
+   com a passkey se perder. Aplicado e conferido em 26/10 (`/` 200,
+   `/api/tasks` 401, ícone 200). `tirar-senha.py` e `voltar-senha.py` mexem no
+   Caddy, que está parado — ficam como histórico.
+2. **`apple-touch-icon.png` existe de verdade**, gerado junto com os outros.
+3. **O sódio do bolso em P3**, em `@media (color-gamut: p3)` no `estilo.css`
+   (`--signal`, `--signal-wash`, `--signal-press`, `--brilho-topo`). Tela sem P3
+   fica com o hex. Os PNGs do ícone saem com perfil ICC Display P3 embutido
+   (`scripts/gerar-icones-web.py`), e os SVGs com `fill` P3 sobre o hex.
+   **O desktop não muda**: o dono aprovou o amarelo como ele aparece no PC, e o
+   WebView2 num monitor P3 aplicaria a versão saturada por cima do que já parece
+   vivo ali.
+4. **M-Finance na página Mais**, como link para o mesmo endereço que o desktop
+   abre. Link e não página: o M-Finance tem banco e login próprios.
+
+### Os oito eixos
+
+```
+core:          nenhuma mudança
+database:      nenhuma
+sync:          nenhuma — /sync/* nunca passou pelo mos-auth
+desktop:       não se aplica: o sódio do desktop é o aprovado; o M-Finance já
+               tem página lá (FinancePage.tsx)
+ios:           é onde tudo isto mora — porta só com passkey, ícone, sódio P3,
+               link do M-Finance
+notifications: nenhuma (a revisão de lembretes e avisos é a próxima frente)
+hermes:        nenhuma
+tests:         vitest 80/80 + tsc + vite build; perfil ICC lido e convertido
+               pelo LittleCMS; prova de produção pelo próprio senha-traefik.py
+```
+
+### O que ficou de fora
+
+- **Lembretes e notificações do bolso** (adiar pela notificação, composer
+  rápido, avisar prova e o dia, menos ruído) — frente própria, com desenho.
+- **Revisão visual inteira do bolso**, com referência externa — depois dos
+  lembretes, para não redesenhar telas que ainda vão mudar.
+
+## ADR-091 — Todo push no desktop vira versão, e o M/OS não deixa trabalhar na versão velha
+
+**Estado:** Accepted · 2026-10-26
+
+### Contexto
+
+O updater assinado existia desde a v0.2 (`TECHNICAL-FOUNDATION-V0.2-RELEASE-UPDATES.md`),
+mas duas coisas o deixavam sem efeito:
+
+1. **Push não virava versão.** O app só enxerga GitHub Release, e release só
+   nascia de tag `v*` empurrada à mão. A última foi a v0.7.2 (30/09); quase um
+   mês de correções no `master` nunca chegou ao app instalado.
+2. **Instalar dependia de um clique em Settings.** A v0.2 recusou de propósito
+   "atualização silenciosa automática na abertura". Este ADR revoga essa recusa.
+
+O dono pediu: cada push habilita uma atualização, e o software não deixa usar
+sem atualizar.
+
+### Decisão
+
+**Desktop.**
+
+- `package.yml` passa a rodar depois do CI verde no `master` (`workflow_run`).
+  Se algo em `apps/desktop`, `crates`, `packages`, `Cargo.toml` ou `Cargo.lock`
+  mudou desde a última tag, publica a próxima versão: patch + 1 da última tag,
+  ou a versão do repositório quando alguém a subiu à mão (salto de minor/major
+  continua sendo decisão, e não contador). `scripts/set-version.ps1` carimba o
+  número só no checkout do build — commitar o bump faria o push disparar outro
+  release. Tag `v*` manual continua funcionando.
+- `PortaoDeAtualizacao` envolve a janela principal. Ao abrir, confere (prazo de
+  4 s) e, havendo versão nova, instala em tela cheia antes de mostrar qualquer
+  coisa. Aberto, confere a cada 30 min e reinicia sozinho com 60 s de aviso.
+- Três exceções, em `regraDaAtualizacaoObrigatoria.ts`:
+  - **Sem resposta, abre.** O M/OS é local-first (VISION): rede caída ou GitHub
+    fora não podem virar um app que não abre.
+  - **Duas falhas na mesma versão, abre** com aviso. Instalador quebrado não
+    tranca o dono do lado de fora; a próxima versão volta a trancar.
+  - **Gravando reunião ou nota de voz, espera.** O áudio vive em memória até
+    parar. Timer não segura: ele mora no banco e sobrevive ao reinício.
+- As janelinhas de sobreposição não passam pela porta, e `tauri dev` também não
+  — o build de desenvolvimento seria "atualizado" pelo release.
+
+**M-Finance.** Já subia a cada push pela Vercel; o que ficava velho era a aba
+aberta (e o PWA do iPhone). `/api/version` responde o commit no ar; a aba
+compara com o dela ao voltar para a tela e a cada 5 min e, divergindo,
+recarrega — uma vez por versão, para não entrar em laço enquanto a CDN propaga.
+
+### Eixos
+
+- **iOS:** não se aplica como app — não há app iOS. O bolso (`mos-web`) e o
+  M-Finance são web: o M-Finance ganha a troca automática acima; o `mos-web`
+  continua com deploy manual na VPS, fora deste corte.
+- **Core / sync:** nada em `mos-core` nem `mos-sync`. Versões diferentes na
+  malha continuam protegidas pelo contrato do hub.
+- **Hermes:** não se aplica.
+
+### Consequências
+
+- A primeira versão com a porta (0.7.3) precisa ser instalada uma vez pelo
+  botão de Settings; dali em diante cada push no desktop chega sozinho.
+- Cada release leva ~13 min de build Windows (repositório público, sem custo).
+- Uma versão ruim chega a todo mundo: o portão de testes do CI é o que segura,
+  e o conserto é outro push.

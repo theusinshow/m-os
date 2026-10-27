@@ -25,11 +25,10 @@ import { PaneHeader, Panel, StateMessage } from "./Surface";
 import type { FunctionIntentTarget } from "./functionIntents";
 import { functionCategoryLabels, functionConfirmationLabels, functionRiskLabels } from "./functionLabels";
 import { relativeTime } from "./relativeTime";
-import { usdDeMicros } from "./openaiUsage";
 import { SETTINGS_GROUPS, SETTINGS_SECTIONS, secaoInicial, type AlvoDoSettings } from "./settingsNav";
 import type {
   AppStatus, BackupInspection, Capture, FunctionDefinition, ImportReport, Ocorrencia,
-  AparelhoNaMalha, OpenAiUsageStatus, Project, RegisteredApp, Resource, SyncReport, SyncStatus, Task,
+  AparelhoNaMalha, Project, RegisteredApp, Resource, SyncReport, SyncStatus, Task,
   UnivirtusStatus,
   Workspace,
 } from "./types";
@@ -400,113 +399,6 @@ function AutonomiaDoHermes() {
 }
 
 /**
- * A credencial administrativa fica fora do renderer. A tela recebe apenas
- * "configurada" e o retrato financeiro que os endpoints GET devolveram.
- */
-function OpenAiUsageSettings() {
-  const [status, setStatus] = useState<OpenAiUsageStatus | null>(null);
-  const [key, setKey] = useState("");
-  const [message, setMessage] = useState("");
-  const [messageState, setMessageState] = useState<"saving" | "saved" | "error">("saved");
-
-  const load = useCallback(async () => {
-    setStatus(await api.openAiUsageStatus());
-  }, []);
-  useEffect(() => { void load().catch(() => undefined); }, [load]);
-
-  async function saveKey(event: FormEvent) {
-    event.preventDefault();
-    setMessageState("saving");
-    setMessage("Conferindo a chave e lendo o mês...");
-    try {
-      const next = await api.openAiUsageSetKey(key);
-      setStatus(next);
-      setKey("");
-      setMessageState("saved");
-      setMessage("Chave conferida e guardada no Windows Credential Manager.");
-    } catch (error) {
-      setMessageState("error");
-      setMessage(appError(error).message);
-    }
-  }
-
-  async function refresh() {
-    setMessageState("saving");
-    setMessage("Lendo custos e limites na OpenAI...");
-    try {
-      const next = await api.openAiUsageRefresh();
-      setStatus(next);
-      setMessageState("saved");
-      setMessage("Leitura atualizada.");
-    } catch (error) {
-      setMessageState("error");
-      setMessage(appError(error).message);
-      await load().catch(() => undefined);
-    }
-  }
-
-  async function remove() {
-    try {
-      await api.openAiUsageClearKey();
-      setKey("");
-      setMessageState("saved");
-      setMessage("Chave removida deste aparelho.");
-      await load();
-    } catch (error) {
-      setMessageState("error");
-      setMessage(appError(error).message);
-    }
-  }
-
-  const resumo = status?.resumo;
-  return <Panel label="OPENAI · CUSTOS">
-    <p className="support-copy">
-      Mostra na Faixa quanto NexoDoc, Truss, Hermes e os outros OpenAI Projects gastaram no mês.
-      Para separar corretamente, cada produto precisa usar seu próprio Project — uma chave
-      compartilhada não revela depois quem fez cada gasto.
-    </p>
-    <p className="support-copy">
-      Use uma Admin API Key da organização. O M/OS faz somente leituras oficiais de projetos,
-      custos e limites; a chave fica no cofre deste aparelho e não entra no banco nem no sync.
-    </p>
-    <form className="stack-form" onSubmit={saveKey}>
-      <label>
-        <span>ADMIN API KEY</span>
-        <input
-          className="mono-input"
-          type="password"
-          value={key}
-          onChange={(event) => setKey(event.currentTarget.value)}
-          placeholder={status?.temChave ? "Configurada — cole outra para trocar" : "sk-admin-…"}
-          autoComplete="off"
-        />
-      </label>
-      <div className="form-actions">
-        {status?.temChave
-          ? <Button variant="ghost" type="button" onClick={() => void remove()}>Remover chave</Button>
-          : null}
-        <Button variant="primary" type="submit" disabled={!key.trim() || status?.atualizando}>
-          {status?.temChave ? "Trocar chave" : "Conectar"}
-        </Button>
-      </div>
-    </form>
-    <dl className="fact-grid">
-      <div><dt>ESTADO</dt><dd>{status?.temChave ? "Conectada" : <span className="fact-empty">Não configurada</span>}</dd></div>
-      <div><dt>GASTO NO MÊS</dt><dd>{resumo ? usdDeMicros(resumo.gastoMicros) : <span className="fact-empty">—</span>}</dd></div>
-      <div><dt>RESTANTE DO LIMITE</dt><dd>{resumo ? (resumo.restanteMicros != null ? usdDeMicros(resumo.restanteMicros) : <span className="fact-empty">Sem limite hard</span>) : <span className="fact-empty">—</span>}</dd></div>
-      <div><dt>PROJETOS</dt><dd>{resumo?.projetos.length ?? <span className="fact-empty">—</span>}</dd></div>
-    </dl>
-    {status?.temChave ? <div className="button-line">
-      <Button variant="secondary" type="button" onClick={() => void refresh()} disabled={status.atualizando}>
-        {status.atualizando ? "Atualizando" : "Atualizar agora"}
-      </Button>
-    </div> : null}
-    {status?.ultimoErro && !message ? <StateMessage state="error" label={status.ultimoErro} /> : null}
-    {message ? <StateMessage state={messageState} label={message} /> : null}
-  </Panel>;
-}
-
-/**
  * A sincronizacao entre dispositivos.
  *
  * O ENDERECO e visivel e editavel; o SEGREDO entra e nunca volta. Ele mora no
@@ -725,9 +617,11 @@ function FinanceActionSettings() {
   return (
     <Panel label="AÇÕES DO HERMES NO M-FINANCE">
       <p className="support-copy">
-        O Hermes pode propor criar contas no M-Finance quando você pedir — nunca sem confirmação
-        explícita. Isto guarda o secret que autoriza o M/OS a chamar a Action API do M-Finance
-        (mesmo secret configurado como variável de ambiente lá, do lado do M-Finance).
+        O Hermes pode propor lançamentos no M-Finance — contas, compras no cartão, receitas,
+        pagamentos, assinaturas, metas e políticas — nunca sem confirmação explícita. Isto guarda
+        o secret que autoriza o M/OS a chamar a Action API do M-Finance (o mesmo
+        <code> MOS_ACTION_SECRET</code> configurado do lado do M-Finance). Ele também serve para
+        leitura quando o secret de leitura abaixo não está configurado.
       </p>
       <form className="stack-form" onSubmit={save}>
         <label><span>SECRET</span><input type="password" value={secret} onChange={(event) => setSecret(event.currentTarget.value)} autoComplete="off" /></label>
@@ -738,6 +632,66 @@ function FinanceActionSettings() {
       </form>
       <dl className="fact-grid">
         <div><dt>SECRET</dt><dd>{configured ? "Configurado" : <span className="fact-empty">Não configurado</span>}</dd></div>
+      </dl>
+      {message ? <StateMessage state={messageState} label={message} /> : null}
+    </Panel>
+  );
+}
+
+/**
+ * O secret de LEITURA do M-Finance (ADR-088): o Hermes lê o estado financeiro
+ * por ele e não consegue escrever nada. Separado do de ação de propósito —
+ * vazar este não lança conta nenhuma.
+ */
+function FinanceReadSettings() {
+  const [configured, setConfigured] = useState(false);
+  const [secret, setSecret] = useState("");
+  const [message, setMessage] = useState("");
+  const [messageState, setMessageState] = useState<"saving" | "saved" | "error">("saved");
+
+  useEffect(() => {
+    void finance.readSecretConfigured().then(setConfigured).catch(() => undefined);
+  }, []);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (!secret.trim()) return;
+    setMessageState("saving");
+    setMessage("Salvando secret...");
+    try {
+      await finance.setReadSecret(secret);
+      setSecret("");
+      setConfigured(true);
+      setMessage("Secret de leitura guardado no Windows Credential Manager.");
+      setMessageState("saved");
+    } catch (error) {
+      setMessageState("error");
+      setMessage(String(error));
+    }
+  }
+
+  async function clear() {
+    await finance.clearReadSecret().catch(() => undefined);
+    setConfigured(false);
+  }
+
+  return (
+    <Panel label="LEITURA DO M-FINANCE PELO HERMES">
+      <p className="support-copy">
+        Com isto o Hermes responde perguntas financeiras com os números reais — mês, Safe-to-Spend,
+        faturas, cenários — e a Home ganha o widget FINANÇAS. Os dados só descem quando a pergunta
+        é sobre dinheiro, e cada envio fica registrado na conversa. O secret é o
+        <code> MOS_FINANCE_READ_SECRET</code> do M-Finance; ele não escreve nada.
+      </p>
+      <form className="stack-form" onSubmit={save}>
+        <label><span>SECRET DE LEITURA</span><input type="password" value={secret} onChange={(event) => setSecret(event.currentTarget.value)} autoComplete="off" /></label>
+        <div className="form-actions">
+          <Button variant="ghost" onClick={() => void clear()}>Remover secret</Button>
+          <Button variant="primary" type="submit">Salvar</Button>
+        </div>
+      </form>
+      <dl className="fact-grid">
+        <div><dt>LEITURA</dt><dd>{configured ? "Secret próprio" : <span className="fact-empty">Usando o secret de ação, se houver</span>}</dd></div>
       </dl>
       {message ? <StateMessage state={messageState} label={message} /> : null}
     </Panel>
@@ -1046,7 +1000,7 @@ export function SettingsPage({ theme, setTheme, status, capturesArchived, captur
   const conteudo: Record<string, ReactNode> = {
     sync: <><SyncSettings /><AutopilotSettings /></>,
     hermes: <HermesSettings />,
-    integracoes: <><OpenAiUsageSettings /><UnivirtusSettings /><FinanceActionSettings /></>,
+    integracoes: <><UnivirtusSettings /><FinanceActionSettings /><FinanceReadSettings /></>,
     aparencia: <><Panel label="APARÊNCIA"><div className="setting-row"><div><strong>Tema claro</strong><p>Dark permanece o padrão do sistema.</p></div><label className="switch"><input type="checkbox" aria-label="Tema claro" checked={theme === "light"} onChange={(event) => setTheme(event.currentTarget.checked ? "light" : "dark")} /><span /></label></div></Panel><Panel label="CAPTURA RÁPIDA"><form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setShortcut(shortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="shortcut">Atalho global</label><p>{status?.shortcut}</p></div><div className="inline-form"><input id="shortcut" value={shortcut} onChange={(event) => setShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form>{/* A voz mora no mesmo Panel porque ela e a mesma captura por outra
      porta — separa-la num painel proprio a transformaria numa feature
      ao lado, que e exatamente o que o §Voz do design system recusa. */}<form className="setting-row" onSubmit={(event) => { event.preventDefault(); void api.setVoiceShortcut(voiceShortcut).then((nextMessage) => notify("saved", nextMessage)).catch((error) => notify("error", appError(error).message)); }}><div><label htmlFor="voice-shortcut">Atalho da voz</label><p>{status?.voiceShortcut}</p><p className="support-copy">Segure para falar, solte para guardar. Vale de qualquer lugar do Windows, e o microfone só abre enquanto a tecla está pressionada.</p></div><div className="inline-form"><input id="voice-shortcut" value={voiceShortcut} onChange={(event) => setVoiceShortcut(event.currentTarget.value)} /><Button variant="primary" type="submit">Aplicar</Button></div></form></Panel><Panel label="ATALHOS"><p className="support-copy">O M/OS é operável quase inteiro pelo teclado. Nada aqui precisa ser decorado — esta lista existe para quando você quiser.</p><dl className="shortcut-list">{SHORTCUTS.map((entry) => <div key={entry.keys}><dt>{entry.keys}</dt><dd>{entry.does}</dd></div>)}</dl></Panel></>,

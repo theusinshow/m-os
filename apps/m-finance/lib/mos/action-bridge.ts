@@ -1,9 +1,7 @@
 import { z } from "zod";
 import { db } from "@/db/client";
-import { bills } from "@/db/schema";
-import { composeMonthDate } from "@/lib/due-date";
+import { createBillEntries, scheduleFromFlags } from "@/lib/domain/finance-actions/create-bill";
 import { getCurrentMonthForUser } from "@/lib/months";
-import { createRecurringBillSeries } from "@/lib/recurrence";
 
 const billPayloadSchema = z.object({
   amountCents: z.number().int().positive(),
@@ -17,11 +15,13 @@ export type MosActionResult =
   | { ok: false; error: string };
 
 /**
- * Cria uma conta a partir de uma acao proposta pelo Hermes e confirmada no
- * M/OS. Espelha `executeCreateBill` de `lib/whatsapp/action-executor.ts`,
- * sem o acoplamento com `whatsappPendingActions` — esta acao nao nasceu de
- * uma mensagem de WhatsApp, e forcar uma linha pendente so para satisfazer a
- * foreign key seria inventar um registro que nao existe.
+ * Cria uma conta a partir de uma ação proposta pelo Hermes e confirmada no
+ * M/OS.
+ *
+ * A regra de escrita é `createBillEntries`, a mesma do WhatsApp e da tela —
+ * sem o acoplamento com `whatsappPendingActions`: esta ação não nasceu de uma
+ * mensagem de WhatsApp, e forçar uma linha pendente só para satisfazer a
+ * foreign key seria inventar um registro que não existe.
  */
 export async function createBillFromMosAction(
   userId: string,
@@ -42,50 +42,19 @@ export async function createBillFromMosAction(
     return { ok: false, error: "Crie o mês atual no app antes de lançar despesas por aqui." };
   }
 
-  if (payload.isRecurring && payload.dueDay) {
-    // O helper lança; a ponte do M/OS responde com `{ ok: false }` e uma frase
-    // que o Hermes sabe mostrar, então a falha é traduzida aqui.
-    try {
-      const { rule, billIds } = await createRecurringBillSeries({
-        userId,
-        name: payload.description,
-        amountCents: payload.amountCents,
-        dueDay: payload.dueDay,
-        startMonth: month.month,
-        startYear: month.year,
-      });
+  // Recorrente com dia vira regra + próximos meses; sem dia, uma conta marcada.
+  const created = await createBillEntries({
+    userId,
+    month,
+    name: payload.description,
+    amountCents: payload.amountCents,
+    dueDay: payload.dueDay,
+    schedule: scheduleFromFlags(payload.isRecurring, payload.dueDay),
+  });
 
-      return { ok: true, billId: billIds[0] ?? rule.id };
-    } catch (error) {
-      return {
-        ok: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Não consegui criar a regra de recorrência agora.",
-      };
-    }
+  if (!created.ok) {
+    return { ok: false, error: created.message };
   }
 
-  const dueDay = payload.dueDay ?? 31;
-  const dueDate = composeMonthDate(month.year, month.month, dueDay);
-
-  const [created] = await db
-    .insert(bills)
-    .values({
-      userId,
-      monthId: month.id,
-      name: payload.description,
-      amountCents: payload.amountCents,
-      dueDate,
-      isRecurring: payload.isRecurring,
-      status: "pending",
-    })
-    .returning({ id: bills.id });
-
-  if (!created) {
-    return { ok: false, error: "Não consegui gravar a conta agora." };
-  }
-
-  return { ok: true, billId: created.id };
+  return { ok: true, billId: created.value.billIds[0] ?? created.value.ruleId ?? "" };
 }

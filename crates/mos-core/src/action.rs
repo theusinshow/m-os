@@ -80,6 +80,27 @@ pub enum ActionKind {
     DaySetMain,
     DayEnd,
     MFinanceCreateBill,
+    /// As oito que vieram com a ADR-088. Todas mexem em dinheiro ou no que
+    /// decide sobre dinheiro, entao todas sao risco alto com confirmacao
+    /// explicita — `functions.rs` e o lugar onde isso esta escrito.
+    MFinanceCreateCardExpense,
+    MFinanceCreateIncome,
+    MFinanceMarkBillPaid,
+    MFinanceMarkInvoicePaid,
+    MFinanceCreateSubscription,
+    MFinanceCreateGoal,
+    MFinanceUpdateGoal,
+    MFinanceSetPolicy,
+    /// As sete que completam o que a tela do M-Finance faz: assinatura
+    /// (editar, cancelar), receita recebida, meta (guardar, mudar status),
+    /// valor real da fatura e orcamento do mes.
+    MFinanceUpdateSubscription,
+    MFinanceCancelSubscription,
+    MFinanceMarkIncomeReceived,
+    MFinanceAddGoalContribution,
+    MFinanceSetGoalStatus,
+    MFinanceSetInvoiceAmount,
+    MFinanceSetBudget,
 }
 
 impl ActionKind {
@@ -117,6 +138,21 @@ impl ActionKind {
             Self::DaySetMain => "mos.day.set_main",
             Self::DayEnd => "mos.day.end",
             Self::MFinanceCreateBill => "m-finance.create_bill",
+            Self::MFinanceCreateCardExpense => "m-finance.create_card_expense",
+            Self::MFinanceCreateIncome => "m-finance.create_income",
+            Self::MFinanceMarkBillPaid => "m-finance.mark_bill_paid",
+            Self::MFinanceMarkInvoicePaid => "m-finance.mark_invoice_paid",
+            Self::MFinanceCreateSubscription => "m-finance.create_subscription",
+            Self::MFinanceCreateGoal => "m-finance.create_goal",
+            Self::MFinanceUpdateGoal => "m-finance.update_goal",
+            Self::MFinanceSetPolicy => "m-finance.set_policy",
+            Self::MFinanceUpdateSubscription => "m-finance.update_subscription",
+            Self::MFinanceCancelSubscription => "m-finance.cancel_subscription",
+            Self::MFinanceMarkIncomeReceived => "m-finance.mark_income_received",
+            Self::MFinanceAddGoalContribution => "m-finance.add_goal_contribution",
+            Self::MFinanceSetGoalStatus => "m-finance.set_goal_status",
+            Self::MFinanceSetInvoiceAmount => "m-finance.set_invoice_amount",
+            Self::MFinanceSetBudget => "m-finance.set_budget",
         }
     }
 
@@ -146,6 +182,21 @@ impl ActionKind {
             "mos.day.set_main" => Some(Self::DaySetMain),
             "mos.day.end" => Some(Self::DayEnd),
             "m-finance.create_bill" => Some(Self::MFinanceCreateBill),
+            "m-finance.create_card_expense" => Some(Self::MFinanceCreateCardExpense),
+            "m-finance.create_income" => Some(Self::MFinanceCreateIncome),
+            "m-finance.mark_bill_paid" => Some(Self::MFinanceMarkBillPaid),
+            "m-finance.mark_invoice_paid" => Some(Self::MFinanceMarkInvoicePaid),
+            "m-finance.create_subscription" => Some(Self::MFinanceCreateSubscription),
+            "m-finance.create_goal" => Some(Self::MFinanceCreateGoal),
+            "m-finance.update_goal" => Some(Self::MFinanceUpdateGoal),
+            "m-finance.set_policy" => Some(Self::MFinanceSetPolicy),
+            "m-finance.update_subscription" => Some(Self::MFinanceUpdateSubscription),
+            "m-finance.cancel_subscription" => Some(Self::MFinanceCancelSubscription),
+            "m-finance.mark_income_received" => Some(Self::MFinanceMarkIncomeReceived),
+            "m-finance.add_goal_contribution" => Some(Self::MFinanceAddGoalContribution),
+            "m-finance.set_goal_status" => Some(Self::MFinanceSetGoalStatus),
+            "m-finance.set_invoice_amount" => Some(Self::MFinanceSetInvoiceAmount),
+            "m-finance.set_budget" => Some(Self::MFinanceSetBudget),
             _ => None,
         }
     }
@@ -178,10 +229,31 @@ impl ActionKind {
             Self::DaySetMain => "daily.set_main",
             Self::DayEnd => "daily.end_day",
             Self::MFinanceCreateBill => "m-finance.create_bill",
+            Self::MFinanceCreateCardExpense => "m-finance.create_card_expense",
+            Self::MFinanceCreateIncome => "m-finance.create_income",
+            Self::MFinanceMarkBillPaid => "m-finance.mark_bill_paid",
+            Self::MFinanceMarkInvoicePaid => "m-finance.mark_invoice_paid",
+            Self::MFinanceCreateSubscription => "m-finance.create_subscription",
+            Self::MFinanceCreateGoal => "m-finance.create_goal",
+            Self::MFinanceUpdateGoal => "m-finance.update_goal",
+            Self::MFinanceSetPolicy => "m-finance.set_policy",
+            Self::MFinanceUpdateSubscription => "m-finance.update_subscription",
+            Self::MFinanceCancelSubscription => "m-finance.cancel_subscription",
+            Self::MFinanceMarkIncomeReceived => "m-finance.mark_income_received",
+            Self::MFinanceAddGoalContribution => "m-finance.add_goal_contribution",
+            Self::MFinanceSetGoalStatus => "m-finance.set_goal_status",
+            Self::MFinanceSetInvoiceAmount => "m-finance.set_invoice_amount",
+            Self::MFinanceSetBudget => "m-finance.set_budget",
         }
     }
 
-    pub fn all() -> [ActionKind; 24] {
+    /// Acao que vive no M-Finance, e nao no M/OS. So desce no catalogo quando o
+    /// App tem `can_write`, e a execucao atravessa a Action API.
+    pub fn is_finance(self) -> bool {
+        self.as_str().starts_with("m-finance.")
+    }
+
+    pub fn all() -> [ActionKind; 39] {
         [
             Self::CaptureCreate,
             Self::CaptureToTask,
@@ -207,6 +279,21 @@ impl ActionKind {
             Self::DaySetMain,
             Self::DayEnd,
             Self::MFinanceCreateBill,
+            Self::MFinanceCreateCardExpense,
+            Self::MFinanceCreateIncome,
+            Self::MFinanceMarkBillPaid,
+            Self::MFinanceMarkInvoicePaid,
+            Self::MFinanceCreateSubscription,
+            Self::MFinanceCreateGoal,
+            Self::MFinanceUpdateGoal,
+            Self::MFinanceSetPolicy,
+            Self::MFinanceUpdateSubscription,
+            Self::MFinanceCancelSubscription,
+            Self::MFinanceMarkIncomeReceived,
+            Self::MFinanceAddGoalContribution,
+            Self::MFinanceSetGoalStatus,
+            Self::MFinanceSetInvoiceAmount,
+            Self::MFinanceSetBudget,
         ]
     }
 
@@ -272,6 +359,44 @@ impl ActionKind {
             Self::DaySetMain => "{ objective }",
             Self::DayEnd => "{ mood?: productive|normal|blocked, summary? }",
             Self::MFinanceCreateBill => "{ amountCents, description, dueDay?: 1-31, isRecurring }",
+            // Os ids e os nomes vem dos dados financeiros (ou de
+            // finance.find_entities). O nome e o valor voltam para o M-Finance
+            // conferir: se a entidade mudou desde o cartao, a acao recusa.
+            Self::MFinanceCreateCardExpense => {
+                "{ cardId, cardName, amountCents, description, installments?: 1-60, purchaseDate?: AAAA-MM-DD }"
+            }
+            Self::MFinanceCreateIncome => {
+                "{ name, amountCents, incomeType: main|freelance|extra, month?: AAAA-MM, expectedDate?: AAAA-MM-DD, received? }"
+            }
+            Self::MFinanceMarkBillPaid => "{ billId, billName, amountCents }",
+            Self::MFinanceMarkInvoicePaid => "{ cardId, cardName, month?: AAAA-MM, amountCents? }",
+            Self::MFinanceCreateSubscription => {
+                "{ name, amountCents, nextChargeDate: AAAA-MM-DD, cycle?: monthly|yearly|once, isTrial? }"
+            }
+            Self::MFinanceCreateGoal => {
+                "{ name, targetAmountCents, currentAmountCents?, deadline?: AAAA-MM-DD, priority?: low|medium|high }"
+            }
+            Self::MFinanceUpdateGoal => {
+                "{ goalId, goalName, name?, targetAmountCents?, currentAmountCents?, deadline?: AAAA-MM-DD|null, priority? }"
+            }
+            Self::MFinanceSetPolicy => {
+                "{ key: minimum_month_end_buffer|reliable_income_rules|max_installment_commitment|forecast_horizon_months|observer_sensitivity|safe_to_spend_policy, value }"
+            }
+            Self::MFinanceUpdateSubscription => {
+                "{ subscriptionId, subscriptionName, amountCents?, nextChargeDate?: AAAA-MM-DD, cycle?: monthly|yearly|once }"
+            }
+            Self::MFinanceCancelSubscription => "{ subscriptionId, subscriptionName }",
+            Self::MFinanceMarkIncomeReceived => "{ incomeId, incomeName, amountCents }",
+            Self::MFinanceAddGoalContribution => {
+                "{ goalId, goalName, amountCents, contributionDate?: AAAA-MM-DD }"
+            }
+            Self::MFinanceSetGoalStatus => {
+                "{ goalId, goalName, status: active|paused|completed|archived }"
+            }
+            Self::MFinanceSetInvoiceAmount => "{ cardId, cardName, amountCents, month?: AAAA-MM }",
+            Self::MFinanceSetBudget => {
+                "{ budgetType: total|category|card, limitCents, categoryName?, cardId?, cardName?, month?: AAAA-MM }"
+            }
         }
     }
 }
@@ -479,6 +604,113 @@ pub enum ActionArgs {
         due_day: Option<u8>,
         is_recurring: bool,
     },
+    MFinanceCreateCardExpense {
+        card_id: String,
+        /// O nome que o cartao mostrou. O M-Finance recusa se nao bater.
+        card_name: String,
+        amount_cents: i64,
+        description: String,
+        /// 1 = a vista.
+        installments: u8,
+        /// `AAAA-MM-DD`, ou vazio.
+        purchase_date: String,
+    },
+    MFinanceCreateIncome {
+        name: String,
+        amount_cents: i64,
+        /// `main`, `freelance` ou `extra`.
+        income_type: String,
+        /// `AAAA-MM`, ou vazio para o mes atual.
+        month: String,
+        expected_date: String,
+        received: bool,
+    },
+    MFinanceMarkBillPaid {
+        bill_id: String,
+        bill_name: String,
+        /// O valor que o cartao mostrou — e a trava contra pagar a conta errada.
+        amount_cents: i64,
+    },
+    MFinanceMarkInvoicePaid {
+        card_id: String,
+        card_name: String,
+        month: String,
+        amount_cents: Option<i64>,
+    },
+    MFinanceCreateSubscription {
+        name: String,
+        amount_cents: i64,
+        next_charge_date: String,
+        /// `monthly`, `yearly` ou `once`.
+        cycle: String,
+        is_trial: bool,
+    },
+    MFinanceCreateGoal {
+        name: String,
+        target_amount_cents: i64,
+        current_amount_cents: i64,
+        deadline: String,
+        /// `low`, `medium` ou `high`.
+        priority: String,
+    },
+    MFinanceUpdateGoal {
+        goal_id: String,
+        goal_name: String,
+        name: String,
+        target_amount_cents: Option<i64>,
+        current_amount_cents: Option<i64>,
+        /// `None` = nao mexe; `Some("")` = tira o prazo; `Some(data)` = novo prazo.
+        deadline: Option<String>,
+        priority: String,
+    },
+    MFinanceSetPolicy {
+        key: String,
+        /// Ja validado contra o schema da chave (`validate_policy`).
+        value: serde_json::Value,
+    },
+    MFinanceUpdateSubscription {
+        subscription_id: String,
+        subscription_name: String,
+        amount_cents: Option<i64>,
+        next_charge_date: String,
+        cycle: String,
+    },
+    MFinanceCancelSubscription {
+        subscription_id: String,
+        subscription_name: String,
+    },
+    MFinanceMarkIncomeReceived {
+        income_id: String,
+        income_name: String,
+        amount_cents: i64,
+    },
+    MFinanceAddGoalContribution {
+        goal_id: String,
+        goal_name: String,
+        amount_cents: i64,
+        contribution_date: String,
+    },
+    MFinanceSetGoalStatus {
+        goal_id: String,
+        goal_name: String,
+        /// `active`, `paused`, `completed` ou `archived`.
+        status: String,
+    },
+    MFinanceSetInvoiceAmount {
+        card_id: String,
+        card_name: String,
+        amount_cents: i64,
+        month: String,
+    },
+    MFinanceSetBudget {
+        /// `total`, `category` ou `card`.
+        budget_type: String,
+        limit_cents: i64,
+        category_name: String,
+        card_id: String,
+        card_name: String,
+        month: String,
+    },
 }
 
 impl ActionArgs {
@@ -508,6 +740,21 @@ impl ActionArgs {
             Self::DaySetMain { .. } => ActionKind::DaySetMain,
             Self::DayEnd { .. } => ActionKind::DayEnd,
             Self::MFinanceCreateBill { .. } => ActionKind::MFinanceCreateBill,
+            Self::MFinanceCreateCardExpense { .. } => ActionKind::MFinanceCreateCardExpense,
+            Self::MFinanceCreateIncome { .. } => ActionKind::MFinanceCreateIncome,
+            Self::MFinanceMarkBillPaid { .. } => ActionKind::MFinanceMarkBillPaid,
+            Self::MFinanceMarkInvoicePaid { .. } => ActionKind::MFinanceMarkInvoicePaid,
+            Self::MFinanceCreateSubscription { .. } => ActionKind::MFinanceCreateSubscription,
+            Self::MFinanceCreateGoal { .. } => ActionKind::MFinanceCreateGoal,
+            Self::MFinanceUpdateGoal { .. } => ActionKind::MFinanceUpdateGoal,
+            Self::MFinanceSetPolicy { .. } => ActionKind::MFinanceSetPolicy,
+            Self::MFinanceUpdateSubscription { .. } => ActionKind::MFinanceUpdateSubscription,
+            Self::MFinanceCancelSubscription { .. } => ActionKind::MFinanceCancelSubscription,
+            Self::MFinanceMarkIncomeReceived { .. } => ActionKind::MFinanceMarkIncomeReceived,
+            Self::MFinanceAddGoalContribution { .. } => ActionKind::MFinanceAddGoalContribution,
+            Self::MFinanceSetGoalStatus { .. } => ActionKind::MFinanceSetGoalStatus,
+            Self::MFinanceSetInvoiceAmount { .. } => ActionKind::MFinanceSetInvoiceAmount,
+            Self::MFinanceSetBudget { .. } => ActionKind::MFinanceSetBudget,
         }
     }
 }
@@ -900,6 +1147,723 @@ pub fn parse_action_at(raw: &str, now_local: OffsetDateTime) -> Result<ActionArg
                     .unwrap_or(false),
             }
         }
+        ActionKind::MFinanceCreateCardExpense => {
+            let installments = match args.get("installments") {
+                None | Some(serde_json::Value::Null) => 1,
+                Some(value) => value
+                    .as_u64()
+                    .filter(|n| (1..=60).contains(n))
+                    .ok_or_else(|| finance_error(kind, "`installments` precisa ser de 1 a 60"))?
+                    as u8,
+            };
+            let amount_cents = finance_cents(&args, "amountCents", kind)?;
+            if installments > 1 && amount_cents < i64::from(installments) {
+                return Err(finance_error(
+                    kind,
+                    "o valor é baixo demais para essa quantidade de parcelas",
+                ));
+            }
+            ActionArgs::MFinanceCreateCardExpense {
+                card_id: finance_id(&args, "cardId", kind)?,
+                card_name: finance_text(&args, "cardName", kind)?,
+                amount_cents,
+                description: finance_text(&args, "description", kind)?,
+                installments,
+                purchase_date: finance_date(&args, "purchaseDate", kind)?,
+            }
+        }
+        ActionKind::MFinanceCreateIncome => ActionArgs::MFinanceCreateIncome {
+            name: finance_text(&args, "name", kind)?,
+            amount_cents: finance_cents(&args, "amountCents", kind)?,
+            income_type: finance_choice(
+                &args,
+                "incomeType",
+                &["main", "freelance", "extra"],
+                None,
+                kind,
+            )?,
+            month: finance_month(&args, "month", kind)?,
+            expected_date: finance_date(&args, "expectedDate", kind)?,
+            received: flag(&args, "received"),
+        },
+        ActionKind::MFinanceMarkBillPaid => ActionArgs::MFinanceMarkBillPaid {
+            bill_id: finance_id(&args, "billId", kind)?,
+            bill_name: finance_text(&args, "billName", kind)?,
+            amount_cents: finance_cents(&args, "amountCents", kind)?,
+        },
+        ActionKind::MFinanceMarkInvoicePaid => ActionArgs::MFinanceMarkInvoicePaid {
+            card_id: finance_id(&args, "cardId", kind)?,
+            card_name: finance_text(&args, "cardName", kind)?,
+            month: finance_month(&args, "month", kind)?,
+            amount_cents: finance_optional_cents(&args, "amountCents", kind)?,
+        },
+        ActionKind::MFinanceCreateSubscription => {
+            let next_charge_date = finance_date(&args, "nextChargeDate", kind)?;
+            if next_charge_date.is_empty() {
+                return Err(finance_error(kind, "veio sem `nextChargeDate`"));
+            }
+            ActionArgs::MFinanceCreateSubscription {
+                name: finance_text(&args, "name", kind)?,
+                amount_cents: finance_cents(&args, "amountCents", kind)?,
+                next_charge_date,
+                cycle: finance_choice(
+                    &args,
+                    "cycle",
+                    &["monthly", "yearly", "once"],
+                    Some("monthly"),
+                    kind,
+                )?,
+                is_trial: flag(&args, "isTrial"),
+            }
+        }
+        ActionKind::MFinanceCreateGoal => ActionArgs::MFinanceCreateGoal {
+            name: finance_text(&args, "name", kind)?,
+            target_amount_cents: finance_cents(&args, "targetAmountCents", kind)?,
+            current_amount_cents: finance_optional_amount(&args, "currentAmountCents", kind)?
+                .unwrap_or(0),
+            deadline: finance_date(&args, "deadline", kind)?,
+            priority: finance_choice(
+                &args,
+                "priority",
+                &["low", "medium", "high"],
+                Some("medium"),
+                kind,
+            )?,
+        },
+        ActionKind::MFinanceUpdateGoal => {
+            let deadline = match args.get("deadline") {
+                None => None,
+                Some(serde_json::Value::Null) => Some(String::new()),
+                Some(_) => Some(finance_date(&args, "deadline", kind)?),
+            };
+            let name = text(&args, "name");
+            let target_amount_cents = finance_optional_cents(&args, "targetAmountCents", kind)?;
+            let current_amount_cents = finance_optional_amount(&args, "currentAmountCents", kind)?;
+            let priority = match text(&args, "priority").as_str() {
+                "" => String::new(),
+                _ => finance_choice(&args, "priority", &["low", "medium", "high"], None, kind)?,
+            };
+            if name.is_empty()
+                && target_amount_cents.is_none()
+                && current_amount_cents.is_none()
+                && deadline.is_none()
+                && priority.is_empty()
+            {
+                return Err(finance_error(kind, "não muda nada"));
+            }
+            ActionArgs::MFinanceUpdateGoal {
+                goal_id: finance_id(&args, "goalId", kind)?,
+                goal_name: finance_text(&args, "goalName", kind)?,
+                name,
+                target_amount_cents,
+                current_amount_cents,
+                deadline,
+                priority,
+            }
+        }
+        ActionKind::MFinanceSetPolicy => {
+            let key = required(&args, "key", kind)?;
+            let value =
+                validate_policy(&key, args.get("value").unwrap_or(&serde_json::Value::Null))
+                    .map_err(|motivo| finance_error(kind, &motivo))?;
+            ActionArgs::MFinanceSetPolicy { key, value }
+        }
+        ActionKind::MFinanceUpdateSubscription => {
+            let amount_cents = finance_optional_cents(&args, "amountCents", kind)?;
+            let next_charge_date = finance_date(&args, "nextChargeDate", kind)?;
+            let cycle = match text(&args, "cycle").as_str() {
+                "" => String::new(),
+                _ => finance_choice(&args, "cycle", &["monthly", "yearly", "once"], None, kind)?,
+            };
+            if amount_cents.is_none() && next_charge_date.is_empty() && cycle.is_empty() {
+                return Err(finance_error(kind, "não muda nada"));
+            }
+            ActionArgs::MFinanceUpdateSubscription {
+                subscription_id: finance_id(&args, "subscriptionId", kind)?,
+                subscription_name: finance_text(&args, "subscriptionName", kind)?,
+                amount_cents,
+                next_charge_date,
+                cycle,
+            }
+        }
+        ActionKind::MFinanceCancelSubscription => ActionArgs::MFinanceCancelSubscription {
+            subscription_id: finance_id(&args, "subscriptionId", kind)?,
+            subscription_name: finance_text(&args, "subscriptionName", kind)?,
+        },
+        ActionKind::MFinanceMarkIncomeReceived => ActionArgs::MFinanceMarkIncomeReceived {
+            income_id: finance_id(&args, "incomeId", kind)?,
+            income_name: finance_text(&args, "incomeName", kind)?,
+            amount_cents: finance_cents(&args, "amountCents", kind)?,
+        },
+        ActionKind::MFinanceAddGoalContribution => ActionArgs::MFinanceAddGoalContribution {
+            goal_id: finance_id(&args, "goalId", kind)?,
+            goal_name: finance_text(&args, "goalName", kind)?,
+            amount_cents: finance_cents(&args, "amountCents", kind)?,
+            contribution_date: finance_date(&args, "contributionDate", kind)?,
+        },
+        ActionKind::MFinanceSetGoalStatus => ActionArgs::MFinanceSetGoalStatus {
+            goal_id: finance_id(&args, "goalId", kind)?,
+            goal_name: finance_text(&args, "goalName", kind)?,
+            status: finance_choice(
+                &args,
+                "status",
+                &["active", "paused", "completed", "archived"],
+                None,
+                kind,
+            )?,
+        },
+        ActionKind::MFinanceSetInvoiceAmount => ActionArgs::MFinanceSetInvoiceAmount {
+            card_id: finance_id(&args, "cardId", kind)?,
+            card_name: finance_text(&args, "cardName", kind)?,
+            amount_cents: finance_cents(&args, "amountCents", kind)?,
+            month: finance_month(&args, "month", kind)?,
+        },
+        ActionKind::MFinanceSetBudget => {
+            let budget_type = finance_choice(
+                &args,
+                "budgetType",
+                &["total", "category", "card"],
+                None,
+                kind,
+            )?;
+            let category_name = text(&args, "categoryName");
+            let card_name = text(&args, "cardName");
+            let card_id = match budget_type.as_str() {
+                "card" => finance_id(&args, "cardId", kind)?,
+                _ => String::new(),
+            };
+            if budget_type == "category" && category_name.is_empty() {
+                return Err(finance_error(
+                    kind,
+                    "por categoria precisa de `categoryName`",
+                ));
+            }
+            ActionArgs::MFinanceSetBudget {
+                limit_cents: finance_cents(&args, "limitCents", kind)?,
+                category_name: if budget_type == "category" {
+                    category_name
+                } else {
+                    String::new()
+                },
+                card_name: if budget_type == "card" {
+                    card_name
+                } else {
+                    String::new()
+                },
+                card_id,
+                month: finance_month(&args, "month", kind)?,
+                budget_type,
+            }
+        }
+    })
+}
+
+// ------------------------------------------------------------ M-Finance
+
+/// O teto de um valor em centavos — o mesmo do schema zod do M-Finance.
+const FINANCE_MAX_CENTS: i64 = 100_000_000;
+
+fn finance_error(kind: ActionKind, detalhe: &str) -> CoreError {
+    CoreError::new(
+        ErrorCode::InvalidInput,
+        format!("A proposta de `{}` {detalhe}.", kind.as_str()),
+        false,
+    )
+}
+
+fn finance_text(
+    args: &serde_json::Value,
+    key: &str,
+    kind: ActionKind,
+) -> Result<String, CoreError> {
+    let value = required(args, key, kind)?;
+    if value.chars().count() > 120 {
+        return Err(finance_error(kind, &format!("tem `{key}` longo demais")));
+    }
+    Ok(value)
+}
+
+fn finance_optional_amount(
+    args: &serde_json::Value,
+    key: &str,
+    kind: ActionKind,
+) -> Result<Option<i64>, CoreError> {
+    match args.get(key) {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(value) => value
+            .as_i64()
+            .filter(|n| (0..=FINANCE_MAX_CENTS).contains(n))
+            .map(Some)
+            .ok_or_else(|| finance_error(kind, &format!("veio com `{key}` inválido"))),
+    }
+}
+
+fn finance_optional_cents(
+    args: &serde_json::Value,
+    key: &str,
+    kind: ActionKind,
+) -> Result<Option<i64>, CoreError> {
+    match finance_optional_amount(args, key, kind)? {
+        Some(0) => Err(finance_error(kind, &format!("veio com `{key}` zero"))),
+        other => Ok(other),
+    }
+}
+
+/// Centavos positivos, inteiros, com teto. "12,90" em reais seria um valor
+/// fracionado — e dinheiro fracionado aqui e erro de unidade, nao de centavo.
+fn finance_cents(args: &serde_json::Value, key: &str, kind: ActionKind) -> Result<i64, CoreError> {
+    finance_optional_cents(args, key, kind)?
+        .ok_or_else(|| finance_error(kind, &format!("veio sem `{key}` válido")))
+}
+
+/// Um uuid, que e o que o M-Finance usa de id. Titulo no lugar do id seria
+/// uma acao sobre "a internet" — qualquer uma delas.
+fn finance_id(args: &serde_json::Value, key: &str, kind: ActionKind) -> Result<String, CoreError> {
+    let value = required(args, key, kind)?;
+    let bytes = value.as_bytes();
+    let shape = bytes.len() == 36
+        && bytes.iter().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => *byte == b'-',
+            _ => byte.is_ascii_hexdigit(),
+        });
+    if !shape {
+        return Err(finance_error(
+            kind,
+            &format!("precisa do id do M-Finance em `{key}` (use finance.find_entities)"),
+        ));
+    }
+    Ok(value.to_ascii_lowercase())
+}
+
+fn finance_date(
+    args: &serde_json::Value,
+    key: &str,
+    kind: ActionKind,
+) -> Result<String, CoreError> {
+    let value = text(args, key);
+    if value.is_empty() {
+        return Ok(value);
+    }
+    crate::Day::parse(&value)
+        .map_err(|_| finance_error(kind, &format!("tem `{key}` fora de AAAA-MM-DD")))?;
+    Ok(value)
+}
+
+fn finance_month(
+    args: &serde_json::Value,
+    key: &str,
+    kind: ActionKind,
+) -> Result<String, CoreError> {
+    let value = text(args, key);
+    if value.is_empty() {
+        return Ok(value);
+    }
+    let valid = value.len() == 7
+        && value.as_bytes()[4] == b'-'
+        && value[..4]
+            .parse::<u16>()
+            .is_ok_and(|year| (2020..=2100).contains(&year))
+        && value[5..]
+            .parse::<u8>()
+            .is_ok_and(|month| (1..=12).contains(&month));
+    if !valid {
+        return Err(finance_error(kind, &format!("tem `{key}` fora de AAAA-MM")));
+    }
+    Ok(value)
+}
+
+fn finance_choice(
+    args: &serde_json::Value,
+    key: &str,
+    options: &[&str],
+    default: Option<&str>,
+    kind: ActionKind,
+) -> Result<String, CoreError> {
+    let value = text(args, key);
+    if value.is_empty() {
+        return default
+            .map(str::to_owned)
+            .ok_or_else(|| finance_error(kind, &format!("veio sem `{key}`")));
+    }
+    if options.contains(&value.as_str()) {
+        Ok(value)
+    } else {
+        Err(finance_error(
+            kind,
+            &format!("tem `{key}` fora de {}", options.join("|")),
+        ))
+    }
+}
+
+/// As chaves de politica que existem, com o schema de cada uma. Espelha
+/// `apps/m-finance/lib/finance-intelligence/policies.ts`; o M-Finance valida
+/// de novo antes de gravar.
+pub const POLICY_KEYS: [&str; 6] = [
+    "minimum_month_end_buffer",
+    "reliable_income_rules",
+    "max_installment_commitment",
+    "forecast_horizon_months",
+    "observer_sensitivity",
+    "safe_to_spend_policy",
+];
+
+/// Valida o valor de uma politica pela chave. Campo a mais e recusado: um
+/// `value` com chave inventada seria regra que ninguem sabe aplicar.
+pub fn validate_policy(key: &str, value: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "precisa de `value` como objeto".to_owned())?;
+    let only = |keys: &[&str]| -> Result<(), String> {
+        match object.keys().find(|k| !keys.contains(&k.as_str())) {
+            Some(extra) => Err(format!("tem `{extra}` que a política {key} não conhece")),
+            None => Ok(()),
+        }
+    };
+    let cents = |field: &str| -> Result<i64, String> {
+        object
+            .get(field)
+            .and_then(serde_json::Value::as_i64)
+            .filter(|n| (0..=FINANCE_MAX_CENTS).contains(n))
+            .ok_or_else(|| format!("precisa de `{field}` em centavos"))
+    };
+    match key {
+        "minimum_month_end_buffer" | "max_installment_commitment" => {
+            only(&["amountCents"])?;
+            cents("amountCents")?;
+        }
+        "reliable_income_rules" => {
+            only(&["main", "freelance", "extra"])?;
+            for field in ["main", "freelance", "extra"] {
+                object
+                    .get(field)
+                    .and_then(serde_json::Value::as_f64)
+                    .filter(|n| (0.0..=1.0).contains(n))
+                    .ok_or_else(|| format!("precisa de `{field}` entre 0 e 1"))?;
+            }
+        }
+        "forecast_horizon_months" => {
+            only(&["months"])?;
+            object
+                .get("months")
+                .and_then(serde_json::Value::as_i64)
+                .filter(|n| (1..=24).contains(n))
+                .ok_or_else(|| "precisa de `months` entre 1 e 24".to_owned())?;
+        }
+        "observer_sensitivity" => {
+            only(&["level"])?;
+            object
+                .get("level")
+                .and_then(serde_json::Value::as_str)
+                .filter(|level| ["low", "normal", "high"].contains(level))
+                .ok_or_else(|| "precisa de `level` low|normal|high".to_owned())?;
+        }
+        "safe_to_spend_policy" => {
+            only(&["lookaheadMonths", "protectGoals"])?;
+            object
+                .get("lookaheadMonths")
+                .and_then(serde_json::Value::as_i64)
+                .filter(|n| (0..=12).contains(n))
+                .ok_or_else(|| "precisa de `lookaheadMonths` entre 0 e 12".to_owned())?;
+            object
+                .get("protectGoals")
+                .and_then(serde_json::Value::as_bool)
+                .ok_or_else(|| "precisa de `protectGoals` verdadeiro ou falso".to_owned())?;
+        }
+        outro => {
+            return Err(format!(
+                "`{outro}` não é uma política que o M-Finance conhece"
+            ))
+        }
+    }
+    Ok(value.clone())
+}
+
+fn policy_label(key: &str) -> &'static str {
+    match key {
+        "minimum_month_end_buffer" => "Reserva mínima ao fechar o mês",
+        "reliable_income_rules" => "Quanto de cada receita é confiável",
+        "max_installment_commitment" => "Máximo em parcelas por mês",
+        "forecast_horizon_months" => "Horizonte de projeção",
+        "observer_sensitivity" => "Sensibilidade dos alertas",
+        "safe_to_spend_policy" => "Como o Safe-to-Spend olha para frente",
+        _ => "Política",
+    }
+}
+
+/// O novo valor de uma politica, dito como gente fala.
+fn policy_value_text(key: &str, value: &serde_json::Value) -> String {
+    let pct = |field: &str| {
+        value
+            .get(field)
+            .and_then(serde_json::Value::as_f64)
+            .map(|n| format!("{}%", (n * 100.0).round() as i64))
+            .unwrap_or_default()
+    };
+    match key {
+        "minimum_month_end_buffer" | "max_installment_commitment" => value
+            .get("amountCents")
+            .and_then(serde_json::Value::as_i64)
+            .map(format_cents)
+            .unwrap_or_default(),
+        "reliable_income_rules" => format!(
+            "principal {} · freelance {} · extra {}",
+            pct("main"),
+            pct("freelance"),
+            pct("extra")
+        ),
+        "forecast_horizon_months" => format!(
+            "{} meses",
+            value
+                .get("months")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0)
+        ),
+        "observer_sensitivity" => match value.get("level").and_then(serde_json::Value::as_str) {
+            Some("low") => "baixa".to_owned(),
+            Some("high") => "alta".to_owned(),
+            _ => "normal".to_owned(),
+        },
+        "safe_to_spend_policy" => format!(
+            "olha {} mês(es) à frente · metas {}",
+            value
+                .get("lookaheadMonths")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0),
+            if value
+                .get("protectGoals")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+            {
+                "protegidas"
+            } else {
+                "não protegidas"
+            }
+        ),
+        _ => value.to_string(),
+    }
+}
+
+/// O corpo que a Action API do M-Finance espera, no formato do schema zod de
+/// cada acao. `None` para acao que nao e do M-Finance.
+///
+/// Vive no core, e nao no desktop, porque e contrato: o que o cartao mostrou e
+/// o que atravessa a rede precisam sair do MESMO `ActionArgs`.
+pub fn finance_payload(args: &ActionArgs) -> Option<serde_json::Value> {
+    use serde_json::json;
+    let opt = |value: &str| {
+        if value.is_empty() {
+            serde_json::Value::Null
+        } else {
+            json!(value)
+        }
+    };
+    Some(match args {
+        ActionArgs::MFinanceCreateBill {
+            amount_cents,
+            description,
+            due_day,
+            is_recurring,
+        } => json!({
+            "amountCents": amount_cents,
+            "description": description,
+            "dueDay": due_day,
+            "isRecurring": is_recurring,
+        }),
+        ActionArgs::MFinanceCreateCardExpense {
+            card_id,
+            card_name,
+            amount_cents,
+            description,
+            installments,
+            purchase_date,
+        } => json!({
+            "cardId": card_id,
+            "cardName": card_name,
+            "amountCents": amount_cents,
+            "description": description,
+            "installments": installments,
+            "purchaseDate": opt(purchase_date),
+        }),
+        ActionArgs::MFinanceCreateIncome {
+            name,
+            amount_cents,
+            income_type,
+            month,
+            expected_date,
+            received,
+        } => {
+            let mut body = json!({
+                "name": name,
+                "amountCents": amount_cents,
+                "incomeType": income_type,
+                "expectedDate": opt(expected_date),
+                "received": received,
+            });
+            if !month.is_empty() {
+                body["month"] = json!(month);
+            }
+            body
+        }
+        ActionArgs::MFinanceMarkBillPaid {
+            bill_id,
+            bill_name,
+            amount_cents,
+        } => json!({ "billId": bill_id, "billName": bill_name, "amountCents": amount_cents }),
+        ActionArgs::MFinanceMarkInvoicePaid {
+            card_id,
+            card_name,
+            month,
+            amount_cents,
+        } => {
+            let mut body = json!({ "cardId": card_id, "cardName": card_name });
+            if !month.is_empty() {
+                body["month"] = json!(month);
+            }
+            if let Some(cents) = amount_cents {
+                body["amountCents"] = json!(cents);
+            }
+            body
+        }
+        ActionArgs::MFinanceCreateSubscription {
+            name,
+            amount_cents,
+            next_charge_date,
+            cycle,
+            is_trial,
+        } => json!({
+            "name": name,
+            "amountCents": amount_cents,
+            "nextChargeDate": next_charge_date,
+            "cycle": cycle,
+            "isTrial": is_trial,
+        }),
+        ActionArgs::MFinanceCreateGoal {
+            name,
+            target_amount_cents,
+            current_amount_cents,
+            deadline,
+            priority,
+        } => json!({
+            "name": name,
+            "targetAmountCents": target_amount_cents,
+            "currentAmountCents": current_amount_cents,
+            "deadline": opt(deadline),
+            "priority": priority,
+        }),
+        ActionArgs::MFinanceUpdateGoal {
+            goal_id,
+            goal_name,
+            name,
+            target_amount_cents,
+            current_amount_cents,
+            deadline,
+            priority,
+        } => {
+            let mut body = json!({ "goalId": goal_id, "goalName": goal_name });
+            if !name.is_empty() {
+                body["name"] = json!(name);
+            }
+            if let Some(cents) = target_amount_cents {
+                body["targetAmountCents"] = json!(cents);
+            }
+            if let Some(cents) = current_amount_cents {
+                body["currentAmountCents"] = json!(cents);
+            }
+            if let Some(deadline) = deadline {
+                body["deadline"] = opt(deadline);
+            }
+            if !priority.is_empty() {
+                body["priority"] = json!(priority);
+            }
+            body
+        }
+        ActionArgs::MFinanceSetPolicy { key, value } => json!({ "key": key, "value": value }),
+        ActionArgs::MFinanceUpdateSubscription {
+            subscription_id,
+            subscription_name,
+            amount_cents,
+            next_charge_date,
+            cycle,
+        } => {
+            let mut body =
+                json!({ "subscriptionId": subscription_id, "subscriptionName": subscription_name });
+            if let Some(cents) = amount_cents {
+                body["amountCents"] = json!(cents);
+            }
+            if !next_charge_date.is_empty() {
+                body["nextChargeDate"] = json!(next_charge_date);
+            }
+            if !cycle.is_empty() {
+                body["cycle"] = json!(cycle);
+            }
+            body
+        }
+        ActionArgs::MFinanceCancelSubscription {
+            subscription_id,
+            subscription_name,
+        } => json!({ "subscriptionId": subscription_id, "subscriptionName": subscription_name }),
+        ActionArgs::MFinanceMarkIncomeReceived {
+            income_id,
+            income_name,
+            amount_cents,
+        } => {
+            json!({ "incomeId": income_id, "incomeName": income_name, "amountCents": amount_cents })
+        }
+        ActionArgs::MFinanceAddGoalContribution {
+            goal_id,
+            goal_name,
+            amount_cents,
+            contribution_date,
+        } => {
+            let mut body =
+                json!({ "goalId": goal_id, "goalName": goal_name, "amountCents": amount_cents });
+            if !contribution_date.is_empty() {
+                body["contributionDate"] = json!(contribution_date);
+            }
+            body
+        }
+        ActionArgs::MFinanceSetGoalStatus {
+            goal_id,
+            goal_name,
+            status,
+        } => json!({ "goalId": goal_id, "goalName": goal_name, "status": status }),
+        ActionArgs::MFinanceSetInvoiceAmount {
+            card_id,
+            card_name,
+            amount_cents,
+            month,
+        } => {
+            let mut body =
+                json!({ "cardId": card_id, "cardName": card_name, "amountCents": amount_cents });
+            if !month.is_empty() {
+                body["month"] = json!(month);
+            }
+            body
+        }
+        ActionArgs::MFinanceSetBudget {
+            budget_type,
+            limit_cents,
+            category_name,
+            card_id,
+            card_name,
+            month,
+        } => {
+            let mut body = json!({ "budgetType": budget_type, "limitCents": limit_cents });
+            if !category_name.is_empty() {
+                body["categoryName"] = json!(category_name);
+            }
+            if !card_id.is_empty() {
+                body["cardId"] = json!(card_id);
+            }
+            if !card_name.is_empty() {
+                body["cardName"] = json!(card_name);
+            }
+            if !month.is_empty() {
+                body["month"] = json!(month);
+            }
+            body
+        }
+        _ => return None,
     })
 }
 
@@ -1188,6 +2152,23 @@ fn prioridade_falada(valor: &str) -> String {
     .to_owned()
 }
 
+fn ciclo_falado(valor: &str) -> &'static str {
+    match valor {
+        "yearly" => "anual",
+        "once" => "cobrança única",
+        _ => "mensal",
+    }
+}
+
+fn prioridade_meta(valor: &str) -> String {
+    match valor {
+        "low" => "baixa",
+        "high" => "alta",
+        _ => "média",
+    }
+    .to_owned()
+}
+
 fn line(label: &str, value: &str) -> ActionLine {
     ActionLine {
         label: label.to_owned(),
@@ -1208,7 +2189,7 @@ fn line(label: &str, value: &str) -> ActionLine {
 ///
 /// Feito com inteiros de proposito: `f64` para dinheiro arredonda onde nao
 /// deve, e o valor exibido aqui e o valor que vai ser gravado.
-fn format_cents(cents: i64) -> String {
+pub(crate) fn format_cents(cents: i64) -> String {
     let absoluto = cents.unsigned_abs();
     let digitos = (absoluto / 100).to_string();
 
@@ -1606,6 +2587,317 @@ pub fn preview_of(args: &ActionArgs) -> ActionPreview {
             ));
             ("CRIAR CONTA NO M-FINANCE", lines)
         }
+        ActionArgs::MFinanceCreateCardExpense {
+            card_name,
+            amount_cents,
+            description,
+            installments,
+            purchase_date,
+            ..
+        } => {
+            let mut lines = vec![
+                line("Cartão", card_name),
+                line("Valor", &format_cents(*amount_cents)),
+                line("Descrição", description),
+            ];
+            if *installments > 1 {
+                let parcela = amount_cents / i64::from(*installments);
+                let exata = amount_cents % i64::from(*installments) == 0;
+                lines.push(line(
+                    "Parcelas",
+                    &format!(
+                        "{installments}× de {}{}",
+                        if exata { "" } else { "~" },
+                        format_cents(parcela)
+                    ),
+                ));
+            } else {
+                lines.push(line("Pagamento", "à vista"));
+            }
+            if !purchase_date.is_empty() {
+                lines.push(line("Data da compra", purchase_date));
+            }
+            ("LANÇAR COMPRA NO CARTÃO", lines)
+        }
+        ActionArgs::MFinanceCreateIncome {
+            name,
+            amount_cents,
+            income_type,
+            month,
+            expected_date,
+            received,
+        } => {
+            let mut lines = vec![
+                line("Receita", name),
+                line("Valor", &format_cents(*amount_cents)),
+                line(
+                    "Tipo",
+                    match income_type.as_str() {
+                        "main" => "principal (NF)",
+                        "freelance" => "freelance",
+                        _ => "extra",
+                    },
+                ),
+                line("Mês", if month.is_empty() { "atual" } else { month }),
+            ];
+            if !expected_date.is_empty() {
+                lines.push(line("Previsão", expected_date));
+            }
+            lines.push(line("Já recebida", if *received { "sim" } else { "não" }));
+            ("LANÇAR RECEITA NO M-FINANCE", lines)
+        }
+        ActionArgs::MFinanceMarkBillPaid {
+            bill_name,
+            amount_cents,
+            ..
+        } => (
+            "MARCAR CONTA COMO PAGA",
+            vec![
+                line("Conta", bill_name),
+                line("Valor", &format_cents(*amount_cents)),
+            ],
+        ),
+        ActionArgs::MFinanceMarkInvoicePaid {
+            card_name,
+            month,
+            amount_cents,
+            ..
+        } => {
+            let mut lines = vec![
+                line("Fatura", card_name),
+                line("Mês", if month.is_empty() { "atual" } else { month }),
+            ];
+            if let Some(cents) = amount_cents {
+                lines.push(line("Valor", &format_cents(*cents)));
+            }
+            ("MARCAR FATURA COMO PAGA", lines)
+        }
+        ActionArgs::MFinanceCreateSubscription {
+            name,
+            amount_cents,
+            next_charge_date,
+            cycle,
+            is_trial,
+        } => (
+            if *is_trial {
+                "SALVAR TESTE GRÁTIS"
+            } else {
+                "SALVAR ASSINATURA"
+            },
+            vec![
+                line("Serviço", name),
+                line("Valor", &format_cents(*amount_cents)),
+                line(
+                    "Ciclo",
+                    match cycle.as_str() {
+                        "yearly" => "anual",
+                        "once" => "cobrança única",
+                        _ => "mensal",
+                    },
+                ),
+                line(
+                    if *is_trial {
+                        "Começa a cobrar em"
+                    } else {
+                        "Próxima cobrança"
+                    },
+                    next_charge_date,
+                ),
+            ],
+        ),
+        ActionArgs::MFinanceCreateGoal {
+            name,
+            target_amount_cents,
+            current_amount_cents,
+            deadline,
+            priority,
+        } => {
+            let mut lines = vec![
+                line("Meta", name),
+                line("Alvo", &format_cents(*target_amount_cents)),
+            ];
+            if *current_amount_cents > 0 {
+                lines.push(line("Já guardado", &format_cents(*current_amount_cents)));
+            }
+            lines.push(line(
+                "Prazo",
+                if deadline.is_empty() {
+                    "sem prazo"
+                } else {
+                    deadline
+                },
+            ));
+            lines.push(line("Prioridade", &prioridade_meta(priority)));
+            ("CRIAR META", lines)
+        }
+        ActionArgs::MFinanceUpdateGoal {
+            goal_name,
+            name,
+            target_amount_cents,
+            current_amount_cents,
+            deadline,
+            priority,
+            ..
+        } => {
+            let mut lines = vec![line("Meta", goal_name)];
+            if !name.is_empty() {
+                lines.push(line("Novo nome", name));
+            }
+            if let Some(cents) = target_amount_cents {
+                lines.push(line("Novo alvo", &format_cents(*cents)));
+            }
+            if let Some(cents) = current_amount_cents {
+                lines.push(line("Guardado", &format_cents(*cents)));
+            }
+            if let Some(deadline) = deadline {
+                lines.push(line(
+                    "Prazo",
+                    if deadline.is_empty() {
+                        "sem prazo"
+                    } else {
+                        deadline
+                    },
+                ));
+            }
+            if !priority.is_empty() {
+                lines.push(line("Prioridade", &prioridade_meta(priority)));
+            }
+            ("EDITAR META", lines)
+        }
+        ActionArgs::MFinanceSetPolicy { key, value } => (
+            "MUDAR POLÍTICA FINANCEIRA",
+            vec![
+                line("Política", policy_label(key)),
+                line("Novo valor", &policy_value_text(key, value)),
+                // Por extenso no cartao: uma politica nao e um lancamento, ela
+                // muda TODA conta daqui para frente.
+                line(
+                    "Efeito",
+                    "muda o Safe-to-Spend, os cenários e os alertas daqui para frente",
+                ),
+            ],
+        ),
+        ActionArgs::MFinanceUpdateSubscription {
+            subscription_name,
+            amount_cents,
+            next_charge_date,
+            cycle,
+            ..
+        } => {
+            let mut lines = vec![line("Assinatura", subscription_name)];
+            if let Some(cents) = amount_cents {
+                lines.push(line("Novo valor", &format_cents(*cents)));
+            }
+            if !next_charge_date.is_empty() {
+                lines.push(line("Próxima cobrança", next_charge_date));
+            }
+            if !cycle.is_empty() {
+                lines.push(line("Ciclo", ciclo_falado(cycle)));
+            }
+            ("EDITAR ASSINATURA", lines)
+        }
+        ActionArgs::MFinanceCancelSubscription {
+            subscription_name, ..
+        } => (
+            "CANCELAR ASSINATURA",
+            vec![
+                line("Assinatura", subscription_name),
+                line(
+                    "Efeito",
+                    "sai das projeções; o histórico continua no M-Finance",
+                ),
+            ],
+        ),
+        ActionArgs::MFinanceMarkIncomeReceived {
+            income_name,
+            amount_cents,
+            ..
+        } => (
+            "MARCAR RECEITA COMO RECEBIDA",
+            vec![
+                line("Receita", income_name),
+                line("Valor", &format_cents(*amount_cents)),
+            ],
+        ),
+        ActionArgs::MFinanceAddGoalContribution {
+            goal_name,
+            amount_cents,
+            contribution_date,
+            ..
+        } => (
+            "GUARDAR NA META",
+            vec![
+                line("Meta", goal_name),
+                line("Valor", &format_cents(*amount_cents)),
+                line(
+                    "Data",
+                    if contribution_date.is_empty() {
+                        "hoje"
+                    } else {
+                        contribution_date
+                    },
+                ),
+            ],
+        ),
+        ActionArgs::MFinanceSetGoalStatus {
+            goal_name, status, ..
+        } => (
+            "MUDAR STATUS DA META",
+            vec![
+                line("Meta", goal_name),
+                line(
+                    "Para",
+                    match status.as_str() {
+                        "active" => "ativa",
+                        "paused" => "pausada",
+                        "completed" => "concluída",
+                        _ => "arquivada",
+                    },
+                ),
+            ],
+        ),
+        ActionArgs::MFinanceSetInvoiceAmount {
+            card_name,
+            amount_cents,
+            month,
+            ..
+        } => (
+            "CONFIRMAR VALOR DA FATURA",
+            vec![
+                line("Cartão", card_name),
+                line("Mês", if month.is_empty() { "atual" } else { month }),
+                line("Valor real", &format_cents(*amount_cents)),
+            ],
+        ),
+        ActionArgs::MFinanceSetBudget {
+            budget_type,
+            limit_cents,
+            category_name,
+            card_name,
+            month,
+            ..
+        } => (
+            "DEFINIR ORÇAMENTO",
+            vec![
+                line(
+                    "Orçamento",
+                    &match budget_type.as_str() {
+                        "category" => format!("categoria {category_name}"),
+                        "card" => format!(
+                            "cartão {}",
+                            if card_name.is_empty() {
+                                "(pelo id)"
+                            } else {
+                                card_name
+                            }
+                        ),
+                        _ => "total do mês".to_owned(),
+                    },
+                ),
+                line("Limite", &format_cents(*limit_cents)),
+                line("Mês", if month.is_empty() { "atual" } else { month }),
+            ],
+        ),
     };
 
     ActionPreview {
@@ -1930,14 +3222,14 @@ fn verdadeiro() -> bool {
 /// frase final e deliberada: sem ela, um modelo prestativo tende a preencher
 /// campos que o usuario nao disse.
 ///
-/// `finance_enabled` decide se `m-finance.create_bill` desce no catalogo.
+/// `finance_enabled` decide se as acoes `m-finance.*` descem no catalogo.
 /// Sem a capacidade `can_write` no App M-Finance, o Hermes nunca aprende que
 /// a acao existe — a mesma logica que impede a UI de oferecer uma acao que o
 /// usuario nao habilitou.
 pub fn action_contract(finance_enabled: bool) -> String {
     let catalog = ActionKind::all()
         .iter()
-        .filter(|kind| finance_enabled || **kind != ActionKind::MFinanceCreateBill)
+        .filter(|kind| finance_enabled || !kind.is_finance())
         .map(|kind| format!("- {} {}", kind.as_str(), kind.signature()))
         .collect::<Vec<_>>()
         .join("\n");
@@ -2394,7 +3686,8 @@ mod tests {
     fn hiding_m_finance_keeps_every_other_action_in_the_contract() {
         let contract = action_contract(false);
         for kind in ActionKind::all() {
-            if kind == ActionKind::MFinanceCreateBill {
+            // Todas as `m-finance.*` somem juntas desde a ADR-088.
+            if kind.is_finance() {
                 continue;
             }
             assert!(contract.contains(kind.as_str()), "faltou {}", kind.as_str());
@@ -2779,6 +4072,343 @@ mod tests {
         let kind = ActionKind::MFinanceCreateBill;
         assert_eq!(ActionKind::parse(kind.as_str()), Some(kind));
         assert_eq!(kind.function_id(), "m-finance.create_bill");
+    }
+
+    // ------------------------------------------------ M-Finance (ADR-088)
+
+    const CARD: &str = "11111111-1111-4111-8111-111111111111";
+    const BILL: &str = "22222222-2222-4222-8222-222222222222";
+    const GOAL: &str = "33333333-3333-4333-8333-333333333333";
+
+    fn finance(action: &str, args: &str) -> Result<ActionArgs, CoreError> {
+        parse_action(&format!(
+            r#"{{"action":"m-finance.{action}","args":{args}}}"#
+        ))
+    }
+
+    #[test]
+    fn every_finance_action_round_trips_and_is_hidden_without_can_write() {
+        let finance: Vec<_> = ActionKind::all()
+            .into_iter()
+            .filter(|k| k.is_finance())
+            .collect();
+        assert_eq!(finance.len(), 16);
+        for kind in &finance {
+            assert_eq!(ActionKind::parse(kind.as_str()), Some(*kind));
+            assert_eq!(kind.function_id(), kind.as_str());
+            assert!(action_contract(true).contains(kind.as_str()));
+            assert!(!action_contract(false).contains(kind.as_str()));
+        }
+        // Nenhuma acao local some junto.
+        assert!(action_contract(false).contains("mos.task.create"));
+    }
+
+    #[test]
+    fn card_expense_parses_and_previews_the_installments() {
+        let args = finance(
+            "create_card_expense",
+            &format!(r#"{{"cardId":"{CARD}","cardName":"Nubank","amountCents":600000,"description":"Notebook","installments":10}}"#),
+        )
+        .unwrap();
+        let preview = preview_of(&args);
+        assert_eq!(preview.title, "LANÇAR COMPRA NO CARTÃO");
+        assert_eq!(preview.risk, FunctionRisk::High);
+        assert_eq!(preview.confirmation, FunctionConfirmation::Explicit);
+        assert!(
+            preview.lines.iter().any(|l| l.value == "10× de R$ 600,00"),
+            "{:?}",
+            preview.lines
+        );
+        assert_eq!(
+            finance_payload(&args).unwrap(),
+            serde_json::json!({
+                "cardId": CARD, "cardName": "Nubank", "amountCents": 600000,
+                "description": "Notebook", "installments": 10, "purchaseDate": null
+            })
+        );
+    }
+
+    #[test]
+    fn card_expense_defaults_to_cash_and_refuses_what_zod_refuses() {
+        let args = finance(
+            "create_card_expense",
+            &format!(r#"{{"cardId":"{CARD}","cardName":"Nubank","amountCents":17000,"description":"Gasolina"}}"#),
+        )
+        .unwrap();
+        assert!(matches!(
+            args,
+            ActionArgs::MFinanceCreateCardExpense {
+                installments: 1,
+                ..
+            }
+        ));
+
+        for bad in [
+            // titulo no lugar do id
+            r#"{"cardId":"Nubank","cardName":"Nubank","amountCents":100,"description":"x"}"#
+                .to_owned(),
+            // valor fracionado
+            format!(r#"{{"cardId":"{CARD}","cardName":"N","amountCents":12.5,"description":"x"}}"#),
+            // parcelas demais
+            format!(
+                r#"{{"cardId":"{CARD}","cardName":"N","amountCents":100,"description":"x","installments":61}}"#
+            ),
+            // valor menor que o numero de parcelas
+            format!(
+                r#"{{"cardId":"{CARD}","cardName":"N","amountCents":5,"description":"x","installments":10}}"#
+            ),
+            // data fora do formato
+            format!(
+                r#"{{"cardId":"{CARD}","cardName":"N","amountCents":100,"description":"x","purchaseDate":"15/09"}}"#
+            ),
+        ] {
+            assert!(finance("create_card_expense", &bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn mark_bill_paid_needs_the_id_and_carries_the_previewed_amount() {
+        let args = finance(
+            "mark_bill_paid",
+            &format!(r#"{{"billId":"{BILL}","billName":"Internet","amountCents":12000}}"#),
+        )
+        .unwrap();
+        let preview = preview_of(&args);
+        assert_eq!(preview.title, "MARCAR CONTA COMO PAGA");
+        assert_eq!(finance_payload(&args).unwrap()["amountCents"], 12000);
+
+        assert!(finance(
+            "mark_bill_paid",
+            r#"{"billId":"internet","billName":"Internet","amountCents":1}"#
+        )
+        .is_err());
+        assert!(finance(
+            "mark_bill_paid",
+            &format!(r#"{{"billId":"{BILL}","billName":"Internet"}}"#)
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn income_type_and_month_are_checked() {
+        let args = finance(
+            "create_income",
+            r#"{"name":"NF outubro","amountCents":500000,"incomeType":"main","month":"2026-10"}"#,
+        )
+        .unwrap();
+        assert_eq!(finance_payload(&args).unwrap()["month"], "2026-10");
+        assert!(finance(
+            "create_income",
+            r#"{"name":"x","amountCents":1,"incomeType":"salario"}"#
+        )
+        .is_err());
+        assert!(finance(
+            "create_income",
+            r#"{"name":"x","amountCents":1,"incomeType":"main","month":"2026-13"}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn invoice_amount_is_optional_but_never_zero() {
+        assert!(finance(
+            "mark_invoice_paid",
+            &format!(r#"{{"cardId":"{CARD}","cardName":"Nubank"}}"#)
+        )
+        .is_ok());
+        assert!(finance(
+            "mark_invoice_paid",
+            &format!(r#"{{"cardId":"{CARD}","cardName":"Nubank","amountCents":0}}"#)
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn subscription_needs_the_charge_date() {
+        let args = finance(
+            "create_subscription",
+            r#"{"name":"Notion","amountCents":4000,"nextChargeDate":"2026-10-01","isTrial":true}"#,
+        )
+        .unwrap();
+        assert_eq!(preview_of(&args).title, "SALVAR TESTE GRÁTIS");
+        assert_eq!(finance_payload(&args).unwrap()["cycle"], "monthly");
+        assert!(finance(
+            "create_subscription",
+            r#"{"name":"Notion","amountCents":4000}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn goal_update_distinguishes_clearing_from_not_touching_the_deadline() {
+        let clear = finance(
+            "update_goal",
+            &format!(r#"{{"goalId":"{GOAL}","goalName":"Mac","deadline":null}}"#),
+        )
+        .unwrap();
+        assert_eq!(
+            finance_payload(&clear).unwrap()["deadline"],
+            serde_json::Value::Null
+        );
+        assert!(preview_of(&clear)
+            .lines
+            .iter()
+            .any(|l| l.value == "sem prazo"));
+
+        let untouched = finance(
+            "update_goal",
+            &format!(r#"{{"goalId":"{GOAL}","goalName":"Mac","priority":"high"}}"#),
+        )
+        .unwrap();
+        assert!(finance_payload(&untouched)
+            .unwrap()
+            .get("deadline")
+            .is_none());
+
+        assert!(finance(
+            "update_goal",
+            &format!(r#"{{"goalId":"{GOAL}","goalName":"Mac"}}"#)
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn policy_value_is_validated_per_key() {
+        let args = finance(
+            "set_policy",
+            r#"{"key":"reliable_income_rules","value":{"main":1,"freelance":0,"extra":0}}"#,
+        )
+        .unwrap();
+        let preview = preview_of(&args);
+        assert_eq!(preview.title, "MUDAR POLÍTICA FINANCEIRA");
+        assert!(preview
+            .lines
+            .iter()
+            .any(|l| l.value == "principal 100% · freelance 0% · extra 0%"));
+
+        for bad in [
+            r#"{"key":"free_text","value":{}}"#,
+            r#"{"key":"reliable_income_rules","value":{"main":2,"freelance":0,"extra":0}}"#,
+            r#"{"key":"minimum_month_end_buffer","value":{"amountCents":100,"hack":1}}"#,
+            r#"{"key":"forecast_horizon_months","value":{"months":40}}"#,
+            r#"{"key":"observer_sensitivity","value":"high"}"#,
+        ] {
+            assert!(finance("set_policy", bad).is_err(), "{bad}");
+        }
+    }
+
+    const SUB: &str = "44444444-4444-4444-8444-444444444444";
+    const INCOME: &str = "55555555-5555-4555-8555-555555555555";
+
+    #[test]
+    fn the_completion_actions_parse_and_preview() {
+        let cancel = finance(
+            "cancel_subscription",
+            &format!(r#"{{"subscriptionId":"{SUB}","subscriptionName":"Claude Max"}}"#),
+        )
+        .unwrap();
+        assert_eq!(preview_of(&cancel).title, "CANCELAR ASSINATURA");
+        assert_eq!(preview_of(&cancel).risk, FunctionRisk::High);
+
+        let received = finance(
+            "mark_income_received",
+            &format!(r#"{{"incomeId":"{INCOME}","incomeName":"NF","amountCents":500000}}"#),
+        )
+        .unwrap();
+        assert!(preview_of(&received)
+            .lines
+            .iter()
+            .any(|l| l.value == "R$ 5.000,00"));
+
+        let status = finance(
+            "set_goal_status",
+            &format!(r#"{{"goalId":"{GOAL}","goalName":"Mac","status":"paused"}}"#),
+        )
+        .unwrap();
+        assert!(preview_of(&status)
+            .lines
+            .iter()
+            .any(|l| l.value == "pausada"));
+        assert!(finance(
+            "set_goal_status",
+            &format!(r#"{{"goalId":"{GOAL}","goalName":"Mac","status":"deleted"}}"#)
+        )
+        .is_err());
+
+        let invoice = finance(
+            "set_invoice_amount",
+            &format!(r#"{{"cardId":"{CARD}","cardName":"Nubank","amountCents":150000,"month":"2026-10"}}"#),
+        )
+        .unwrap();
+        assert_eq!(finance_payload(&invoice).unwrap()["month"], "2026-10");
+
+        let contribution = finance(
+            "add_goal_contribution",
+            &format!(r#"{{"goalId":"{GOAL}","goalName":"Mac","amountCents":100000}}"#),
+        )
+        .unwrap();
+        assert!(finance_payload(&contribution)
+            .unwrap()
+            .get("contributionDate")
+            .is_none());
+    }
+
+    #[test]
+    fn subscription_update_needs_a_change() {
+        assert!(finance(
+            "update_subscription",
+            &format!(r#"{{"subscriptionId":"{SUB}","subscriptionName":"Claude"}}"#)
+        )
+        .is_err());
+        let args = finance(
+            "update_subscription",
+            &format!(
+                r#"{{"subscriptionId":"{SUB}","subscriptionName":"Claude","cycle":"yearly"}}"#
+            ),
+        )
+        .unwrap();
+        assert!(preview_of(&args).lines.iter().any(|l| l.value == "anual"));
+    }
+
+    #[test]
+    fn budget_requires_its_reference() {
+        assert!(finance(
+            "set_budget",
+            r#"{"budgetType":"category","limitCents":1000}"#
+        )
+        .is_err());
+        assert!(finance("set_budget", r#"{"budgetType":"card","limitCents":1000}"#).is_err());
+        let total = finance(
+            "set_budget",
+            r#"{"budgetType":"total","limitCents":400000}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            finance_payload(&total).unwrap(),
+            serde_json::json!({"budgetType": "total", "limitCents": 400000})
+        );
+        let category = finance(
+            "set_budget",
+            r#"{"budgetType":"category","limitCents":80000,"categoryName":"Mercado"}"#,
+        )
+        .unwrap();
+        assert!(preview_of(&category)
+            .lines
+            .iter()
+            .any(|l| l.value == "categoria Mercado"));
+    }
+
+    #[test]
+    fn every_finance_action_produces_a_payload_and_local_ones_do_not() {
+        assert!(finance_payload(&ActionArgs::TimeStop).is_none());
+        let bill = parse_action(
+            r#"{"action":"m-finance.create_bill","args":{"amountCents":18000,"description":"Luz","dueDay":10,"isRecurring":true}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            finance_payload(&bill).unwrap(),
+            serde_json::json!({"amountCents": 18000, "description": "Luz", "dueDay": 10, "isRecurring": true})
+        );
     }
 
     // ------------------------------------------------------- Daily Session

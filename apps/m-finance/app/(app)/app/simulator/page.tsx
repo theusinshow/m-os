@@ -33,8 +33,8 @@ export default async function SimulatorPage() {
 
       <DashboardCard title="Base da projeção">
         <p className="text-sm leading-6 text-text-muted">
-          A projeção assume que as recorrências do mês atual se repetem. Sobra mensal estimada como
-          base de cálculo:
+          Cada mês usa a própria sobra projetada — contas lançadas, faturas reais ou estimadas e
+          NF. Onde o app ainda não conhece o mês, vale a sobra do mês atual:
         </p>
         <p className="num mt-3 text-3xl font-semibold text-text-primary">
           {formatCurrency(baseline.baselineRemainingCents)}

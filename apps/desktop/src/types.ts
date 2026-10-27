@@ -275,7 +275,13 @@ export type SearchItem =
   /* O `day` viaja junto porque um objetivo sem data não se distingue de outro:
      dois dias podem ter escrito a mesma frase, e a data é o que faz o resultado
      significar alguma coisa. Ver `SearchItem::DailyObjective` no core. */
-  | { kind: "daily_objective"; objective: DailyObjective; day: Day };
+  | { kind: "daily_objective"; objective: DailyObjective; day: Day }
+  /* A faculdade tambem aparece na busca global (`search_academic` no Rust).
+     A avaliacao e a atividade trazem o NOME da disciplina, porque "P1"
+     sozinha nao se distingue da P1 de outra materia. */
+  | { kind: "subject"; subject: Subject }
+  | { kind: "exam"; exam: Exam; subject: string }
+  | { kind: "assignment"; assignment: Assignment; subject: string };
 
 /** Espelha `FunctionCategory` em `crates/mos-core/src/functions.rs`. */
 export type FunctionCategory = "capture" | "daily" | "work" | "time" | "attention" | "meeting" | "memory" | "app" | "data" | "system";

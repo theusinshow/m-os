@@ -46,7 +46,12 @@ export async function runSubscriptionReminders() {
     const reminderDate = addDays(sub.nextChargeDate, -sub.reminderDaysBefore);
     const days = diffDays(sub.nextChargeDate, today);
 
+    // Assinatura ativa cobrada no cartão já está na fatura: avisar dela todo
+    // mês é ruído. Teste grátis no cartão continua avisando — ali dá tempo de
+    // cancelar antes de começar a cobrar.
+    const silent = sub.cardId !== null && sub.status === "active";
     const inWindow =
+      !silent &&
       today >= reminderDate &&
       today <= sub.nextChargeDate &&
       sub.lastNotifiedFor !== sub.nextChargeDate;

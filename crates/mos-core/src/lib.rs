@@ -16,6 +16,7 @@ mod conversation;
 mod daily;
 mod error;
 mod feriados;
+mod finance;
 mod functions;
 pub mod hermes_perfil;
 mod ingestion;
@@ -66,9 +67,9 @@ pub mod univirtus {
     pub use crate::academic_univirtus_impl::*;
 }
 pub use action::{
-    action_contract, parse_action, parse_action_at, preview_of, ActionArgs, ActionAudit,
-    ActionEffect, ActionKind, ActionLine, ActionPreview, InterruptedFocus, TargetRef,
-    TouchedEntity, UndoStep, UndoTaskStart,
+    action_contract, finance_payload, parse_action, parse_action_at, preview_of, validate_policy,
+    ActionArgs, ActionAudit, ActionEffect, ActionKind, ActionLine, ActionPreview, InterruptedFocus,
+    TargetRef, TouchedEntity, UndoStep, UndoTaskStart, POLICY_KEYS,
 };
 pub use agent::{
     candidates_block, here_block, normalize, now_block, parse_query, preamble, project_context,
@@ -110,6 +111,10 @@ pub use daily::{
 };
 pub use error::{CoreError, ErrorCode};
 pub use feriados::{nacionais, nacionais_entre, pascoa, EscopoDoFeriado, Feriado, PesoDoFeriado};
+pub use finance::{
+    finance_answer, finance_context_block, finance_failure, finance_intent, finance_query_contract,
+    finance_unavailable_block, parse_finance_query, FinanceQuery, FinanceTool, MAX_FINANCE_HOPS,
+};
 pub use functions::{
     function_registry, search_functions, FunctionCategory, FunctionConfirmation,
     FunctionDefinition, FunctionRisk,

@@ -809,8 +809,23 @@ pub fn executar_acao(
         }
         // Efeito externo: so o adapter que tem a ponte executa (ver
         // `jarvis::action_resolve`). Chegar aqui e estar num aparelho sem ela.
-        crate::ActionArgs::MFinanceCreateBill { .. } => Err(indisponivel(
-            "Criar conta no M-Finance so funciona no aparelho com a ponte do M-Finance.",
+        crate::ActionArgs::MFinanceCreateBill { .. }
+        | crate::ActionArgs::MFinanceCreateCardExpense { .. }
+        | crate::ActionArgs::MFinanceCreateIncome { .. }
+        | crate::ActionArgs::MFinanceMarkBillPaid { .. }
+        | crate::ActionArgs::MFinanceMarkInvoicePaid { .. }
+        | crate::ActionArgs::MFinanceCreateSubscription { .. }
+        | crate::ActionArgs::MFinanceCreateGoal { .. }
+        | crate::ActionArgs::MFinanceUpdateGoal { .. }
+        | crate::ActionArgs::MFinanceSetPolicy { .. }
+        | crate::ActionArgs::MFinanceUpdateSubscription { .. }
+        | crate::ActionArgs::MFinanceCancelSubscription { .. }
+        | crate::ActionArgs::MFinanceMarkIncomeReceived { .. }
+        | crate::ActionArgs::MFinanceAddGoalContribution { .. }
+        | crate::ActionArgs::MFinanceSetGoalStatus { .. }
+        | crate::ActionArgs::MFinanceSetInvoiceAmount { .. }
+        | crate::ActionArgs::MFinanceSetBudget { .. } => Err(indisponivel(
+            "Acao do M-Finance so funciona no aparelho com a ponte do M-Finance.",
         )),
     }
 }

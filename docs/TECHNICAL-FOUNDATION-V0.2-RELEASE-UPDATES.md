@@ -1,5 +1,9 @@
 # M/OS - Technical Foundation v0.2 Release Updates
 
+> **Revisto em 2026-10-26 pelo ADR-091:** todo push no desktop agora publica
+> versão, e a abertura instala antes de deixar usar. A recusa de "atualização
+> silenciosa automática na abertura" abaixo não vale mais.
+
 ## 1. Objetivo
 
 Este corte adiciona atualizacao manual dentro do desktop para reduzir reinstalacoes

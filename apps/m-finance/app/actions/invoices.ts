@@ -2,14 +2,16 @@
 
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { creditCardInvoices, creditCards, months } from "@/db/schema";
+import { creditCardInvoices, months } from "@/db/schema";
 import { db } from "@/db/client";
 import { requireUser } from "@/lib/auth/guard";
-import { getAppUserBySupabaseId } from "@/lib/months";
-import { getActiveMonthForUser } from "@/lib/active-month";
+import { ensureMonthForUser, getAppUserBySupabaseId } from "@/lib/months";
+import { getActiveMonthParts } from "@/lib/active-month";
 import { parseCurrencyToCents } from "@/lib/money";
 import { composeMonthDate, parseDueDay } from "@/lib/due-date";
 import { invoiceSchema } from "@/lib/validators/invoice";
+import { markInvoicePaid } from "@/lib/domain/finance-actions/mark-paid";
+import { upsertInvoiceAmount } from "@/lib/domain/finance-actions/more-entries";
 import {
   errorState,
   fieldErrorsFromZod,
@@ -25,11 +27,11 @@ export async function createInvoice(_prev: FormState, formData: FormData): Promi
     return errorState("Banco ou usuário interno não configurado.");
   }
 
-  const currentMonth = await getActiveMonthForUser(appUser.id);
-
-  if (!currentMonth) {
-    return errorState("Crie o mês atual antes de cadastrar fatura.");
-  }
+  // A fatura é do mês que está na tela. Antes, um mês sem linha em `months`
+  // caía no mês do calendário em silêncio — confirmar a fatura de dezembro
+  // gravava em setembro.
+  const active = await getActiveMonthParts();
+  const currentMonth = await ensureMonthForUser(appUser.id, active.month, active.year);
 
   const parsed = invoiceSchema.safeParse({
     cardId: formData.get("cardId"),
@@ -47,45 +49,19 @@ export async function createInvoice(_prev: FormState, formData: FormData): Promi
 
   const payload = parsed.data;
 
-  // The due date defaults to the card's own due day, so adding a monthly
-  // invoice is just "pick card + value".
-  const [card] = await db
-    .select({ dueDay: creditCards.dueDay })
-    .from(creditCards)
-    .where(and(eq(creditCards.id, payload.cardId), eq(creditCards.userId, appUser.id)))
-    .limit(1);
-
-  if (!card) {
-    return errorState("Cartão não encontrado.");
+  // Mesmo serviço do Hermes (`m-finance.set_invoice_amount`): cria ou corrige a
+  // fatura do mês, com o vencimento do cartão quando não vem outro.
+  const result = await upsertInvoiceAmount({
+    userId: appUser.id,
+    cardId: payload.cardId,
+    month: currentMonth,
+    amountCents: payload.amountCents,
+    dueDay: payload.dueDay ?? null,
+    notes: payload.notes ?? null,
+  });
+  if (!result.ok) {
+    return errorState(result.code === "not_found" ? "Cartão não encontrado." : result.message);
   }
-
-  const dueDate = composeMonthDate(
-    currentMonth.year,
-    currentMonth.month,
-    payload.dueDay ?? card.dueDay,
-  );
-
-  await db
-    .insert(creditCardInvoices)
-    .values({
-      userId: appUser.id,
-      monthId: currentMonth.id,
-      cardId: payload.cardId,
-      amountCents: payload.amountCents,
-      dueDate,
-      status: "pending",
-      notes: payload.notes ?? null,
-    })
-    .onConflictDoUpdate({
-      target: [creditCardInvoices.cardId, creditCardInvoices.monthId],
-      set: {
-        amountCents: payload.amountCents,
-        dueDate,
-        status: "pending",
-        notes: payload.notes ?? null,
-        updatedAt: new Date(),
-      },
-    });
 
   revalidatePath("/app/dashboard");
   revalidatePath("/app/cards");
@@ -102,14 +78,10 @@ export async function markInvoiceAsPaid(formData: FormData) {
     throw new Error("Não foi possível marcar a fatura como paga.");
   }
 
-  await db
-    .update(creditCardInvoices)
-    .set({
-      status: "paid",
-      paidAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(and(eq(creditCardInvoices.id, invoiceId), eq(creditCardInvoices.userId, appUser.id)));
+  const paid = await markInvoicePaid(appUser.id, { invoiceId });
+  if (!paid.ok && paid.code !== "already_paid") {
+    throw new Error(paid.message);
+  }
 
   revalidatePath("/app/dashboard");
   revalidatePath("/app/cards");

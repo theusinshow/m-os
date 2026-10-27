@@ -5,7 +5,8 @@ import { revalidatePath } from "next/cache";
 import { creditCardExpenses, months } from "@/db/schema";
 import { db } from "@/db/client";
 import { requireUser } from "@/lib/auth/guard";
-import { ensureConsecutiveMonthsForUser, getAppUserBySupabaseId } from "@/lib/months";
+import { getAppUserBySupabaseId } from "@/lib/months";
+import { createCardExpense } from "@/lib/domain/finance-actions/create-card-expense";
 import { getActiveMonthForUser } from "@/lib/active-month";
 import { getCardById } from "@/lib/card-expenses";
 import { parseCurrencyToCents } from "@/lib/money";
@@ -69,54 +70,20 @@ export async function addCardExpense(_prev: FormState, formData: FormData): Prom
   const payload = parsed.data;
   const installmentTotal =
     payload.paymentType === "installment" ? (payload.installments ?? 1) : 1;
-  const targetMonths =
-    installmentTotal > 1
-      ? await ensureConsecutiveMonthsForUser(
-          appUser.id,
-          month.month,
-          month.year,
-          installmentTotal,
-        )
-      : [month];
-  const baseAmount = Math.floor(payload.amountCents / installmentTotal);
-  const remainder = payload.amountCents - baseAmount * installmentTotal;
-  const installmentId = installmentTotal > 1 ? crypto.randomUUID() : null;
 
-  // A soma anterior diz se o total da fatura nasceu das compras ou foi
-  // digitado; sem ela, classificar apagaria um total lançado a mão.
-  const previousSums = new Map<string, number>();
-  for (const targetMonth of targetMonths) {
-    previousSums.set(
-      targetMonth.id,
-      await sumCardExpenses(db, appUser.id, cardId, targetMonth.id),
-    );
-  }
-
-  await db
-    .insert(creditCardExpenses)
-    .values(
-      targetMonths.map((targetMonth, index) => ({
-        userId: appUser.id,
-        cardId,
-        monthId: targetMonth.id,
-        description: payload.description,
-        amountCents: baseAmount + (index < remainder ? 1 : 0),
-        purchaseDate: payload.purchaseDate ?? null,
-        installmentId,
-        installmentNumber: installmentId ? index + 1 : null,
-        installmentTotal: installmentId ? installmentTotal : null,
-      })),
-    );
-
-  for (const targetMonth of targetMonths) {
-    await syncInvoiceTotal(
-      db,
-      appUser.id,
-      cardId,
-      targetMonth,
-      card.dueDay,
-      previousSums.get(targetMonth.id) ?? 0,
-    );
+  // Mesmo serviço do WhatsApp e do M/OS: compra e fatura mudam juntas, numa
+  // transação, e a soma anterior decide se o total da fatura era digitado.
+  const created = await createCardExpense({
+    userId: appUser.id,
+    card: { id: card.id, name: card.name, dueDay: card.dueDay },
+    month,
+    description: payload.description,
+    amountCents: payload.amountCents,
+    purchaseDate: payload.purchaseDate ?? null,
+    installments: installmentTotal,
+  });
+  if (!created.ok) {
+    return errorState(created.message);
   }
 
   revalidateCardSurfaces(cardId);

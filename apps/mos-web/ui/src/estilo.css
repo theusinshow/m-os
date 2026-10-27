@@ -107,6 +107,27 @@
   --curva: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* O sodio na gama do iPhone.
+ *
+ * O hex acima e o mesmo do desktop, e no PC ele parece vivo porque o Windows
+ * estica sRGB no monitor de gama ampla. O iPhone gerencia cor: mostra o hex
+ * como ele e, o True Tone puxa para o quente, e o amarelo virava "ovo
+ * envelhecido". Este e o mesmo tom com a saturacao que o olho ja conhece do PC
+ * — escolhido no proprio iPhone, entre tres (ADR-090). Tela sem P3 fica com o
+ * hex, que e o que ela consegue mostrar. */
+@media (color-gamut: p3) {
+  :root {
+    --signal: color(display-p3 0.96 0.79 0.2);
+    --signal-wash: color(display-p3 0.96 0.79 0.2 / 0.16);
+    --signal-press: color(display-p3 0.86 0.7 0.15);
+    --brilho-topo: linear-gradient(
+      180deg,
+      color(display-p3 0.96 0.79 0.2 / 0.06),
+      transparent 120px
+    );
+  }
+}
+
 /* Quem pediu menos movimento recebe menos movimento.
  *
  * Nao e acessibilidade decorativa: este app abre em movimento — numeros que

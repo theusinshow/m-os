@@ -113,6 +113,34 @@
       "when": 1783102760176,
       "tag": "0015_friendly_nuke",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790707045962,
+      "tag": "0016_friendly_kulan_gath",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790779131758,
+      "tag": "0017_empty_cyclops",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792159200000,
+      "tag": "0018_enable_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793044975677,
+      "tag": "0019_card_statement_import",
+      "breakpoints": true
     }
   ]
 }

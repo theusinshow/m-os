@@ -8,9 +8,10 @@ import { db } from "@/db/client";
 import { billSchema, createBillSchema } from "@/lib/validators/bill";
 import { parseCurrencyToCents } from "@/lib/money";
 import { composeMonthDate, parseDueDay } from "@/lib/due-date";
-import { ensureConsecutiveMonthsForUser, getAppUserBySupabaseId } from "@/lib/months";
+import { getAppUserBySupabaseId } from "@/lib/months";
 import { getActiveMonthForUser } from "@/lib/active-month";
-import { createRecurringBillSeries } from "@/lib/recurrence";
+import { createBillEntries } from "@/lib/domain/finance-actions/create-bill";
+import { markBillPaid } from "@/lib/domain/finance-actions/mark-paid";
 import {
   errorState,
   fieldErrorsFromZod,
@@ -55,63 +56,36 @@ export async function createBill(_prev: FormState, formData: FormData): Promise<
 
   const payload = parsed.data;
 
-  // "Recorrente, sem fim" cria a regra e materializa os próximos meses. Antes
-  // gravava só `isRecurring: true` numa linha do mês corrente: a conta era
-  // marcada como recorrente e não repetia em lugar nenhum.
-  if (payload.scheduleType === "ongoing") {
-    const { months: createdMonths } = await createRecurringBillSeries({
-      userId: appUser.id,
-      name: payload.name,
-      amountCents: payload.amountCents,
-      // Sem dia informado, a conta cai no fim do mês para não nascer vencida.
-      dueDay: payload.dueDay ?? 31,
-      startMonth: currentMonth.month,
-      startYear: currentMonth.year,
-      categoryId: payload.categoryId ?? null,
-      notes: payload.notes ?? null,
-    });
-
-    revalidatePath("/app/dashboard");
-    revalidatePath("/app/bills");
-    revalidatePath("/app/calendar");
-    return successState(`Conta recorrente criada nos próximos ${createdMonths} meses.`);
-  }
-
-  // No day informed defaults to the end of the month, so the bill never looks
-  // overdue just because the user skipped the date.
+  // "Recorrente, sem fim" cria a regra e materializa os próximos meses;
+  // "por N meses" cria a série; avulsa é uma conta. A regra é a mesma do
+  // WhatsApp e do M/OS (`createBillEntries`).
   const occurrenceTotal = payload.scheduleType === "fixed" ? (payload.repeatMonths ?? 1) : 1;
-  const targetMonths =
-    occurrenceTotal > 1
-      ? await ensureConsecutiveMonthsForUser(
-          appUser.id,
-          currentMonth.month,
-          currentMonth.year,
-          occurrenceTotal,
-        )
-      : [currentMonth];
-  const seriesId = occurrenceTotal > 1 ? crypto.randomUUID() : null;
+  const created = await createBillEntries({
+    userId: appUser.id,
+    month: currentMonth,
+    name: payload.name,
+    amountCents: payload.amountCents,
+    dueDay: payload.dueDay ?? null,
+    schedule:
+      payload.scheduleType === "ongoing"
+        ? { kind: "ongoing" }
+        : occurrenceTotal > 1
+          ? { kind: "fixed", months: occurrenceTotal }
+          : { kind: "once" },
+    categoryId: payload.categoryId ?? null,
+    notes: payload.notes ?? null,
+  });
 
-  await db.insert(bills).values(
-    targetMonths.map((month, index) => ({
-      userId: appUser.id,
-      monthId: month.id,
-      categoryId: payload.categoryId ?? null,
-      name: payload.name,
-      amountCents: payload.amountCents,
-      dueDate: composeMonthDate(month.year, month.month, payload.dueDay ?? 31),
-      // Chegando aqui, "ongoing" já retornou acima: sobram "once" e "fixed".
-      isRecurring: false,
-      seriesId,
-      seriesNumber: seriesId ? index + 1 : null,
-      seriesTotal: seriesId ? occurrenceTotal : null,
-      status: "pending" as const,
-      notes: payload.notes ?? null,
-    })),
-  );
+  if (!created.ok) {
+    return errorState(created.message);
+  }
 
   revalidatePath("/app/dashboard");
   revalidatePath("/app/bills");
   revalidatePath("/app/calendar");
+  if (payload.scheduleType === "ongoing") {
+    return successState(`Conta recorrente criada nos próximos ${created.value.months} meses.`);
+  }
   return successState(
     occurrenceTotal > 1
       ? `Conta adicionada por ${occurrenceTotal} meses.`
@@ -128,14 +102,11 @@ export async function markBillAsPaid(formData: FormData) {
     throw new Error("Não foi possível marcar a conta como paga.");
   }
 
-  await db
-    .update(bills)
-    .set({
-      status: "paid",
-      paidAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(and(eq(bills.id, billId), eq(bills.userId, appUser.id)));
+  // Mesmo serviço do WhatsApp e do M/OS. Conta já paga não é erro de tela.
+  const paid = await markBillPaid(appUser.id, billId);
+  if (!paid.ok && paid.code !== "already_paid") {
+    throw new Error(paid.message);
+  }
 
   revalidatePath("/app/dashboard");
   revalidatePath("/app/bills");

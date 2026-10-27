@@ -88,7 +88,10 @@ export default async function SubscriptionsPage() {
                       <span className="num">{formatCurrency(sub.amountCents)}</span> ·{" "}
                       {cycleLabel[sub.cycle]} ·{" "}
                       {sub.status === "trial" ? "cobra em " : "próxima em "}
-                      {formatShortDate(sub.nextChargeDate)} · avisa {sub.reminderDaysBefore}d antes
+                      {formatShortDate(sub.nextChargeDate)} ·{" "}
+                      {sub.cardName && sub.status === "active"
+                        ? `no cartão ${sub.cardName}`
+                        : `avisa ${sub.reminderDaysBefore}d antes`}
                     </p>
                   </div>
                   <ToastForm action={cancelSubscription} successMessage="Assinatura cancelada.">

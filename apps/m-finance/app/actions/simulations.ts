@@ -9,7 +9,7 @@ import { getAppUserBySupabaseId, getCurrentMonthForUser } from "@/lib/months";
 import { parseCurrencyToCents } from "@/lib/money";
 import { simulationSchema } from "@/lib/validators/simulation";
 import { computeSimulation } from "@/lib/calculations/simulator";
-import { getSimulationBaseline } from "@/lib/simulations";
+import { getSimulationBaseline, getSimulationBaselineByMonth } from "@/lib/simulations";
 import {
   errorState,
   fieldErrorsFromZod,
@@ -50,7 +50,10 @@ export async function createSimulation(_prev: FormState, formData: FormData): Pr
   }
 
   const payload = parsed.data;
-  const baseline = await getSimulationBaseline(appUser.id, currentMonth.id);
+  const [baseline, baselineByMonth] = await Promise.all([
+    getSimulationBaseline(appUser.id, currentMonth.id),
+    getSimulationBaselineByMonth(appUser.id).catch(() => undefined),
+  ]);
 
   const result = computeSimulation({
     totalAmountCents: payload.totalAmountCents,
@@ -59,6 +62,7 @@ export async function createSimulation(_prev: FormState, formData: FormData): Pr
     startMonth: payload.startMonth,
     startYear: payload.startYear,
     baselineRemainingCents: baseline.baselineRemainingCents,
+    baselineByMonth,
   });
 
   await db.insert(purchaseSimulations).values({

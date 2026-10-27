@@ -1219,6 +1219,10 @@ pub struct PreambleInput<'a> {
     /// O perfil de piloto do M/OS (ADR-087): o manual dos modulos e como agir
     /// conforme a autonomia. Vazio desce so o contexto de sempre.
     pub perfil: String,
+    /// O bloco do modo financeiro (ADR-088), ja montado por
+    /// `finance_context_block`. Vazio quando a pergunta nao e financeira — e ai
+    /// nenhum dado financeiro sai da maquina.
+    pub finance: String,
 }
 
 /// Monta o prefixo do prompt, na ordem em que ele deve ser lido.
@@ -1241,6 +1245,10 @@ pub fn preamble(input: PreambleInput<'_>) -> String {
         // modelo ler o que da para fazer com eles.
         today_block(&input.today.0, &input.today.1),
         input.attention.clone(),
+        // Depois do contexto do dia e antes do catalogo: os numeros reenquadram
+        // o que "pagar", "comprar" e "posso" significam antes de o modelo ler
+        // o que da para fazer com eles.
+        input.finance.clone(),
         crate::action_contract(input.finance_enabled),
     ];
     if input.hops_left > 0 {
@@ -1672,6 +1680,7 @@ mod tests {
             here: &here,
             candidates: &candidatos,
             finance_enabled: false,
+            finance: String::new(),
             hops_left: MAX_QUERY_HOPS,
             today: (String::new(), Vec::new()),
             attention: String::new(),
@@ -1726,6 +1735,7 @@ mod tests {
             here: &here,
             candidates: std::slice::from_ref(&task),
             finance_enabled: false,
+            finance: String::new(),
             hops_left: MAX_QUERY_HOPS,
             today: (String::new(), Vec::new()),
             attention: String::new(),
@@ -1785,6 +1795,7 @@ mod tests {
             here: &here,
             candidates: &[],
             finance_enabled: false,
+            finance: String::new(),
             hops_left: 1,
             today: (String::new(), Vec::new()),
             attention: String::new(),
@@ -1795,6 +1806,7 @@ mod tests {
             here: &here,
             candidates: &[],
             finance_enabled: false,
+            finance: String::new(),
             hops_left: 0,
             today: (String::new(), Vec::new()),
             attention: String::new(),
@@ -1851,6 +1863,7 @@ mod tests {
             here: &Here::default(),
             candidates: &[],
             finance_enabled: false,
+            finance: String::new(),
             hops_left: 0,
             today: (
                 "2026-08-21".into(),

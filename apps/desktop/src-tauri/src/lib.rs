@@ -2571,7 +2571,10 @@ pub fn run() {
             tauri::async_runtime::spawn(meeting::run_levels(app.handle().clone()));
             tauri::async_runtime::spawn(meeting::run_pipeline(app.handle().clone()));
             tauri::async_runtime::spawn(usage::run(app.handle().clone()));
-            tauri::async_runtime::spawn(openai_usage::run(app.handle().clone()));
+            // `openai_usage::run` nao nasce mais: a metrica de gasto da OpenAI
+            // saiu da faixa e das Configuracoes (26/10). Sem tela que mostre o
+            // numero, consultar a Admin API a cada ciclo seria trafego para
+            // nada. A chave fica no cofre; nada foi apagado.
             tauri::async_runtime::spawn(piloto::run(app.handle().clone()));
             Ok(())
         })
@@ -2609,6 +2612,10 @@ pub fn run() {
                     finance::finance_set_action_secret,
                     finance::finance_clear_action_secret,
                     finance::finance_action_secret_configured,
+                    finance::finance_set_read_secret,
+                    finance::finance_clear_read_secret,
+                    finance::finance_read_secret_configured,
+                    finance::finance_home_summary,
                     openai_usage::openai_usage_status,
                     openai_usage::openai_usage_set_key,
                     openai_usage::openai_usage_clear_key,

@@ -28,8 +28,10 @@ type Expense = {
   installmentId: string | null;
   installmentNumber: number | null;
   installmentTotal: number | null;
+  categoryName?: string | null;
+  isSubscription?: boolean;
 };
-type HistoryExpense = Expense & {
+type HistoryExpense = Omit<Expense, "categoryName" | "isSubscription"> & {
   monthLabel: string;
   month: number;
   year: number;
@@ -39,6 +41,7 @@ type Invoice = {
   amountCents: number;
   dueDate: string;
   status: "pending" | "paid" | "overdue";
+  creditsCents: number;
 } | null;
 
 export function CardDetail({
@@ -60,7 +63,16 @@ export function CardDetail({
   // parte dele; antes elas SUBSTITUÍAM o total, e uma compra de R$ 120 numa
   // fatura de R$ 1.027 fazia os outros R$ 907 sumirem da tela.
   const displayTotalCents = invoice?.amountCents ?? 0;
-  const breakdown = breakdownInvoice(displayTotalCents, expenses);
+  // As compras explicam a fatura inteira, inclusive o que já foi abatido; a
+  // repartição é por categoria quando a compra tem uma.
+  const creditsCents = invoice?.creditsCents ?? 0;
+  const breakdown = breakdownInvoice(
+    displayTotalCents + creditsCents,
+    expenses.map((expense) => ({
+      description: expense.categoryName ?? expense.description,
+      amountCents: expense.amountCents,
+    })),
+  );
   const installments = summarizeCardInstallments(history, activeMonth);
   const caption = !invoice
     ? "Nenhuma fatura lançada neste mês"
@@ -95,6 +107,11 @@ export function CardDetail({
           {formatCurrency(displayTotalCents)}
         </p>
         <p className="mt-1.5 text-sm text-text-muted">{caption}</p>
+        {creditsCents > 0 ? (
+          <p className="mt-1 text-sm text-status-positive">
+            {formatCurrency(creditsCents)} já abatidos antes do vencimento
+          </p>
+        ) : null}
 
         {invoice ? (
           <div className="mt-5">
@@ -140,6 +157,8 @@ export function CardDetail({
                 <div className="min-w-0">
                   <p className="truncate font-medium text-text-primary">{expense.description}</p>
                   <p className="mt-0.5 text-xs text-text-muted">
+                    {expense.categoryName ? `${expense.categoryName} · ` : ""}
+                    {expense.isSubscription ? "Assinatura · " : ""}
                     {expense.installmentNumber && expense.installmentTotal
                       ? `Parcela ${expense.installmentNumber}/${expense.installmentTotal}`
                       : "À vista"}

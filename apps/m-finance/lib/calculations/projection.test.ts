@@ -16,27 +16,42 @@ describe("buildMonthProjection", () => {
         month: 9,
         year: 2026,
         incomeCents: 0,
+        incomeEstimatedCents: 0,
+        billsCents: 2_275_00,
+        invoicesCents: 4_527_00,
+        invoicesEstimatedCents: 0,
         committedCents: 6_802_00,
         remainingCents: -6_802_00,
         hasIncome: false,
+        isEstimated: false,
         isCurrent: true,
       },
       {
         month: 10,
         year: 2026,
         incomeCents: 5_700_00,
+        incomeEstimatedCents: 0,
+        billsCents: 2_275_00,
+        invoicesCents: 0,
+        invoicesEstimatedCents: 0,
         committedCents: 2_275_00,
         remainingCents: 3_425_00,
         hasIncome: true,
+        isEstimated: false,
         isCurrent: false,
       },
       {
         month: 11,
         year: 2026,
         incomeCents: 0,
+        incomeEstimatedCents: 0,
+        billsCents: 700_00,
+        invoicesCents: 0,
+        invoicesEstimatedCents: 0,
         committedCents: 700_00,
         remainingCents: -700_00,
         hasIncome: false,
+        isEstimated: false,
         isCurrent: false,
       },
     ]);
@@ -64,5 +79,46 @@ describe("buildMonthProjection", () => {
     );
 
     expect(rows).toEqual([]);
+  });
+
+  it("outubro sem fatura lançada conta a estimada, e a sobra deixa de ser folgada", () => {
+    const [row] = buildMonthProjection(
+      [
+        {
+          month: 10,
+          year: 2026,
+          incomeCents: 5_700_00,
+          billsCents: 2_275_00,
+          invoicesCents: 0,
+          estimatedInvoicesCents: 4_527_00,
+        },
+      ],
+      { month: 10, year: 2026 },
+      1,
+    );
+
+    expect(row).toMatchObject({
+      invoicesCents: 4_527_00,
+      invoicesEstimatedCents: 4_527_00,
+      committedCents: 6_802_00,
+      remainingCents: -1_102_00,
+      isEstimated: true,
+    });
+  });
+
+  it("NF estimada dá resposta ao mês que ainda não teve nota", () => {
+    const [row] = buildMonthProjection(
+      [{ month: 11, year: 2026, incomeCents: 0, billsCents: 700_00, invoicesCents: 0, estimatedIncomeCents: 5_700_00 }],
+      { month: 11, year: 2026 },
+      1,
+    );
+
+    expect(row).toMatchObject({
+      incomeCents: 5_700_00,
+      incomeEstimatedCents: 5_700_00,
+      remainingCents: 5_000_00,
+      hasIncome: true,
+      isEstimated: true,
+    });
   });
 });

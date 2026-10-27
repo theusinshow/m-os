@@ -1,0 +1,1 @@
+ALTER TYPE "public"."financial_insight_type" ADD VALUE 'goal_at_risk';

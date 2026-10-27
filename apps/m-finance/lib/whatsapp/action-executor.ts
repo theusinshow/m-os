@@ -9,11 +9,13 @@ import {
   whatsappPendingActions,
 } from "@/db/schema";
 import { getCardById } from "@/lib/card-expenses";
-import { composeMonthDate } from "@/lib/due-date";
 import { formatCurrency } from "@/lib/formatters/currency";
 import { sumCardExpenses, syncInvoiceTotal } from "@/lib/invoice-sync";
-import { ensureConsecutiveMonthsForUser, getCurrentMonthForUser } from "@/lib/months";
-import { createRecurringBillSeries, RECURRING_PREGENERATE_MONTHS } from "@/lib/recurrence";
+import { getCurrentMonthForUser } from "@/lib/months";
+import { RECURRING_PREGENERATE_MONTHS } from "@/lib/recurrence";
+import { createBillEntries, scheduleFromFlags } from "@/lib/domain/finance-actions/create-bill";
+import { createCardExpense } from "@/lib/domain/finance-actions/create-card-expense";
+import { findUnpaidBillsByName, markBillPaid, markInvoicePaid } from "@/lib/domain/finance-actions/mark-paid";
 import { updateWhatsappPendingActionStatus } from "@/lib/whatsapp/audit";
 
 const cardExpensePayloadSchema = z.object({
@@ -98,49 +100,19 @@ export async function executeWhatsappPendingAction(action: PendingAction) {
 
   const installmentTotal =
     payload.paymentType === "installment" ? (payload.installments ?? 1) : 1;
-  const targetMonths =
-    installmentTotal > 1
-      ? await ensureConsecutiveMonthsForUser(action.userId, month.month, month.year, installmentTotal)
-      : [month];
-  const baseAmount = Math.floor(payload.amountCents / installmentTotal);
-  const remainder = payload.amountCents - baseAmount * installmentTotal;
-  const installmentId = installmentTotal > 1 ? crypto.randomUUID() : null;
-
-  await db.transaction(async (tx) => {
-    const previousSums = new Map<string, number>();
-    for (const targetMonth of targetMonths) {
-      previousSums.set(
-        targetMonth.id,
-        await sumCardExpenses(tx, action.userId, payload.cardId, targetMonth.id),
-      );
-    }
-
-    await tx.insert(creditCardExpenses).values(
-      targetMonths.map((targetMonth, index) => ({
-        userId: action.userId,
-        cardId: payload.cardId,
-        monthId: targetMonth.id,
-        description: payload.description,
-        amountCents: baseAmount + (index < remainder ? 1 : 0),
-        purchaseDate: payload.purchaseDate,
-        installmentId,
-        installmentNumber: installmentId ? index + 1 : null,
-        installmentTotal: installmentId ? installmentTotal : null,
-        whatsappPendingActionId: action.id,
-      })),
-    );
-
-    for (const targetMonth of targetMonths) {
-      await syncInvoiceTotal(
-        tx,
-        action.userId,
-        payload.cardId,
-        targetMonth,
-        card.dueDay,
-        previousSums.get(targetMonth.id) ?? 0,
-      );
-    }
+  const created = await createCardExpense({
+    userId: action.userId,
+    card: { id: card.id, name: card.name, dueDay: card.dueDay },
+    month,
+    description: payload.description,
+    amountCents: payload.amountCents,
+    purchaseDate: payload.purchaseDate,
+    installments: installmentTotal,
+    whatsappPendingActionId: action.id,
   });
+  if (!created.ok) {
+    return created.message;
+  }
 
   await updateWhatsappPendingActionStatus(action.id, "confirmed");
 
@@ -172,30 +144,29 @@ async function executeCreateBill(action: PendingAction) {
     return "Crie o mês atual no app antes de lançar despesas avulsas pelo WhatsApp.";
   }
 
-  // Sem dia de vencimento, a conta cai no fim do mês para não nascer vencida.
-  const dueDay = payload.dueDay ?? 31;
+  // Recorrência real (regra + próximos meses) quando há dia; sem dia, uma
+  // conta marcada como recorrente. A regra mora no serviço de domínio.
+  const schedule = scheduleFromFlags(payload.isRecurring, payload.dueDay);
+  const created = await createBillEntries({
+    userId: action.userId,
+    month,
+    name: payload.description,
+    amountCents: payload.amountCents,
+    dueDay: payload.dueDay,
+    schedule,
+    whatsappPendingActionId: action.id,
+  });
 
-  // Recorrência real: cria a regra em recurrence_rules e materializa os
-  // próximos meses como contas vinculadas. Exige dueDay porque a regra precisa
-  // de um dia fixo; sem ele, mantemos o comportamento antigo (flag only).
-  if (payload.isRecurring && payload.dueDay) {
+  if (!created.ok) {
     // O executor responde por texto: uma exceção viraria silêncio no WhatsApp.
-    try {
-      await createRecurringBillSeries({
-        userId: action.userId,
-        name: payload.description,
-        amountCents: payload.amountCents,
-        dueDay: payload.dueDay,
-        startMonth: month.month,
-        startYear: month.year,
-        whatsappPendingActionId: action.id,
-      });
-    } catch {
-      return "Não consegui criar a regra de recorrência agora.";
-    }
+    return schedule.kind === "ongoing"
+      ? "Não consegui criar a regra de recorrência agora."
+      : created.message;
+  }
 
-    await updateWhatsappPendingActionStatus(action.id, "confirmed");
+  await updateWhatsappPendingActionStatus(action.id, "confirmed");
 
+  if (schedule.kind === "ongoing") {
     return [
       "Despesa recorrente lançada.",
       `Valor: ${formatCurrency(payload.amountCents)}`,
@@ -207,26 +178,11 @@ async function executeCreateBill(action: PendingAction) {
       .join("\n");
   }
 
-  const dueDate = composeMonthDate(month.year, month.month, dueDay);
-
-  await db.insert(bills).values({
-    userId: action.userId,
-    monthId: month.id,
-    name: payload.description,
-    amountCents: payload.amountCents,
-    dueDate,
-    isRecurring: payload.isRecurring,
-    status: "pending",
-    whatsappPendingActionId: action.id,
-  });
-
-  await updateWhatsappPendingActionStatus(action.id, "confirmed");
-
   return [
     "Despesa lançada.",
     `Valor: ${formatCurrency(payload.amountCents)}`,
     `Descrição: ${payload.description}`,
-    `Vencimento: ${dueDate.split("-").reverse().join("/")}`,
+    `Vencimento: ${created.value.firstDueDate.split("-").reverse().join("/")}`,
     payload.isRecurring ? "Recorrente: sim (apenas este mês)" : null,
   ]
     .filter(Boolean)
@@ -249,26 +205,9 @@ async function executeMarkBillPaid(action: PendingAction) {
     return "Crie o mês atual no app antes de marcar contas pelo WhatsApp.";
   }
 
-  // Busca contas do mês atual que casam com a descrição (começa com o termo),
-  // ainda não pagas. Casamento por prefixo aceita "luz" -> "Conta de luz".
-  const candidates = await db
-    .select({
-      id: bills.id,
-      name: bills.name,
-      amountCents: bills.amountCents,
-      dueDate: bills.dueDate,
-      status: bills.status,
-    })
-    .from(bills)
-    .where(
-      and(
-        eq(bills.userId, action.userId),
-        eq(bills.monthId, month.id),
-        sql`${bills.status} <> 'paid'`,
-        sql`${bills.name} ILIKE ${"%" + payload.description + "%"}`,
-      ),
-    )
-    .orderBy(bills.dueDate);
+  // Contas do mês atual, ainda não pagas, que contêm o termo: "luz" acha
+  // "Conta de luz". Uma, paga; várias, pergunta.
+  const candidates = await findUnpaidBillsByName(action.userId, month.id, payload.description);
 
   if (candidates.length === 0) {
     await updateWhatsappPendingActionStatus(action.id, "cancelled");
@@ -284,11 +223,12 @@ async function executeMarkBillPaid(action: PendingAction) {
     return `Encontrei mais de uma conta com "${payload.description}". Seja mais específico:\n\n${list}`;
   }
 
-  const target = candidates[0];
-  await db
-    .update(bills)
-    .set({ status: "paid", paidAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(bills.id, target.id), eq(bills.userId, action.userId)));
+  const paid = await markBillPaid(action.userId, candidates[0].id);
+  if (!paid.ok) {
+    await updateWhatsappPendingActionStatus(action.id, "cancelled");
+    return paid.message;
+  }
+  const target = paid.value;
 
   await updateWhatsappPendingActionStatus(action.id, "confirmed");
 
@@ -316,39 +256,21 @@ async function executeMarkInvoicePaid(action: PendingAction) {
     return "Crie o mês atual no app antes de marcar faturas pelo WhatsApp.";
   }
 
-  const [invoice] = await db
-    .select()
-    .from(creditCardInvoices)
-    .where(
-      and(
-        eq(creditCardInvoices.userId, action.userId),
-        eq(creditCardInvoices.cardId, payload.cardId),
-        eq(creditCardInvoices.monthId, month.id),
-      ),
-    )
-    .limit(1);
+  const paid = await markInvoicePaid(action.userId, { cardId: payload.cardId, monthId: month.id });
 
-  if (!invoice) {
+  if (!paid.ok) {
     await updateWhatsappPendingActionStatus(action.id, "cancelled");
-    return `Não encontrei fatura de "${payload.cardName}" no mês atual.`;
+    if (paid.code === "not_found") return `Não encontrei fatura de "${payload.cardName}" no mês atual.`;
+    if (paid.code === "already_paid") return `A fatura de "${payload.cardName}" já está marcada como paga.`;
+    return paid.message;
   }
-
-  if (invoice.status === "paid") {
-    await updateWhatsappPendingActionStatus(action.id, "cancelled");
-    return `A fatura de "${payload.cardName}" já está marcada como paga.`;
-  }
-
-  await db
-    .update(creditCardInvoices)
-    .set({ status: "paid", paidAt: new Date(), updatedAt: new Date() })
-    .where(eq(creditCardInvoices.id, invoice.id));
 
   await updateWhatsappPendingActionStatus(action.id, "confirmed");
 
   return [
     "Fatura marcada como paga.",
     `Cartão: ${payload.cardName}`,
-    `Valor: ${formatCurrency(invoice.amountCents)}`,
+    `Valor: ${formatCurrency(paid.value.amountCents)}`,
   ].join("\n");
 }
 

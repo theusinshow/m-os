@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FileUp } from "lucide-react";
 import { CardDetail } from "@/components/cards/card-detail";
 import { CreateCurrentMonthCard } from "@/components/dashboard/create-current-month-card";
 import { PageHeading } from "@/components/page-heading";
@@ -45,6 +45,13 @@ export default async function CardDetailPage({
         >
           <ArrowLeft size={16} aria-hidden="true" />
           Cartões
+        </Link>
+        <Link
+          className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-md bg-accent-strong px-4 text-sm font-semibold text-text-inverse shadow-lg shadow-accent/25 transition duration-200 hover:bg-accent-strong-hover"
+          href={`/app/cards/${card.id}/import`}
+        >
+          <FileUp size={16} aria-hidden="true" />
+          Importar fatura
         </Link>
       </PageHeading>
 

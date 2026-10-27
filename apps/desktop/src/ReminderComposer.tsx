@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { LazyMotion, m } from "framer-motion";
-import { api } from "./api";
+import { api, appError } from "./api";
 import { Button } from "./Button";
 import { MOTION_DURATIONS, MOTION_EASINGS } from "./motion";
 import { whenChoices } from "./lembretes";
@@ -50,11 +50,11 @@ const loadMotionFeatures = () => import("./motionFeatures").then((module) => mod
    lembrete quer ser lembrado — nao configurar. O que falta se escreve pelo
    Hermes, que fala a mesma linguagem do dominio. */
 const REPETICOES: ReadonlyArray<{ label: string; rule: RecurrenceRule | null }> = [
-  { label: "Nao repete", rule: null },
+  { label: "Não repete", rule: null },
   { label: "Todo dia", rule: { kind: "daily" } },
-  { label: "Dias uteis", rule: { kind: "weekdays" } },
+  { label: "Dias úteis", rule: { kind: "weekdays" } },
   { label: "Toda semana", rule: { kind: "everyWeeks", weeks: 1 } },
-  { label: "Todo mes", rule: { kind: "everyDays", days: 30 } },
+  { label: "Todo mês", rule: { kind: "everyDays", days: 30 } },
 ];
 
 /** Os adiantamentos oferecidos, em minutos. Espelham `LEAD_PRESETS` do dominio. */
@@ -128,6 +128,9 @@ export function ReminderComposer({
   const [adiantamentos, setAdiantamentos] = useState<number[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  /* So depois de tentar criar o campo vazio acusa erro. Acusar antes seria
+     gritar com quem ainda nem comecou a digitar. */
+  const [tentou, setTentou] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const panel = useRef<HTMLDivElement>(null);
 
@@ -143,11 +146,24 @@ export function ReminderComposer({
     return () => document.removeEventListener("keydown", onKey);
   }, [close]);
 
+  /* Um horario que ja passou nao vira lembrete: o dominio recusa, e a recusa
+     chegaria so depois do clique. Dizer antes, ao lado do campo, poupa a ida e
+     volta e diz o que fazer. */
+  const noPassado = !semData && when.getTime() < Date.now() - 60000;
+  const tituloVazio = !title.trim();
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!title.trim() || saving) return;
+    if (saving) return;
+    if (tituloVazio) {
+      setTentou(true);
+      input.current?.focus();
+      return;
+    }
+    if (noPassado) return;
 
     setSaving(true);
+    setError("");
     try {
       created(
         await api.novoLembrete({
@@ -165,7 +181,7 @@ export function ReminderComposer({
       );
       close();
     } catch (nextError) {
-      setError(String(nextError));
+      setError(`${appError(nextError).message} Nada foi criado; o que você escreveu continua aqui.`);
       setSaving(false);
     }
   }
@@ -199,15 +215,25 @@ export function ReminderComposer({
           {/* De onde a folha saiu. Sem isto, um lembrete criado de dentro de uma
               Task seria indistinguível de um lembrete solto no instante em que
               mais importa distinguir: antes de confirmar. */}
-          {targetLabel ? <p className="composer-target">PRESO À {targetLabel}</p> : null}
+          <header className="composer-head">
+            <span className="micro-label">NOVO LEMBRETE</span>
+            {targetLabel ? <p className="composer-target">PRESO À {targetLabel}</p> : null}
+          </header>
           <label>
             <span>LEMBRAR DE</span>
             <input
+              aria-describedby={tentou && tituloVazio ? "composer-titulo-erro" : undefined}
+              aria-invalid={tentou && tituloVazio ? true : undefined}
               onChange={(event) => setTitle(event.currentTarget.value)}
               placeholder="Enviar a proposta"
               ref={input}
               value={title}
             />
+            {tentou && tituloVazio ? (
+              <small className="field-error" id="composer-titulo-erro">
+                Escreva do que você quer ser lembrado.
+              </small>
+            ) : null}
           </label>
 
           <fieldset className="composer-when">
@@ -215,13 +241,15 @@ export function ReminderComposer({
             <div className="composer-choices">
               {choices.map((choice) => {
                 const instant = choice.resolve();
-                const active = !custom && Math.abs(instant.getTime() - when.getTime()) < 60000;
+                const active =
+                  !custom && !semData && Math.abs(instant.getTime() - when.getTime()) < 60000;
                 return (
                   <Button
                     aria-pressed={active}
                     key={choice.label}
                     onClick={() => {
                       setCustom(false);
+                      setSemData(false);
                       setWhen(choice.resolve());
                     }}
                     size="sm"
@@ -232,16 +260,25 @@ export function ReminderComposer({
                 );
               })}
               <Button
-                aria-pressed={custom}
-                onClick={() => setCustom(true)}
+                aria-pressed={custom && !semData}
+                onClick={() => {
+                  setCustom(true);
+                  setSemData(false);
+                }}
                 size="sm"
-                variant={custom ? "primary" : "ghost"}
+                variant={custom && !semData ? "primary" : "ghost"}
               >
-                Escolher
+                Escolher data
               </Button>
+              {/* "Algum dia" e uma das respostas de QUANDO, e nao um
+                  interruptor ao lado delas: marcado, nenhum horario aparece
+                  escolhido ao mesmo tempo. */}
               <Button
                 aria-pressed={semData}
-                onClick={() => setSemData((atual) => !atual)}
+                onClick={() => {
+                  setSemData(true);
+                  setCustom(false);
+                }}
                 size="sm"
                 variant={semData ? "primary" : "ghost"}
               >
@@ -249,25 +286,35 @@ export function ReminderComposer({
               </Button>
             </div>
 
-            {custom ? (
-              <input
-                aria-label="Data e hora"
-                min={toLocalInput(new Date())}
-                onChange={(event) => {
-                  const parsed = new Date(event.currentTarget.value);
-                  if (!Number.isNaN(parsed.getTime())) setWhen(parsed);
-                }}
-                type="datetime-local"
-                value={toLocalInput(when)}
-              />
+            {custom && !semData ? (
+              <label className="composer-field">
+                <span>DATA E HORA</span>
+                <input
+                  aria-describedby={noPassado ? "composer-quando-erro" : undefined}
+                  aria-invalid={noPassado ? true : undefined}
+                  min={toLocalInput(new Date())}
+                  onChange={(event) => {
+                    const parsed = new Date(event.currentTarget.value);
+                    if (!Number.isNaN(parsed.getTime())) setWhen(parsed);
+                  }}
+                  type="datetime-local"
+                  value={toLocalInput(when)}
+                />
+              </label>
             ) : null}
 
             {/* O instante resolvido, sempre visível. Um lembrete que dispara em
                 hora diferente da que a pessoa achou que escolheu é pior que um
                 lembrete que não dispara. */}
-            <p className="composer-resolved" aria-live="polite">
-              {semData ? "Sem data — nao vai interromper voce" : whenLabel(when)}
-            </p>
+            {noPassado ? (
+              <p className="field-error" id="composer-quando-erro" role="alert">
+                Esse horário já passou. Escolha um horário futuro.
+              </p>
+            ) : (
+              <p className="composer-resolved" aria-live="polite">
+                {semData ? "Sem data: fica em Algum dia e não interrompe você." : whenLabel(when)}
+              </p>
+            )}
           </fieldset>
 
           {/* "Nao me deixa esquecer" fica no primeiro nivel, e nao atras do
@@ -281,15 +328,15 @@ export function ReminderComposer({
               type="checkbox"
             />
             <span>
-              Nao me deixe esquecer
-              <em>continua cobrando ate voce resolver</em>
+              Não me deixe esquecer
+              <em>continua cobrando até você resolver</em>
             </span>
           </label>
 
           {details ? (
             <>
               <label>
-                <span>NOTA</span>
+                <span>NOTA (OPCIONAL)</span>
                 <textarea
                   onChange={(event) => setBody(event.currentTarget.value)}
                   rows={3}
@@ -322,7 +369,7 @@ export function ReminderComposer({
                   e explicito em que o M/OS pode SUGERIR um alerta a mais, e nao
                   criar varios sozinho. */}
               <fieldset className="composer-when">
-                <legend className="micro-label">AVISAR TAMBEM</legend>
+                <legend className="micro-label">AVISAR TAMBÉM</legend>
                 <div className="composer-choices">
                   {ADIANTAMENTOS.map((opcao) => {
                     const ativa = adiantamentos.includes(opcao.minutes);
@@ -348,14 +395,14 @@ export function ReminderComposer({
                 </div>
                 {adiantamentos.length > 0 && !semData ? (
                   <p className="composer-resolved">
-                    {adiantamentos.length + 1} alertas, um lembrete so.
+                    {adiantamentos.length + 1} alertas, um lembrete só.
                   </p>
                 ) : null}
               </fieldset>
             </>
           ) : (
             <Button onClick={() => setDetails(true)} size="sm" variant="ghost">
-              Mais opcoes
+              Nota, repetição e alertas extras
             </Button>
           )}
 
@@ -369,8 +416,10 @@ export function ReminderComposer({
             <Button disabled={saving} onClick={close} variant="ghost">
               Cancelar
             </Button>
-            <Button disabled={!title.trim() || saving} type="submit" variant="primary">
-              {saving ? "Criando" : "Criar"}
+            {/* O botao so desliga enquanto salva. Desligado por titulo vazio, ele
+                nao diria por que; ligado, o clique leva ao campo e explica. */}
+            <Button aria-busy={saving || undefined} disabled={saving || noPassado} type="submit" variant="primary">
+              {saving ? "Criando…" : "Criar lembrete"}
             </Button>
           </div>
         </form>
