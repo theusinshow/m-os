@@ -3463,7 +3463,7 @@ textarea::placeholder {
   animation: tileEnter var(--dur-move) var(--ease-state);
 }
 
-/* Sem imagem, o fundo e hachura. Nunca ilustracao, nunca icone gigante: o
+/* Sem nada a mostrar, o fundo e hachura. Nunca ilustracao, nunca icone gigante: o
    tile e um lugar reservado para o recurso, nao um desenho sobre ele. */
 .tile-face {
   position: relative;
@@ -3473,6 +3473,47 @@ textarea::placeholder {
   border: var(--line) solid var(--border);
   border-radius: var(--radius);
   transition: border-color var(--dur-instant) var(--ease-state);
+}
+
+/* Com algo a mostrar, a hachura sai: o fundo fica liso e a marca do proprio
+   Resource ocupa o lugar. Tipografia, nunca cor por tipo (UX-PRINCIPLES §48). */
+.tile-face[data-face] {
+  background: var(--surface-raised);
+}
+
+.tile-mark {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  left: var(--space-3);
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text);
+  -webkit-box-orient: vertical;
+}
+
+/* O dominio quebra so no ponto (o <wbr> do markup), nunca no meio do nome. */
+.tile-face[data-face="mark"] .tile-mark {
+  font: var(--text-capture);
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
+.tile-face[data-face="ext"] .tile-mark {
+  font: var(--text-display);
+  font-family: var(--font-system);
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+
+.tile-face[data-face="text"] .tile-mark {
+  color: var(--text-secondary);
+  font: var(--text-small);
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow-wrap: anywhere;
 }
 
 .tile:hover .tile-face {

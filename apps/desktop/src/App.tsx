@@ -167,6 +167,27 @@ function resourceHost(url: string) {
   }
 }
 
+/* A face do tile mostra o que o proprio Resource ja carrega: o dominio, a
+   extensao, o texto da nota. Nada vem da rede (ver o limite do v0.3 sobre
+   metadata remota). Sem nada a mostrar, a face fica na hachura. */
+function resourceFace(resource: Resource): { style: "mark" | "ext" | "text"; text: string } | null {
+  const extension = (name: string) => {
+    const match = /\.([a-z0-9]{1,5})$/i.exec(name.trim());
+    return match ? match[1].toUpperCase() : "";
+  };
+  if (resource.kind === "note") return resource.title.trim() ? { style: "text", text: resource.title } : null;
+  if (resource.kind === "file") {
+    const ext = extension(resource.title);
+    return ext ? { style: "ext", text: ext } : null;
+  }
+  if (resource.kind === "image" && !/^https?:\/\//i.test(resource.url)) {
+    const ext = extension(resource.url);
+    return ext ? { style: "ext", text: ext } : null;
+  }
+  const host = /^https?:\/\//i.test(resource.url) ? resourceHost(resource.url).replace(/^www\./i, "") : "";
+  return host ? { style: "mark", text: host } : null;
+}
+
 
 // Sem `filled`: preenchido e so destino ativo na navegacao (regra 3 do
 // Icon.tsx), e um botao de ferramenta nao e destino.
@@ -2165,7 +2186,7 @@ function LibraryPage({ resources, workspaces, resourceWorkspaces, ingestions, cu
           setMode("view");
           setMessage("");
         }}
-      ><span className="tile-face" aria-hidden="true"><span className="tile-kind">{kindLabels[resource.kind]}</span></span><strong className="tile-title">{resource.title}</strong>{/* O motivo e o que torna o acervo recuperavel: ele nunca e omitido. */}<span className="tile-reason" data-missing={resource.note ? undefined : true}>{resource.note || "Sem motivo registrado — abra e diga por que isto merece ser lembrado."}</span><span className="tile-origin">{resourceHost(resource.url) || "LOCAL"}</span></button>)}</div> : <div ref={list} className="row-list" aria-label="Resources salvos">
+      >{(() => { const face = resourceFace(resource); return <span className="tile-face" aria-hidden="true" data-face={face?.style}>{face ? <span className="tile-mark">{face.style === "mark" ? face.text.split(".").flatMap((part, index) => index ? [<wbr key={index} />, "." + part] : [part]) : face.text}</span> : null}<span className="tile-kind">{kindLabels[resource.kind]}</span></span>; })()}{/* Na nota, a face ja e o texto: repetir embaixo seria ler duas vezes. */}<strong className={resource.kind === "note" && resource.title.trim() ? "tile-title visually-hidden" : "tile-title"}>{resource.title}</strong>{/* O motivo e o que torna o acervo recuperavel: ele nunca e omitido. */}<span className="tile-reason" data-missing={resource.note ? undefined : true}>{resource.note || "Sem motivo registrado — abra e diga por que isto merece ser lembrado."}</span><span className="tile-origin">{resourceHost(resource.url) || "LOCAL"}</span></button>)}</div> : <div ref={list} className="row-list" aria-label="Resources salvos">
         {visibleResources.map((resource) => <DataRow
           key={resource.id}
           primary={resource.title}
